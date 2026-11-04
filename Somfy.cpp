@@ -925,6 +925,8 @@ bool SomfyShade::isInGroup() {
   return false;
 }
 void SomfyShade::setGPIOs() {
+  if(BoardProfile::usesPin(this->gpioUp) || BoardProfile::usesPin(this->gpioDown) ||
+    BoardProfile::usesPin(this->gpioMy)) return;
   if(this->proto == radio_proto::GP_Relay) {
     // Determine whether the direction needs to be set.
     uint8_t p_on = (this->gpioFlags & (uint8_t)gpio_flags_t::LowLevelTrigger) == 0x00 ? HIGH : LOW;
@@ -986,6 +988,8 @@ void SomfyShade::setGPIOs() {
 }
 void SomfyRemote::triggerGPIOs(somfy_frame_t &frame) { }
 void SomfyShade::triggerGPIOs(somfy_frame_t &frame) {
+  if(BoardProfile::usesPin(this->gpioUp) || BoardProfile::usesPin(this->gpioDown) ||
+    BoardProfile::usesPin(this->gpioMy)) return;
   if(this->proto == radio_proto::GP_Remote) {
     uint8_t p_on = (this->gpioFlags & (uint8_t)gpio_flags_t::LowLevelTrigger) == 0x00 ? HIGH : LOW;
     uint8_t p_off = (this->gpioFlags & (uint8_t)gpio_flags_t::LowLevelTrigger) == 0x00 ? LOW : HIGH;
@@ -3140,6 +3144,15 @@ bool SomfyShade::usesPin(uint8_t pin) {
   return false;
 }
 int8_t SomfyShade::validateJSON(JsonObject &obj) {
+  if(BoardProfile::integratedRadio) {
+    radio_proto proto = obj.containsKey("proto") ? static_cast<radio_proto>(obj["proto"].as<uint8_t>()) : this->proto;
+    if(proto == radio_proto::GP_Relay || proto == radio_proto::GP_Remote) {
+      uint8_t up = obj.containsKey("gpioUp") ? obj["gpioUp"].as<uint8_t>() : this->gpioUp;
+      uint8_t down = obj.containsKey("gpioDown") ? obj["gpioDown"].as<uint8_t>() : this->gpioDown;
+      uint8_t my = obj.containsKey("gpioMy") ? obj["gpioMy"].as<uint8_t>() : this->gpioMy;
+      if(BoardProfile::usesPin(up) || BoardProfile::usesPin(down) || BoardProfile::usesPin(my)) return -10;
+    }
+  }
   int8_t ret = 0;
   shade_types type = this->shadeType;
   if(obj.containsKey("shadeType")) {
@@ -4310,7 +4323,7 @@ bool somfy_rx_queue_t::pop(somfy_rx_t *rx) {
 }
 
 void Transceiver::sendFrame(byte *frame, uint8_t sync, uint8_t bitLength) {
-  if(!this->config.enabled) return;
+  if(!this->available()) return;
   uint32_t pin = 1 << this->config.TXPin;
   if (sync == 2 || sync == 12) {  // Only with the first frame.  Repeats do not get a wakeup pulse.
     // All information online for the wakeup pulse appears to be incorrect.  While there is a wakeup
@@ -4521,7 +4534,7 @@ float markFreq = 433.0f;
 int markRSSI = -100;
 uint32_t lastScan = 0;
 void Transceiver::beginFrequencyScan() {
-  if(this->config.enabled) {
+  if(this->available()) {
     this->disableReceive();
     rxmode = 3;
     pinMode(this->config.RXPin, INPUT);
@@ -4595,6 +4608,11 @@ bool Transceiver::receive(somfy_rx_t *rx) {
       //Serial.printf("Processing receive %d\n", rx_queue.length);
       rx_queue.pop(rx);
       this->frame.decodeFrame(rx);
+      if(BoardProfile::integratedRadio && this->frame.valid) {
+        Serial.printf("RTS RX valid bits=%u proto=%u address=%lu command=%s rolling=%u RSSI=%d\n",
+          this->frame.bitLength, static_cast<uint8_t>(this->frame.proto), this->frame.remoteAddress,
+          translateSomfyCommand(this->frame.cmd).c_str(), this->frame.rollingCode, this->frame.rssi);
+      }
       this->emitFrame(&this->frame, rx);
       return this->frame.valid;
     }
@@ -4660,18 +4678,34 @@ void Transceiver::emitFrame(somfy_frame_t *frame, somfy_rx_t *rx) {
 void Transceiver::clearReceived(void) {
     //packet_received = false;
     //memset(receive_buffer, 0x00, sizeof(receive_buffer));
-    if(this->config.enabled)
+    if(this->available())
       //attachInterrupt(interruptPin, handleReceive, FALLING);
       attachInterrupt(interruptPin, handleReceive, CHANGE);
 }
 void Transceiver::enableReceive(void) {
     uint32_t timing = millis();
     if(rxmode > 0) return;
-    if(this->config.enabled) {
+    if(this->available()) {
       rxmode = 1;
       pinMode(this->config.RXPin, INPUT);
       interruptPin = digitalPinToInterrupt(this->config.RXPin);
       ELECHOUSE_cc1101.SetRx();
+      if(BoardProfile::integratedRadio) {
+        uint8_t state;
+        do {
+          delay(1);
+          state = ELECHOUSE_cc1101.SpiReadStatus(CC1101_MARCSTATE) & 0x1F;
+        } while(state != 0x0D && millis() - timing < 20);
+        Serial.printf("CC1101 MARCSTATE=0x%02X (RX=0x0D); RF switch readback SW1=%d SW0=%d\n",
+          state, digitalRead(BoardProfile::sw1), digitalRead(BoardProfile::sw0));
+        if(state != 0x0D) {
+          Serial.println("CC1101 failed to enter RX; radio unavailable");
+          ELECHOUSE_cc1101.setSidle();
+          this->config.radioInit = false;
+          rxmode = 0;
+          return;
+        }
+      }
       //attachInterrupt(interruptPin, handleReceive, FALLING);
       attachInterrupt(interruptPin, handleReceive, CHANGE);
       Serial.printf("Enabled receive on Pin #%d Timing: %ld\n", this->config.RXPin, millis() - timing);
@@ -4704,6 +4738,7 @@ bool Transceiver::fromJSON(JsonObject& obj) {
     return true;
 }
 bool Transceiver::usesPin(uint8_t pin) {
+  if(BoardProfile::usesPin(pin)) return true;
   if(this->config.enabled) {
     if(this->config.SCKPin == pin ||
       this->config.TXPin == pin ||
@@ -4739,6 +4774,7 @@ void transceiver_config_t::fromJSON(JsonObject& obj) {
     if(obj.containsKey("enabled")) this->enabled = obj["enabled"];
     if(obj.containsKey("txPower")) this->txPower = obj["txPower"];
     if(obj.containsKey("proto")) this->proto = static_cast<radio_proto>(obj["proto"].as<uint8_t>());
+    this->applyBoardPins();
     /*
     if (obj.containsKey("internalCCMode")) this->internalCCMode = obj["internalCCMode"];
     if (obj.containsKey("modulationMode")) this->modulationMode = obj["modulationMode"];
@@ -4826,6 +4862,7 @@ void transceiver_config_t::toJSON(JsonObject& obj) {
 }
 */
 void transceiver_config_t::save() {
+    this->applyBoardPins();
     pref.begin("CC1101");
     pref.clear();
     pref.putUChar("type", this->type);
@@ -4956,11 +4993,46 @@ void transceiver_config_t::load() {
     this->removeNVSKey("appendStatus");
     pref.end();
     //this->printBuffer = somfy.transceiver.printBuffer;
+    this->applyBoardPins();
 }
+void transceiver_config_t::applyBoardPins() {
+  if(!BoardProfile::integratedRadio) return;
+  this->SCKPin = BoardProfile::sck;
+  this->MOSIPin = BoardProfile::mosi;
+  this->MISOPin = BoardProfile::miso;
+  this->CSNPin = BoardProfile::cs;
+  this->TXPin = BoardProfile::tx;
+  this->RXPin = BoardProfile::rx;
+}
+
+static bool checkBoardRadio(float frequency) {
+  if(!BoardProfile::integratedRadio) return true;
+  uint8_t part = ELECHOUSE_cc1101.SpiReadStatus(CC1101_PARTNUM);
+  uint8_t version = ELECHOUSE_cc1101.SpiReadStatus(CC1101_VERSION);
+  uint8_t gdo0 = ELECHOUSE_cc1101.SpiReadReg(CC1101_IOCFG0);
+  uint8_t gdo2 = ELECHOUSE_cc1101.SpiReadReg(CC1101_IOCFG2);
+  uint8_t packet = ELECHOUSE_cc1101.SpiReadReg(CC1101_PKTCTRL0);
+  uint8_t modem = ELECHOUSE_cc1101.SpiReadReg(CC1101_MDMCFG2);
+  uint32_t word = (static_cast<uint32_t>(ELECHOUSE_cc1101.SpiReadReg(CC1101_FREQ2)) << 16) |
+    (static_cast<uint32_t>(ELECHOUSE_cc1101.SpiReadReg(CC1101_FREQ1)) << 8) |
+    ELECHOUSE_cc1101.SpiReadReg(CC1101_FREQ0);
+  float actual = word * (26.0f / 65536.0f);
+  Serial.printf("CC1101 PARTNUM=0x%02X VERSION=0x%02X IOCFG0=0x%02X IOCFG2=0x%02X PKTCTRL0=0x%02X MDMCFG2=0x%02X\n",
+    part, version, gdo0, gdo2, packet, modem);
+  Serial.printf("CC1101 frequency requested=%.3f readback=%.3f MHz; GDO0 TX=%u GDO2 RX=%u\n",
+    frequency, actual, BoardProfile::tx, BoardProfile::rx);
+  return part == 0 && version != 0 && version != 0xFF &&
+    gdo0 == 0x0D && gdo2 == 0x0D && (packet & 0x30) == 0x30 &&
+    (modem & 0x70) == 0x30 && actual > frequency - 0.01f && actual < frequency + 0.01f;
+}
+
 void transceiver_config_t::apply() {
     somfy.transceiver.disableReceive();
+    this->applyBoardPins();
     bit_length = this->type;    
     if(this->enabled) {
+      this->radioInit = false;
+      if(!BoardProfile::prepareRadio(this->frequency)) return;
       bool radioInit = true;
       pref.begin("CC1101");
       radioInit = pref.getBool("radioInit", true);
@@ -4968,7 +5040,10 @@ void transceiver_config_t::apply() {
       pref.putBool("radioInit", false);
       this->radioInit = false;
       pref.end();
-      if(!radioInit) return;
+      if(!radioInit) {
+        Serial.println("Radio initialization previously interrupted; save radio settings to retry");
+        return;
+      }
       Serial.print("Applying radio settings ");
       Serial.printf("Setting Data Pins RX:%u TX:%u\n", this->RXPin, this->TXPin);
       //if(this->TXPin != this->RXPin)
@@ -5016,14 +5091,14 @@ void transceiver_config_t::apply() {
                                                                 // 3 = Address check and 0 (0x00) and 255 (0xFF) broadcast.
     
       
-      if (!ELECHOUSE_cc1101.getCC1101()) {
+      if (!ELECHOUSE_cc1101.getCC1101() || !checkBoardRadio(this->frequency)) {
           Serial.println("Error setting up the radio");
           this->radioInit = false;
       }
       else {
           Serial.println("Successfully set up the radio");
-          somfy.transceiver.enableReceive();
           this->radioInit = true;
+          somfy.transceiver.enableReceive();
       }
       pref.begin("CC1101");
       pref.putBool("radioInit", true);
@@ -5116,7 +5191,7 @@ void Transceiver::loop() {
 }
 somfy_frame_t& Transceiver::lastFrame() { return this->frame; }
 void Transceiver::beginTransmit() {
-    if(this->config.enabled) {
+    if(this->available()) {
       this->disableReceive();
       pinMode(this->config.TXPin, OUTPUT);
       digitalWrite(this->config.TXPin, 0);
@@ -5124,7 +5199,7 @@ void Transceiver::beginTransmit() {
     }
 }
 void Transceiver::endTransmit() {
-    if(this->config.enabled) {
+    if(this->available()) {
       ELECHOUSE_cc1101.setSidle();
       //delay(100);
       this->enableReceive();

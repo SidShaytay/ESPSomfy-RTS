@@ -2,6 +2,7 @@
 #define SOMFY_H
 #include "ConfigSettings.h"
 #include "WResp.h"
+#include "BoardProfile.h"
 
 #define SOMFY_MAX_SHADES 32
 #define SOMFY_MAX_GROUPS 16
@@ -419,7 +420,7 @@ class SomfyGroup : public SomfyRemote {
 };
 struct transceiver_config_t {
     bool printBuffer = false;
-    bool enabled = false;
+    bool enabled = BoardProfile::integratedRadio;
     uint8_t type = 56;                // 56 or 80 bit protocol.
     radio_proto proto = radio_proto::RTS;
     uint8_t SCKPin = 18;
@@ -489,6 +490,7 @@ struct transceiver_config_t {
     void save();
     void load();
     void apply();
+    void applyBoardPins();
     void removeNVSKey(const char *key);
 };
 class Transceiver {
@@ -498,6 +500,7 @@ class Transceiver {
     somfy_frame_t frame;
   public:
     transceiver_config_t config;
+    bool available() const { return config.enabled && (!BoardProfile::integratedRadio || config.radioInit); }
     bool printBuffer = false;
     //bool toJSON(JsonObject& obj);
     void toJSON(JsonResponse& json);

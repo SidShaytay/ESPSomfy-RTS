@@ -855,10 +855,10 @@ bool ShadeConfigFile::readShadeRecord(SomfyShade *shade) {
   }
   pref.end();
   if(shade->proto == radio_proto::GP_Relay || shade->proto == radio_proto::GP_Remote) {
-    pinMode(shade->gpioUp, OUTPUT);
-    pinMode(shade->gpioDown, OUTPUT);
+    if(!BoardProfile::usesPin(shade->gpioUp)) pinMode(shade->gpioUp, OUTPUT);
+    if(!BoardProfile::usesPin(shade->gpioDown)) pinMode(shade->gpioDown, OUTPUT);
   }
-  if(shade->proto == radio_proto::GP_Remote)
+  if(shade->proto == radio_proto::GP_Remote && !BoardProfile::usesPin(shade->gpioMy))
     pinMode(shade->gpioMy, OUTPUT);
   if(this->header.version >= 19) shade->roomId = this->readUInt8(0);
   if(this->file.position() != startPos + this->header.shadeRecordSize) {

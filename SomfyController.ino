@@ -9,6 +9,7 @@
 #include "Somfy.h"
 #include "MQTT.h"
 #include "GitOTA.h"
+#include "BoardProfile.h"
 
 ConfigSettings settings;
 Web webServer;
@@ -24,6 +25,7 @@ void setup() {
   Serial.begin(115200);
   Serial.println();
   Serial.println("Startup/Boot....");
+  BoardProfile::begin();
   Serial.println("Mounting File System...");
   if(LittleFS.begin()) Serial.println("File system mounted successfully");
   else Serial.println("Error mounting file system");
