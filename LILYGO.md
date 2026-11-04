@@ -165,7 +165,17 @@ Add [HomeKit Bridge](https://www.home-assistant.io/integrations/homekit/) throug
 
 The configured controller has two individual shades, **Master Bedroom** and **Master Bathroom**, and a native RF group, **Both rooms**. Prefer Both rooms for everyday combined UP/DOWN/STOP; its single RF command reaches both motors. The integration supports individual and group covers. After installation, identify all three actual `cover.*` entity IDs in HA rather than assuming generated IDs, then select those entities in HomeKit Bridge's inclusion filter. Apple Home pairing requires the user's iPhone and the bridge's QR code.
 
-During this setup, HA's local API returned HTTP 401. No authenticated entity discovery, HACS installation, HomeKit configuration or Apple Home pairing was performed. Resume with authenticated HA access; do not treat these preparation instructions as an installed integration. Configuration can be prepared without moving shutters, and no further motion tests are authorized tonight.
+Home Assistant setup was subsequently completed on Luna through authorized SSH access, using the existing admin session and HACS APIs. ESPSomfy RTS v2.4.7 is installed and its config entry is loaded. The lilygo device is assigned to Master Bedroom; individual cover areas are Master Bedroom and Master Bathroom & Closet.
+
+Verified entities (state reads only):
+
+- `cover.espsomfyrts_master_bedroom`
+- `cover.espsomfyrts_master_bathroom`
+- `cover.espsomfyrts_both_rooms`
+
+All three reported closed. The existing HomeKit Bridge was updated through its options flow to include these three entities while retaining the existing climate-domain inclusion and paired clients. Both integrations remained loaded; no Home Assistant restart, new motor commands or control tests were performed. Existing shutter/group rolling counters were unchanged throughout setup. Appearance/control in Apple Home has not been observed on an iPhone.
+
+The stock firmware-update entity was disabled in HA because installing stock firmware would lose this custom board profile. Use the documented custom firmware path. A DHCP reservation for the controller is recommended for stable addressing but was deferred: gateway SSH authentication was unavailable. No gateway configuration changed. Do not run motor tests or create motion automations until the user explicitly resumes physical verification.
 
 ## Observed shutter setup, 2026-11-03
 
@@ -180,7 +190,7 @@ These manually timed values were saved and read back. Bedroom times were calcula
 
 Bedroom has a pre-existing intermittent upper-end fault: reaches the top, lowers slightly and rises repeatedly. The user confirms it is unrelated to this port. A [matching Somfy support report](https://forum.somfy.fr/questions/960717-lt50-instable-position-haute-pourtant-fin-course-bien-regle) suggests a motor brake issue; this is not a diagnosis without identifying the motor. Check model, gravity drift versus powered reversal and warranty before parts. No limits or motor resets were changed.
 
-A private format-24 export was captured after calibration and the bedtime group DOWN command, with record lengths, identities, travel values and SHA256 verified. Raw NVS/full-flash capture is pending data USB reconnection; no serial device was present on Vega. The export omits Wi-Fi credentials. Keep issue #7 open at the user's request and log subsequent calibration there. Backup and authenticated HA follow-up remain tracked in #9 and #8.
+A private format-24 export was captured after calibration and the bedtime group DOWN command, with record lengths, identities, travel values and SHA256 verified. Raw NVS/full-flash capture is pending data USB reconnection; no serial device was present on Vega. The export omits Wi-Fi credentials. Keep issue #7 open at the user's request and log subsequent calibration there. Raw backup follow-up remains tracked in #9; HA/HomeKit setup evidence is recorded in #8.
 
 ## Hardware evidence and issue tracking
 
@@ -202,4 +212,4 @@ Execution order/status lives in [parent issue #1](https://github.com/SidShaytay/
 | Actual shutter movement / physical remote | PASS: independent and combined UP/DOWN/STOP; old remote retained. |
 | Wi-Fi/configuration/rolling-code persistence | PASS: pre/post restart API snapshots matched, followed by observed group DOWN/STOP; new calibration not separately reboot-tested. |
 | Configured backup | Partial: native export/checksum and configuration snapshots verified; raw NVS/full flash require USB reconnection. No destructive restore performed. |
-| Home Assistant / Apple Home | Preparation documented; authenticated setup and iPhone pairing remain pending. |
+| Home Assistant / Apple Home | HA integration and existing paired HomeKit Bridge configured; 3 closed covers verified through state reads. iPhone appearance/control not observed. No motor commands sent. |
