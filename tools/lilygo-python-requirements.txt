@@ -1,0 +1,13 @@
+# Python 3.11 build helpers; esptool matches .github/workflows/release.yaml.
+bitstring==5.0.0
+cffi==2.1.1
+cryptography==50.0.2
+ecdsa==0.19.2
+esptool==4.7.0
+intelhex==2.3.0
+pycparser==3.12
+pyserial==3.5
+PyYAML==6.0.3
+reedsolo==1.7.0
+six==1.17.0
+tibs==2.0.2
