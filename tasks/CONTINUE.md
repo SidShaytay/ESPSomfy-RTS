@@ -6,7 +6,7 @@ Resume on **vega**, `/var/mnt/data/projects/personal/ESPSomfy-RTS`. Read `AGENTS
 
 User requested: fully close both shutters for bedtime; back up NVS, calibration and radio settings locally; commit/push all port changes, create PR and update main; continue remaining GitHub issues. **No more calibration or other motion tests tonight. Keep #7 OPEN explicitly**, including calibration evidence. Bedtime Both rooms DOWN was sent successfully; physical full closure was not separately observed.
 
-Current work: publishing the reviewed port. Verify current branch/PR state before proceeding. Builds and reviews passed; see validation below. Raw configured NVS/full-flash backup **requires data USB reconnection**: no `/dev/serial/by-id` or ttyACM/ttyUSB was present. User was asked asynchronously. HA API returns401; authenticated setup and iPhone HomeKit pairing remain unavailable. Continue these when access exists; do not close blocked acceptance items.
+Publication completed: PR #10 merged as b5b56df; local main fast-forwarded and all port changes are pushed. Commits are unsigned because batch GPG could not obtain pinentry; global signing settings were unchanged. Builds and reviews passed; see validation below. GitHub inadvertently resolved #7 from PR wording; it was immediately reopened and the wording corrected. Raw configured NVS/full-flash backup **requires data USB reconnection**: no `/dev/serial/by-id` or ttyACM/ttyUSB was present. User was asked asynchronously. HA API returns401; authenticated setup and iPhone HomeKit pairing remain unavailable. Continue these when access exists; do not close blocked acceptance items.
 
 ## Verified controller state
 
