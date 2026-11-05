@@ -18,6 +18,8 @@ All 267 tracked source files were in repository scope, including inherited firmw
 
 - [#16](https://github.com/SidShaytay/ESPSomfy-RTS/issues/16) — High: radio-origin WiFi SSID reaches active HTML in the authenticated UI. Source path confirmed; real-browser execution has not been tested. Inherited from the pinned baseline.
 - [#17](https://github.com/SidShaytay/ESPSomfy-RTS/issues/17) — Medium: SSDP request-line parser writes a terminator one byte beyond its stack buffer. Source bound confirmed; device impact beyond memory corruption is unproven. Inherited from the pinned baseline.
+- [#18](https://github.com/SidShaytay/ESPSomfy-RTS/issues/18) — High: crafted backup record counts pass validation and exceed fixed model arrays during restore. Source path and synthetic host harness confirmed; hardware effect untested. Inherited from the pinned baseline.
+- [#19](https://github.com/SidShaytay/ESPSomfy-RTS/issues/19) — Medium: privileged bit-length edit can drive reads beyond a ten-byte transmit payload. Source path and synthetic host harness confirmed; radio effect untested. Inherited from the pinned baseline.
 
 The assessment remains open while dependency/static alerts are triaged, focused fixes receive regression tests and review, and final source/fix SHAs are recorded. The scanner's completed state does not establish that the project is secure. CodeQL's C++ workflow builds only the native subset and does not trace all firmware paths; no actual device configuration or broker ACL was inspected.
 
