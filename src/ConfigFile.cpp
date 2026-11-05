@@ -454,6 +454,14 @@ bool ShadeConfigFile::validate() {
       ESP_LOGE(TAG, "Shade record length is %d and should be %d", this->file.position() - pos, this->header.shadeRecordSize);
       return false;
     }
+    const uint32_t endPos = this->file.position();
+    this->file.seek(pos, SeekSet);
+    shade_record_t shade;
+    if(!readShadeRecord(*this, this->header, shade)) {
+      ESP_LOGE(TAG, "Unsupported bit length in shade record %u", recs);
+      return false;
+    }
+    this->file.seek(endPos, SeekSet);
     recs++;
   }
   if(this->header.version > 10) {
@@ -469,6 +477,14 @@ bool ShadeConfigFile::validate() {
         ESP_LOGE(TAG, "Group record length is %d and should be %d", this->file.position() - pos, this->header.groupRecordSize);
         return false;
       }
+      const uint32_t endPos = this->file.position();
+      this->file.seek(pos, SeekSet);
+      group_record_t group;
+      if(!readGroupRecord(*this, this->header, group)) {
+        ESP_LOGE(TAG, "Unsupported bit length in group record %u", recs - 1);
+        return false;
+      }
+      this->file.seek(endPos, SeekSet);
     }
   }
   if(this->header.version >= 21) {

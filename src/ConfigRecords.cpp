@@ -1,5 +1,6 @@
 #include "ConfigRecords.h"
 #include "Utils.h"
+#include "BitLength.h"
 
 bool ConfigReader::next(uint8_t &val) {
   if(!this->readByte(val)) return false;
@@ -315,7 +316,7 @@ bool readShadeRecord(ConfigReader &r, const config_header_t &header, shade_recor
   }
   if(ver >= 19) rec.roomId = r.readUInt8(0);
   r.endRecord();
-  return true;
+  return rec.shadeId == 255 || supportedBitLength(rec.bitLength);
 }
 
 bool writeGroupRecord(ConfigWriter &w, const group_record_t &rec) {
@@ -357,7 +358,7 @@ bool readGroupRecord(ConfigReader &r, const config_header_t &header, group_recor
   if(ver >= 19) rec.roomId = r.readUInt8(0);
   if(ver >= 24) rec.lastRollingCode = r.readUInt16(0);
   r.endRecord();
-  return true;
+  return rec.groupId == 255 || supportedBitLength(rec.bitLength);
 }
 
 bool writeRepeaterRecord(ConfigWriter &w, const uint32_t (&repeaters)[SOMFY_MAX_REPEATERS]) {

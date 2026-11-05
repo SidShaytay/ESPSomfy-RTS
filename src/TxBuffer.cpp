@@ -1,5 +1,6 @@
 #include "TxBuffer.h"
 #include "esp_log.h"
+#include "BitLength.h"
 
 // Logged as part of the radio code it came from.
 static const char *TAG = "Somfy";
@@ -58,6 +59,12 @@ void somfy_tx_queue_t::push(uint8_t hwsync, uint8_t *payload, uint8_t bit_length
   this->index[0] = first;
 }
 void encodeTxJob(somfy_tx_job_t &job, somfy_frame_t &frame, uint8_t repeat) {
+  if(!supportedBitLength(frame.bitLength)) {
+    ESP_LOGE(TAG, "Dropping unsupported %u-bit frame", frame.bitLength);
+    job.tx.clear();
+    job.repeats = 0;
+    return;
+  }
   frame.encodeFrame(job.tx.payload);
   job.tx.hwsync = frame.bitLength == 56 ? 2 : 12;
   job.tx.bit_length = frame.bitLength;
