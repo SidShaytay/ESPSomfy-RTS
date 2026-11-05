@@ -5,6 +5,7 @@
 #include "ConfigFile.h"
 #include "Utils.h"
 #include "ConfigSettings.h"
+#include "ConfigValidation.h"
 #include "RollingCode.h"
 #include "BoardProfile.h"
 
@@ -402,6 +403,11 @@ bool ShadeConfigFile::validate() {
   this->readHeader();
   if(this->header.version < 1) {
     ESP_LOGE(TAG, "Invalid Header Version:%u", this->header.version);
+    return false;
+  }
+  if(!modelRecordCountsFit(this->header)) {
+    ESP_LOGE(TAG, "Model record counts exceed capacity: rooms:%u shades:%u groups:%u",
+      this->header.roomRecords, this->header.shadeRecords, this->header.groupRecords);
     return false;
   }
   if(this->header.shadeRecordSize < 100) {
