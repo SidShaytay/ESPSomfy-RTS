@@ -1,20 +1,17 @@
-[![Build](https://github.com/cjkas/ESPSomfy-RTS/actions/workflows/build.yaml/badge.svg?branch=main)](https://github.com/cjkas/ESPSomfy-RTS/actions/workflows/build.yaml) [![CodeQL](https://github.com/cjkas/ESPSomfy-RTS/actions/workflows/codeql.yaml/badge.svg?branch=main)](https://github.com/cjkas/ESPSomfy-RTS/actions/workflows/codeql.yaml)
+# ESPSomfy RTS with LILYGO Plus support
 
-## This is a fork which was created  because the original repo seems to be bandoned and I was annoyed by constant restarts of my ESPSomfy. I've fixed some of the major issues caused by watchdog restarts. There are also compiled binaries in my fork if someone is experiencing same issues
+This repository retains SidShaytay’s headless LILYGO T-Embed CC1101 Plus profile on the maintained cjkas v4.0.2 baseline, pinned at `07bffdec6b540cc99f31d02d7e6de6d3d1e7f8f3`. The Plus build is opt-in; generic build environments keep their upstream hardware settings.
 
-  * Fixed a lot of bugs causing constant restarts by migrating to AsyncWebServer and AsyncSockets
-  * Moved logging from serial to esp dedicated logging lib
-  * Gzipped the resources
-  * Changed to platformio build
-  * Backup does no longer use LITTLEFS. Only RAM is used. Storage should not wear out so quick.
-  * Added uptime info in web UI
+Start with [LILYGO.md](LILYGO.md) for the build, state compatibility, matching HA integration, and migration limits. This branch is an offline migration candidate. It has not been installed on the working controller.
 
-## Building
-The firmware builds on [pioarduino](https://github.com/pioarduino/platform-espressif32) (Arduino 3.x on ESP-IDF 5.5), not the stock PlatformIO platform. In VS Code use the **pioarduino IDE** extension instead of PlatformIO IDE. On the command line, `pip install pioarduino` gives you `pio`. Run the unit tests with `pio test -e native`. [ADR 0003](docs/adr/0003-pioarduino-idf55.md) explains why.
+```bash
+bash tools/setup-lilygo.sh
+bash tools/build-lilygo.sh
+```
 
-## There is a partition layout modification it's just better to perform full ESP32 wipeout. Perform backup then wipeout the firmware and restore from the bkp.
-  * fwname: firmware-only binary for OTA updates
-  * obname: onboard image (bootloader + partitions + firmware + littlefs merged) for flashing a new chip via USB/serial
+The build scripts only produce local artifacts. The new partition layout requires separately reviewed provisioning and restoration; uploading this firmware alone to the installed v2.4.7 layout is not a migration path. Device-side GitHub pull updates remain a requirement for this repository under [issue #12](https://github.com/SidShaytay/ESPSomfy-RTS/issues/12). They are not implemented by this baseline port.
+
+The following upstream introduction describes ESPSomfy’s general functionality. Its original wiki, update, and HA links are historical references; use the Plus guide above for this build.
 
 # ESPSomfy-RTS <image src="https://user-images.githubusercontent.com/47839015/218898940-3541b360-5c49-4e38-a918-392cd0408b76.png" align="right" style="width:177px;display:inline-block;float:right"></image>
 
