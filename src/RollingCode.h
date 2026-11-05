@@ -14,14 +14,10 @@ template<typename LoadStored>
 inline uint16_t nextRollingCode(bool synced, uint16_t last, LoadStored loadStored) {
   return (uint16_t)((synced ? last : loadStored()) + 1);
 }
-// The rolling code a remote goes on with after shades.cfg or a backup is
-// read.  NVS holds the last code sent and shades.cfg the code when it was
-// saved, so a load keeps the higher.  A restore takes the backup's code even
-// when it is lower.  A motor ignores codes below the last one it heard, so
-// after restoring an older backup to the same device it ignores the remote
-// until the codes pass that one.
-inline uint16_t rollingCodeAfterLoad(uint16_t stored, uint16_t inFile, bool restoring) {
-  if(restoring) return inFile;
+// A config file or an older backup must never rewind an address's counter.
+// NVS holds the last code sent on this controller; a backup may be newer
+// when moving to another controller.  Keep the higher in both cases.
+inline uint16_t rollingCodeAfterLoad(uint16_t stored, uint16_t inFile) {
   return stored > inFile ? stored : inFile;
 }
 #endif

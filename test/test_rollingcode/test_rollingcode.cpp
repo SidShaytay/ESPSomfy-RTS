@@ -49,12 +49,14 @@ static void test_wraps_to_zero_after_0xFFFF() {
 
 // NVS is newer than shades.cfg, so a load keeps the higher code.
 static void test_a_load_keeps_the_higher_rolling_code() {
-  TEST_ASSERT_EQUAL_UINT16(500, rollingCodeAfterLoad(500, 300, false));
-  TEST_ASSERT_EQUAL_UINT16(700, rollingCodeAfterLoad(500, 700, false));
+  TEST_ASSERT_EQUAL_UINT16(500, rollingCodeAfterLoad(500, 300));
+  TEST_ASSERT_EQUAL_UINT16(700, rollingCodeAfterLoad(500, 700));
 }
-static void test_a_restore_takes_the_backups_rolling_code() {
-  TEST_ASSERT_EQUAL_UINT16(300, rollingCodeAfterLoad(500, 300, true));
-  TEST_ASSERT_EQUAL_UINT16(700, rollingCodeAfterLoad(500, 700, true));
+static void test_a_restore_keeps_the_higher_rolling_code() {
+  TEST_ASSERT_EQUAL_UINT16(500, rollingCodeAfterLoad(500, 300));
+  TEST_ASSERT_EQUAL_UINT16(65535, rollingCodeAfterLoad(65535, 300));
+  TEST_ASSERT_EQUAL_UINT16(300, rollingCodeAfterLoad(0, 300));
+  TEST_ASSERT_EQUAL_UINT16(700, rollingCodeAfterLoad(500, 700));
 }
 
 int main(int argc, char **argv) {
@@ -66,6 +68,6 @@ int main(int argc, char **argv) {
   RUN_TEST(test_reading_does_not_use_up_a_code);
   RUN_TEST(test_wraps_to_zero_after_0xFFFF);
   RUN_TEST(test_a_load_keeps_the_higher_rolling_code);
-  RUN_TEST(test_a_restore_takes_the_backups_rolling_code);
+  RUN_TEST(test_a_restore_keeps_the_higher_rolling_code);
   return UNITY_END();
 }

@@ -1,5 +1,8 @@
 #pragma once
 #include <stdint.h>
+#include <string.h>
+using byte = uint8_t;
+class String;
 
 constexpr int LOW = 0;
 constexpr int HIGH = 1;

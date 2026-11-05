@@ -30,9 +30,8 @@ class ConfigFile : public ConfigReader, public ConfigWriter {
 };
 class ShadeConfigFile : public ConfigFile {
   protected:
-    // A restore takes the rolling codes in the file (rollingCodeAfterLoad).
-    bool restoring = false;
     bool writeModel(SomfyShadeController *s);
+    // Loading or restoring keeps the higher file/NVS rolling code for each address.
     void readModel(SomfyShadeController *s);
     void readRoom(SomfyRoom *room);
     void readShade(SomfyShade *shade);

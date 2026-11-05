@@ -1,44 +1,28 @@
-# Repository Guidelines
+# Repository guidelines
 
-## Project Structure & Module Organization
+## Code and builds
 
-`SomfyController.ino` contains Arduino startup and the main loop. Root-level `.cpp`/`.h` pairs implement radio and shade control (`Somfy`), networking (`Network`, `MQTT`, `Sockets`, `SSDP`), HTTP handling (`Web`, `WResp`), configuration, and OTA updates (`GitOTA`).
+This branch uses pinned cjkas v4.0.2 as its baseline. Firmware lives in `src/`, the vendored CC1101 driver in `lib/`, web sources in `data-src/`, and PlatformIO environments in `platformio.ini`. Preserve the newer driver, scheduler and radio locking when changing the opt-in Plus profile. See `LILYGO.md` and `docs/adr/0008-lilygo-maintained-baseline.md` for the migration decision.
 
-`data/` contains the HTML, JavaScript, CSS, images, and application version packaged into LittleFS. `icons/` holds additional artwork. `.github/workflows/` defines CI and release builds. Root-level `.bin` files are firmware/filesystem artifacts. There is no dedicated test directory.
+Firmware builds need pioarduino Core 6.2.0; stock PlatformIO refuses the pinned platform. `bash tools/setup-lilygo.sh` installs user-owned tools and `bash tools/build-lilygo.sh` builds the exact Plus artifacts. Generic environments are built with `pio run -e <environment>`. Do not commit generated binaries or private backup/configuration data.
 
-## Build, Test, and Development Commands
+## Tests
 
-Install Arduino CLI and the ESP32 core, ArduinoJson, PubSubClient, SmartRC-CC1101-Driver-Lib, and WebSockets. Match dependency versions and board settings to the relevant workflow; CI and release configurations differ.
+Run `pio test -e native` for native C++ tests, `node --test "test/js/*.test.js"` for web protocol tests, and `bash test/scripts/test_set_version.sh` for release scripts. Run `bash tools/test-board-profile.sh` with a host C++ compiler for board GPIO/SPI checks. Build tooling tests and manifest verification are documented in `LILYGO.md`. Add regression tests for changed behavior.
 
-Arduino requires the sketch directory to match `SomfyController.ino`. From the repository root, create a temporary sketch and compile for the basic ESP32 CI target:
+For native coverage use `pio test -e coverage` followed by `gcovr`; `gcovr.cfg` controls the included sources. For JavaScript coverage add `--experimental-test-coverage --test-coverage-include="data-src/js/**"` to Node’s test command. Files outside the native source filter need firmware builds or separate host harnesses.
 
-```sh
-sketch_root=$(mktemp -d)
-mkdir "$sketch_root/SomfyController"
-cp ./*.ino ./*.cpp ./*.h "$sketch_root/SomfyController/"
-arduino-cli compile --clean --fqbn esp32:esp32:esp32 --warnings default "$sketch_root/SomfyController"
-```
+## Style and review
 
-With `mklittlefs` built as described in the workflows, package web assets:
+Follow nearby code: C++ generally uses two-space indentation and opening braces on the same line; JavaScript and CSS generally use four spaces. Use PascalCase classes/module filenames, camelCase methods and uppercase macro constants. Preserve local exceptions and avoid unrelated formatting. No general formatter or linter is configured.
 
-```sh
-./mklittlefs/mklittlefs --create data --size 1441792 SomfyController.littlefs.bin
-```
+Keep commits focused and explain the problem and resulting behavior in PRs, linking the issue and reporting builds and tests. Include screenshots for visible UI changes. Hardware evidence must distinguish compile checks, radio register checks, RF reception/transmission and observed movement; record hardware, versions, reproduction steps and relevant sanitized logs when such tests are authorized.
 
-Run firmware on an ESP32 with the matching filesystem image. Serial logging uses 115200 baud; access the web UI through the device address.
+## Issues and worktrees
 
-## Coding Style & Naming Conventions
+GitHub Issues in SidShaytay/ESPSomfy-RTS is the authoritative status record. Use parent/sub-issues, dependencies, acceptance and verification evidence; record blockers before closing issues. Use separate branches/worktrees for concurrent edits. `tasks/plan.md` and `tasks/CONTINUE.md` retain the historical bring-up context; the current issue’s limits take precedence.
 
-Follow nearby code: C++ generally uses two-space indentation and opening braces on the same line; JavaScript and CSS generally use four spaces. Preserve local exceptions. Use PascalCase classes/module filenames, camelCase methods and variables, and uppercase macro constants. No formatter or linter is configured; avoid unrelated reformatting.
+## What needs Sid’s permission
 
-## Testing Guidelines
-
-No automated test framework, test naming convention, or coverage threshold is configured. CI compiles ESP32, C3, S2, and S3 targets and builds LittleFS. For affected features, verify physical shade commands, remote reception, network reconnection, MQTT/socket events, and web interactions. Record hardware, firmware/application versions, reproduction steps, and relevant serial logs.
-
-## Commit & Pull Request Guidelines
-
-History uses short, action-oriented subjects, often with issue references: `Fix issue with deleting repeaters #402`. Keep commits focused. In pull requests, explain the problem and resulting behavior, link relevant issues, and report builds and hardware checks. Include screenshots for visible UI changes. Keep generated binaries out of routine source changes unless preparing release artifacts.
-
-## Issue Workflow
-
-Track ordered work in [GitHub Issues](https://github.com/SidShaytay/ESPSomfy-RTS/issues). Use a parent issue with sub-issues, explicit dependencies, acceptance criteria, and verification steps. Start ready tasks in order; record evidence and blockers before closing them. Keep credentials and flash backups local. For the LILYGO port, start at [issue #1](https://github.com/SidShaytay/ESPSomfy-RTS/issues/1) and `tasks/plan.md`. Use separate branches/worktrees for concurrent edits.
+- Do not access or operate the live controller, flash/erase/reboot it, send RF or motor commands, pair, calibrate or change motor limits without explicit authorization for that stage. Issue #13 authorizes offline work only.
+- Keep credentials, device identifiers and raw backups outside Git and shared storage. Recovery still requires the staged validation in issue #9 and fresh counters before any approved write. Do not run duplicate radio identities concurrently.

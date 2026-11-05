@@ -6,6 +6,7 @@
 #include "Utils.h"
 #include "ConfigSettings.h"
 #include "RollingCode.h"
+#include "BoardProfile.h"
 
 static const char *TAG = "ConfigFile";
 
@@ -232,9 +233,9 @@ static void applyTransRecord(const trans_record_t &rec, transceiver_config_t &cf
   cfg.noiseDetection = rec.noiseDetection;
 }
 // NVS keeps the last rolling code each remote sent.
-static uint16_t keepRollingCode(Preferences &pref, SomfyRemote *remote, uint16_t inFile, bool restoring) {
+static uint16_t keepRollingCode(Preferences &pref, SomfyRemote *remote, uint16_t inFile) {
   const uint16_t stored = pref.getUShort(remote->getRemotePrefId(), 0);
-  const uint16_t code = rollingCodeAfterLoad(stored, inFile, restoring);
+  const uint16_t code = rollingCodeAfterLoad(stored, inFile);
   if(code != stored) pref.putUShort(remote->getRemotePrefId(), code);
   return code;
 }
@@ -273,7 +274,7 @@ void ShadeConfigFile::readShade(SomfyShade *shade) {
     if(rem->getRemoteAddress() != 0) rem->lastRollingCode = pref.getUShort(rem->getRemotePrefId(), 0);
   }
   shade->lastRollingCode = rec.lastRollingCode;
-  if(shade->getRemoteAddress() != 0) shade->lastRollingCode = keepRollingCode(pref, shade, rec.lastRollingCode, this->restoring);
+  if(shade->getRemoteAddress() != 0) shade->lastRollingCode = keepRollingCode(pref, shade, rec.lastRollingCode);
   pref.end();
   shade->setFlags(rec.flags);
   // The targets are where the shade is.
@@ -288,10 +289,10 @@ void ShadeConfigFile::readShade(SomfyShade *shade) {
   shade->gpioFlags = rec.gpioFlags;
   shade->roomId = rec.roomId;
   if(shade->proto == radio_proto::GP_Relay || shade->proto == radio_proto::GP_Remote) {
-    pinMode(shade->gpioUp, OUTPUT);
-    pinMode(shade->gpioDown, OUTPUT);
+    if(!BoardProfile::usesPin(shade->gpioUp)) pinMode(shade->gpioUp, OUTPUT);
+    if(!BoardProfile::usesPin(shade->gpioDown)) pinMode(shade->gpioDown, OUTPUT);
   }
-  if(shade->proto == radio_proto::GP_Remote)
+  if(shade->proto == radio_proto::GP_Remote && !BoardProfile::usesPin(shade->gpioMy))
     pinMode(shade->gpioMy, OUTPUT);
 }
 void ShadeConfigFile::readGroup(SomfyGroup *group) {
@@ -317,8 +318,8 @@ void ShadeConfigFile::readGroup(SomfyGroup *group) {
   if(group->getRemoteAddress() != 0) {
     Preferences pref;
     pref.begin("ShadeCodes");
-    // A backup from before version 23 has no code for the group to restore.
-    group->lastRollingCode = keepRollingCode(pref, group, rec.lastRollingCode, this->restoring && rec.hasRollingCode);
+    // Before version 23 the file has no group code; keep this address's NVS value.
+    group->lastRollingCode = keepRollingCode(pref, group, rec.hasRollingCode ? rec.lastRollingCode : 0);
     pref.end();
   }
 }
@@ -526,7 +527,6 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
     if(opened) this->end();
     return false;
   }
-  this->restoring = true;
   if(opts.shades) {
     ESP_LOGI(TAG, "Restoring the rooms, shades and groups");
     this->readModel(s);
@@ -594,7 +594,6 @@ bool ShadeConfigFile::loadFile(SomfyShadeController *s, const char *filename) {
     if(opened) this->end();
     return false;
   }
-  this->restoring = false;
   this->readModel(s);
   if(this->header.repeaterRecords > 0) {
     memset(s->repeaters, 0x00, sizeof(s->repeaters));
