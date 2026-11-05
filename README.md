@@ -1,3 +1,21 @@
+[![Build](https://github.com/cjkas/ESPSomfy-RTS/actions/workflows/build.yaml/badge.svg?branch=main)](https://github.com/cjkas/ESPSomfy-RTS/actions/workflows/build.yaml) [![CodeQL](https://github.com/cjkas/ESPSomfy-RTS/actions/workflows/codeql.yaml/badge.svg?branch=main)](https://github.com/cjkas/ESPSomfy-RTS/actions/workflows/codeql.yaml)
+
+## This is a fork which was created  because the original repo seems to be bandoned and I was annoyed by constant restarts of my ESPSomfy. I've fixed some of the major issues caused by watchdog restarts. There are also compiled binaries in my fork if someone is experiencing same issues
+
+  * Fixed a lot of bugs causing constant restarts by migrating to AsyncWebServer and AsyncSockets
+  * Moved logging from serial to esp dedicated logging lib
+  * Gzipped the resources
+  * Changed to platformio build
+  * Backup does no longer use LITTLEFS. Only RAM is used. Storage should not wear out so quick.
+  * Added uptime info in web UI
+
+## Building
+The firmware builds on [pioarduino](https://github.com/pioarduino/platform-espressif32) (Arduino 3.x on ESP-IDF 5.5), not the stock PlatformIO platform. In VS Code use the **pioarduino IDE** extension instead of PlatformIO IDE. On the command line, `pip install pioarduino` gives you `pio`. Run the unit tests with `pio test -e native`. [ADR 0003](docs/adr/0003-pioarduino-idf55.md) explains why.
+
+## There is a partition layout modification it's just better to perform full ESP32 wipeout. Perform backup then wipeout the firmware and restore from the bkp.
+  * fwname: firmware-only binary for OTA updates
+  * obname: onboard image (bootloader + partitions + firmware + littlefs merged) for flashing a new chip via USB/serial
+
 # ESPSomfy-RTS <image src="https://user-images.githubusercontent.com/47839015/218898940-3541b360-5c49-4e38-a918-392cd0408b76.png" align="right" style="width:177px;display:inline-block;float:right"></image>
 
 A controller for Somfy RTS blinds and shades that supports up to 32 individual shades and 16 groups over 433MHz RTx protocols.  If you have IO Home Control motors this project is not for you but you can use the IO Remote protocol to connect the ESPSomfy RTS device to a disected remote.  Look in the [Wiki](https://github.com/rstrouse/ESPSomfy-RTS/wiki/Controlling-Motors-with-GPIO) for options and verify whether the solution is workable for you.
@@ -68,17 +86,26 @@ Once you have your hardware built, the only thing left to do is connect the ESP3
 While the interface that comes with the ESPSomfy RTS is a huge improvement, the whole idea of this project is to make the shades controllable from everywhere that I want to control them.  So for that I created a couple of interfaces that you can use to bolt on your own automation.  These options are for those people that have a propeller on their hat.  They do things make red nodes (using Node-Red) or have their own web interface.
 
 You can find the documentation for the interfaces in the [Integrations](https://github.com/rstrouse/ESPSomfy-RTS/wiki/Integrations) wiki.  Plenty of stuff there for you folks that make red nodes and stuff.
+
+### API and ports
+Since 4.0.0 everything is on port 80. Ports 8081 (HTTP API) and 8080 (events socket) are gone, and so are the HTTP routes the old web UI called.
+
+| What | Where |
+|---|---|
+| Web UI | `http://<device>/` |
+| Commands for scripts and Node-RED | `/shadeCommand`, `/groupCommand` and `/tiltCommand`, with the same fields as before, as query parameters or a JSON body |
+| Login | `/loginContext` (the security mode), then `/login`, which returns the token in `apiKey` |
+| Backup and restore | `/backup`, `/restore` |
+| Firmware and web UI updates | `/updateFirmware`, `/updateApplication` |
+| Everything else: state, events, edits, settings | the socket at `ws://<device>/ws`, see [docs/PROTOCOL.md](docs/PROTOCOL.md) |
+
+A script that called port 8081 only changes the port, if it used one of the three commands. Reads such as `/controller`, `/shades` and `/discovery` are gone: use the socket, or MQTT. The Home Assistant integration needs version 3.0.0 or newer.
+
+When the device is Secured (a PIN or password), every route above except the web UI and the login routes needs the token, in an `apikey` header; the socket takes it as `?apikey=<token>`. Without it the reply is 401. "Secure Config Only" is gone: a device set to it is Secured from 4.0.0, so scripts that sent commands without logging in now need the token.
+
+In either mode the socket refuses an upgrade whose `Origin` header doesn't name the host it was sent to, so another site's page can't open it. Behind a reverse proxy, pass the `Host` header through unchanged.
   
 ## Sources for this Project
 I spent some time reading about a myriad of topics but in the end the primary source for this project comes from https://pushstack.wordpress.com/somfy-rts-protocol/.  The work done on pushstack regarding the protocol timing made this feasible without burning a bunch of time measuring pulses.  
   
 Configuration of the Transceiver is done with the ELECHOUSE_CC1101 library which you will need to include in your project should you want to compile the code.  The one used for compiling this module can be found here. https://github.com/LSatan/SmartRC-CC1101-Driver-Lib
-
-  
- 
-
-
-
-
-
-
