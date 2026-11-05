@@ -724,7 +724,13 @@ void transceiver_config_t::apply() {
                                                                 // 3 = Address check and 0 (0x00) and 255 (0xFF) broadcast.
     
       
-      if (!ELECHOUSE_cc1101.getCC1101() || !checkBoardRadio(this->frequency)) {
+      const bool detected = ELECHOUSE_cc1101.getCC1101();
+      // Always collect the integrated board readback, even if detection fails.
+      const bool boardRadioValid = checkBoardRadio(this->frequency);
+      if(BoardProfile::integratedRadio)
+        Serial.printf("CC1101 detection=%s register validation=%s\n",
+          detected ? "PASS" : "FAIL", boardRadioValid ? "PASS" : "FAIL");
+      if (!detected || !boardRadioValid) {
           ESP_LOGE(TAG, "Error setting up the radio");
           this->radioInit = false;
       }

@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include "BoardProfile.h"
 #include "SPI.h"
+#include <driver/gpio.h>
 
 TestSerial Serial;
 TestESP ESP;
@@ -22,9 +23,15 @@ static unsigned int powerTransitions = 0;
 void pinMode(uint8_t pin, uint8_t mode) {
   // Arduino 3 must release SPI ownership before preflight changes its pins.
   if(pin == 9 || pin == 10 || pin == 11) assert(!SPI.active);
+  if(mode == OUTPUT) {
+    // Initial output enable must already have the safe level latched.
+    const bool high = pin == 12 || pin == 13 || pin == 15 || pin == 41 ||
+      pin == 44 || pin == 47 || pin == 48;
+    assert(levels[pin] == (high ? HIGH : LOW));
+  }
   modes[pin] = mode;
 }
-void digitalWrite(uint8_t pin, uint8_t value) {
+int gpio_set_level(gpio_num_t pin, uint32_t value) {
   if(pin == 15 && value == HIGH) {
     // No other SPI device may drive MISO when the rail comes up.
     assert(levels[12] == HIGH && levels[13] == HIGH);
@@ -36,6 +43,11 @@ void digitalWrite(uint8_t pin, uint8_t value) {
     powerTransitions++;
   }
   levels[pin] = value;
+  return 0;
+}
+void digitalWrite(uint8_t pin, uint8_t value) {
+  // Arduino 3 only accepts writes after pinMode establishes GPIO ownership.
+  if(modes[pin] == OUTPUT) gpio_set_level(pin, value);
 }
 int digitalRead(uint8_t pin) {
   if(pin == 10) return stuckMiso ? HIGH : LOW;

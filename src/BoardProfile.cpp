@@ -1,12 +1,17 @@
 #include "BoardProfile.h"
 #include <SPI.h>
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#include <driver/gpio.h>
+#endif
 
 namespace BoardProfile {
 #if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
 static bool initialized = false;
 
 static void output(uint8_t pin, uint8_t level) {
-  digitalWrite(pin, level);
+  // Arduino 3 rejects digitalWrite before GPIO ownership is established.
+  // Preload the hardware latch so active-low selects do not pulse on enable.
+  gpio_set_level(static_cast<gpio_num_t>(pin), level);
   pinMode(pin, OUTPUT);
 }
 

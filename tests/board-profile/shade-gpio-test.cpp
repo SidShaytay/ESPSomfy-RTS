@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include "BoardProfile.h"
+#include <driver/gpio.h>
 #include "SomfyFrame.h"
 #include "ShadeSettings.h"
 
@@ -30,6 +31,7 @@ TestSerial Serial;
 TestESP ESP;
 static unsigned int writes = 0;
 static int levels[49] = {};
+int gpio_set_level(gpio_num_t pin, uint32_t value) { levels[pin] = value; return 0; }
 void pinMode(uint8_t, uint8_t) {}
 void digitalWrite(uint8_t pin, uint8_t value) { writes++; levels[pin] = value; }
 int digitalRead(uint8_t pin) { return levels[pin]; }
