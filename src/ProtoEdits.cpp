@@ -2,6 +2,7 @@
 #include <string.h>
 #include "ProtoEdits.h"
 #include "ProtoParse.h"
+#include "BitLength.h"
 
 struct edit_op_t {
   proto_type_t type;
@@ -137,6 +138,9 @@ const char *expandEditPayload(model_edit_type_t type, JsonObjectConst d, JsonDoc
       snprintf(why, sizeof(why), "%s is not a %s", f.name, protoKindName(f.kind));
       return why;
     }
+    if(field == proto_field_t::bitLength &&
+       (!kv.value().is<uint8_t>() || !supportedBitLength(kv.value().as<uint8_t>())))
+      return "bitLength must be 56 or 80";
   }
   // A left-out field is not given, so it can't stand for unpaired.
   if(type == model_edit_type_t::set_paired && obj["paired"].isNull()) return "paired is missing";
