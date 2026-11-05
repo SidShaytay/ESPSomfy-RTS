@@ -1731,7 +1731,6 @@ class Wifi {
         });
     }
     displayAPs(aps) {
-        let div = '';
         let nets = [];
         for (let i = 0; i < aps.accessPoints.length; i++) {
             let ap = aps.accessPoints[i];
@@ -1746,20 +1745,36 @@ class Wifi {
         }
         // Sort by the best signal strength.
         nets.sort((a, b) => b.strength - a.strength);
+        let rows = [];
         for (let i = 0; i < nets.length; i++) {
             let ap = nets[i];
-            div += `<div class="wifiSignal" onclick="wifi.selectSSID(this);" data-channel="${ap.channel}" data-encryption="${ap.encryption}" data-strength="${ap.strength}" data-mac="${ap.macAddress}"><span class="ssid">${ap.name}</span><span class="strength">${this.displaySignal(ap.strength)}</span></div>`;
+            let row = document.createElement('div');
+            row.className = 'wifiSignal';
+            row.setAttribute('data-channel', ap.channel);
+            row.setAttribute('data-encryption', ap.encryption);
+            row.setAttribute('data-strength', ap.strength);
+            row.setAttribute('data-mac', ap.macAddress);
+            let name = document.createElement('span');
+            name.className = 'ssid';
+            name.textContent = ap.name;
+            row.appendChild(name);
+            let strength = document.createElement('span');
+            strength.className = 'strength';
+            strength.innerHTML = this.displaySignal(ap.strength);
+            row.appendChild(strength);
+            row.addEventListener('click', () => this.selectSSID(row));
+            rows.push(row);
         }
         let divAps = document.getElementById('divAps');
         divAps.setAttribute('data-lastloaded', new Date().getTime());
-        divAps.innerHTML = div;
+        divAps.replaceChildren(...rows);
         //document.getElementsByName('ssid')[0].value = aps.connected.name;
         //document.getElementsByName('passphrase')[0].value = aps.connected.passphrase;
         //this.procWifiStrength(aps.connected);
     }
     selectSSID(el) {
         let obj = {
-            name: el.querySelector('span.ssid').innerHTML,
+            name: el.querySelector('span.ssid').textContent,
             encryption: el.getAttribute('data-encryption'),
             strength: parseInt(el.getAttribute('data-strength'), 10),
             channel: parseInt(el.getAttribute('data-channel'), 10)
@@ -1893,7 +1908,7 @@ class Wifi {
     procWifiStrength(strength) {
         //console.log(strength);
         let ssid = strength.ssid || strength.name;
-        document.getElementById('spanNetworkSSID').innerHTML = !ssid || ssid === '' ? '-------------' : ssid;
+        document.getElementById('spanNetworkSSID').textContent = !ssid || ssid === '' ? '-------------' : ssid;
         document.getElementById('spanNetworkChannel').innerHTML = isNaN(strength.channel) || strength.channel < 0 ? '--' : strength.channel;
         let cssClass = 'waveStrength-' + (isNaN(strength.strength) || strength > 0 ? -100 : this.calcWaveStrength(strength.strength));
         let elWave = document.getElementById('divNetworkStrength').children[0];
