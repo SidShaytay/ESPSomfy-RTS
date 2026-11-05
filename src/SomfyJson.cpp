@@ -4,6 +4,7 @@
 #include <atomic>
 #include "ModelEditor.h"
 #include "SomfyEditor.h"
+#include "BitLength.h"
 #include "ShadeChanges.h"
 #include "outputs/ProtoSocket.h"
 #include "LoopQueue.h"
@@ -293,6 +294,12 @@ static edit_result_t applyOrder(JsonDocument &doc, Find find) {
 }
 edit_result_t applyModelEdit(model_edit_t &edit) {
   JsonObject obj = edit.doc.as<JsonObject>();
+  if(edit.type == model_edit_type_t::add_shade || edit.type == model_edit_type_t::save_shade ||
+     edit.type == model_edit_type_t::add_group || edit.type == model_edit_type_t::save_group) {
+    JsonVariantConst bits = obj["bitLength"];
+    if(!bits.isNull() && (!bits.is<uint8_t>() || !supportedBitLength(bits.as<uint8_t>())))
+      return edit_result_t::error("bitLength must be 56 or 80");
+  }
   switch(edit.type) {
     case model_edit_type_t::add_room: {
       SomfyRoom *room = somfy.addRoom();

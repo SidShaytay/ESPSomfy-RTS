@@ -80,6 +80,26 @@ static group_record_t aGroup() {
   rec.lastRollingCode = 1234;
   return rec;
 }
+static void test_import_rejects_unsupported_shade_and_group_lengths() {
+  for(uint8_t bits : {static_cast<uint8_t>(56), static_cast<uint8_t>(80),
+                      static_cast<uint8_t>(81), static_cast<uint8_t>(255)}) {
+    shade_record_t shade = aShade();
+    shade.bitLength = bits;
+    TextWriter shadeText;
+    writeShadeRecord(shadeText, shade);
+    TextReader shadeReader(shadeText.text);
+    shade_record_t importedShade;
+    TEST_ASSERT_EQUAL(bits == 56 || bits == 80, readShadeRecord(shadeReader, header(), importedShade));
+
+    group_record_t group = aGroup();
+    group.bitLength = bits;
+    TextWriter groupText;
+    writeGroupRecord(groupText, group);
+    TextReader groupReader(groupText.text);
+    group_record_t importedGroup;
+    TEST_ASSERT_EQUAL(bits == 56 || bits == 80, readGroupRecord(groupReader, header(), importedGroup));
+  }
+}
 static net_record_t aNet() {
   net_record_t rec;
   rec.connType = 2;
@@ -813,6 +833,7 @@ static void test_a_real_backup_reads_to_its_end() {
 
 int main(int argc, char **argv) {
   UNITY_BEGIN();
+  RUN_TEST(test_import_rejects_unsupported_shade_and_group_lengths);
   RUN_TEST(test_each_record_is_the_size_the_header_declares);
   RUN_TEST(test_a_counter_measures_what_a_writer_writes);
   RUN_TEST(test_a_deleted_shade_is_written_cleared);
