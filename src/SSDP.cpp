@@ -4,6 +4,7 @@
 #include "Utils.h"
 #include "ConfigSettings.h"
 #include "SSDP.h"
+#include "SSDPRequestLine.h"
 
 
 #define SSDP_PORT         1900
@@ -267,10 +268,7 @@ void SSDPClass::_parsePacket(ssdp_packet_t *pkt, AsyncUDPPacket &p) {
         break;
       }
       else {
-        if(pos < SSDP_BUFFER_SIZE) {
-          buffer[pos++] = c;
-          buffer[pos] = '\0';
-        }
+        appendSsdpRequestLineChar(buffer, pos, c);
       }
     }
     if(c == ' ' && pkt->method == NONE) {
