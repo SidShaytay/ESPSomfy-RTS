@@ -1,12 +1,14 @@
 #ifndef TRANSCEIVER_H
 #define TRANSCEIVER_H
 #include <Arduino.h>
+#include <atomic>
 #include <Preferences.h>
 #include <ArduinoJson.h>
 #include "SomfyFrame.h"
 #include "TxBuffer.h"
 #include "RadioScheduler.h"
 #include "PulseDecoder.h"
+#include "BoardProfile.h"
 
 // The CC1101 radio: receive decoding, the radio task that transmits radio
 // jobs, the frequency scan and the radio config.
@@ -25,7 +27,7 @@ struct somfy_rx_queue_t {
 };
 struct transceiver_config_t {
     bool printBuffer = false;
-    bool enabled = false;
+    bool enabled = BoardProfile::integratedRadio;
     uint8_t type = 56;                // 56 or 80 bit protocol.
     radio_proto proto = radio_proto::RTS;
     uint8_t SCKPin = 18;
@@ -44,11 +46,15 @@ struct transceiver_config_t {
     void save();
     void load();
     void apply();
+    void applyBoardPins();
     // Removes a key no longer used from the open CC1101 namespace.
     void removeNVSKey(Preferences &pref, const char *key);
 };
 class Transceiver {
   private:
+    friend struct transceiver_config_t;
+    // Published under the radio lock; queue producers never wait on SPI.
+    std::atomic<bool> _available{false};
     static void handleReceive();
     static void txTask(void *arg);
     bool _received = false;
@@ -61,6 +67,7 @@ class Transceiver {
     void runJob(somfy_tx_job_t &job);
   public:
     transceiver_config_t config;
+    bool available() const { return _available.load(); }
     bool printBuffer = false;
     bool fromJSON(JsonObject& obj);
     // Swaps in, saves and applies the config.

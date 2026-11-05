@@ -1,4 +1,5 @@
 #include "BoardProfile.h"
+#include <SPI.h>
 
 namespace BoardProfile {
 #if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
@@ -37,6 +38,9 @@ bool prepareRadio(float frequency) {
     Serial.println("Radio disabled: frequency is outside the selected 433 MHz band");
     return false;
   }
+  // Arduino 3 owns these pads while SPI is active. Release that ownership
+  // before the GPIO readiness probe, including when reapplying settings.
+  SPI.end();
   pinMode(miso, INPUT);
   output(sck, LOW);
   output(mosi, LOW);
@@ -46,6 +50,7 @@ bool prepareRadio(float frequency) {
   bool ready = digitalRead(miso) == LOW;
   digitalWrite(cs, HIGH);
   if(!ready) Serial.println("CC1101 not ready: MISO stayed HIGH; check power/shared SPI before retrying");
+  if(ready) SPI.begin(sck, miso, mosi, cs);
   return ready;
 }
 
