@@ -403,6 +403,12 @@ bool ShadeConfigFile::validate() {
     ESP_LOGE(TAG, "Invalid Header Version:%u", this->header.version);
     return false;
   }
+  if(this->header.roomRecords > SOMFY_MAX_ROOMS ||
+     this->header.shadeRecords > SOMFY_MAX_SHADES ||
+     this->header.groupRecords > SOMFY_MAX_GROUPS) {
+    ESP_LOGE(TAG, "Model record counts exceed capacity");
+    return false;
+  }
   if(this->header.shadeRecordSize < 100) {
     ESP_LOGE(TAG, "Invalid Shade Record Size:%u", this->header.shadeRecordSize);
     return false;
