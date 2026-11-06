@@ -42,7 +42,7 @@ struct Writer : ConfigWriter {
   std::string bytes;
   bool writeBytes(const uint8_t *p, size_t n) override { bytes.append((const char *)p, n); return true; }
 };
-static bool accepts(uint8_t rooms, uint8_t shades, uint8_t groups) {
+static bool accepts(uint8_t rooms, uint8_t shades, uint8_t groups, uint8_t bits = 56) {
   config_header_t h;
   h.version = SHADE_HDR_VER; h.length = SHADE_HDR_SIZE;
   h.roomRecordSize = ROOM_REC_SIZE; h.roomRecords = rooms;
@@ -51,8 +51,10 @@ static bool accepts(uint8_t rooms, uint8_t shades, uint8_t groups) {
   Writer w;
   assert(writeConfigHeader(w, h));
   for(unsigned i=0;i<rooms;i++) assert(writeRoomRecord(w, room_record_t{}));
-  for(unsigned i=0;i<shades;i++) assert(writeShadeRecord(w, shade_record_t{}));
-  for(unsigned i=0;i<groups;i++) assert(writeGroupRecord(w, group_record_t{}));
+  shade_record_t shade; shade.shadeId = 1; shade.bitLength = bits;
+  group_record_t group; group.groupId = 1; group.bitLength = bits;
+  for(unsigned i=0;i<shades;i++) assert(writeShadeRecord(w, shade));
+  for(unsigned i=0;i<groups;i++) assert(writeGroupRecord(w, group));
   ShadeConfigFile f; f.file.bytes = w.bytes;
   return f.validate();
 }
@@ -62,6 +64,11 @@ int main() {
   assert(!accepts(SOMFY_MAX_ROOMS + 1, 0, 0));
   assert(!accepts(0, SOMFY_MAX_SHADES + 1, 0));
   assert(!accepts(0, 0, SOMFY_MAX_GROUPS + 1));
+  assert(accepts(0, 1, 1, 80));
+  for(uint8_t bits : {0, 55, 57, 79, 81, 255}) {
+    assert(!accepts(0, 1, 0, bits));
+    assert(!accepts(0, 0, 1, bits));
+  }
 }
 '''
 with tempfile.TemporaryDirectory() as tmp:

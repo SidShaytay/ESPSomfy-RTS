@@ -44,6 +44,14 @@ static void test_encode_80bit_job() {
   TEST_ASSERT_EQUAL_UINT8(80, job.tx.bit_length);
   TEST_ASSERT_EQUAL_UINT8_ARRAY(expected, job.tx.payload, sizeof(expected));
 }
+static void test_invalid_length_cannot_reach_ten_byte_tx_payload() {
+  for(uint8_t bits : {0, 55, 57, 79, 81, 255}) {
+    somfy_frame_t f = makeFrame(somfy_commands::Up, bits);
+    somfy_tx_job_t job;
+    encodeTxJob(job, f, 0);
+    TEST_ASSERT_EQUAL_UINT8(0, job.tx.bit_length);
+  }
+}
 static void test_encode_job_copies_the_frame() {
   somfy_frame_t f = makeFrame(somfy_commands::My);
   somfy_tx_job_t job;
@@ -108,6 +116,7 @@ int main(int argc, char **argv) {
   UNITY_BEGIN();
   RUN_TEST(test_encode_56bit_job);
   RUN_TEST(test_encode_80bit_job);
+  RUN_TEST(test_invalid_length_cannot_reach_ten_byte_tx_payload);
   RUN_TEST(test_encode_job_copies_the_frame);
   RUN_TEST(test_encode_job_limits_repeats);
   RUN_TEST(test_repeat_job_counts_on_from_the_frame);
