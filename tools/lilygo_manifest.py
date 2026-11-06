@@ -24,7 +24,7 @@ TARGET = {'board': 'LILYGO T-Embed CC1101 Plus', 'chip': 'esp32s3',
           'psram_mode': 'opi', 'usb': 'hardware CDC on boot', 'headless': True,
           'profile_macro': 'ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS'}
 BUILD_SETTINGS = {'board': 'esp32-s3-devkitc1-n16r8', 'build_type': 'release',
-                  'board_build.partitions': 'lilygo_t_embed_cc1101_plus.csv',
+                  'board_build.partitions': 'default_8MB.csv',
                   'board_build.flash_mode': 'qio', 'board_build.f_flash': '80000000L',
                   'board_build.arduino.memory_type': 'qio_opi',
                   'board_build.psram_type': 'opi', 'board_upload.flash_size': '16MB'}
@@ -34,16 +34,16 @@ REQUIRED_FLAGS = ['-DCORE_DEBUG_LEVEL=2', '-DARDUINO_USB_MODE=1',
 PARTITIONS = {
     'nvs': (1, 2, 0x9000, 0x5000),
     'otadata': (1, 0, 0xe000, 0x2000),
-    'app0': (0, 0x10, 0x10000, 0x300000),
-    'app1': (0, 0x11, 0x310000, 0x300000),
-    'spiffs': (1, 0x82, 0x610000, 0x160000),
-    'coredump': (1, 3, 0x770000, 0x10000),
+    'app0': (0, 0x10, 0x10000, 0x330000),
+    'app1': (0, 0x11, 0x340000, 0x330000),
+    'spiffs': (1, 0x82, 0x670000, 0x180000),
+    'coredump': (1, 3, 0x7f0000, 0x10000),
 }
 SEGMENTS = [('bootloader.bin', 0, 0x8000),
             ('partitions.bin', 0x8000, 0x1000),
             ('boot_app0.bin', 0xe000, 0x2000),
-            ('firmware.bin', 0x10000, 0x300000),
-            ('littlefs.bin', 0x610000, 0x160000)]
+            ('firmware.bin', 0x10000, 0x330000),
+            ('littlefs.bin', 0x670000, 0x180000)]
 USAGE = {'provisioning': [name for name, _, _ in SEGMENTS],
          'firmware_update': ['firmware.bin'], 'filesystem_update': ['littlefs.bin'],
          'requires_matching_partition_table': True,
@@ -222,8 +222,7 @@ def source_record(source):
         return subprocess.check_output(['git', '-C', str(source), *args], text=True).strip()
     subprocess.run(['git', '-C', str(source), 'merge-base', '--is-ancestor',
                     BASELINE['revision'], 'HEAD'], check=True)
-    inputs = [*source.glob('*.py'), source / 'platformio.ini',
-              source / 'lilygo_t_embed_cc1101_plus.csv']
+    inputs = [*source.glob('*.py'), source / 'platformio.ini']
     for directory in ('src', 'lib', 'data-src', 'tools'):
         inputs.extend(p for p in (source / directory).rglob('*')
                       if p.is_file() and '__pycache__' not in p.parts)

@@ -15,6 +15,17 @@ m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 
 
+# Arduino 3.3.12 tools/partitions/default_8MB.csv, independent of the validator.
+STANDARD_PARTITIONS = {
+    'nvs': (1, 2, 0x9000, 0x5000),
+    'otadata': (1, 0, 0xe000, 0x2000),
+    'app0': (0, 0x10, 0x10000, 0x330000),
+    'app1': (0, 0x11, 0x340000, 0x330000),
+    'spiffs': (1, 0x82, 0x670000, 0x180000),
+    'coredump': (1, 3, 0x7f0000, 0x10000),
+}
+
+
 class ManifestTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -22,7 +33,7 @@ class ManifestTests(unittest.TestCase):
         self.out = Path(self.tmp.name)
         table = b''.join(struct.pack('<HBBII16sI', 0x50aa, kind, sub, offset, size,
                                      name.encode(), 0)
-                         for name, (kind, sub, offset, size) in m.PARTITIONS.items())
+                         for name, (kind, sub, offset, size) in STANDARD_PARTITIONS.items())
         table += b'\xeb\xeb' + b'\xff' * 14 + hashlib.md5(table).digest()
         (self.out / 'partitions.bin').write_bytes(table.ljust(0xc00, b'\xff'))
         for name in ('bootloader.bin', 'firmware.bin'):
@@ -43,7 +54,7 @@ class ManifestTests(unittest.TestCase):
         ota[28:32] = bytes.fromhex('9a984347')
         ota[4096:4100] = b'\x00' * 4
         (self.out / 'boot_app0.bin').write_bytes(ota)
-        (self.out / 'littlefs.bin').write_bytes(b'\xff' * 0x160000)
+        (self.out / 'littlefs.bin').write_bytes(b'\xff' * 0x180000)
         (self.out / 'firmware.elf').write_bytes(b'ELF-symbols')
         profile = dict(m.BUILD_SETTINGS, platform=m.PLATFORM, framework=['arduino'])
         compiler = {'env_name': m.ENV, 'build_type': 'release',
@@ -55,6 +66,19 @@ class ManifestTests(unittest.TestCase):
         self.manifest = m.artifact_manifest(self.out)
         self.manifest['source'] = {'revision': m.BASELINE['revision'], 'dirty': False,
                                    'input_sha256': {'platformio.ini': '0' * 64}}
+
+    def test_rejects_previous_custom_plus_layout(self):
+        old = dict(STANDARD_PARTITIONS,
+                   app0=(0, 0x10, 0x10000, 0x300000),
+                   app1=(0, 0x11, 0x310000, 0x300000),
+                   spiffs=(1, 0x82, 0x610000, 0x160000),
+                   coredump=(1, 3, 0x770000, 0x10000))
+        table = b''.join(struct.pack('<HBBII16sI', 0x50aa, kind, sub, offset, size,
+                                     name.encode(), 0)
+                         for name, (kind, sub, offset, size) in old.items())
+        table += b'\xeb\xeb' + b'\xff' * 14 + hashlib.md5(table).digest()
+        with self.assertRaisesRegex(ValueError, 'partition layout'):
+            m.partition_table(table.ljust(0xc00, b'\xff'))
 
     def test_valid_package(self):
         m.validate(self.manifest, self.out)
@@ -140,8 +164,8 @@ class ManifestTests(unittest.TestCase):
             m.validate(self.manifest, self.out)
 
     def test_oversized_firmware_even_with_valid_hash(self):
-        (self.out / 'firmware.bin').write_bytes(b'\x00' * 0x300001)
-        with self.assertRaises(ValueError):
+        (self.out / 'firmware.bin').write_bytes(b'\x00' * 0x330001)
+        with self.assertRaisesRegex(ValueError, 'image exceeds reserved region'):
             m.artifact_manifest(self.out)
 
     def test_wrong_flash_header_even_with_valid_hash(self):

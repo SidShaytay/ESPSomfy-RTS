@@ -2,7 +2,7 @@
 
 This repository retains SidShaytay’s headless LILYGO T-Embed CC1101 Plus profile on the maintained cjkas v4.0.2 baseline, pinned at `07bffdec6b540cc99f31d02d7e6de6d3d1e7f8f3`. The Plus build is opt-in; generic build environments keep their upstream hardware settings.
 
-Start with [LILYGO.md](LILYGO.md) for the build, state compatibility, matching HA integration, and migration limits. This branch is an offline migration candidate. It has not been installed on the working controller.
+Start with [LILYGO.md](LILYGO.md) for the build, state compatibility, matching HA integration, and migration limits. The standard-layout build at `6842f0a` was installed on the original Plus on November 6, 2026. Read-only runtime and persistent-state checks passed; the firmware-fork choice remains open. See the [verification record](docs/lilygo-standard-layout.md#installed-layout-verification).
 
 ```bash
 bash tools/setup-lilygo.sh
