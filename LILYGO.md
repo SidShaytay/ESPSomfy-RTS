@@ -17,18 +17,20 @@ The release environment `lilygo-t-embed-cc1101-plus` selects `ESPSOMFY_LILYGO_T_
 
 ## Partitions and migration limits
 
+See the [standard-layout experiment](docs/lilygo-standard-layout.md) for the comparison with xkain, alternatives and offline build evidence.
+
 | Partition | Offset | Size |
 |---|---|---|
 | NVS | `0x9000` | `0x5000` |
 | OTA selection | `0xe000` | `0x2000` |
-| App 0 | `0x10000` | `0x300000` |
-| App 1 | `0x310000` | `0x300000` |
-| LittleFS | `0x610000` | `0x160000` |
-| Core dump | `0x770000` | `0x10000` |
+| App 0 | `0x10000` | `0x330000` |
+| App 1 | `0x340000` | `0x330000` |
+| LittleFS | `0x670000` | `0x180000` |
+| Core dump | `0x7f0000` | `0x10000` |
 
-Unused physical flash remains unallocated. The manifest checks the actual binary partition table and image sizes against this table. Firmware-only artifacts target an inactive application slot on an already provisioned matching layout. Provisioning artifacts include bootloader/partition/filesystem content and have different effects; neither may be installed on the current controller under this issue.
+The build selects the pinned Arduino SDK’s standard `default_8MB.csv`, matching cjkas’s generic S3 release layout. Each OTA app slot is 3.1875 MiB and LittleFS is 1.5 MiB. Physical flash from `0x800000` through `0xffffff` remains unallocated. This layout choice does not settle the cjkas versus xkain firmware decision. The manifest checks the actual binary partition table and image sizes against this table. Firmware-only artifacts target an inactive application slot on an already provisioned matching layout. Provisioning artifacts include bootloader/partition/filesystem content and have different effects; neither may be installed on the current controller under this issue.
 
-The installed v2.4.7 table has `0x140000` app slots and LittleFS at `0x290000`. The new app slots overlap the old LittleFS location. Preserving NVS offsets alone does not preserve authoritative `shades.cfg`, nor make a provisioning write safe. A merged image can also overwrite NVS with padding. Export plus raw backup, verified independent extraction, latest counters, and an exact reviewed write/restore plan are required before an approved migration. Do not use old guide flash commands with these artifacts. No flash, erase, reboot or RF instructions are part of this port.
+The installed v2.4.7 table has `0x140000` app slots and LittleFS at `0x290000`. The standard app slots overlap the installed LittleFS location. They also differ from the earlier offline Plus candidate’s custom table (`app1` at `0x310000`, LittleFS at `0x610000`); those packages are not interchangeable. Preserving NVS offsets alone does not preserve authoritative `shades.cfg`, nor make a provisioning write safe. A merged image can also overwrite NVS with padding. Export plus raw backup, verified independent extraction, latest counters, and an exact reviewed write/restore plan are required before an approved migration. Do not use old guide flash commands with these artifacts. No flash, erase, reboot or RF instructions are part of this port.
 
 ## Board wiring and radio behavior
 
