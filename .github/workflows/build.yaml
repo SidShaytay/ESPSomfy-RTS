@@ -38,6 +38,9 @@ jobs:
       - name: Run native unit tests
         run: pio test -e coverage
 
+      - name: Check firmware parser boundaries
+        run: python test/scripts/test_config_validation.py
+
       - name: Test the release scripts
         run: bash test/scripts/test_set_version.sh
 
