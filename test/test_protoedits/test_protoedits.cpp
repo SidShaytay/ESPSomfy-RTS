@@ -144,6 +144,17 @@ static void test_a_shade_save_takes_what_the_form_sends() {
   TEST_ASSERT_GOOD(expand(model_edit_type_t::save_shade,
     R"({"s":3,"n":"Office","r":1,"a":5,"st":1,"y":2,"bl":80,"pr":1,"U":1,"D":2,"Y":3,"z":5,"fc":1,"fp":0,"ss":1,"li":0,"sm":1,"rp":2,"gu":4,"gd":5,"gm":6,"gl":1})"));
 }
+static void test_shade_and_group_edits_require_supported_bit_lengths() {
+  for(model_edit_type_t edit : {model_edit_type_t::add_shade, model_edit_type_t::save_shade,
+                                model_edit_type_t::add_group, model_edit_type_t::save_group}) {
+    TEST_ASSERT_GOOD(expand(edit, R"({"bl":56})"));
+    TEST_ASSERT_GOOD(expand(edit, R"({"bl":80})"));
+    for(uint8_t bits : {0, 55, 57, 79, 81, 255}) {
+      std::string json = "{\"bl\":" + std::to_string(bits) + "}";
+      TEST_ASSERT_EQUAL_STRING("bitLength must be 56 or 80", expand(edit, json.c_str()));
+    }
+  }
+}
 
 int main(int argc, char **argv) {
   (void)argc;
@@ -165,5 +176,6 @@ int main(int argc, char **argv) {
   RUN_TEST(test_link_remote_takes_the_routes_rolling_code);
   RUN_TEST(test_a_sort_order_takes_only_ids);
   RUN_TEST(test_a_shade_save_takes_what_the_form_sends);
+  RUN_TEST(test_shade_and_group_edits_require_supported_bit_lengths);
   return UNITY_END();
 }

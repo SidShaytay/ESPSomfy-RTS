@@ -13,6 +13,7 @@
 #include "Somfy.h"
 #include "outputs/ProtoSocket.h"
 #include "ProtoSync.h"
+#include "BitLength.h"
 
 static const char *TAG = "Somfy";
 
@@ -101,6 +102,7 @@ bool somfy_rx_queue_t::pop(somfy_rx_t *rx) {
   return false;
 }
 void Transceiver::sendFrame(byte *frame, uint8_t sync, uint8_t bitLength) {
+  if(!supportedBitLength(bitLength)) return;
   if(!this->config.enabled) return;
   uint32_t pin = 1 << this->config.TXPin;
   if (sync == 2 || sync == 12) {  // Only with the first frame.  Repeats do not get a wakeup pulse.
@@ -761,6 +763,7 @@ void Transceiver::loop() {
   }
 }
 uint32_t Transceiver::submitTx(somfy_tx_job_t &job, bool priority, uint16_t delayMs) {
+  if(!supportedBitLength(job.tx.bit_length)) return 0;
   if(!txTaskHandle) {
     ESP_LOGE(TAG, "Radio task not started, dropping transmission");
     return 0;
