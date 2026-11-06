@@ -1,6 +1,6 @@
 # Standard flash layout experiment
 
-This offline Plus build uses Arduino’s `default_8MB.csv` on the existing 16 MB flash / 8 MB OPI PSRAM hardware configuration. It does not select a final firmware fork or authorize installation. The worktree starts from `9f61a7c`, including the integrated security fixes and Arduino 3 radio-initialization fix.
+This Plus build uses Arduino’s `default_8MB.csv` on the existing 16 MB flash / 8 MB OPI PSRAM hardware configuration. It does not select a final firmware fork; the later authorized installation is recorded below. The worktree starts from `9f61a7c`, including the integrated security fixes and Arduino 3 radio-initialization fix.
 
 ## Why use this layout
 
@@ -24,4 +24,20 @@ The Plus environment selects `default_8MB.csv` directly; the custom CSV is remov
 
 Artifacts are local under `build/lilygo/artifacts/`: firmware, filesystem, bootloader, partition table, OTA initialization image, symbols, compiler metadata and `flash-manifest.json`. The manifest records the hashes and exact layout. Build logs are in `build/lilygo/`. One inherited compiler warning remains: deprecated increment of a volatile-qualified value in `src/Transceiver.cpp:188`.
 
-The installed controller and all existing worktrees remain unchanged. Neither the installed table nor the previous custom candidate table can be migrated by firmware OTA alone. See [LILYGO.md](../LILYGO.md) for the layout and migration limits. No serial access, flashing, reboot, RF or motor operation was performed. The earlier [port validation report](lilygo-port-validation.md) records the previous custom-layout build, not these artifacts.
+During the offline build described above, the controller and other worktrees were unchanged. Neither the installed table nor the previous custom candidate table can be migrated by firmware OTA alone. See [LILYGO.md](../LILYGO.md) for the layout and migration limits. No device operations were performed during that offline build. The earlier [port validation report](lilygo-port-validation.md) records the previous custom-layout build, not these artifacts.
+
+## Installed-layout verification
+
+On November 6, 2026, Sid authorized installation with a fresh counter backup and a state-preserving migration. Installed build: `6842f0a22a334c849ab1c5ed11e6c474c6666aed`. The previous running build was the corrected cjkas Plus revision `9f61a7c`, using the earlier custom layout; it was no longer v2.4.7.
+
+- Captured the complete current 16 MB image, portable export and protocol/settings snapshots. The board stayed in ROM through snapshot preparation, writing and full preboot verification. Automations were not paused; the ROM hold prevented controller-side commands during that interval.
+- Verified identity, flash size, unsecured recovery, partition-table MD5, active NVS CRCs and independent authoritative configuration extraction. The installed firmware matched the retained corrected build.
+- Preserved `shades.cfg` byte for byte in the new filesystem, along with all eight pristine web files. The parser round-trip compared 68 configuration fields. Independently reconstructed the sector plan, excluding NVS at `0x9000–0xdfff`.
+- Wrote only changed segments: partition table at `0x8000`, firmware at `0x10000`, and state-preserving LittleFS at `0x670000`. Bootloader and OTA-selection regions already matched and were skipped. No whole-chip erase was used.
+- The complete 16 MB preboot readback matched the expected image byte for byte. NVS was untouched by writes.
+- Both application boots passed radio initialization/register/RX checks and 52 read-only protocol comparisons. All five settings sections and 48 entity-field comparisons matched before/after. Postboot extraction found all nine application NVS namespaces unchanged and authoritative `shades.cfg` byte-identical. Counters did not change during verification.
+- A 3,000,000-baud read test matched expected bytes, and subsequent NVS/filesystem captures at that setting passed. Measured filesystem read throughput was about 817 kbit/s; the baud setting is not the actual end-to-end transfer rate.
+
+Private recovery images, decoded settings, the exact execution plan and 154 checksummed evidence files remain under the user-local `espsomfy-lilygo` state directory. No raw state or credentials are committed. `LATEST_LAYOUT_MIGRATION.json` points to the completed record. The build artifacts identify revision `6842f0a`; this later documentation update does not change them.
+
+The controller is online with the standard layout. No assistant RF/motor commands, pairing, retuning or motor-limit changes were performed. Physical movement and cold power-cycle behavior were not tested in this cycle. Existing automations can advance counters after verification; capture current state again before any future restore. The earlier custom-layout recovery snapshot is a rollback record, not a perpetually current counter source.
