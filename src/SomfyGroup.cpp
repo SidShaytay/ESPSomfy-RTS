@@ -151,7 +151,7 @@ class GroupMoveAdapter : public GroupMotionOps, public GroupStopOps {
       // This operation controls lift percentages. Tilt-first and toggle motor
       // modes need a different stop/timing contract; refuse before any member
       // moves rather than simulating a percentage those motors cannot honor.
-      out.targetSupported = !shade->hasPendingGroupStart() && percentageType && shade->tiltType == tilt_types::none &&
+      out.targetSupported = (!shade->hasPendingGroupStart() || shade->ownsGroupPositioning()) && percentageType && shade->tiltType == tilt_types::none &&
         group.proto == radio_proto::RTS && shade->proto == radio_proto::RTS &&
         shade->upTime > 0 && shade->downTime > 0;
       // Different motor modes require their existing individual planner.

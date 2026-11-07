@@ -701,12 +701,13 @@ static void test_group_refused_replacement_keeps_existing_target_stop() {
   ASSERT_POS(50,r.st().target); r.run(2000); TEST_ASSERT_EQUAL_UINT(1,r.link.sent.size());
   ASSERT_CMD(somfy_commands::My,r.lastSent().cmd);
 }
-static void test_group_pending_start_refuses_stop_and_replacement() {
+static void test_group_pending_start_refuses_stop_but_retains_latest_target() {
   Rig r; r.b.adoptGroupTarget(50,81,r.now);
   TEST_ASSERT_TRUE(r.b.hasPendingGroupStart()); TEST_ASSERT_FALSE(r.b.stopGroupTarget(r.now));
-  TEST_ASSERT_FALSE(r.b.moveToGroupTarget(20,r.now)); TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size());
+  TEST_ASSERT_TRUE(r.b.moveToGroupTarget(20,r.now)); TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size());
   r.event(tx_event_t::started,81); TEST_ASSERT_TRUE(r.b.hasPendingGroupStart());
   r.event(tx_event_t::finished,81); TEST_ASSERT_FALSE(r.b.hasPendingGroupStart());
+  ASSERT_POS(20,r.st().target); TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size());
 }
 static void test_group_endpoint_pending_start_remains_guarded() {
   Rig r; r.b.adoptGroupTarget(0,81,r.now); r.run(1000);
@@ -783,7 +784,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_group_refused_automatic_stop_runs_to_limit);
   RUN_TEST(test_group_replacement_stops_before_new_target_and_waits_for_start);
   RUN_TEST(test_group_refused_replacement_keeps_existing_target_stop);
-  RUN_TEST(test_group_pending_start_refuses_stop_and_replacement);
+  RUN_TEST(test_group_pending_start_refuses_stop_but_retains_latest_target);
   RUN_TEST(test_group_endpoint_pending_start_remains_guarded);
   RUN_TEST(test_group_target_waits_then_stops_each_member_at_own_time);
   RUN_TEST(test_group_target_drop_cancels_without_stop);

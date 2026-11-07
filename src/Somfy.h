@@ -103,6 +103,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     // Where the shade is and where it is going.
     const ShadeBehaviour::State &state() const { return this->behaviour.state(); }
     bool isIdle() const { return this->behaviour.isIdle(); }
+    bool ownsGroupPositioning() const { return this->behaviour.ownsGroupPositioning(); }
     bool hasPendingGroupStart() const { return this->behaviour.hasPendingGroupStart(); }
     bool hasGroupTargetWork() const { return this->behaviour.hasGroupTargetWork(); }
     uint8_t getFlags() override;

@@ -139,7 +139,10 @@ bool SomfyShade::moveToTarget(float pos, float tilt) {
   return accepted;
 }
 bool SomfyShade::moveToGroupTarget(float pos) {
-  if(this->hasPendingGroupStart()) return false;
+  // A slider burst may update the target owned by this unfinished group
+  // start. The behaviour keeps the shared start and applies the latest goal
+  // once its complete directional press has gone on air.
+  if(this->hasPendingGroupStart() && !this->ownsGroupPositioning()) return false;
   this->prepareOnSend = true;
   const bool accepted = this->behaviour.moveToGroupTarget(pos, millis());
   this->prepareOnSend = false;

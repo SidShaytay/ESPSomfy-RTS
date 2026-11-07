@@ -81,7 +81,7 @@ class ShadeBehaviour {
     // Adopt a native group start and stop this member at its own target.
     bool moveToGroupTarget(float target, uint32_t now);
     bool stopGroupTarget(uint32_t now);
-    bool hasGroupTargetWork() const { return this->groupPositioning && (this->groupDeferred || this->tx.hold.held() || this->tx.stopTicket || !this->isIdle()); }
+    bool hasGroupTargetWork() const { return this->groupPositioning && (this->groupRetargetPending || this->groupStartTicket || this->groupDeferred || this->tx.hold.held() || this->tx.stopTicket || !this->isIdle()); }
     bool ownsGroupPositioning() const { return this->groupPositioning; }
     bool hasPendingGroupStart() const { return this->groupStartTicket != 0; }
     void adoptGroupTarget(float target, uint32_t ticket, uint32_t now);
@@ -139,6 +139,7 @@ class ShadeBehaviour {
     // stop. A replacement target waits for that stop before it starts anew.
     bool groupPositioning = false;
     bool groupDeferred = false;
+    bool groupRetargetPending = false;
     bool groupStopOnAir = false;
     uint32_t groupStartTicket = 0;
     int8_t groupStartDir = 0;
