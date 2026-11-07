@@ -38,10 +38,15 @@ test('a field the sync left out is its default', () => {
 });
 
 test('the device has an OTA slot unless it says it has none', () => {
-    // The recording is from firmware before the field.
-    assert.equal(synced().header.hasOtaSlot, undefined);
+    // An older schema has no field, whereas the offline fixture now does.
+    assert.equal(synced().header.hasOtaSlot, true);
+    const older = recordedSchema();
+    delete older.fields.os;
+    delete older.keys.hasOtaSlot;
+    const legacy = new ProtoModel(older);
+    legacy.applySync({ header: {} });
+    assert.equal(legacy.header.hasOtaSlot, undefined);
     const schema = recordedSchema();
-    schema.add({ F: [['os', 'hasOtaSlot', 'b', 1]] });
     const header = deviceSections(schema).find((d) => d.header).header;
     const m = new ProtoModel(schema);
     m.applySync({ header: header });

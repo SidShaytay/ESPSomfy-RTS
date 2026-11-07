@@ -2,7 +2,7 @@
 
 Why the protocol looks like this: [ADR 0005](adr/0005-one-websocket-protocol.md). Terms: [GLOSSARY.md](../GLOSSARY.md).
 
-**The table of types, fields, error codes and feeds is defined once, in [src/ProtoSchema.h](../src/ProtoSchema.h).** The device sends it to every client as the schema, and `test/fixtures/proto2/schema.json` is a copy recorded by the e2e suite (`pytest test/e2e --record`). This page describes how the protocol works, not every field.
+**The table of types, fields, error codes and feeds is defined once, in [src/ProtoSchema.h](../src/ProtoSchema.h).** The device sends it to every client as the schema, and `test/fixtures/proto2/schema.json` began as a copy recorded by the e2e suite (`pytest test/e2e --record`); its schema rows and hash now include offline additions for `groupTarget` and `hasOtaSlot`. The retained device state is synthetic test input, not current hardware evidence. This page describes how the protocol works, not every field.
 
 ## Connection
 
@@ -40,7 +40,7 @@ The keys of `hello` (`fw`, `sh`) and of the schema itself (`T`, `F`, `E`, `Q`) n
 | Range | Sender | Types |
 |---|---|---|
 | 1–15 | control | `hello` 1, `reply` 2, `next` 3, `sync` 4, `syncEnd` 5, `subscribe` 6, `unsubscribe` 7 |
-| 16–127 | client ops | commands: `shadeCommand` 16, `groupCommand` 17, `tiltCommand` 18, `repeatCommand` 19, `setPositions` 20, `setSensor` 21, `setMyPosition` 22, `unpairShade` 23, `setRollingCode` 24, `sendRemoteCommand` 25; edits: 26–44 (`addRoom` … `groupSortOrder`); reads: `getNextRoom` 45, `getNextShade` 46, `getNextGroup` 47, `groupOptions` 48; settings and the device: `getSettings` 49, `saveSettings` 50, `scanWifi` 51, `beginFrequencyScan` 52, `endFrequencyScan` 53, `reboot` 54 |
+| 16–127 | client ops | commands: `shadeCommand` 16, `groupCommand` 17, `tiltCommand` 18, `repeatCommand` 19, `setPositions` 20, `setSensor` 21, `setMyPosition` 22, `unpairShade` 23, `setRollingCode` 24, `sendRemoteCommand` 25, `groupTarget` 55; edits: 26–44 (`addRoom` … `groupSortOrder`); reads: `getNextRoom` 45, `getNextShade` 46, `getNextGroup` 47, `groupOptions` 48; settings and the device: `getSettings` 49, `saveSettings` 50, `scanWifi` 51, `beginFrequencyScan` 52, `endFrequencyScan` 53, `reboot` 54 |
 | 128–255 | device events | `shadeState`, `shade`, `shadeRemoved`, `group`, `groupState`, `groupRemoved`, `room`, `roomRemoved`, `roomOrder`, `shadeOrder`, `groupOrder`, `shadeCommanded`, `memory`, `wifi`, `ethernet`, `frame`, `frequencyScan`, `repeaters`, `settingsChanged`, `wifiNetworks` |
 
 A number is never reused. A retired type stays reserved.
@@ -86,6 +86,7 @@ Every op carries an `id` and gets one reply. The ops do what the HTTP routes of 
 | `shadeCommand` | `shadeId`; `command` or `target`; optional `repeat`, `stepSize` | sends the command, or moves the shade to the position 0–100 |
 | `tiltCommand` | `shadeId`; `command` or `target` | the same for the tilt |
 | `groupCommand` | `groupId`, `command`; optional `repeat`, `stepSize` | sends the command as the group |
+| `groupTarget` | `groupId`, `target` | moves group members to logical closed percent 0–100; see below |
 | `repeatCommand` | `shadeId` or `groupId`, `command`; optional `repeat`, `stepSize` | repeats the last frame when it was this command, or sends it |
 | `setPositions` | `shadeId`; `position`, `tiltPosition` or both | sets where the shade is thought to be; nothing goes on air |
 | `setSensor` | `shadeId` or `groupId`; `sunny`, `windy` or both; optional `repeat` | sends a sensor frame |
@@ -104,6 +105,16 @@ Every op carries an `id` and gets one reply. The ops do what the HTTP routes of 
 - A field of the wrong kind, a value out of range, or both of two alternatives, is a bad request, and `desc` names the field.
 - The reply comes once the command has gone to the radio, or was refused: not found (no shade or group with that id), radio unavailable (the radio is paused, as during a frequency scan, or didn't take it), busy (the device's command queue is full, or `setMyPosition` on a shade that is moving) or bad request (`setPositions` with only a tilt, for a shade without one). It carries no state: the shade's `shadeState` events follow as it moves.
 - `sendRemoteCommand` is answered as soon as the radio has taken the frame, not after the ops queued before it, and with radio unavailable when the radio is full rather than waiting for room.
+
+## Group percentage targets
+
+`groupTarget` is an additive operation advertised by name in the schema's `T` rows. Check the current connection's schema for this name before sending it; firmware version strings are not a capability check. Older firmware has only command-based groups. Keep endpoint requests on its existing group Open/Close path and use individual shade targets for intermediate positions. Never add `target` to `groupCommand`: both the socket operation and HTTP route reject it.
+
+The payload contains exactly `groupId` and an integer `target` from 0 (fully open) to 100 (fully closed), including those fields when zero. These are logical percentages independent of each member's display `flipPosition`; the controller handles awning and command direction semantics. HA sends `100 - position`. The existing `shadeCommand` target convention is unchanged.
+
+Every `groupTarget` needs a nonzero, increasing envelope `id` within that socket connection. Repeating an id with the same group and target coalesces while pending and replays its completed reply without another movement or rolling-code increment. Reusing it with different arguments is a bad request. The controller retains eight recent replies; an older evicted id is refused as stale rather than executed again. Pending requests are never evicted. A cache full of pending requests returns busy before accepting another target. A refused request retained in the cache replays the refusal; use a fresh id for an intentional retry. Disconnecting clears replay protection for that connection, so clients must not automatically resend a command after a timeout or reconnection: its outcome may be unknown. A new user endpoint request uses a fresh id and can send the native Up/Down again even when the estimate is already at the endpoint.
+
+A success reply acknowledges software acceptance, not RF reception or physical motor movement. Follow member `shadeState` events for estimated positions and the existing `groupState` direction/flags. Travel is time based and has no motor feedback. A client disconnect does not itself stop accepted movement; reboot loses volatile plans and cannot prove where a motor physically stopped. Hardware validation requires a separately authorized service window.
 
 ## Edits
 

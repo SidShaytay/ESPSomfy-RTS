@@ -1,5 +1,7 @@
 #include <unity.h>
 #include <string.h>
+#include <initializer_list>
+#include <stdio.h>
 #include <ArduinoJson.h>
 #include "ProtoOps.h"
 
@@ -87,7 +89,29 @@ static void test_group_command_needs_a_command() {
   TEST_ASSERT_EQUAL_UINT8(1, req.id);
   TEST_ASSERT_EQUAL(somfy_commands::My, req.command);
   TEST_ASSERT_EQUAL_INT8(4, req.repeat);
-  TEST_ASSERT_EQUAL_STRING("command is missing", parse(proto_type_t::groupCommand, R"({"g":1,"t":10})"));
+  TEST_ASSERT_EQUAL_STRING("Use groupTarget for a target", parse(proto_type_t::groupCommand, R"({"g":1,"t":10})"));
+  TEST_ASSERT_EQUAL_STRING("Use groupTarget for a target", parse(proto_type_t::groupCommand, R"({"g":1,"cm":"Up","t":10})"));
+}
+static void test_group_target_is_explicit_and_strict() {
+  const auto type = static_cast<proto_type_t>(55);
+  TEST_ASSERT_EQUAL(proto_op_t::shadeRequest, protoOpKind(55));
+  for(int target : {0, 37, 100}) {
+    char payload[40];
+    snprintf(payload, sizeof(payload), "{\"g\":1,\"t\":%d}", target);
+    TEST_ASSERT_GOOD(parse(type, payload));
+    TEST_ASSERT_EQUAL_UINT8(1, req.id);
+    TEST_ASSERT_EQUAL_INT8(target, req.target);
+    TEST_ASSERT_TRUE(shadeRequestIsForGroup(req.type));
+    TEST_ASSERT_TRUE(shadeRequestUsesRadio(req.type));
+  }
+  TEST_ASSERT_EQUAL_STRING("groupId is missing", parse(type, R"({"t":50})"));
+  TEST_ASSERT_EQUAL_STRING("groupId must be 0-255", parse(type, R"({"g":"1","t":50})"));
+  TEST_ASSERT_EQUAL_STRING("target is missing", parse(type, R"({"g":1})"));
+  for(const char *payload : {R"({"g":1,"t":-1})", R"({"g":1,"t":101})", R"({"g":1,"t":50.5})", R"({"g":1,"t":true})", R"({"g":1,"t":"50"})"})
+    TEST_ASSERT_EQUAL_STRING("target must be 0-100", parse(type, payload));
+  TEST_ASSERT_EQUAL_STRING("Unexpected field cm", parse(type, R"({"g":1,"t":50,"cm":"Up"})"));
+  TEST_ASSERT_EQUAL_STRING("Unexpected field re", parse(type, R"({"g":1,"t":50,"re":1})"));
+  TEST_ASSERT_EQUAL_STRING("Unexpected field x", parse(type, R"({"g":1,"t":50,"x":null})"));
 }
 static void test_repeat_takes_a_shade_or_a_group() {
   TEST_ASSERT_GOOD(parse(proto_type_t::repeatCommand, R"({"s":5,"cm":"Prog"})"));
@@ -237,6 +261,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_a_left_out_payload_is_missing_everything);
   RUN_TEST(test_tilt_command);
   RUN_TEST(test_group_command_needs_a_command);
+  RUN_TEST(test_group_target_is_explicit_and_strict);
   RUN_TEST(test_repeat_takes_a_shade_or_a_group);
   RUN_TEST(test_command_names_read_back_as_shade_commanded_reports_them);
   RUN_TEST(test_set_positions_leaves_out_what_was_not_given);

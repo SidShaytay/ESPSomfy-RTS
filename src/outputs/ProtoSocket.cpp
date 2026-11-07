@@ -10,6 +10,7 @@
 #include "ProtoParse.h"
 #include "ProtoSlots.h"
 #include "ProtoOps.h"
+#include "GroupTargetIds.h"
 #include "ProtoEdits.h"
 #include "ProtoAssembly.h"
 #include "ProtoSettings.h"
@@ -45,6 +46,12 @@ static TaskHandle_t loopTask = nullptr;
 static bool onLoopTask() { return emitAllowed(xTaskGetCurrentTaskHandle(), loopTask); }
 
 static proto_slot_t slots[PROTO_MAX_CLIENTS];
+// Protected by assemblerMutex along with slot resets; no network sends under it.
+struct target_client_t {
+  uint32_t clientId = 0;
+  GroupTargetIds ids;
+};
+static target_client_t targetClients[PROTO_MAX_CLIENTS];
 // What loop() formats events and syncEnd with, into frameBuffer.
 static BufferedJsonFormatter eventJson;
 // Messages that arrive in pieces.  async_tcp adds to it, and a disconnect can
@@ -170,19 +177,52 @@ static void replyOk(AsyncWebSocketClient *client, uint32_t id) {
   if(id == 0) return;
   sendFixed(client, [](JsonFormatter &json, void *ctx) { writeOkReply(json, *static_cast<uint32_t *>(ctx)); }, &id);
 }
+static void completeTarget(uint32_t clientId, uint32_t id, group_target_reply_t reply) {
+  AssemblerLock lock;
+  for(target_client_t &client : targetClients)
+    if(client.clientId == clientId) { client.ids.complete(id, reply); return; }
+}
 // A command op that becomes a shade request: loop() runs it and replies.
 static void queueShadeOp(AsyncWebSocketClient *client, const proto_message_t &req, JsonObjectConst d) {
   loop_item_t item;
   const char *bad = parseShadeOp(req.type, d, item.request);
   if(bad) { replyError(client, req.id, proto_error_t::badRequest, bad); return; }
+  const bool target = req.type == static_cast<uint8_t>(proto_type_t::groupTarget);
+  if(target) {
+    target_id_result_t action = target_id_result_t::stale;
+    group_target_reply_t reply;
+    {
+      AssemblerLock lock;
+      for(target_client_t &entry : targetClients)
+        if(entry.clientId == client->id()) {
+          action = entry.ids.begin(req.id, item.request.id, item.request.target, reply);
+          break;
+        }
+    }
+    if(action == target_id_result_t::pending) return;
+    if(action == target_id_result_t::replay) {
+      if(reply.code == proto_error_t::none) replyOk(client, req.id);
+      else replyError(client, req.id, reply.code, reply.desc);
+      return;
+    }
+    if(action != target_id_result_t::fresh) {
+      replyError(client, req.id, action == target_id_result_t::full ? proto_error_t::busy : proto_error_t::badRequest,
+        action == target_id_result_t::full ? "Too many pending group targets" : "Group target id reused or stale");
+      return;
+    }
+  }
   // Nothing goes on air during a frequency scan, so say so now rather than
   // once it reaches the radio.
   if(loopItemUsesRadio(item) && somfy.transceiver.txSuspended()) {
+    if(target) completeTarget(client->id(), req.id, {proto_error_t::radioUnavailable, "The radio is paused"});
     replyError(client, req.id, proto_error_t::radioUnavailable, "The radio is paused");
     return;
   }
   item.replyTo = {client->id(), req.id};
-  if(!loopQueue.submit(item)) replyError(client, req.id, proto_error_t::busy, "Command queue full");
+  if(!loopQueue.submit(item)) {
+    if(target) completeTarget(client->id(), req.id, {proto_error_t::busy, "Command queue full"});
+    replyError(client, req.id, proto_error_t::busy, "Command queue full");
+  }
 }
 // A frame as a remote that isn't one of the shades.  It touches nothing of the
 // shade model and the radio takes jobs from any task, so it goes from here.
@@ -285,6 +325,12 @@ static void onConnect(AsyncWebSocketClient *client, AsyncWebServerRequest *reque
     client->close();
     return;
   }
+  {
+    AssemblerLock lock;
+    target_client_t &entry = targetClients[slot - slots];
+    entry.ids.reset();
+    entry.clientId = id;
+  }
   client->setCloseClientOnQueueFull(true);
   sendFixed(client, [](JsonFormatter &json, void *) { writeHello(json, settings.fwVersion.name); }, nullptr);
   startSync(*slot);
@@ -298,7 +344,12 @@ static void onDisconnect(AsyncWebSocketClient *client) {
   }
   proto_slot_t *slot = slotOf(slots, PROTO_MAX_CLIENTS, client->id());
   if(!slot) return;
-  freeSlot(*slot);
+  {
+    AssemblerLock lock;
+    target_client_t &entry = targetClients[slot - slots];
+    if(entry.clientId == client->id()) entry.clientId = 0;
+    freeSlot(*slot);
+  }
   ESP_LOGI(TAG, "Socket [%lu] disconnected", (unsigned long)client->id());
 }
 // One whole message from a client.
@@ -497,6 +548,8 @@ void ProtoSocket::replyRequest(const proto_reply_to_t &to, const shade_request_t
   BufferedJsonFormatter json;
   json.setBuffer(buf, sizeof(buf));
   const proto_error_t code = protoRequestError(result);
+  if(req.type == shade_request_type_t::group_target)
+    completeTarget(to.client, to.id, {code, protoRequestErrorDesc(req, result)});
   if(code == proto_error_t::none) writeOkReply(json, to.id);
   else writeErrorReply(json, to.id, code, protoRequestErrorDesc(req, result));
   sendReply(to, json, buf, sizeof(buf));

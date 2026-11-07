@@ -1,5 +1,5 @@
 {
- "hash": "16fdffc7",
+ "hash": "c109d9d8",
  "types": {
   "1": "hello",
   "2": "reply",
@@ -47,6 +47,7 @@
   "52": "beginFrequencyScan",
   "53": "endFrequencyScan",
   "54": "reboot",
+  "55": "groupTarget",
   "128": "shadeState",
   "129": "shade",
   "130": "shadeRemoved",
@@ -483,6 +484,11 @@
    "name": "sortOrder",
    "kind": "i",
    "default": 0
+  },
+  "os": {
+   "name": "hasOtaSlot",
+   "kind": "b",
+   "default": 1
   },
   "p": {
    "name": "position",

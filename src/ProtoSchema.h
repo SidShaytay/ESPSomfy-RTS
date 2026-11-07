@@ -64,6 +64,7 @@
   TYPE(beginFrequencyScan, 52, 'c', 'd') \
   TYPE(endFrequencyScan, 53, 'c', 'd') \
   TYPE(reboot, 54, 'c', 'd') \
+  TYPE(groupTarget, 55, 'c', 'q') \
   TYPE(shadeState, 128, 'd', '-') \
   TYPE(shade, 129, 'd', '-') \
   TYPE(shadeRemoved, 130, 'd', '-') \
