@@ -71,7 +71,7 @@ inline size_t esp_psram_get_size() { return Fake::psramPhysical; }
 struct FakeEsp {
   uint32_t getPsramSize() const { return 8300000; }
   uint32_t getFreePsram() const { return 7000000; }
-  uint32_t getFlashChipSize() const { return 16777216; }
+  uint32_t getFlashChipSize() const { return GitUpdateProfile::flashBytes; }
 };
 inline FakeEsp ESP;
 struct String {
@@ -104,7 +104,7 @@ inline esp_err_t esp_crt_bundle_attach(void *) { return ESP_OK; }
 
 constexpr int ESP_PARTITION_TYPE_DATA=1,ESP_PARTITION_SUBTYPE_DATA_SPIFFS=2,ESP_PARTITION_SUBTYPE_DATA_NVS=3;
 struct esp_partition_t { uint32_t address;uint32_t size; };
-inline esp_partition_t runningPartition{0x10000,0x330000},nextPartition{0x340000,0x330000},fsPartition{0x670000,0x180000},nvsPartition{0x9000,0x5000};
+inline esp_partition_t runningPartition{GitUpdateProfile::app0Address,GitUpdateProfile::appBytes},nextPartition{GitUpdateProfile::app1Address,GitUpdateProfile::appBytes},fsPartition{GitUpdateProfile::fsAddress,GitUpdateProfile::fsBytes},nvsPartition{GitUpdateProfile::nvsAddress,GitUpdateProfile::nvsBytes};
 enum esp_ota_img_states_t { ESP_OTA_IMG_VALID=0,ESP_OTA_IMG_PENDING_VERIFY=1,ESP_OTA_IMG_UNDEFINED=2 };
 inline esp_ota_img_states_t fakeImageState=ESP_OTA_IMG_VALID;
 inline const esp_partition_t *esp_ota_get_running_partition() { return &runningPartition; }

@@ -1,5 +1,3 @@
-#define ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
-#define GIT_UPDATE_HOST_TEST
 #include "../../src/GitUpdate.cpp"
 #include <iostream>
 
@@ -26,7 +24,7 @@ static void fixtures() {
   Manifest m;m.schema=1;m.board=BOARD;m.layout=LAYOUT;m.flashBytes=FLASH_BYTES;m.psramBytes=PSRAM_BYTES;
   m.appCompat=ESPSOMFY_APP_COMPAT;m.version=tag;m.sourceSha=std::string(40,'a');m.asset=FIRMWARE_ASSET;m.channel="stable";m.bootloaderSha=gitUpdateBootloaderDigest();
   firmwareBody=std::string(16000,'x');
-  esp_image_header_t header{};header.magic=ESP_IMAGE_HEADER_MAGIC;header.chip_id=ESP_CHIP_ID_ESP32S3;
+  esp_image_header_t header{};header.magic=ESP_IMAGE_HEADER_MAGIC;header.chip_id=GitUpdateProfile::chipId;
   std::memcpy(firmwareBody.data(),&header,sizeof(header));
   const std::string marker=identity(m);std::memcpy(firmwareBody.data()+100,marker.c_str(),marker.size()+1);
   m.size=firmwareBody.size();m.sha256=hash(firmwareBody);
@@ -57,7 +55,7 @@ static void reset() {
   Fake::prepareCalls=0;Fake::otaBegins=0;Fake::otaWrites=0;Fake::otaEnds=0;Fake::otaActivations=0;Fake::otaAborts=0;
   Fake::autoLoop=true;Fake::onYield=nullptr;Fake::onRead=nullptr;Fake::psramPhysical=8388608;
   Fake::written.clear();Fake::responses.clear();Fake::urls.clear();Fake::seenAccept.clear();
-  rebootDelay={};nextPartition={0x340000,0x330000};fsPartition={0x670000,0x180000};fakeImageState=ESP_OTA_IMG_VALID;
+  rebootDelay={};nextPartition={GitUpdateProfile::app1Address,GitUpdateProfile::appBytes};fsPartition={GitUpdateProfile::fsAddress,GitUpdateProfile::fsBytes};fakeImageState=ESP_OTA_IMG_VALID;
   fixtures();gitUpdate.begin(prepare);
 }
 static void run() { try { worker(nullptr); } catch(FakeTaskExit &) {} gitUpdate.loop(); }
@@ -102,14 +100,16 @@ static void updateManifest(const std::function<void(JsonDocument &)> &change) {
   Fake::responses[apiUrl].body=stringify(release);
 }
 static void authenticated_but_incompatible_images_never_write() {
-  for(int which=0;which<5;which++) {
+  for(int which=0;which<7;which++) {
     reset();
     updateManifest([&](JsonDocument &m) {
-      if(which==0) m["board"]="esp32s3";
+      if(which==0) m["board"]=std::string(GitUpdatePolicy::BOARD)=="lilygo-t-embed-cc1101-plus" ? "lilygo-t-embed-cc1101" : "lilygo-t-embed-cc1101-plus";
       if(which==1) m["layout"]="huge_app";
       if(which==2) m["app_compat"]="different-web-assets";
       if(which==3) m["bootloader_sha256"]=std::string(64,'c');
       if(which==4) m["source_sha"]="not-a-git-revision";
+      if(which==5) m["asset"]=std::string(GitUpdatePolicy::FIRMWARE_ASSET)=="firmware-lilygo-t-embed-cc1101-plus.bin" ? "firmware-esp32p4.bin" : "firmware-lilygo-t-embed-cc1101-plus.bin";
+      if(which==6) m["psram_bytes"]=0;
     });
     CHECK(gitUpdate.requestCheck());run();CHECK(currentState()=="error");CHECK(Fake::otaBegins==0);
   }
@@ -150,7 +150,7 @@ static void ota_failures_never_activate_and_resume_with_reboot() {
 }
 static void success_writes_only_inactive_slot_and_refuses_late_cancel() {
   reset();available();Fake::cancelDuringWrite=true;installNow();
-  CHECK(currentState()=="rebooting");CHECK(Fake::otaAddress==0x340000);CHECK(Fake::otaBegins==1);CHECK(Fake::otaEnds==1);CHECK(Fake::otaActivations==1);
+  CHECK(currentState()=="rebooting");CHECK(Fake::otaAddress==GitUpdateProfile::app1Address);CHECK(Fake::otaBegins==1);CHECK(Fake::otaEnds==1);CHECK(Fake::otaActivations==1);
   CHECK(Fake::written==std::vector<uint8_t>(firmwareBody.begin(),firmwareBody.end()));
   CHECK(!Fake::cancelAcceptedDuringWrite);CHECK(!gitUpdate.requestCancel());CHECK(!gitUpdate.requestInstall());CHECK(rebootDelay.reboot);
 }
@@ -159,5 +159,5 @@ int main() {
   transfer_faults_leave_active_slot_untouched();authenticated_but_incompatible_images_never_write();check_environment_and_allocator_fail_closed();
   cancel_before_and_during_preparation_preserves_slot();ota_failures_never_activate_and_resume_with_reboot();
   success_writes_only_inactive_slot_and_refuses_late_cancel();
-  std::cout<<"GitHub update production worker: "<<assertions<<" assertions passed\n";
+  std::cout<<GitUpdatePolicy::BOARD<<" production worker: "<<assertions<<" assertions passed\n";
 }

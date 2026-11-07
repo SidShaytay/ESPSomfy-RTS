@@ -17,7 +17,7 @@ void GitUpdateClass::endManualUpdate() {
 }
 bool GitUpdateClass::busy() const { return owner.load() != 0; }
 
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_GITHUB_UPDATES)
 #include "GitUpdatePolicy.h"
 #include "GitUpdateTransfer.h"
 #if defined(GIT_UPDATE_HOST_TEST)
@@ -272,10 +272,12 @@ const char *environmentError() {
   const esp_partition_t *running=esp_ota_get_running_partition();
   const esp_partition_t *next=esp_ota_get_next_update_partition(nullptr);
   if(!running || !next || running==next || running->size!=APP_BYTES || next->size!=APP_BYTES ||
-    !((running->address==0x10000 && next->address==0x340000) || (running->address==0x340000 && next->address==0x10000))) return "Running partition layout differs from default_8MB dual-slot layout";
+    !((running->address==GitUpdateProfile::app0Address && next->address==GitUpdateProfile::app1Address) ||
+    (running->address==GitUpdateProfile::app1Address && next->address==GitUpdateProfile::app0Address))) return "Running partition layout differs from exact-board dual-slot profile";
   const esp_partition_t *fs=esp_partition_find_first(ESP_PARTITION_TYPE_DATA,ESP_PARTITION_SUBTYPE_DATA_SPIFFS,"spiffs");
   const esp_partition_t *nvs=esp_partition_find_first(ESP_PARTITION_TYPE_DATA,ESP_PARTITION_SUBTYPE_DATA_NVS,"nvs");
-  if(!fs || fs->address!=0x670000 || fs->size!=0x180000 || !nvs || nvs->address!=0x9000 || nvs->size!=0x5000) return "Filesystem or NVS partition differs from supported layout";
+  if(!fs || fs->address!=GitUpdateProfile::fsAddress || fs->size!=GitUpdateProfile::fsBytes || !nvs ||
+    nvs->address!=GitUpdateProfile::nvsAddress || nvs->size!=GitUpdateProfile::nvsBytes) return "Filesystem or NVS partition differs from supported layout";
   esp_ota_img_states_t imageState;
   if(esp_ota_get_state_partition(running,&imageState)!=ESP_OK ||
     (imageState!=ESP_OTA_IMG_VALID && imageState!=ESP_OTA_IMG_UNDEFINED)) return "Current firmware is unconfirmed or has an invalid OTA state";
@@ -298,7 +300,7 @@ bool install(uint32_t start) {
   if(stopped(start)) { fail("Update cancelled or timed out before image validation");return false; }
   esp_image_header_t header;
   memcpy(&header,firmware.data,sizeof(header));
-  if(header.magic!=ESP_IMAGE_HEADER_MAGIC || header.chip_id!=ESP_CHIP_ID_ESP32S3 || !hasIdentity(firmware.data,bytes,candidate)) { fail("Firmware chip or embedded exact-board build identity differs");return false; }
+  if(header.magic!=ESP_IMAGE_HEADER_MAGIC || header.chip_id!=GitUpdateProfile::chipId || !hasIdentity(firmware.data,bytes,candidate)) { fail("Firmware chip or embedded exact-board build identity differs");return false; }
   if(const char *error=environmentError()) { fail(error);return false; }
   // loop() persists controller state and quiesces only after verification.
   preparation.store(1);
@@ -453,6 +455,6 @@ bool GitUpdateClass::requestCancel() { return false; }
 void GitUpdateClass::status(JsonObject out) const {
   out["supported"]=false;out["state"]="unsupported";out["canInstall"]=false;
   out["compatible"]=false;out["busy"]=busy();out["progress"]=0;
-  out["error"]="GitHub updates require the exact LILYGO Plus PSRAM/dual-slot profile";
+  out["error"]="GitHub updates require an explicitly supported PSRAM/dual-slot board profile";
 }
 #endif

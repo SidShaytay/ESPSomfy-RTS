@@ -2,17 +2,18 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include "GitUpdateProfile.h"
 
 // Pure compatibility/trust-boundary policy, shared by the worker and host tests.
 namespace GitUpdatePolicy {
-constexpr const char *BOARD = "lilygo-t-embed-cc1101-plus";
-constexpr const char *LAYOUT = "default_8MB";
+constexpr const char *BOARD = GitUpdateProfile::board;
+constexpr const char *LAYOUT = GitUpdateProfile::layout;
 constexpr const char *REPOSITORY = "SidShaytay/ESPSomfy-RTS";
-constexpr const char *FIRMWARE_ASSET = "firmware-lilygo-t-embed-cc1101-plus.bin";
-constexpr const char *MANIFEST_ASSET = "update-lilygo-t-embed-cc1101-plus.json";
-constexpr uint32_t FLASH_BYTES = 16777216;
-constexpr uint32_t PSRAM_BYTES = 8388608;
-constexpr uint32_t APP_BYTES = 0x330000;
+constexpr const char *FIRMWARE_ASSET = GitUpdateProfile::firmwareAsset;
+constexpr const char *MANIFEST_ASSET = GitUpdateProfile::manifestAsset;
+constexpr uint32_t FLASH_BYTES = GitUpdateProfile::flashBytes;
+constexpr uint32_t PSRAM_BYTES = GitUpdateProfile::psramBytes;
+constexpr uint32_t APP_BYTES = GitUpdateProfile::appBytes;
 struct Manifest {
   uint32_t schema = 0, flashBytes = 0, psramBytes = 0, size = 0;
   std::string board, layout, appCompat, version, sourceSha, asset, sha256, channel, bootloaderSha;
