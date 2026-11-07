@@ -1,27 +1,27 @@
 # Issue 23: native group percentage moves
 
-Implement [issue 23](https://github.com/SidShaytay/ESPSomfy-RTS/issues/23) offline. Firmware branch `codex/issue-23-group-target` is based on standard-layout commit `7a8e529`, in `/mnt/data/projects/personal/ESPSomfy-RTS/issue-23-group-target`. HA branch of the same name is in `/var/home/sid/.local/state/espsomfy-ha-homekit/issue-23-group-target`, based on endpoint workaround `c6c5ab4`.
+[Issue 23](https://github.com/SidShaytay/ESPSomfy-RTS/issues/23) spans firmware and the HA integration. Completed-feature policy: `main` defines completion and is the baseline for subsequent features. Sid accepted this deployment's combination with the unfinished LCD work as a one-time exception; this does not declare LCD work complete.
 
-No service window is authorized. Do not access the controller, USB/serial, live HA, or send RF, flash, restart, deploy, pair, or calibrate. Deployed revisions remain unverified because live inspection is outside authorization. Sid authorized pushing both feature branches after verification; this does not authorize deployment. Preserve existing worktrees and private recovery material.
+## Authorization and limits
 
-## Implementation
+Sid authorized fresh backup and firmware flashing on November 6, 2026, then explicitly approved the matching HA installation/restart. No assistant RF/motor commands, pairing, calibration, motor-limit changes or identity changes were authorized or performed. Sid plans to unplug and test manually after both systems are ready. Keep raw backup/configuration, identifiers and credentials private.
 
-- [x] G23-1: native shared starts, per-member timed Stops, individual fallback, repeated endpoints, queued-work cancellation and state updates. Timing follows actual TX start/completion; unsupported motor modes are refused.
-- [x] G23-2: explicit schema-advertised `groupTarget` operation 55 (`g`, `t`), strict validation, bounded per-connection replay protection, fixtures and protocol documentation.
-- [x] G23-3: HA capability-gated native operation, older-firmware fallback, refusal handling and percentage readback tests. Commit `34eb042` pushed to the HA fork's `codex/issue-23-group-target` branch; remote SHA verified.
-- [x] G23-4: independent review and integrated host harness completed; firmware implementation committed as `ecd84b1` (scheduler `b8abf4e`). Final native suite: 682 passed, one optional private-fixture test skipped. LILYGO Plus, ESP32, C3 and S3 firmware builds and LILYGO LittleFS build all passed. Both feature branches are to be pushed and their remote SHAs verified before reporting completion.
-- [!] G23-5: physical validation. Need: Sid's explicit service-window authorization. No hardware or live-service access occurred during implementation.
+## Deployment
 
-Next: wait for service-window authorization. Do not merge, close issue 23, or infer RF reliability from software tests.
+- [x] G23-1: native group planning, actual TX timing/completion, per-member Stops, safe fallback/replacement, refusal preservation and stale-work cancellation.
+- [x] G23-2: schema-advertised `groupTarget` operation 55, strict input validation, bounded per-connection replay protection and backward compatibility.
+- [x] G23-3: HA native percentages with old-firmware fallback; target commit `34eb042` on the HA fork's `codex/issue-23-group-target` branch.
+- [x] G23-4: integrated image source `c41cfc4` on `codex/issue-23-deployment`, combining group feature `0d07d06` with LCD/category-fix baseline `11ef3d4`. Canonical environment `lilygo-t-embed-cc1101-plus-ui`; enabled local controls retained. Firmware SHA256 `b4a9344a540e68fba6b4e24dffa50fa23c900dbce2ed59de2d591ea0e3f40ebf`, 1,413,136 bytes.
+- [x] G23-5: fresh full 16 MiB backup, portable export, five settings sections, independent NVS/config extraction, partition MD5, both app image integrity and OTA-selection CRC verified. Installed via firmware-only inactive-slot A/B update. NVS, filesystem, bootloader, partition table and prior active firmware were preserved by the update path.
+- [x] G23-6: exact HA `34eb042` installed atomically; all 21 file hashes matched, configuration check passed on HA 2026.10.2, and one restart completed. Three consecutive read-only samples found all three covers available and idle; HA running normally with ESPSomfy loaded. Sid was told both systems are ready for unplugging/manual tests. Monitoring stopped; no motor services were sent.
+- [!] G23-7: user-observed physical comparison. Need: Sid's manual results. No software check proves physical RF reliability.
 
-## Contract and evidence
+## Verification and recovery
 
-`groupTarget` uses logical closed percentage: 0=open, 100=closed. HA sends `100 - HA position`. Ordinary member stored target equals this value independent of `flipPosition` (HA readback cancels the display flip); awnings invert the stored target. Wire direction accounts for `flipCommands`. Native starts affect every member, so mixed direction/already-correct members require independent planning.
+Integrated build: 699 native tests passed, one optional private-fixture skip; 63 web tests passed. UI renderer/runtime/capture/production-adapter, panel/radio SPI and reserved-GPIO harnesses passed. HA: 142 tests passed. Mutation checks detected policy/eligibility/capability/replay regressions. See [flashing procedure](../docs/flashing.md).
 
-HA: 142 tests passed; nine HA contract cases also passed against the actual new firmware fixtures. Web: 63 tests passed. Manifest tooling: 24 tests passed. Board/reserved-GPIO harnesses and release-version script passed. Independent review findings were fixed; mutation checks caught missing eligibility, flag supersession, capability and stale-ID guards.
+The installed device advertises schema `c109d9d8` and operation 55. Read-only checks at 187 seconds uptime found radio initialized at 433.42 MHz, LCD commands enabled, no crash markers, and all five settings sections, entity configuration, estimates and counters unchanged. No restart occurred during observation.
 
-Use `PATH=/var/home/sid/.cache/espsomfy-lilygo/native-toolbin:$PATH` and `/var/home/sid/.cache/espsomfy-lilygo/pio-python/bin/pio` for native tests. The pinned firmware build tool is the same `pio`; use only build targets. See `docs/PROTOCOL.md` for interruptions, initial/Stop completion, partial admission and unsupported configurations.
+Private recovery/deployment evidence is selected by `~/.local/state/espsomfy-lilygo/ISSUE23_CURRENT_INSTALL`. HA preparation and rollback evidence are under `~/.local/state/espsomfy-ha-homekit/deploy-issue23-20261107T030226Z`. Fresh recovery precedes future writes; backups become historical once real commands advance counters. Never restore stale counters unchanged.
 
-Once authorized, capture fresh revisions/configuration, deploy the reviewed firmware and HA revisions with recovery precautions, and compare native UI, HA arrows, HA slider and Apple Home at endpoints and an intermediate percentage. Include repeated endpoints and mid-move Stop/replacement. Record observed motor outcomes separately from estimates and accepted transmissions.
-
-Next ID: G23-6.
+Next ID: G23-8.
