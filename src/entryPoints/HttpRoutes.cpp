@@ -15,6 +15,9 @@
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncJson.h>
+#ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
+#include "GitUpdate.h"
+#endif
 
 // HttpRoutes: the HTTP routes on port 80, the web UI's files and the few that
 // stay HTTP (docs/adr/0006-two-security-modes-eleven-http-routes.md).
@@ -39,7 +42,7 @@ static uint8_t restoreParts(const restore_options_t &opts) {
 // brings them back.  The completion handler schedules it but never runs if the
 // client goes away mid-upload, so make sure the device reboots then too.
 static void onUploadDisconnect() {
-  if(webServer.uploadSuccess || rebootDelay.reboot) return;
+  if(rebootDelay.reboot) return;
   ESP_LOGW(TAG, "Upload abandoned, rebooting");
   if(Update.isRunning()) Update.abort();
   rebootDelay.reboot = true;
@@ -52,6 +55,52 @@ static bool uploadAllowed(AsyncWebServerRequest *request, size_t index) {
   if(index == 0) request->setAttribute("uploadAllowed", webServer.isAuthenticated(request));
   return request->getAttribute("uploadAllowed", false);
 }
+// A manual update holds the same flash gate as GitHub installation. A refused
+// upload must not reach Update.write/end or cause its completion to reboot.
+static bool startManualUpdate(AsyncWebServerRequest *request, int command) {
+  request->setAttribute("updateStarted", false);
+  request->setAttribute("updateComplete", false);
+  if(rebootDelay.reboot) return false;
+#ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
+  if(!gitUpdate.beginManualUpdate()) return false;
+#else
+  if(Update.isRunning()) return false;
+#endif
+  if(!Update.begin(UPDATE_SIZE_UNKNOWN, command)) {
+#ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
+    gitUpdate.endManualUpdate();
+#endif
+    ESP_LOGE(TAG, "Update begin failed");
+    return false;
+  }
+  request->setAttribute("updateStarted", true);
+  somfy.transceiver.end();
+  mqtt.end();
+  request->onDisconnect(onUploadDisconnect);
+  return true;
+}
+
+#ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
+// Browsers on another origin cannot initiate an install even in the None
+// security mode. Scripts without Origin use the normal API-token policy.
+static bool allowGitUpdateControl(AsyncWebServerRequest *request) {
+  const AsyncWebHeader *origin = request->getHeader("Origin");
+  const AsyncWebHeader *host = request->getHeader("Host");
+  if(!originMatchesHost(origin ? origin->value().c_str() : nullptr, host ? host->value().c_str() : nullptr)) {
+    request->send(403, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Update control requires the controller's own page.\"}"));
+    return false;
+  }
+  return true;
+}
+static void sendGitUpdateStatus(AsyncWebServerRequest *request, int code) {
+  AsyncJsonResponse *response = new AsyncJsonResponse();
+  gitUpdate.status(response->getRoot().to<JsonObject>());
+  response->setCode(code);
+  response->addHeader("Cache-Control", "no-store");
+  response->setLength();
+  request->send(response);
+}
+#endif
 // Every route is an exact match.  The library's default also takes any path
 // below the route, and /backup/a.js then passed the token check as a web asset.
 void registerHttpRoutes(AsyncWebServer &server) {
@@ -161,6 +210,26 @@ void registerHttpRoutes(AsyncWebServer &server) {
       }
     });
 
+#ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
+  // These exact routes use the same API-token middleware as manual updates.
+  // Mutations are POST only; no token or release URL is accepted in a query.
+  server.on(AsyncURIMatcher::exact("/githubUpdate"), HTTP_GET, [](AsyncWebServerRequest *request) {
+    sendGitUpdateStatus(request, 200);
+  });
+  server.on(AsyncURIMatcher::exact("/githubUpdate/check"), HTTP_POST, [](AsyncWebServerRequest *request) {
+    if(!allowGitUpdateControl(request)) return;
+    sendGitUpdateStatus(request, gitUpdate.requestCheck() ? 202 : 409);
+  });
+  server.on(AsyncURIMatcher::exact("/githubUpdate/install"), HTTP_POST, [](AsyncWebServerRequest *request) {
+    if(!allowGitUpdateControl(request)) return;
+    sendGitUpdateStatus(request, gitUpdate.requestInstall() ? 202 : 409);
+  });
+  server.on(AsyncURIMatcher::exact("/githubUpdate/cancel"), HTTP_POST, [](AsyncWebServerRequest *request) {
+    if(!allowGitUpdateControl(request)) return;
+    sendGitUpdateStatus(request, gitUpdate.requestCancel() ? 202 : 409);
+  });
+#endif
+
   // updateFirmware - file upload
   server.on(AsyncURIMatcher::exact("/updateFirmware"), HTTP_POST,
     [](AsyncWebServerRequest *request) {
@@ -169,8 +238,12 @@ void registerHttpRoutes(AsyncWebServer &server) {
         request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"This device has no OTA slot, so its firmware is flashed over USB.\"}"));
         return;
       }
+      if(!request->getAttribute("updateStarted", false)) {
+        request->send(409, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Upload not started: another update is active, initialization failed, or no file was sent.\"}"));
+        return;
+      }
       // errorString() is one of the updater's fixed messages, none with a quote.
-      if(Update.hasError())
+      if(Update.hasError() || !request->getAttribute("updateComplete", false))
         request->send(500, _encoding_json, String("{\"status\":\"ERROR\",\"desc\":\"Error updating firmware: ") + Update.errorString() + "\"}");
       else
         request->send(200, _encoding_json, "{\"status\":\"SUCCESS\",\"desc\":\"Successfully updated firmware\"}");
@@ -181,16 +254,9 @@ void registerHttpRoutes(AsyncWebServer &server) {
       if(!uploadAllowed(request, index) || !settings.hasOtaSlot) return;
       if(index == 0) {
         webServer.uploadSuccess = false;
-        ESP_LOGI(TAG, "Update: %s", filename.c_str());
-        if(!Update.begin(UPDATE_SIZE_UNKNOWN)) {
-          ESP_LOGE(TAG, "Update begin failed");
-        }
-        else {
-          somfy.transceiver.end();
-          mqtt.end();
-          request->onDisconnect(onUploadDisconnect);
-        }
+        if(!startManualUpdate(request, U_FLASH)) return;
       }
+      if(!request->getAttribute("updateStarted", false)) return;
       if(len > 0) {
         if(Update.write(data, len) != len) {
           ESP_LOGE(TAG, "Upload of %s aborted invalid size %d", filename.c_str(), len);
@@ -201,6 +267,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
         if(Update.end(true)) {
           ESP_LOGI(TAG, "Update Success: %u Rebooting...", index + len);
           webServer.uploadSuccess = true;
+          request->setAttribute("updateComplete", true);
         }
         else {
           ESP_LOGE(TAG, "Update end failed");
@@ -212,7 +279,11 @@ void registerHttpRoutes(AsyncWebServer &server) {
   // updateApplication - file upload
   server.on(AsyncURIMatcher::exact("/updateApplication"), HTTP_POST,
     [](AsyncWebServerRequest *request) {
-      if(Update.hasError())
+      if(!request->getAttribute("updateStarted", false)) {
+        request->send(409, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Upload not started: another update is active, initialization failed, or no file was sent.\"}"));
+        return;
+      }
+      if(Update.hasError() || !request->getAttribute("updateComplete", false))
         request->send(500, _encoding_json, String("{\"status\":\"ERROR\",\"desc\":\"Error updating application: ") + Update.errorString() + "\"}");
       else
         request->send(200, _encoding_json, "{\"status\":\"SUCCESS\",\"desc\":\"Successfully updated application\"}");
@@ -223,16 +294,9 @@ void registerHttpRoutes(AsyncWebServer &server) {
       if(!uploadAllowed(request, index)) return;
       if(index == 0) {
         webServer.uploadSuccess = false;
-        ESP_LOGI(TAG, "Update: %s", filename.c_str());
-        if(!Update.begin(UPDATE_SIZE_UNKNOWN, U_SPIFFS)) {
-          ESP_LOGE(TAG, "Update begin failed");
-        }
-        else {
-          somfy.transceiver.end();
-          mqtt.end();
-          request->onDisconnect(onUploadDisconnect);
-        }
+        if(!startManualUpdate(request, U_SPIFFS)) return;
       }
+      if(!request->getAttribute("updateStarted", false)) return;
       if(len > 0) {
         if(Update.write(data, len) != len) {
           ESP_LOGE(TAG, "Upload of %s aborted invalid size %d", filename.c_str(), len);
@@ -242,6 +306,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
       if(final) {
         if(Update.end(true)) {
           webServer.uploadSuccess = true;
+          request->setAttribute("updateComplete", true);
           ESP_LOGI(TAG, "Update Success: %u Rebooting...", index + len);
           somfy.commit();
         }

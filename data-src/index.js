@@ -496,6 +496,7 @@ function startSocket() {
         somfy.loadSomfy();
         mqtt.loadMQTT();
         showStatus(proto.model.status);
+        firmware.refreshGitUpdate();
         if (first && ui.isConfigOpen()) subscribeConfigFeeds(true);
     });
     let lost = (refused) => {
@@ -4073,7 +4074,16 @@ class MQTT {
 var mqtt = new MQTT();
 class Firmware {
     initialized = false;
-    init() { this.initialized = true; }
+    init() {
+        this.initialized = true;
+        this.gitUpdate = new GitUpdateView({
+            document, fetch: (url, opts) => fetch(url, opts),
+            token: () => security.apiKey, confirm: (message) => window.confirm(message),
+            onUnauthorized: () => security.tokenRefused()
+        });
+        if (protoSynced) this.refreshGitUpdate();
+    }
+    refreshGitUpdate() { if (this.gitUpdate) this.gitUpdate.refresh(); }
     isMobile() {
         let agt = navigator.userAgent.toLowerCase();
         return /Android|iPhone|iPad|iPod|BlackBerry|BB|PlayBook|IEMobile|Windows Phone|Kindle|Silk|Opera Mini/i.test(navigator.userAgent);
