@@ -29,6 +29,12 @@
    - Need: Sid must return the device; he explicitly said not to flash or use it because another agent is using it. No live controller access or actuation was performed during this fix.
    - Next: notify Sid the build is ready. Upon return, capture fresh backup/state and revalidate current layout/firmware before any authorized installation. Do not rely on stale preflight/counters from the previous update. Offline artifact pointer: `~/.local/state/espsomfy-lilygo/LATEST_UI_COMMAND_FIX_BUILD`.
 
+4. [-] Add scrollable Details versions and battery telemetry offline.
+   - Details now shows compiled Firmware and installed Application version separately, with six visible rows and wheel scrolling through ten total. Removed the redundant issue/build label from Details. Version changes participate in scene hashing. Missing values remain explicit.
+   - New details-navigation regression failed before implementation; new renderer checks verify both version strings and scrolling change pixels. Full native run: 656 passed plus optional skip; UI/simple-status builds and UI harnesses passed before final removal of the redundant row.
+   - Sid also requested functional battery percentage. Manufacturer documents BQ27220 fuel gauge at 0x55 and BQ25896 charger at 0x6B, SDA8/SCL18. Implement read-only gauge telemetry; no charger configuration changes. Device remains reserved for another agent; all work offline.
+   - Next: finish final Details checks/commit, then add tested battery reader and refreshed offline build. Do not access/flash device until Sid returns it.
+
 ## Reproduction and limits
 
 Use `git-agent` / `gh-agent`; GitHub must be `r-sidshaytay`. No upstream publication or issue closure. Host builds use pinned `~/.cache/espsomfy-lilygo/pio-python/bin/pio`, with build/libdeps under `build/`; native C++ checks use the existing `rocm-7.2.3` container. Task-owned USB/status observers were stopped; no background task is required. Power telemetry, induced fallback hardware faults and on-air responsiveness remain unverified. Do not restore stale counters or whole raw images for routine firmware rollback.

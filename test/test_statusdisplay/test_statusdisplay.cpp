@@ -17,7 +17,7 @@ static void states() {
   Page p;
   format(s, p);
   TEST_ASSERT_NOT_NULL(strstr(p.lines[0], "BOOT"));
-  TEST_ASSERT_NOT_NULL(strstr(p.lines[1], "unavailable"));
+  TEST_ASSERT_EQUAL_STRING("Power: not monitored", p.lines[1]);
   TEST_ASSERT_NOT_NULL(strstr(p.lines[2], "disconnected"));
   TEST_ASSERT_NOT_NULL(strstr(p.lines[4], "starting"));
   s.running = true; s.link = Link::connected; strcpy(s.address, "192.0.2.1");
