@@ -32,6 +32,11 @@ int main() {
   unsigned before = SPI.bytes;
   assert(panel.row(0, "BOOT"));
   assert(SPI.bytes - before == 11531); // 18 scanlines plus address/command bytes
+  uint8_t stripe[2560] = {};
+  before = SPI.bytes; assert(panel.band(166,4,stripe,sizeof(stripe)));
+  assert(SPI.bytes-before==2571);
+  assert(!panel.band(168,4,stripe,sizeof(stripe)));
+  assert(!panel.band(0,4,stripe,1));
   before = SPI.transactions; busy = true;
   assert(!panel.row(1, "offline")); assert(SPI.transactions == before);
   busy = false; assert(!panel.row(9, "out of bounds"));

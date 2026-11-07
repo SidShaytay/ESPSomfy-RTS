@@ -11,6 +11,9 @@
 #include "BoardProfile.h"
 #include "DisplayBus.h"
 #include "StatusDisplay.h"
+#ifdef ESPSOMFY_LOCAL_UI
+#include "LocalUiRuntime.h"
+#endif
 
 namespace StatusPanel {
 using namespace StatusDisplay;
@@ -23,7 +26,7 @@ class Panel : public Output {
   uint16_t pixels[320] = {};
   uint8_t phase = 0, clearY = 0, light = 0;
   uint32_t next = 0, started = 0;
-  bool began = false, busFailed = false;
+  bool began = false, busFailed = false, requireText = true;
   void command(uint8_t value, const uint8_t *data = nullptr, size_t size = 0) {
     digitalWrite(dc, LOW); SPI.transfer(value);
     digitalWrite(dc, HIGH);
@@ -58,11 +61,14 @@ class Panel : public Output {
   }
 public:
   uint32_t maxRowUs = 0, maxBusUs = 0, skipped = 0;
+  void requireFallbackText(bool required) {requireText=required;}
   Result initialize(uint32_t now) override {
+    if(busFailed) return Result::failed;
+    if(phase==20 && clearY==170) return Result::ready;
     if(!began) {
       began = true; started = now;
       pinMode(dc, OUTPUT); pinMode(wake, INPUT_PULLUP);
-      if(!canvas.getBuffer() || !ledcAttach(BoardProfile::backlight, 5000, 8)) return Result::failed;
+      if((requireText && !canvas.getBuffer()) || !ledcAttach(BoardProfile::backlight, 5000, 8)) return Result::failed;
       ledcWrite(BoardProfile::backlight, 0);
     }
     if(uint32_t(now - started) > 5000) return Result::failed;
@@ -112,17 +118,39 @@ public:
     else if(micros() - start > maxRowUs) maxRowUs = micros() - start;
     return done;
   }
+  bool band(uint8_t y,uint8_t rows,const uint8_t *data,size_t bytes) {
+    if(!data || !rows || rows>4 || y+rows>170 || bytes!=size_t(rows)*320*2 || busFailed)return false;
+    const uint32_t start=micros();
+    const bool done=transfer([&] {window(y,rows);SPI.writeBytes(data,bytes);});
+    if(!done)++skipped;
+    else if(micros()-start>maxRowUs)maxRowUs=micros()-start;
+    return done;
+  }
   void brightness(uint8_t value) override {
     if(busFailed) value = 0;
     if(value != light) { light = value; ledcWrite(BoardProfile::backlight, value); }
   }
 };
 Panel panel;
+#ifdef ESPSOMFY_LOCAL_UI
+Session session(panel,20000);
+#else
 Session session(panel);
+#endif
+#ifdef ESPSOMFY_LOCAL_UI
+LocalUi::Runtime ui;
+static bool sendBand(uint8_t y,uint8_t rows,const uint8_t *data,size_t bytes) {return panel.band(y,rows,data,bytes);}
+static void light(uint8_t value) {panel.brightness(value);}
+#endif
 }
 // Implemented in the adapter: this driver has no command/model dependency.
 Snapshot snapshot(bool running);
 void begin() {
+#ifdef ESPSOMFY_LOCAL_UI
+  ui.begin();
+  panel.requireFallbackText(ui.failure()!=LocalUi::GraphicsFailure::none);
+  session.setBrightness(ui.brightnessPreference());
+#endif
   // Show BOOT while the rest of setup has not yet run. No radio task exists.
   const uint32_t start = millis();
   while(millis() - start < 1200) { loop(false); delay(1); }
@@ -134,11 +162,21 @@ void loop(bool running) {
     s = snapshot(running);
     sampled = millis();
   }
-  session.tick(millis(), s, digitalRead(wake) == LOW);
+#ifdef ESPSOMFY_LOCAL_UI
+  const auto initialized=panel.initialize(millis());
+  if(initialized==Result::failed) {panel.brightness(0);return;}
+  if(initialized==Result::pending)return;
+  s.graphicsFailure=uint8_t(ui.failure());
+  if(!ui.tick(millis(),s,digitalRead(wake)==LOW,sendBand,light))
+#endif
+    session.tick(millis(), s, digitalRead(wake) == LOW);
   // Private diagnostics deliberately contain only memory/timing, never model data.
   static uint32_t logged = 0;
   if(millis() - logged >= 30000) {
     logged = millis();
+#ifdef ESPSOMFY_LOCAL_UI
+    Serial.printf("LCD UI PSRAM=%u paintUs=%lu fallback=%u\n", unsigned(ui.failure()==LocalUi::GraphicsFailure::none?LocalUi::graphicsBytes:0), (unsigned long)ui.maxPaintUs, unsigned(ui.failure()));
+#endif
     Serial.printf("LCD internal=%u PSRAM=%u maxRowUs=%lu maxBusUs=%lu busySkips=%lu\n",
       heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
       (unsigned long)panel.maxRowUs, (unsigned long)panel.maxBusUs, (unsigned long)panel.skipped);
