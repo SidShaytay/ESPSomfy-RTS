@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include "ShadeRequests.h"
 #include "ProtoFrame.h"
+#include "LoopQueueGate.h"
+#include "RebootRequest.h"
 
 // The one queue through which other tasks hand work to loop(), which alone
 // changes the shade model (docs/adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md).
@@ -70,7 +72,22 @@ class LoopQueue {
     bool submit(const loop_item_t &item, bool first = false);
     // Runs the waiting items in order.  Only from loop().
     void drain();
+    // loop() only: refuse a snapshot until every accepted request has run,
+    // then reject new requests until preparation fails or the device reboots.
+    bool freezeIfEmpty();
+    void resumeAdmission();
+    // Async upload completion requests a final model save; the loop consumes
+    // it immediately before reboot, even when its normal queue is backed up.
+    void requestStateCommit() { this->stateCommitRequested.store(true); }
+    void commitBeforeReboot();
+    void requestReboot(uint32_t delayMs);
+    bool rebootRequested() const { return this->rebootRequest.requested(); }
+    // loop() alone updates rebootDelay from the atomic mailbox.
+    void applyRequestedReboot();
   private:
     void *queue = nullptr;
+    LoopQueueGate admission;
+    std::atomic<bool> stateCommitRequested{false};
+    RebootRequest rebootRequest;
 };
 #endif

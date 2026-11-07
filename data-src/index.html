@@ -240,6 +240,21 @@
                                 <span id="spanUptime" style="text-align:right;width:120px;"></span>
                             </div>
                         </div>
+                        <div id="divGitUpdate" style="display:none;padding:12px;" aria-live="polite">
+                            <div><strong>Verified GitHub firmware update</strong></div>
+                            <div>Installed: <span id="spanGitInstalled"></span></div>
+                            <div>Available: <span id="spanGitAvailable"></span></div>
+                            <div>Source: <span id="spanGitSource"></span></div>
+                            <div id="spanGitCompatibility"></div>
+                            <div>Status: <span id="spanGitState"></span></div>
+                            <progress id="progressGitUpdate" max="100" value="0" aria-label="Firmware update progress"></progress>
+                            <div id="spanGitError" role="alert"></div>
+                            <p>Firmware only. Settings and web application stay in place. Install during an authorized service window after taking a fresh backup.</p>
+                            <p id="spanGitFilesystemPolicy"></p>
+                            <button id="btnGitCheck" type="button" onclick="firmware.gitUpdate.command('check');">Check / Retry</button>
+                            <button id="btnGitInstall" type="button" disabled onclick="firmware.gitUpdate.command('install');">Install firmware</button>
+                            <button id="btnGitCancel" type="button" disabled onclick="firmware.gitUpdate.command('cancel');">Cancel download</button>
+                        </div>
                         <div class="button-container">
                             <button id="btnUpdateFirmware" type="button" onclick="firmware.updateFirmware();">
                                 Update Firmware

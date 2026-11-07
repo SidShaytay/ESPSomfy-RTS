@@ -2,7 +2,7 @@
 #include <Arduino.h>
 
 namespace BoardProfile {
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS) || defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
 #if !defined(CONFIG_IDF_TARGET_ESP32S3)
 #error "The LILYGO T-Embed CC1101 Plus profile requires an ESP32-S3 target"
 #endif

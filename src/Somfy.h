@@ -105,6 +105,11 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     bool isIdle() const { return this->behaviour.isIdle(); }
     bool hasPendingGroupStart() const { return this->behaviour.hasPendingGroupStart(); }
     bool hasGroupTargetWork() const { return this->behaviour.hasGroupTargetWork(); }
+    bool readyForUpdate() const {
+      const bool relayMoving = this->proto == radio_proto::GP_Relay && this->gpioDir != 0 &&
+        this->shadeType != shade_types::drycontact && this->shadeType != shade_types::drycontact2;
+      return this->gpioRelease == 0 && !relayMoving && this->behaviour.readyForUpdate();
+    }
     uint8_t getFlags() override;
     // Sets the setting and state bits from a saved or sent flags byte.
     void setFlags(uint8_t flags);

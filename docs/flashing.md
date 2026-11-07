@@ -2,7 +2,7 @@
 
 Use this procedure to back up an existing controller and update its firmware while preserving configuration, rolling codes and the previous application. A/B means two application slots: the updater writes the inactive one and selects it for the next boot.
 
-The normal path is a firmware-only A/B update on the **same verified partition layout**. It does not update the web filesystem. First installation, a layout change, a board without a second app slot, or recovery from an unreachable application needs a separate board-specific USB plan.
+The normal path is a firmware-only A/B update on the **same verified partition layout**. Initial deployment of the verified updater also requires its exact web-asset manifest; an older filesystem without it needs a separate state-preserving bootstrap plan, not a firmware-only upload. It does not update the web filesystem. First installation, a layout change, a board without a second app slot, or recovery from an unreachable application needs a separate board-specific USB plan.
 
 Run the blocks in order in the same Bash session from the repository root. Stop on any failure; do not treat a partial capture as a recovery set. Tool setup requires `uv` and network access; it installs only into your user-owned cache.
 
@@ -119,11 +119,11 @@ The upload stops radio/MQTT operation and schedules a reboot. Keep stable power 
 
 Identify the new boot by its exact firmware image/ELF identity, app slot and restarted uptime, not just the version label. Allow the updater's delayed reboot; exclude an early response from the old application.
 
-When an image is pending OTA validation, this firmware confirms it once **uptime is at least 60,000 ms and the network is connected**. This is not proof of radio operation or 60 continuous seconds of connectivity. Verify the confirmation result and stable uptime, then observe longer for unexpected restarts, watchdogs or memory loss.
+For verified GitHub-update profiles, a pending image must pass 60 continuous seconds of the [stronger boot-health checks](github-updates.md#preserve-controller-state-and-recovery), including matching web assets and bootloader, expected radio availability, responsive loop servicing and internal-memory headroom. Legacy profiles confirm once uptime is at least 60,000 ms with the network connected. Neither policy proves physical RF or motor behavior. Verify the confirmation result and stable uptime, then observe longer for unexpected restarts, watchdogs or memory loss.
 
 Compare saved and current configuration, identities, membership, calibration and counters. Investigate differences; do not overwrite newer counters to force equality. Verify protocol synchronization and the expected schema capability, radio initialization/register/RX status, Wi-Fi/listener availability, and read-only HA entity availability. For LCD builds also check command-lock status and framebuffer/fallback health. These checks establish software state, not physical motor movement or RF reliability.
 
-Firmware and HA must both support an added operation before HA can use it. For native group percentages, deploy the matching integration with the separately authorized HA update/restart procedure, retain its rollback files, and verify advertised `groupTarget` support. Do not issue HA services or use Apple Home as a connectivity probe.
+Firmware and HA must both support an added operation before HA can use it. If an update requires a matching integration change, use the separately authorized HA update/restart procedure, retain its rollback files, and verify the operation in the advertised schema. Do not issue HA services or use Apple Home as a connectivity probe.
 
 Restore any paused writers only after verification, recording their prior state. Refresh recovery state after subsequent real commands. Record candidate/previous hashes, slots, comparisons, confirmation and untested items in the task/deployment record; keep raw evidence private.
 

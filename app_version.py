@@ -30,3 +30,32 @@ full_version_str = f'\\"v{version}\\"'
 env.Append(CPPDEFINES=[
     ("FW_VERSION", full_version_str)
 ])
+# Exact-board update identity is derived before compilation and checked again by
+# the release packager. A dirty/untagged build is explicitly a development build.
+from pathlib import Path
+import sys
+sys.path.insert(0, os.path.join(project_dir, "tools"))
+from update_profiles import load_profile, profile_defines
+update_profile = load_profile(Path(project_dir), env.get("PIOENV"))
+if update_profile:
+    import json
+    from lilygo_manifest import source_record
+    from update_identity import identity, tags_at_head, git
+    from update_assets import verify_manifest
+    source = source_record(Path(project_dir))
+    app_compat = verify_manifest(Path(project_dir) / "data")
+    build_identity = identity(source, app_compat, tags_at_head(project_dir), update_profile)
+    for name, value in profile_defines(update_profile):
+        env.Append(CPPDEFINES=[(name, '\\\"' + value + '\\\"' if isinstance(value, str) else value)])
+    source_epoch = int(git(project_dir, "show", "-s", "--format=%ct", "HEAD"))
+    if source_epoch < 1577836800:
+        raise ValueError("invalid source timestamp for verified update clock floor")
+    env.Append(CPPDEFINES=[("ESPSOMFY_SOURCE_EPOCH", source_epoch)])
+    for name, value in (("ESPSOMFY_SOURCE_SHA", build_identity["source_sha"]),
+                        ("ESPSOMFY_RELEASE_TAG", build_identity["version"]),
+                        ("ESPSOMFY_APP_COMPAT", build_identity["app_compat"])):
+        env.Append(CPPDEFINES=[(name, '\\\"' + value + '\\\"')])
+    build_dir = Path(env.subst("$BUILD_DIR"))
+    build_dir.mkdir(parents=True, exist_ok=True)
+    (build_dir / "update-source.json").write_text(
+        json.dumps({"source": source, "identity": build_identity}, sort_keys=True, indent=2) + "\n")

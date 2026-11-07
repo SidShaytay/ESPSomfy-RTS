@@ -396,6 +396,12 @@ float ShadeBehaviour::p_myTiltPos(float pos) {
 bool ShadeBehaviour::isIdle() const { 
   return this->isAtTarget() && this->s.direction == 0 && this->s.tiltDirection == 0; 
 }
+bool ShadeBehaviour::readyForUpdate() const {
+  return this->isIdle() && !(this->lastFrame.await && !this->lastFrame.processed) &&
+    !this->settingMyPos && !this->settingPos && !this->settingTiltPos &&
+    !this->tx.hold.held() && !this->tx.stopTicket && !this->tx.myTicket &&
+    !this->hasPendingGroupStart() && !this->hasGroupTargetWork();
+}
 void ShadeBehaviour::onWaitingFrame(uint32_t now) {
   if(this->shadeId == 255) {
     this->lastFrame.await = 0; 

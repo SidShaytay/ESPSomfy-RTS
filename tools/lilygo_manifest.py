@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 import struct
 import subprocess
+from update_identity import git
 
 ENV = 'lilygo-t-embed-cc1101-plus'
 BASELINE = {'repository': 'https://github.com/cjkas/ESPSomfy-RTS',
@@ -164,7 +165,8 @@ def build_evidence(out):
 def artifact_manifest(out):
     """Derive sizes/hashes from bytes, rejecting incompatible artifacts first."""
     allowed = {name for name, _, _ in SEGMENTS} | {
-        'firmware.elf', 'resolved-config.json', 'compiler-metadata.json', 'flash-manifest.json'}
+        'firmware.elf', 'resolved-config.json', 'compiler-metadata.json', 'flash-manifest.json',
+        'update-source.json'}
     for path in out.iterdir():
         if path.name not in allowed or not path.is_file() or path.is_symlink():
             raise ValueError(f'unexpected artifact package entry: {path.name}')
@@ -218,17 +220,16 @@ def validate(manifest, out):
 
 
 def source_record(source):
-    def git(*args):
-        return subprocess.check_output(['git', '-C', str(source), *args], text=True).strip()
-    subprocess.run(['git', '-C', str(source), 'merge-base', '--is-ancestor',
-                    BASELINE['revision'], 'HEAD'], check=True)
-    inputs = [*source.glob('*.py'), source / 'platformio.ini']
+    git(source, 'merge-base', '--is-ancestor', BASELINE['revision'], 'HEAD')
+    inputs = [*source.glob('*.py'), *source.glob('*.csv'), source / 'platformio.ini']
+    if (source / 'update-profiles.json').is_file():
+        inputs.append(source / 'update-profiles.json')
     for directory in ('src', 'lib', 'data-src', 'tools'):
         inputs.extend(p for p in (source / directory).rglob('*')
                       if p.is_file() and '__pycache__' not in p.parts)
     hashes = {str(p.relative_to(source)): digest(p.read_bytes()) for p in sorted(inputs)}
-    return {'revision': git('rev-parse', 'HEAD'),
-            'dirty': bool(git('status', '--porcelain', '--untracked-files=normal')),
+    return {'revision': git(source, 'rev-parse', 'HEAD'),
+            'dirty': bool(git(source, 'status', '--porcelain', '--untracked-files=normal')),
             'input_sha256': hashes}
 
 

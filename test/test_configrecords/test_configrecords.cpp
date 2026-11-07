@@ -3,6 +3,7 @@
 #include <sstream>
 #include <string>
 #include "ConfigRecords.h"
+#include "UpdateSnapshot.h"
 
 void setUp() {}
 void tearDown() {}
@@ -831,8 +832,31 @@ static void test_a_real_backup_reads_to_its_end() {
   TEST_ASSERT_EQUAL(ss.str().size(), r.position());
 }
 
+static void test_update_snapshot_reserve_covers_the_complete_largest_model() {
+  config_header_t h;
+  h.version = SHADE_HDR_VER; h.length = SHADE_HDR_SIZE;
+  h.roomRecords = SOMFY_MAX_ROOMS; h.roomRecordSize = ROOM_REC_SIZE;
+  h.shadeRecords = SOMFY_MAX_SHADES; h.shadeRecordSize = SHADE_REC_SIZE;
+  h.groupRecords = SOMFY_MAX_GROUPS; h.groupRecordSize = GROUP_REC_SIZE;
+  h.repeaterRecords = 1; h.repeaterRecordSize = REPEATER_REC_SIZE;
+  ConfigCounter counter;
+  writeConfigHeader(counter, h);
+  room_record_t room;
+  for(unsigned n = 0; n < SOMFY_MAX_ROOMS; ++n) writeRoomRecord(counter, room);
+  for(unsigned n = 0; n < SOMFY_MAX_SHADES; ++n) writeShadeRecord(counter, aShade());
+  for(unsigned n = 0; n < SOMFY_MAX_GROUPS; ++n) writeGroupRecord(counter, aGroup());
+  uint32_t repeaters[SOMFY_MAX_REPEATERS] = {};
+  writeRepeaterRecord(counter, repeaters);
+  TEST_ASSERT_EQUAL_UINT32(expectedFileBytes(h), counter.bytes);
+  TEST_ASSERT_EQUAL_UINT32(UPDATE_SNAPSHOT_CAPACITY, counter.bytes);
+  TEST_ASSERT_FALSE(updateSnapshotComplete(h, counter.bytes - 1));
+  TEST_ASSERT_TRUE(updateSnapshotComplete(h, counter.bytes));
+  TEST_ASSERT_FALSE(updateSnapshotComplete(h, counter.bytes + 1));
+}
+
 int main(int argc, char **argv) {
   UNITY_BEGIN();
+  RUN_TEST(test_update_snapshot_reserve_covers_the_complete_largest_model);
   RUN_TEST(test_import_rejects_unsupported_shade_and_group_lengths);
   RUN_TEST(test_each_record_is_the_size_the_header_declares);
   RUN_TEST(test_a_counter_measures_what_a_writer_writes);

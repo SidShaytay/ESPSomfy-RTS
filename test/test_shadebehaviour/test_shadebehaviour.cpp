@@ -769,6 +769,43 @@ static void test_ordinary_group_start_refuses_priority_override_until_finished()
   TEST_ASSERT_TRUE(r.b.moveToGroupTarget(20,r.now));
   ASSERT_CMD(somfy_commands::My,r.lastSent().cmd);
 }
+static void test_update_waits_for_shared_group_start_even_at_idle_endpoint() {
+  Rig r;
+  TEST_ASSERT_TRUE(r.b.isIdle());
+  TEST_ASSERT_TRUE(r.b.readyForUpdate());
+  r.b.observeGroupStart(81);
+  TEST_ASSERT_TRUE(r.b.isIdle());
+  TEST_ASSERT_FALSE(r.b.readyForUpdate());
+  r.event(tx_event_t::started,81);
+  TEST_ASSERT_FALSE(r.b.readyForUpdate());
+  r.event(tx_event_t::finished,81);
+  TEST_ASSERT_TRUE(r.b.readyForUpdate());
+}
+static void test_update_waits_for_unprocessed_remote_action() {
+  Rig r;
+  r.b.setPosition(50, 0);
+  r.b.restore(50, 0, 25, -1);
+  TEST_ASSERT_TRUE(r.b.readyForUpdate());
+  r.press(somfy_commands::My);
+  TEST_ASSERT_TRUE(r.b.isIdle());
+  TEST_ASSERT_FALSE(r.b.readyForUpdate());
+  r.wait(510);
+  TEST_ASSERT_FALSE(r.b.readyForUpdate()); // favorite move now active
+  r.b.setPosition(25, 0);
+  r.b.tick(r.now);
+  TEST_ASSERT_TRUE(r.b.readyForUpdate());
+}
+static void test_update_ignores_already_processed_wait_timestamp() {
+  Rig r;
+  r.lastFrame.await = r.now + 500;
+  r.lastFrame.processed = true;
+  TEST_ASSERT_TRUE(r.b.readyForUpdate());
+  r.lastFrame.processed = false;
+  TEST_ASSERT_FALSE(r.b.readyForUpdate());
+  r.lastFrame.await = 0;
+  TEST_ASSERT_TRUE(r.b.readyForUpdate());
+}
+
 int main(int argc, char **argv) {
   UNITY_BEGIN();
   RUN_TEST(test_ordinary_group_start_refuses_priority_override_until_finished);
@@ -788,6 +825,10 @@ int main(int argc, char **argv) {
   RUN_TEST(test_group_target_waits_then_stops_each_member_at_own_time);
   RUN_TEST(test_group_target_drop_cancels_without_stop);
   RUN_TEST(test_group_command_cancels_old_target_stop);
+
+  RUN_TEST(test_update_waits_for_shared_group_start_even_at_idle_endpoint);
+  RUN_TEST(test_update_waits_for_unprocessed_remote_action);
+  RUN_TEST(test_update_ignores_already_processed_wait_timestamp);
   RUN_TEST(test_down_waits_for_the_radio_then_travels);
   RUN_TEST(test_refused_command_moves_nothing);
   RUN_TEST(test_hold_times_out_without_a_radio_event);
