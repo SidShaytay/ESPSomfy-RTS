@@ -47,6 +47,7 @@ inline std::function<void()> onYield;
 inline std::function<void()> onRead;
 inline std::vector<uint8_t> written;
 inline size_t psramPhysical=8388608;
+inline size_t flashPhysical=GitUpdateProfile::flashBytes;
 inline std::map<std::string,std::string> seenAccept;
 struct Response {
   int status=200;
@@ -71,7 +72,7 @@ inline size_t esp_psram_get_size() { return Fake::psramPhysical; }
 struct FakeEsp {
   uint32_t getPsramSize() const { return 8300000; }
   uint32_t getFreePsram() const { return 7000000; }
-  uint32_t getFlashChipSize() const { return GitUpdateProfile::flashBytes; }
+  uint32_t getFlashChipSize() const { return Fake::flashPhysical; }
 };
 inline FakeEsp ESP;
 struct String {

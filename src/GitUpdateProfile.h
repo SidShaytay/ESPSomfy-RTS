@@ -49,14 +49,16 @@ constexpr uint16_t chipId=ESPSOMFY_UPDATE_CHIP_ID;
 #if defined(ESPSOMFY_GITHUB_UPDATES) && !defined(GIT_UPDATE_HOST_TEST)
 #if defined(CONFIG_IDF_TARGET_ESP32S3)
 static_assert(chipId==9,"Update profile chip differs from compiled ESP32-S3 SDK");
+#elif defined(CONFIG_IDF_TARGET_ESP32C5)
+static_assert(chipId==23,"Update profile chip differs from compiled ESP32-C5 SDK");
 #elif defined(CONFIG_IDF_TARGET_ESP32P4)
 static_assert(chipId==18,"Update profile chip differs from compiled ESP32-P4 SDK");
 #else
-#error "Verified update profiles require a reviewed ESP32-S3 or ESP32-P4 target"
+#error "Verified update profiles require a reviewed ESP32-S3, ESP32-C5 or ESP32-P4 target"
 #endif
 #endif
 static_assert(psramBytes>=8u*1024*1024,"Verified updates require at least 8 MiB PSRAM");
-static_assert(chipId==9 || chipId==18,"Only reviewed ESP32-S3 and ESP32-P4 image formats are enabled");
+static_assert(chipId==9 || chipId==18 || chipId==23,"Only reviewed ESP32-S3, ESP32-C5 and ESP32-P4 image formats are enabled");
 static_assert(app0Address>=nvsAddress+nvsBytes && app1Address>=app0Address+appBytes,
   "Update application slots must not overlap NVS or each other");
 static_assert(fsAddress>=app1Address+appBytes && flashBytes>=fsAddress+fsBytes,

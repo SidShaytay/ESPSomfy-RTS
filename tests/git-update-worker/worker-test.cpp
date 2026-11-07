@@ -53,7 +53,7 @@ static void reset() {
   Fake::failBegin=false;Fake::failWrite=false;Fake::failEnd=false;Fake::failActivate=false;Fake::allocationFail=false;
   Fake::cancelledDuringPrepare=false;Fake::cancelDuringWrite=false;Fake::cancelAcceptedDuringWrite=false;
   Fake::prepareCalls=0;Fake::otaBegins=0;Fake::otaWrites=0;Fake::otaEnds=0;Fake::otaActivations=0;Fake::otaAborts=0;
-  Fake::autoLoop=true;Fake::onYield=nullptr;Fake::onRead=nullptr;Fake::psramPhysical=8388608;
+  Fake::autoLoop=true;Fake::onYield=nullptr;Fake::onRead=nullptr;Fake::psramPhysical=8388608;Fake::flashPhysical=GitUpdateProfile::flashBytes;
   Fake::written.clear();Fake::responses.clear();Fake::urls.clear();Fake::seenAccept.clear();
   rebootDelay={};nextPartition={GitUpdateProfile::app1Address,GitUpdateProfile::appBytes};fsPartition={GitUpdateProfile::fsAddress,GitUpdateProfile::fsBytes};fakeImageState=ESP_OTA_IMG_VALID;
   fixtures();gitUpdate.begin(prepare);
@@ -121,11 +121,22 @@ static void authenticated_but_incompatible_images_never_write() {
   JsonDocument release;CHECK(!deserializeJson(release,Fake::responses[apiUrl].body));
   release["assets"][0]["digest"]="sha256:"+changedDigest;Fake::responses[apiUrl].body=stringify(release);
   installNow();CHECK(currentState()=="error");CHECK(Fake::otaBegins==0);
+  reset();available();
+  esp_image_header_t wrongChip;memcpy(&wrongChip,Fake::responses[firmwareUrl].body.data(),sizeof(wrongChip));
+  wrongChip.chip_id=GitUpdateProfile::chipId==9 ? 18 : 9;
+  memcpy(Fake::responses[firmwareUrl].body.data(),&wrongChip,sizeof(wrongChip));
+  const auto wrongChipDigest=hash(Fake::responses[firmwareUrl].body);
+  updateManifest([&](JsonDocument &m) { m["sha256"]=wrongChipDigest; });
+  CHECK(!deserializeJson(release,Fake::responses[apiUrl].body));
+  release["assets"][0]["digest"]="sha256:"+wrongChipDigest;Fake::responses[apiUrl].body=stringify(release);
+  installNow();CHECK(currentState()=="error");CHECK(Fake::otaBegins==0);
 }
 static void check_environment_and_allocator_fail_closed() {
   reset();Fake::wallClock=0;CHECK(gitUpdate.requestCheck());run();CHECK(currentState()=="error");CHECK(Fake::urls.empty());
   reset();Fake::bootloaderMatches=false;CHECK(gitUpdate.requestCheck());run();CHECK(currentState()=="error");CHECK(Fake::urls.empty());
   reset();Fake::memoryReady=false;CHECK(gitUpdate.requestCheck());run();CHECK(currentState()=="error");CHECK(Fake::urls.empty());
+  reset();Fake::psramPhysical=33554432;available();
+  reset();Fake::flashPhysical/=2;CHECK(gitUpdate.requestCheck());run();CHECK(currentState()=="error");CHECK(Fake::urls.empty());
   reset();Fake::psramPhysical=4194304;CHECK(gitUpdate.requestCheck());run();CHECK(currentState()=="error");CHECK(Fake::urls.empty());
   reset();Fake::fsCompatible=false;task=nullptr;gitUpdate.begin(prepare);CHECK(gitUpdate.requestCheck());run();CHECK(currentState()=="error");CHECK(Fake::urls.empty());
   reset();nextPartition.address=0x10000;CHECK(gitUpdate.requestCheck());run();CHECK(currentState()=="error");CHECK(Fake::urls.empty());
