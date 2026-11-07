@@ -10,6 +10,7 @@
 
 enum class shade_request_type_t : uint8_t {
   shade_command,    // move the shade to target, or send command
+  group_target,     // move the group to a client percentage
   group_command,    // send command to the group
   tilt_command,     // move the tilt to target, or send command to the tilt
   shade_repeat,     // send command, or repeat it when it was the last one sent
@@ -82,6 +83,7 @@ class ShadeOps {
     virtual void setPositions(uint8_t shadeId, float pos, float tilt) = 0;
     virtual void setUnpaired(uint8_t shadeId) = 0;
     virtual void setRollingCode(uint8_t shadeId, uint16_t code) = 0;
+    virtual bool moveGroupToTarget(uint8_t groupId, float target) { return false; }
     virtual bool sendGroupCommand(uint8_t groupId, somfy_commands cmd, uint8_t repeat, uint8_t stepSize) = 0;
     virtual bool isLastGroupCommand(uint8_t groupId, somfy_commands cmd) = 0;
     virtual bool repeatGroupFrame(uint8_t groupId, uint8_t repeat) = 0;

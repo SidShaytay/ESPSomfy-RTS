@@ -19,6 +19,7 @@ class SomfyShadeOps : public ShadeOps {
     void setPositions(uint8_t shadeId, float pos, float tilt) override;
     void setUnpaired(uint8_t shadeId) override;
     void setRollingCode(uint8_t shadeId, uint16_t code) override;
+    bool moveGroupToTarget(uint8_t groupId, float target) override;
     bool sendGroupCommand(uint8_t groupId, somfy_commands cmd, uint8_t repeat, uint8_t stepSize) override;
     bool isLastGroupCommand(uint8_t groupId, somfy_commands cmd) override;
     bool repeatGroupFrame(uint8_t groupId, uint8_t repeat) override;

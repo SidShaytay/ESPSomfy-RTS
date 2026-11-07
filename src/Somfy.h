@@ -103,6 +103,8 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     // Where the shade is and where it is going.
     const ShadeBehaviour::State &state() const { return this->behaviour.state(); }
     bool isIdle() const { return this->behaviour.isIdle(); }
+    bool hasPendingGroupStart() const { return this->behaviour.hasPendingGroupStart(); }
+    bool hasGroupTargetWork() const { return this->behaviour.hasGroupTargetWork(); }
     uint8_t getFlags() override;
     // Sets the setting and state bits from a saved or sent flags byte.
     void setFlags(uint8_t flags);
@@ -115,8 +117,13 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     void processInternalCommand(somfy_commands cmd, uint8_t repeat = 1);
     void markTxPending(uint32_t ticket);
     void processTxEvent(const somfy_tx_event_t &evt);
+    void observeGroupStart(uint32_t ticket) { this->behaviour.observeGroupStart(ticket); }
+    void adoptGroupTarget(float target, uint32_t ticket) { this->behaviour.adoptGroupTarget(target, ticket, millis()); }
+    void cancelPositioning() { this->behaviour.cancelPositioning(); }
     bool isToggle() { return isToggleShade(this->shadeType); }
     bool moveToTarget(float pos, float tilt = -1.0f);
+    bool moveToGroupTarget(float pos);
+    bool stopGroupTarget();
     // These return false when the radio refused a command they sent.
     bool moveToTiltTarget(float target);
     bool sendTiltCommand(somfy_commands cmd);
@@ -165,6 +172,8 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     void publishDisco();
     void unpublishDisco();
   private:
+    void prepareCommand(uint32_t exceptTicket = 0);
+    bool prepareOnSend = false;
     // MotorLink: the radio or GPIO path every remote sends through.
     send_result_t send(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority) override;
     // ShadeEvents
@@ -212,6 +221,9 @@ class SomfyGroup : public SomfyRemote {
     void configChanged() { this->changed |= GROUP_CHANGED_CONFIG; }
     bool sendCommand(somfy_commands cmd);
     bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
+    bool moveToTarget(float target);
+    bool targetActive = false;
+    void updateTargetDirection();
     int8_t p_direction(int8_t dir);
     bool publish(const char *topic, uint8_t val, bool retain = false);
     bool publish(const char *topic, int8_t val, bool retain = false);
@@ -257,6 +269,7 @@ class SomfyShadeController {
     uint8_t shadeCount();
     uint8_t groupCount();
     void updateGroupFlags();
+    void cancelGroupStartsForShade(uint8_t shadeId, uint32_t exceptTicket = 0);
     SomfyShade * getShadeById(uint8_t shadeId);
     SomfyRoom * getRoomById(uint8_t roomId);
     SomfyGroup * getGroupById(uint8_t groupId);

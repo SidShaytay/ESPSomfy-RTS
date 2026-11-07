@@ -643,8 +643,151 @@ static void test_restore_set_position_and_clear_tilt() {
   TEST_ASSERT_EQUAL_FLOAT(-1.0f, r.st().myTiltPos);
 }
 
+static void test_group_target_waits_then_stops_each_member_at_own_time() {
+  Rig fast, slow;
+  fast.settings.downTime = 20000; slow.settings.downTime = 24000;
+  fast.b.adoptGroupTarget(50, 81, fast.now);
+  slow.b.adoptGroupTarget(50, 81, slow.now);
+  fast.run(2000); slow.run(2000);
+  ASSERT_POS(0, fast.st().currentPos); ASSERT_POS(0, slow.st().currentPos);
+  fast.event(tx_event_t::started,81); fast.event(tx_event_t::finished,81); slow.event(tx_event_t::started,81); slow.event(tx_event_t::finished,81);
+  fast.run(10000); slow.run(10000);
+  ASSERT_POS(50, fast.st().currentPos); ASSERT_POS(41.67, slow.st().currentPos);
+  TEST_ASSERT_EQUAL_UINT(1, fast.link.sent.size()); TEST_ASSERT_EQUAL_UINT(0,slow.link.sent.size());
+  slow.run(2000); ASSERT_POS(50, slow.st().currentPos); TEST_ASSERT_EQUAL_UINT(1,slow.link.sent.size());
+}
+static void test_group_target_drop_cancels_without_stop() {
+  Rig r; r.b.adoptGroupTarget(50,81,r.now); r.event(tx_event_t::dropped,81); r.run(15000);
+  ASSERT_POS(0,r.st().currentPos); ASSERT_POS(0,r.st().target); TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size());
+}
+static void test_group_command_cancels_old_target_stop() {
+  Rig r; r.b.adoptGroupTarget(50,81,r.now); r.event(tx_event_t::started,81); r.event(tx_event_t::finished,81); r.run(1000);
+  r.b.onGroupCommand(somfy_commands::Down,1,r.now); r.run(12000);
+  ASSERT_POS(100,r.st().currentPos); TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size());
+}
+static void test_group_stop_tracks_queue_delay_until_on_air() {
+  Rig r; r.settings.downTime=10000;
+  r.b.adoptGroupTarget(50,81,r.now); r.event(tx_event_t::started,81); r.event(tx_event_t::finished,81); r.run(5000);
+  const auto stop=r.lastSent().ticket;
+  r.run(200); ASSERT_POS(52,r.st().currentPos); TEST_ASSERT_EQUAL_INT8(1,r.st().direction);
+  r.event(tx_event_t::started,stop); ASSERT_POS(52,r.st().currentPos); ASSERT_POS(52,r.st().target);
+  TEST_ASSERT_TRUE(r.b.isIdle());
+}
+static void test_group_dropped_stop_does_not_report_target_completion() {
+  Rig r; r.b.adoptGroupTarget(50,81,r.now); r.event(tx_event_t::started,81); r.event(tx_event_t::finished,81); r.run(5000);
+  r.event(tx_event_t::dropped,r.lastSent().ticket); ASSERT_POS(100,r.st().target);
+  r.run(100); TEST_ASSERT_TRUE(r.st().currentPos>50); TEST_ASSERT_EQUAL_INT8(1,r.st().direction);
+}
+static void test_group_refused_automatic_stop_runs_to_limit() {
+  Rig r; r.b.adoptGroupTarget(50,81,r.now); r.event(tx_event_t::started,81); r.event(tx_event_t::finished,81); r.run(4900);
+  r.link.refuseNext=true; r.run(100);
+  ASSERT_POS(100,r.st().target); TEST_ASSERT_EQUAL_INT8(1,r.st().direction);
+}
+static void test_group_replacement_stops_before_new_target_and_waits_for_start() {
+  Rig r; r.b.adoptGroupTarget(80,81,r.now); r.event(tx_event_t::started,81); r.event(tx_event_t::finished,81); r.run(3000);
+  TEST_ASSERT_TRUE(r.b.moveToGroupTarget(20,r.now));
+  ASSERT_CMD(somfy_commands::My,r.lastSent().cmd); const auto stop=r.lastSent().ticket;
+  r.run(100); ASSERT_POS(31,r.st().currentPos); TEST_ASSERT_EQUAL_UINT(1,r.link.sent.size());
+  r.event(tx_event_t::started,stop);
+  ASSERT_CMD(somfy_commands::My,r.lastSent().cmd); TEST_ASSERT_EQUAL_UINT(1,r.link.sent.size());
+  r.event(tx_event_t::finished,stop);
+  ASSERT_CMD(somfy_commands::Up,r.lastSent().cmd); ASSERT_POS(20,r.st().target);
+  r.run(200); ASSERT_POS(31,r.st().currentPos);
+  r.onAir(); r.run(1100); ASSERT_POS(20,r.st().currentPos);
+}
+static void test_group_refused_replacement_keeps_existing_target_stop() {
+  Rig r; r.b.adoptGroupTarget(50,81,r.now); r.event(tx_event_t::started,81); r.event(tx_event_t::finished,81); r.run(3000);
+  r.link.refuseNext=true; TEST_ASSERT_FALSE(r.b.moveToGroupTarget(20,r.now));
+  ASSERT_POS(50,r.st().target); r.run(2000); TEST_ASSERT_EQUAL_UINT(1,r.link.sent.size());
+  ASSERT_CMD(somfy_commands::My,r.lastSent().cmd);
+}
+static void test_group_pending_start_refuses_stop_and_replacement() {
+  Rig r; r.b.adoptGroupTarget(50,81,r.now);
+  TEST_ASSERT_TRUE(r.b.hasPendingGroupStart()); TEST_ASSERT_FALSE(r.b.stopGroupTarget(r.now));
+  TEST_ASSERT_FALSE(r.b.moveToGroupTarget(20,r.now)); TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size());
+  r.event(tx_event_t::started,81); TEST_ASSERT_TRUE(r.b.hasPendingGroupStart());
+  r.event(tx_event_t::finished,81); TEST_ASSERT_FALSE(r.b.hasPendingGroupStart());
+}
+static void test_group_endpoint_pending_start_remains_guarded() {
+  Rig r; r.b.adoptGroupTarget(0,81,r.now); r.run(1000);
+  TEST_ASSERT_TRUE(r.b.hasPendingGroupStart()); TEST_ASSERT_FALSE(r.b.stopGroupTarget(r.now));
+  r.event(tx_event_t::started,81); TEST_ASSERT_TRUE(r.b.hasPendingGroupStart());
+  r.event(tx_event_t::finished,81); TEST_ASSERT_FALSE(r.b.hasPendingGroupStart());
+}
+static void test_group_pending_start_never_invents_motion_after_timeout() {
+  Rig r; r.b.adoptGroupTarget(50,81,r.now); r.run(60000);
+  ASSERT_POS(0,r.st().currentPos); TEST_ASSERT_TRUE(r.b.hasPendingGroupStart());
+  TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size());
+}
+static void test_group_aborted_partial_stop_cancels_deferred_without_second_my() {
+  Rig r; r.b.adoptGroupTarget(80,81,r.now); r.event(tx_event_t::started,81); r.event(tx_event_t::finished,81); r.run(3000);
+  TEST_ASSERT_TRUE(r.b.moveToGroupTarget(20,r.now)); const auto stop=r.lastSent().ticket;
+  r.event(tx_event_t::started,stop); r.run(100);
+  TEST_ASSERT_EQUAL_UINT(1,r.link.sent.size()); TEST_ASSERT_TRUE(r.b.hasGroupTargetWork());
+  r.event(tx_event_t::aborted,stop); ASSERT_POS(100,r.st().target); r.run(1000);
+  TEST_ASSERT_EQUAL_UINT(1,r.link.sent.size()); TEST_ASSERT_TRUE(r.st().currentPos>30);
+}
+static void test_group_flag_preserves_target_and_timed_stop() {
+  Rig r; r.b.adoptGroupTarget(50,81,r.now); r.event(tx_event_t::started,81); r.event(tx_event_t::finished,81); r.run(2000);
+  r.b.onGroupCommand(somfy_commands::Flag,1,r.now); r.run(3000);
+  TEST_ASSERT_EQUAL_UINT(1,r.link.sent.size()); ASSERT_CMD(somfy_commands::My,r.lastSent().cmd);
+}
+static void test_group_stop_after_started_cancels_deferred_restart() {
+  Rig r; r.b.adoptGroupTarget(80,81,r.now); r.event(tx_event_t::started,81); r.event(tx_event_t::finished,81); r.run(3000);
+  TEST_ASSERT_TRUE(r.b.moveToGroupTarget(20,r.now)); const auto stop=r.lastSent().ticket;
+  r.event(tx_event_t::started,stop); TEST_ASSERT_TRUE(r.b.stopGroupTarget(r.now));
+  r.event(tx_event_t::finished,stop); TEST_ASSERT_EQUAL_UINT(1,r.link.sent.size());
+  TEST_ASSERT_FALSE(r.b.hasGroupTargetWork());
+}
+static void test_group_partial_start_cancels_timed_stop() {
+  Rig r; r.b.adoptGroupTarget(50,81,r.now); r.event(tx_event_t::started,81); r.run(6000);
+  r.event(tx_event_t::aborted,81); ASSERT_POS(100,r.st().target); r.run(10000);
+  TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size()); TEST_ASSERT_FALSE(r.b.hasGroupTargetWork());
+}
+static void test_group_short_target_waits_for_complete_start_without_reversing_estimate() {
+  Rig r; r.b.adoptGroupTarget(1,81,r.now); r.event(tx_event_t::started,81); r.run(200);
+  ASSERT_POS(2,r.st().currentPos); TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size());
+  TEST_ASSERT_FALSE(r.b.stopGroupTarget(r.now));
+  r.event(tx_event_t::finished,81); r.run(10);
+  TEST_ASSERT_EQUAL_UINT(1,r.link.sent.size()); ASSERT_CMD(somfy_commands::My,r.lastSent().cmd);
+  TEST_ASSERT_EQUAL_INT8(1,r.st().direction); TEST_ASSERT_TRUE(r.st().currentPos>=2);
+}
+static void test_ordinary_group_start_refuses_priority_override_until_finished() {
+  Rig r;
+  r.b.onGroupCommand(somfy_commands::Down,1,r.now);
+  r.b.onTxQueued(81,r.now);
+  r.b.observeGroupStart(81);
+  TEST_ASSERT_TRUE(r.b.hasPendingGroupStart());
+  TEST_ASSERT_FALSE(r.b.moveToGroupTarget(20,r.now));
+  TEST_ASSERT_FALSE(r.b.stopGroupTarget(r.now));
+  r.event(tx_event_t::started,81); r.run(100);
+  TEST_ASSERT_TRUE(r.b.hasPendingGroupStart());
+  TEST_ASSERT_FALSE(r.b.moveToGroupTarget(20,r.now));
+  TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size());
+  r.event(tx_event_t::finished,81);
+  TEST_ASSERT_FALSE(r.b.hasPendingGroupStart());
+  TEST_ASSERT_TRUE(r.b.moveToGroupTarget(20,r.now));
+  ASSERT_CMD(somfy_commands::My,r.lastSent().cmd);
+}
 int main(int argc, char **argv) {
   UNITY_BEGIN();
+  RUN_TEST(test_ordinary_group_start_refuses_priority_override_until_finished);
+  RUN_TEST(test_group_short_target_waits_for_complete_start_without_reversing_estimate);
+  RUN_TEST(test_group_partial_start_cancels_timed_stop);
+  RUN_TEST(test_group_stop_after_started_cancels_deferred_restart);
+  RUN_TEST(test_group_aborted_partial_stop_cancels_deferred_without_second_my);
+  RUN_TEST(test_group_flag_preserves_target_and_timed_stop);
+  RUN_TEST(test_group_pending_start_never_invents_motion_after_timeout);
+  RUN_TEST(test_group_stop_tracks_queue_delay_until_on_air);
+  RUN_TEST(test_group_dropped_stop_does_not_report_target_completion);
+  RUN_TEST(test_group_refused_automatic_stop_runs_to_limit);
+  RUN_TEST(test_group_replacement_stops_before_new_target_and_waits_for_start);
+  RUN_TEST(test_group_refused_replacement_keeps_existing_target_stop);
+  RUN_TEST(test_group_pending_start_refuses_stop_and_replacement);
+  RUN_TEST(test_group_endpoint_pending_start_remains_guarded);
+  RUN_TEST(test_group_target_waits_then_stops_each_member_at_own_time);
+  RUN_TEST(test_group_target_drop_cancels_without_stop);
+  RUN_TEST(test_group_command_cancels_old_target_stop);
   RUN_TEST(test_down_waits_for_the_radio_then_travels);
   RUN_TEST(test_refused_command_moves_nothing);
   RUN_TEST(test_hold_times_out_without_a_radio_event);
