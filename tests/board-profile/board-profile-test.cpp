@@ -3,6 +3,9 @@
 #include "BoardProfile.h"
 #include "SPI.h"
 #include <driver/gpio.h>
+#if defined(EXPECT_INTEGRATED_RADIO)
+static_assert(BoardProfile::integratedRadio, "This exact LILYGO target must initialize the integrated CC1101");
+#endif
 
 TestSerial Serial;
 TestESP ESP;

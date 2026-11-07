@@ -17,7 +17,7 @@
 #include <AsyncJson.h>
 #include <atomic>
 #include "RestoreUpload.h"
-#ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
+#ifdef ESPSOMFY_GITHUB_UPDATES
 #include "GitUpdate.h"
 #endif
 
@@ -60,12 +60,12 @@ static bool uploadAllowed(AsyncWebServerRequest *request, size_t index) {
 // A restore and a manual image upload share the GitHub worker's gate on the
 // Plus. Generic builds still serialize their local upload/restore operations.
 struct HttpUpdateGate {
-#ifndef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
+#ifndef ESPSOMFY_GITHUB_UPDATES
   std::atomic<bool> owned{false};
 #endif
   bool beginManualUpdate() {
     if(rebootDelay.reboot) return false;
-#ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
+#ifdef ESPSOMFY_GITHUB_UPDATES
     return gitUpdate.beginManualUpdate();
 #else
     bool expected = false;
@@ -73,7 +73,7 @@ struct HttpUpdateGate {
 #endif
   }
   void endManualUpdate() {
-#ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
+#ifdef ESPSOMFY_GITHUB_UPDATES
     gitUpdate.endManualUpdate();
 #else
     owned.store(false);
@@ -102,7 +102,7 @@ static bool startManualUpdate(AsyncWebServerRequest *request, int command) {
   return true;
 }
 
-#ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
+#ifdef ESPSOMFY_GITHUB_UPDATES
 // Browsers on another origin cannot initiate an install even in the None
 // security mode. Scripts without Origin use the normal API-token policy.
 static bool allowGitUpdateControl(AsyncWebServerRequest *request) {
@@ -242,7 +242,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
       if(final) finishRestoreUpload(request);
     });
 
-#ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
+#ifdef ESPSOMFY_GITHUB_UPDATES
   // These exact routes use the same API-token middleware as manual updates.
   // Mutations are POST only; no token or release URL is accepted in a query.
   server.on(AsyncURIMatcher::exact("/githubUpdate"), HTTP_GET, [](AsyncWebServerRequest *request) {

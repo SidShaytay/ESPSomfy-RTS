@@ -9,6 +9,9 @@ sources=("$repo/tests/board-profile/board-profile-test.cpp" "$repo/src/BoardProf
 "$compiler" "${common[@]}" -DESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS -DCONFIG_IDF_TARGET_ESP32S3 \
   "${sources[@]}" -o "$scratch/lilygo-test"
 "$scratch/lilygo-test"
+"$compiler" "${common[@]}" -DESPSOMFY_LILYGO_T_EMBED_CC1101 -DCONFIG_IDF_TARGET_ESP32S3 -DEXPECT_INTEGRATED_RADIO \
+  "${sources[@]}" -o "$scratch/lilygo-standard-test"
+"$scratch/lilygo-standard-test"
 "$compiler" "${common[@]}" "${sources[@]}" -o "$scratch/generic-test"
 "$scratch/generic-test"
 "$compiler" "${common[@]}" -DESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS -DCONFIG_IDF_TARGET_ESP32S3 \

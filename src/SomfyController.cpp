@@ -25,6 +25,7 @@
 #include "GitUpdateMemory.h"
 #include "GitUpdateHealth.h"
 #include "GitUpdateIdentity.h"
+#include "GitUpdateAssets.h"
 #include "GitUpdateBootloader.h"
 #include "ConfigFile.h"
 
@@ -44,7 +45,7 @@ extern "C" bool verifyRollbackLater() { return true; }
 static bool otaPending = false;
 extern SomfyShadeController somfy;
 extern MqttConnection mqtt;
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_GITHUB_UPDATES)
 static GitUpdateHealth updateHealth;
 static bool filesystemHealthy = false;
 static bool configHealthy = false;
@@ -55,7 +56,7 @@ static bool updateQuiesced = false;
 // Called on loop() alone after the entire candidate has been verified. Refuse
 // to interrupt a moving shade or a pending radio job (including its outcome).
 static bool prepareGitInstall() {
-  if(!filesystemHealthy || !configHealthy || !applicationHealthy || !bootloaderHealthy || !somfy.transceiver.available()) return false;
+  if(!filesystemHealthy || !configHealthy || !applicationHealthy || !bootloaderHealthy || (somfy.transceiver.config.enabled && !somfy.transceiver.available())) return false;
   for(auto &shade : somfy.shades) {
     if(shade.getShadeId() != 255 && !shade.isIdle()) return false;
   }
@@ -139,7 +140,7 @@ static void onAllocFailed(size_t size, uint32_t caps, const char *function) {
 void setup() {
   Serial.begin(SERIAL_BAUD);
   BoardProfile::begin();
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_GITHUB_UPDATES)
   if(!gitUpdateMemoryBegin()) ESP_LOGE(TAG, "PSRAM TLS allocator unavailable; GitHub installation disabled");
   ESP_LOGI(TAG, "%s", gitUpdateIdentity());
 #endif
@@ -187,7 +188,7 @@ void setup() {
   }
   ESP_LOGI(TAG, "Mounting File System...");
   if (LittleFS.begin()) {
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_GITHUB_UPDATES)
       filesystemHealthy = true;
 #endif
       ESP_LOGI(TAG, "Total: %d bytes", LittleFS.totalBytes());
@@ -198,6 +199,9 @@ void setup() {
   } else {
       ESP_LOGE(TAG, "LittleFS mount failed!");
   }
+#if defined(ESPSOMFY_GITHUB_UPDATES)
+  applicationHealthy = filesystemHealthy && gitUpdateAssetsMatch();
+#endif
   settings.begin();
   if(WiFi.status() == WL_CONNECTED) WiFi.disconnect(true);
   delay(10);
@@ -207,15 +211,8 @@ void setup() {
   webServer.begin();
   delay(1000);
   net.setup();  
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_GITHUB_UPDATES)
   configHealthy = filesystemHealthy && (!ShadeConfigFile::exists() || ShadeConfigFile::validateFile("/shades.cfg"));
-  File applicationVersion = LittleFS.open("/appversion", "r");
-  if(applicationVersion && applicationVersion.size() <= 31) {
-    String version = applicationVersion.readString();
-    version.trim();
-    applicationHealthy = version == ESPSOMFY_APP_COMPAT;
-  }
-  applicationVersion.close();
   bootloaderHealthy = gitUpdateBootloaderMatches();
 #endif
   somfy.begin();
@@ -229,7 +226,7 @@ void setup() {
     otaState == ESP_OTA_IMG_PENDING_VERIFY;
   if(otaPending) ESP_LOGW(TAG, "Updated firmware, keeping it once it has run %ds with the network up", OTA_PROVEN_MS / 1000);
   gitUpdate.begin(
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_GITHUB_UPDATES)
     prepareGitInstall
 #endif
   );
@@ -252,7 +249,7 @@ void loop() {
   net.loop();
   logIfSlow(TAG, "Loop net", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_GITHUB_UPDATES)
   gitUpdate.loop();
   if(updateQuiesced) {
     // Keep status/cancellation responsive, without executing queued model edits
@@ -285,9 +282,9 @@ void loop() {
     ESP.restart();
   }
   const bool bootProven = otaPending &&
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_GITHUB_UPDATES)
     updateHealth.proven(filesystemHealthy && configHealthy && applicationHealthy && bootloaderHealthy && net.connected() &&
-      somfy.transceiver.available() &&
+      (!somfy.transceiver.config.enabled || somfy.transceiver.available()) &&
       pass.us() < 1000000 && heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) >= 24576,
       millis(), OTA_PROVEN_MS);
 #else
@@ -300,7 +297,7 @@ void loop() {
     }
     else ESP_LOGE(TAG, "Unable to confirm the updated firmware");
   }
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_GITHUB_UPDATES)
   if(otaPending && millis() >= 180000) {
     ESP_LOGE(TAG, "Updated firmware failed its boot health deadline; rolling back");
     esp_ota_mark_app_invalid_rollback_and_reboot();

@@ -1,5 +1,5 @@
 #include "GitUpdateMemory.h"
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_GITHUB_UPDATES)
 #include <atomic>
 #include <limits>
 #include <esp_heap_caps.h>
