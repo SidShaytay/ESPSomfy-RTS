@@ -471,10 +471,52 @@ static void test_repeater_frame_doesnt_hold_back_a_stop() {
   discardEvents(s);
 }
 
+static void test_cancel_remote_removes_stale_jobs_only_for_that_remote() {
+  RadioScheduler s;
+  const auto oldStart = submit(s, REMOTE_A);
+  const auto oldStop = submit(s, REMOTE_A, 0, true);
+  const auto other = submit(s, REMOTE_B);
+  s.cancelRemote(REMOTE_A, 20);
+  somfy_tx_event_t evt;
+  TEST_ASSERT_TRUE(s.popEvent(evt)); TEST_ASSERT_EQUAL_UINT32(oldStart,evt.ticket); TEST_ASSERT_EQUAL_INT((int)tx_event_t::dropped,(int)evt.type);
+  TEST_ASSERT_TRUE(s.popEvent(evt)); TEST_ASSERT_EQUAL_UINT32(oldStop,evt.ticket);
+  TEST_ASSERT_EQUAL_UINT32(other,runNext(s));
+}
+static void test_cancel_preserves_job_already_on_air() {
+  RadioScheduler s;
+  const auto old = submit(s,REMOTE_A);
+  somfy_tx_job_t job; uint32_t wait;
+  TEST_ASSERT_TRUE(s.next(0,job,wait)); TEST_ASSERT_TRUE(s.start(old,0));
+  s.cancelRemote(REMOTE_A,10);
+  TEST_ASSERT_TRUE(s.keepSending(old)); s.ended(old,true,20);
+}
+static void test_cancel_drops_job_taken_but_not_on_air() {
+  RadioScheduler s;
+  const auto old = submit(s,REMOTE_A);
+  somfy_tx_job_t job; uint32_t wait;
+  TEST_ASSERT_TRUE(s.next(0,job,wait));
+  s.cancelRemote(REMOTE_A,10);
+  TEST_ASSERT_FALSE(s.start(old,20));
+}
+static void test_replacement_cancels_old_jobs_but_preserves_accepted_ticket() {
+  RadioScheduler s;
+  const auto old = submit(s, REMOTE_A);
+  const auto replacement = submit(s, REMOTE_A);
+  s.cancelRemote(REMOTE_A, 10, replacement);
+  somfy_tx_event_t event;
+  TEST_ASSERT_TRUE(s.popEvent(event));
+  TEST_ASSERT_EQUAL_UINT32(old, event.ticket);
+  TEST_ASSERT_FALSE(s.popEvent(event));
+  TEST_ASSERT_EQUAL_UINT32(replacement, runNext(s));
+}
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_replacement_cancels_old_jobs_but_preserves_accepted_ticket);
+  RUN_TEST(test_cancel_remote_removes_stale_jobs_only_for_that_remote);
+  RUN_TEST(test_cancel_preserves_job_already_on_air);
+  RUN_TEST(test_cancel_drops_job_taken_but_not_on_air);
   RUN_TEST(test_jobs_go_out_in_the_order_they_came);
   RUN_TEST(test_tickets_are_distinct_and_set_in_the_job);
   RUN_TEST(test_nothing_waiting_sleeps_until_woken);

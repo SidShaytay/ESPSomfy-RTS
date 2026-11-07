@@ -873,6 +873,13 @@ uint32_t Transceiver::submitTx(somfy_tx_job_t &job, bool priority, uint16_t dela
   if(ticket) xTaskNotifyGive(txTaskHandle);
   return ticket;
 }
+void Transceiver::cancelTx(uint32_t remoteAddress, uint32_t exceptTicket) {
+  {
+    TxQueueLock lock;
+    this->sched.cancelRemote(remoteAddress, millis(), exceptTicket);
+  }
+  if(txTaskHandle) xTaskNotifyGive(txTaskHandle);
+}
 bool Transceiver::txSuspended() {
   TxQueueLock lock;
   return this->sched.suspended();

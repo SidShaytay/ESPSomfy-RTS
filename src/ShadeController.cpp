@@ -139,6 +139,13 @@ void SomfyShadeController::markTxPending(uint32_t remoteAddress, uint32_t ticket
     }
   }
 }
+void SomfyShadeController::cancelGroupStartsForShade(uint8_t shadeId, uint32_t exceptTicket) {
+  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
+    SomfyGroup &group = this->groups[i];
+    if(group.getGroupId() != 255 && group.hasShadeId(shadeId))
+      this->transceiver.cancelTx(group.getRemoteAddress(), exceptTicket);
+  }
+}
 void SomfyShadeController::processTxEvent(const somfy_tx_event_t &evt) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++)
     if(this->shades[i].getShadeId() != 255) this->shades[i].processTxEvent(evt);
@@ -347,6 +354,8 @@ void SomfyShadeController::loop() {
       this->shades[i].setGPIOs();
     }
   }
+  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++)
+    if(this->groups[i].getGroupId() != 255) this->groups[i].updateTargetDirection();
   // Only commit the file once per second.
   if(this->isDirty && millis() - this->lastCommit > 1000) {
     this->commit();

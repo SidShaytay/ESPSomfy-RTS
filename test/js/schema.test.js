@@ -10,6 +10,7 @@ test('the schema is collected from every sync frame it spans', () => {
     assert.equal(Object.keys(s.types).length, Object.keys(schemaJson.types).length);
     assert.equal(Object.keys(s.fields).length, Object.keys(schemaJson.fields).length);
     assert.equal(s.typeNumbers.shadeCommand, 16);
+    assert.equal(s.typeNumbers.groupTarget, 55);
     assert.equal(s.typeNumbers.saveSettings, 50);
     assert.equal(s.keys.shadeId, 's');
     assert.equal(s.errorNumbers.busy, 5);
@@ -53,4 +54,15 @@ test('a cached schema comes back whole, with its hash', () => {
     assert.deepEqual(back.types, s.types);
     assert.equal(ProtoSchema.load(null), null);
     assert.equal(ProtoSchema.load({ hash: 'x', rows: {} }), null);
+});
+
+// Capability discovery uses the negotiated table; old firmware has no target op.
+test('group targets are explicitly discoverable and older schemas remain valid', () => {
+    const modern = recordedSchema();
+    assert.equal(modern.typeNumbers.groupTarget, 55);
+    assert.deepEqual(modern.pack({ groupId: 1, target: 0 }), { g: 1, t: 0 });
+    const old = new ProtoSchema();
+    old.add({ T: [[17, 'groupCommand']], F: [['g', 'groupId', 'i', 255], ['cm', 'command', 's', 0]] });
+    assert.equal(old.typeNumbers.groupTarget, undefined);
+    assert.equal(old.typeNumbers.groupCommand, 17);
 });

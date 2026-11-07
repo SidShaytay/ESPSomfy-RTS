@@ -78,6 +78,16 @@ class ShadeBehaviour {
     void onWaitingFrame(uint32_t now);
     // A group the shade belongs to sent cmd.
     void onGroupCommand(somfy_commands cmd, uint8_t repeat, uint32_t now);
+    // Adopt a native group start and stop this member at its own target.
+    bool moveToGroupTarget(float target, uint32_t now);
+    bool stopGroupTarget(uint32_t now);
+    bool hasGroupTargetWork() const { return this->groupPositioning && (this->groupDeferred || this->tx.hold.held() || this->tx.stopTicket || !this->isIdle()); }
+    bool ownsGroupPositioning() const { return this->groupPositioning; }
+    bool hasPendingGroupStart() const { return this->groupStartTicket != 0; }
+    void adoptGroupTarget(float target, uint32_t ticket, uint32_t now);
+    void observeGroupStart(uint32_t ticket);
+    // Forget old timing/outcomes after its queued jobs have been cancelled.
+    void cancelPositioning();
     // Every loop() pass: moves the simulated position, stops at the target and
     // stores the favorite.
     void tick(uint32_t now);
@@ -125,10 +135,20 @@ class ShadeBehaviour {
     uint32_t awaitMy = 0;
     // Radio jobs whose outcome decides what the motor really did.
     ShadeTxState tx;
+    // Group stops keep estimating travel until the radio actually starts the
+    // stop. A replacement target waits for that stop before it starts anew.
+    bool groupPositioning = false;
+    bool groupDeferred = false;
+    bool groupStopOnAir = false;
+    uint32_t groupStartTicket = 0;
+    int8_t groupStartDir = 0;
+    float groupNextTarget = 0;
+    float groupStopPos = 0;
 
     // Sends through the link, then hears the frame as every other shade has
     // and waits for it to go on air if it sets the shade moving.
     send_result_t transmit(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority, uint32_t now);
+    bool queueStop(int8_t dir, bool tilt, uint32_t now);
     bool sendStop(int8_t dir, bool tilt, uint32_t now);
     bool sendSetMy(uint16_t delayMs, float oldPos, float oldTiltPos, uint32_t now);
     // Makes pos/tiltPos the favorite and tells the motor to store it.
