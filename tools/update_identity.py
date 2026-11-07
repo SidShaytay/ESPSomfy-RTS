@@ -10,6 +10,11 @@ FIRMWARE_ASSET = 'firmware-' + BOARD + '.bin'
 STABLE_TAG = re.compile(r'v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)')
 
 
+def stable_tag(tag):
+    match = STABLE_TAG.fullmatch(tag)
+    return bool(match and len(tag) <= 47 and all(int(part) <= 0xffffffff for part in match.groups()))
+
+
 def git(source, *args):
     # Sid's authenticated wrapper is used locally; stock git is for CI hosts.
     command = 'git-agent' if shutil.which('git-agent') else 'git'
@@ -25,7 +30,7 @@ def identity(source, app_compat, tags):
         raise ValueError('invalid source revision')
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,30}', app_compat):
         raise ValueError('invalid application compatibility version')
-    stable = [tag for tag in tags if STABLE_TAG.fullmatch(tag)]
+    stable = [tag for tag in tags if stable_tag(tag)]
     version = stable[0] if not source['dirty'] and len(stable) == 1 else (
         'dev-' + source['revision'][:12] + ('-dirty' if source['dirty'] else ''))
     marker = '|'.join(('ESPSOMFY_UPDATE_ID:1', BOARD, LAYOUT, source['revision'], version, app_compat))
