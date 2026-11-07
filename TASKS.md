@@ -1,6 +1,6 @@
 # Display deployment record
 
-The authoritative task record is [the display feature task](../issue-15-phase2-ui/TASKS.md) at `/var/mnt/data/projects/personal/ESPSomfy-RTS/issue-15-phase2-ui/TASKS.md`.
+The authoritative task record is [the display feature task](../main/TASKS.md) at `/var/mnt/data/projects/personal/ESPSomfy-RTS/main/TASKS.md`.
 
 Installed firmware source: `b1ad2e4`, combining completed display feature `ce5f559` with the previously installed issue-23 group firmware. Newer commits on this deployment branch change documentation only. Physical controls are enabled; no assistant RF/motor command or HA service was sent.
 
