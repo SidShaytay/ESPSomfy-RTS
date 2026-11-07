@@ -37,4 +37,10 @@ No hardware/USB/serial/controller/HA access, flashing, reboots or RF/motor comma
 
 A separate display task documented a later installed combined source `b1ad2e4`, preserving groupTarget55, after the failed test. Its source/artifact record is selected by `LATEST_UI_DETAILS_POWER_INSTALL`. This does not explain the earlier physical failure and does not authorize live inspection or further writes.
 
-Next ID: G23-10.
+## Independent review fixes
+
+- [x] G23-10: independent offline review of `9444072` (issue #23 comment 6712490533) confirmed My could reach idle motors and that commands were refused during pending starts. Fixed on `codex/issue-23-review-fixes`: a press still queued is cancelled and replaced, never stopped with My (group target, member Stop and group Stop); Stop during an unfinished start cancels a queued press or stops on-air members after it finishes; group Up/Down replace an unfinished start; member targets/Up/Down and group targets coalesce during any unfinished start; pending starts time out after 30 s. Same-direction targets need no RF for any active movement; when every mover must stop, members restart with one native press; intermediate targets within 1% count as reached.
+
+The saved configuration confirms the test travel times (Bedroom 23.75 s up / 22.10 s down, Bathroom 21.15 s up / 19.30 s down); the issue text has up/down swapped. Twelve new production regressions failed against `9444072` and pass now. Validation: 745 native tests passed, one optional private-fixture skip; 63 web tests; UI Plus, headless Plus and esp32dev builds. HA unchanged; its 142 tests still pass against `34eb042`. Not flashed or physically tested.
+
+Next ID: G23-11.

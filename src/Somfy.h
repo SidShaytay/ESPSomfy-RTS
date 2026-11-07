@@ -106,6 +106,13 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     bool ownsGroupPositioning() const { return this->behaviour.ownsGroupPositioning(); }
     bool hasPendingGroupStart() const { return this->behaviour.hasPendingGroupStart(); }
     bool hasGroupTargetWork() const { return this->behaviour.hasGroupTargetWork(); }
+    bool startQueuedOnly() const { return this->behaviour.startQueuedOnly(); }
+    bool hasStopPending() const { return this->behaviour.hasStopPending(); }
+    bool groupPlanFailed() const { return this->behaviour.groupPlanFailed(); }
+    void clearGroupPlanFailure() { this->behaviour.clearGroupPlanFailure(); }
+    void refreshTravel() { this->behaviour.refreshTravel(millis()); }
+    // A lift-only type with travel times, which group percentages can plan.
+    bool supportsGroupTarget() const;
     uint8_t getFlags() override;
     // Sets the setting and state bits from a saved or sent flags byte.
     void setFlags(uint8_t flags);
@@ -118,7 +125,9 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     void processInternalCommand(somfy_commands cmd, uint8_t repeat = 1);
     void markTxPending(uint32_t ticket);
     void processTxEvent(const somfy_tx_event_t &evt);
-    void observeGroupStart(uint32_t ticket) { this->behaviour.observeGroupStart(ticket); }
+    void observeGroupStart(uint32_t ticket) { this->behaviour.observeGroupStart(ticket, millis()); }
+    // Forgets a queued press that has not gone on air.
+    void cancelQueuedStart() { if(this->startQueuedOnly()) this->prepareCommand(); }
     void adoptGroupTarget(float target, uint32_t ticket) { this->behaviour.adoptGroupTarget(target, ticket, millis()); }
     void cancelPositioning() { this->behaviour.cancelPositioning(); }
     bool isToggle() { return isToggleShade(this->shadeType); }
@@ -174,6 +183,8 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     void unpublishDisco();
   private:
     void prepareCommand(uint32_t exceptTicket = 0);
+    // A command from a client or remote overrides any group re-plan.
+    void userOverride();
     bool prepareOnSend = false;
     // MotorLink: the radio or GPIO path every remote sends through.
     send_result_t send(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority) override;
@@ -224,6 +235,12 @@ class SomfyGroup : public SomfyRemote {
     bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
     bool moveToTarget(float target);
     bool targetActive = false;
+    // A target waiting for an unfinished start or for members to stop.
+    bool replanPending = false;
+    float replanTarget = 0;
+    void cancelReplan() { this->replanPending = false; }
+    // Plans a waiting target once its members can be planned from.
+    void serviceTarget();
     void updateTargetDirection();
     int8_t p_direction(int8_t dir);
     bool publish(const char *topic, uint8_t val, bool retain = false);
@@ -271,6 +288,7 @@ class SomfyShadeController {
     uint8_t groupCount();
     void updateGroupFlags();
     void cancelGroupStartsForShade(uint8_t shadeId, uint32_t exceptTicket = 0);
+    void cancelGroupReplansForShade(uint8_t shadeId);
     SomfyShade * getShadeById(uint8_t shadeId);
     SomfyRoom * getRoomById(uint8_t roomId);
     SomfyGroup * getGroupById(uint8_t groupId);

@@ -11,6 +11,7 @@ static bool stopTargetMembers(SomfyGroup &group);
 
 void SomfyGroup::clear() {
   this->targetActive = false;
+  this->replanPending = false;
   this->setGroupId(255);
   this->setRemoteAddress(0);
   this->repeats = 0;
@@ -56,21 +57,26 @@ bool SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
   ESP_LOGI(TAG, "[Group %u] sendCommand cmd=%s repeat=%u", this->getGroupId(), translateSomfyCommand(cmd).c_str(), repeat);
   // This sendCommand function will always be called externally. sendCommand at the remote level
   // is expected to be called internally when the motor needs commanded.
-  // A queued shared start cannot safely be cancelled and followed by My:
-  // the motor may still be idle, when My recalls its favorite. Refuse until
-  // its radio outcome is known; clients can issue a new request afterwards.
+  const bool stop = cmd == somfy_commands::My || cmd == somfy_commands::Stop;
+  bool unfinished = false; // a member start is queued or not yet fully on air
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES && this->linkedShades[i]; i++) {
     SomfyShade *shade = somfy.getShadeById(this->linkedShades[i]);
-    if(commandSupersedesPositioning(cmd) && shade && shade->hasPendingGroupStart()) return false;
+    if(shade && (shade->hasPendingGroupStart() || shade->startQueuedOnly())) unfinished = true;
   }
+  if(commandSupersedesPositioning(cmd)) this->cancelReplan();
   if(this->bitLength == 0) this->bitLength = somfy.transceiver.config.type;
-  if((cmd == somfy_commands::My || cmd == somfy_commands::Stop) && this->targetActive) {
-    // Members may have stopped at different times. A shared My now would
-    // recall the favorite on one which has already stopped.
+  if(stop && (this->targetActive || unfinished)) {
+    // A shared My would recall the favorite on a member which has already
+    // stopped or never started. Drop a shared start still queued, cancel
+    // queued member starts, and stop only members actually moving, after an
+    // unfinished start's outcome is known.
+    somfy.transceiver.cancelTx(this->getRemoteAddress());
     const bool accepted = stopTargetMembers(*this);
     this->updateTargetDirection();
     return accepted;
   }
+  // Up/Down replace an unfinished start; other commands wait for its outcome.
+  if(unfinished && commandSupersedesPositioning(cmd) && cmd != somfy_commands::Up && cmd != somfy_commands::Down) return false;
   const send_result_t sent = this->sendCommandAfter(cmd, repeat, stepSize, 0);
   if(!sent.sent) return false;
   if(commandSupersedesPositioning(cmd)) {
@@ -141,19 +147,19 @@ class GroupMoveAdapter : public GroupMotionOps, public GroupStopOps {
     bool member(size_t index, GroupMemberMotion &out) override {
       SomfyShade *shade = somfy.getShadeById(group.linkedShades[index]);
       if(!shade) return false;
+      shade->refreshTravel();
       out.current = shade->state().currentPos;
+      out.direction = shade->state().direction;
+      out.stopPending = shade->hasStopPending();
       out.invertTarget = shade->shadeType == shade_types::awning;
       out.flipCommands = shade->flipCommands;
-      out.idle = shade->isIdle() && !shade->hasGroupTargetWork();
-      const bool percentageType = shade->shadeType == shade_types::roller || shade->shadeType == shade_types::blind ||
-        shade->shadeType == shade_types::awning || shade->shadeType == shade_types::shutter ||
-        shade->shadeType == shade_types::ldrapery || shade->shadeType == shade_types::rdrapery || shade->shadeType == shade_types::cdrapery;
+      // A press still queued has not moved the motor, which is idle.
+      out.idle = (shade->isIdle() && !shade->hasGroupTargetWork()) || shade->startQueuedOnly();
       // This operation controls lift percentages. Tilt-first and toggle motor
       // modes need a different stop/timing contract; refuse before any member
       // moves rather than simulating a percentage those motors cannot honor.
-      out.targetSupported = (!shade->hasPendingGroupStart() || shade->ownsGroupPositioning()) && percentageType && shade->tiltType == tilt_types::none &&
-        group.proto == radio_proto::RTS && shade->proto == radio_proto::RTS &&
-        shade->upTime > 0 && shade->downTime > 0;
+      out.targetSupported = shade->supportsGroupTarget() &&
+        group.proto == radio_proto::RTS && shade->proto == radio_proto::RTS;
       // Different motor modes require their existing individual planner.
       // In particular a group press cannot express tilt-before-lift timing.
       const uint8_t groupBits = group.bitLength ? group.bitLength : radioBitLength;
@@ -194,6 +200,21 @@ class GroupMoveAdapter : public GroupMotionOps, public GroupStopOps {
       SomfyShade *shade = somfy.getShadeById(group.linkedShades[index]);
       return shade->moveToGroupTarget(storedTarget);
     }
+    void keepMember(size_t index) override {
+      SomfyShade *shade = somfy.getShadeById(group.linkedShades[index]);
+      if(shade) shade->cancelQueuedStart();
+    }
+    bool deferUntilStopped(float target) override {
+      group.replanTarget = target;
+      group.replanPending = true;
+      for(size_t i = 0; i < memberCount(); i++) {
+        SomfyShade *shade = somfy.getShadeById(group.linkedShades[i]);
+        if(shade) shade->clearGroupPlanFailure();
+      }
+      return true;
+    }
+    void cancelDeferred() override { group.replanPending = false; }
+    bool stopMovingMember(size_t index) override { return stopMember(index); }
 };
 }
 static bool stopTargetMembers(SomfyGroup &group) {
@@ -201,13 +222,62 @@ static bool stopTargetMembers(SomfyGroup &group) {
   return runGroupStop(adapter);
 }
 bool SomfyGroup::moveToTarget(float target) {
+  if(!(target >= 0 && target <= 100)) return false;
   GroupMoveAdapter adapter(*this);
+  bool unfinished = false, sameTarget = true;
+  for(size_t i = 0; i < adapter.memberCount(); i++) {
+    GroupMemberMotion m;
+    if(!adapter.member(i, m) || !m.targetSupported) return false;
+    SomfyShade *shade = somfy.getShadeById(this->linkedShades[i]);
+    if(shade->hasPendingGroupStart()) unfinished = true;
+    if(shade->state().target != groupStoredTarget(m, target)) sameTarget = false;
+  }
+  if(unfinished && sameTarget) {
+    // The unfinished press already heads every member to this target, so a
+    // repeat (or a return to it) needs nothing more.
+    this->replanPending = false;
+    this->targetActive = true;
+    return true;
+  }
+  if(unfinished) {
+    // Sliders send their final target before the start finishes. Keep that
+    // press and plan only the latest target from where the members are once
+    // its outcome is known: no new start, rolling code or early My now.
+    this->replanTarget = target;
+    this->replanPending = true;
+    for(size_t i = 0; i < adapter.memberCount(); i++) somfy.getShadeById(this->linkedShades[i])->clearGroupPlanFailure();
+    this->targetActive = true;
+    this->updateTargetDirection();
+    return true;
+  }
+  this->replanPending = false;
   const bool accepted = runGroupTarget(adapter, target);
   // Also track the individual fallback: group movement ends only after the
   // last member stops, not when the first member reaches its target.
   this->targetActive = true;
   this->updateTargetDirection();
   return accepted;
+}
+void SomfyGroup::serviceTarget() {
+  if(!this->replanPending) return;
+  for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES && this->linkedShades[i]; i++) {
+    SomfyShade *shade = somfy.getShadeById(this->linkedShades[i]);
+    if(!shade) continue;
+    if(shade->groupPlanFailed()) {
+      // A start or stop did not fully go on air, so where the motor is (and
+      // whether it moves) is unknown. Do not follow it with another press.
+      ESP_LOGW(TAG, "[Group %u] Waiting group target dropped: a member start or stop did not complete", this->getGroupId());
+      this->replanPending = false;
+      return;
+    }
+    if(shade->hasPendingGroupStart() || shade->hasStopPending()) return; // wait for the outcome
+  }
+  this->replanPending = false;
+  this->targetActive = true;
+  GroupMoveAdapter adapter(*this);
+  if(!runGroupTarget(adapter, this->replanTarget))
+    ESP_LOGW(TAG, "[Group %u] Waiting group target refused", this->getGroupId());
+  this->updateTargetDirection();
 }
 void SomfyGroup::updateTargetDirection() {
   if(!this->targetActive) return;

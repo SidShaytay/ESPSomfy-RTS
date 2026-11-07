@@ -701,9 +701,10 @@ static void test_group_refused_replacement_keeps_existing_target_stop() {
   ASSERT_POS(50,r.st().target); r.run(2000); TEST_ASSERT_EQUAL_UINT(1,r.link.sent.size());
   ASSERT_CMD(somfy_commands::My,r.lastSent().cmd);
 }
-static void test_group_pending_start_refuses_stop_but_retains_latest_target() {
+static void test_group_pending_start_defers_stop_and_retains_latest_request() {
   Rig r; r.b.adoptGroupTarget(50,81,r.now);
-  TEST_ASSERT_TRUE(r.b.hasPendingGroupStart()); TEST_ASSERT_FALSE(r.b.stopGroupTarget(r.now));
+  // The later target replaces the earlier deferred stop: latest request wins.
+  TEST_ASSERT_TRUE(r.b.hasPendingGroupStart()); TEST_ASSERT_TRUE(r.b.stopGroupTarget(r.now));
   TEST_ASSERT_TRUE(r.b.moveToGroupTarget(20,r.now)); TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size());
   r.event(tx_event_t::started,81); TEST_ASSERT_TRUE(r.b.hasPendingGroupStart());
   r.event(tx_event_t::finished,81); TEST_ASSERT_FALSE(r.b.hasPendingGroupStart());
@@ -711,13 +712,15 @@ static void test_group_pending_start_refuses_stop_but_retains_latest_target() {
 }
 static void test_group_endpoint_pending_start_remains_guarded() {
   Rig r; r.b.adoptGroupTarget(0,81,r.now); r.run(1000);
-  TEST_ASSERT_TRUE(r.b.hasPendingGroupStart()); TEST_ASSERT_FALSE(r.b.stopGroupTarget(r.now));
+  TEST_ASSERT_TRUE(r.b.hasPendingGroupStart()); TEST_ASSERT_TRUE(r.b.stopGroupTarget(r.now));
   r.event(tx_event_t::started,81); TEST_ASSERT_TRUE(r.b.hasPendingGroupStart());
   r.event(tx_event_t::finished,81); TEST_ASSERT_FALSE(r.b.hasPendingGroupStart());
+  // Already at its endpoint: the deferred stop has nothing to stop, so no My.
+  TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size());
 }
 static void test_group_pending_start_never_invents_motion_after_timeout() {
   Rig r; r.b.adoptGroupTarget(50,81,r.now); r.run(60000);
-  ASSERT_POS(0,r.st().currentPos); TEST_ASSERT_TRUE(r.b.hasPendingGroupStart());
+  ASSERT_POS(0,r.st().currentPos); TEST_ASSERT_FALSE(r.b.hasPendingGroupStart());
   TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size());
 }
 static void test_group_aborted_partial_stop_cancels_deferred_without_second_my() {
@@ -748,31 +751,62 @@ static void test_group_partial_start_cancels_timed_stop() {
 static void test_group_short_target_waits_for_complete_start_without_reversing_estimate() {
   Rig r; r.b.adoptGroupTarget(1,81,r.now); r.event(tx_event_t::started,81); r.run(200);
   ASSERT_POS(2,r.st().currentPos); TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size());
-  TEST_ASSERT_FALSE(r.b.stopGroupTarget(r.now));
+  // Accepted, but held back until the start has fully gone on air.
+  TEST_ASSERT_TRUE(r.b.stopGroupTarget(r.now)); TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size());
   r.event(tx_event_t::finished,81); r.run(10);
   TEST_ASSERT_EQUAL_UINT(1,r.link.sent.size()); ASSERT_CMD(somfy_commands::My,r.lastSent().cmd);
   TEST_ASSERT_EQUAL_INT8(1,r.st().direction); TEST_ASSERT_TRUE(r.st().currentPos>=2);
 }
-static void test_ordinary_group_start_refuses_priority_override_until_finished() {
+static void test_ordinary_group_start_coalesces_target_until_finished() {
   Rig r;
   r.b.onGroupCommand(somfy_commands::Down,1,r.now);
   r.b.onTxQueued(81,r.now);
-  r.b.observeGroupStart(81);
+  r.b.observeGroupStart(81,r.now);
   TEST_ASSERT_TRUE(r.b.hasPendingGroupStart());
-  TEST_ASSERT_FALSE(r.b.moveToGroupTarget(20,r.now));
-  TEST_ASSERT_FALSE(r.b.stopGroupTarget(r.now));
+  // Accepted without RF: no priority My may overtake the queued start.
+  TEST_ASSERT_TRUE(r.b.moveToGroupTarget(20,r.now));
   r.event(tx_event_t::started,81); r.run(100);
   TEST_ASSERT_TRUE(r.b.hasPendingGroupStart());
-  TEST_ASSERT_FALSE(r.b.moveToGroupTarget(20,r.now));
   TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size());
   r.event(tx_event_t::finished,81);
   TEST_ASSERT_FALSE(r.b.hasPendingGroupStart());
-  TEST_ASSERT_TRUE(r.b.moveToGroupTarget(20,r.now));
-  ASSERT_CMD(somfy_commands::My,r.lastSent().cmd);
+  // Still ahead in the press's direction: only the stop deadline changes.
+  TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size()); ASSERT_POS(20,r.st().target);
+  r.run(20000);
+  TEST_ASSERT_EQUAL_UINT(1,r.link.sent.size()); ASSERT_CMD(somfy_commands::My,r.lastSent().cmd);
+}
+static void test_ordinary_group_start_defers_stop_until_finished() {
+  Rig r;
+  r.b.onGroupCommand(somfy_commands::Down,1,r.now);
+  r.b.onTxQueued(81,r.now);
+  r.b.observeGroupStart(81,r.now);
+  TEST_ASSERT_TRUE(r.b.stopGroupTarget(r.now));
+  r.event(tx_event_t::started,81); r.run(100);
+  TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size());
+  r.event(tx_event_t::finished,81);
+  TEST_ASSERT_EQUAL_UINT(1,r.link.sent.size()); ASSERT_CMD(somfy_commands::My,r.lastSent().cmd);
+}
+static void test_dropped_ordinary_start_discards_deferred_stop() {
+  Rig r;
+  r.b.onGroupCommand(somfy_commands::Down,1,r.now);
+  r.b.onTxQueued(81,r.now);
+  r.b.observeGroupStart(81,r.now);
+  TEST_ASSERT_TRUE(r.b.stopGroupTarget(r.now));
+  r.event(tx_event_t::dropped,81); r.run(1000);
+  TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size()); TEST_ASSERT_TRUE(r.b.groupPlanFailed());
+}
+static void test_pending_group_start_without_outcome_times_out() {
+  Rig r; r.b.adoptGroupTarget(50,81,r.now); r.run(31000);
+  TEST_ASSERT_FALSE(r.b.hasPendingGroupStart()); TEST_ASSERT_TRUE(r.b.groupPlanFailed());
+  ASSERT_POS(0,r.st().currentPos); TEST_ASSERT_TRUE(r.b.isIdle());
+  TEST_ASSERT_EQUAL_UINT(0,r.link.sent.size());
 }
 int main(int argc, char **argv) {
   UNITY_BEGIN();
-  RUN_TEST(test_ordinary_group_start_refuses_priority_override_until_finished);
+  RUN_TEST(test_ordinary_group_start_coalesces_target_until_finished);
+  RUN_TEST(test_ordinary_group_start_defers_stop_until_finished);
+  RUN_TEST(test_dropped_ordinary_start_discards_deferred_stop);
+  RUN_TEST(test_pending_group_start_without_outcome_times_out);
   RUN_TEST(test_group_short_target_waits_for_complete_start_without_reversing_estimate);
   RUN_TEST(test_group_partial_start_cancels_timed_stop);
   RUN_TEST(test_group_stop_after_started_cancels_deferred_restart);
@@ -784,7 +818,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_group_refused_automatic_stop_runs_to_limit);
   RUN_TEST(test_group_replacement_stops_before_new_target_and_waits_for_start);
   RUN_TEST(test_group_refused_replacement_keeps_existing_target_stop);
-  RUN_TEST(test_group_pending_start_refuses_stop_but_retains_latest_target);
+  RUN_TEST(test_group_pending_start_defers_stop_and_retains_latest_request);
   RUN_TEST(test_group_endpoint_pending_start_remains_guarded);
   RUN_TEST(test_group_target_waits_then_stops_each_member_at_own_time);
   RUN_TEST(test_group_target_drop_cancels_without_stop);

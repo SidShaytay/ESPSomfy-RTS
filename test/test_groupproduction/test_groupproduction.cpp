@@ -165,8 +165,7 @@ static void slider_burst_keeps_one_shared_start_and_latest_target() {
   reset(); TEST_ASSERT_TRUE(group().moveToTarget(1));
   const auto ticket=submitted.back().ticket;
   TEST_ASSERT_TRUE(group().moveToTarget(20)); TEST_ASSERT_TRUE(group().moveToTarget(80));
-  TEST_ASSERT_FALSE(group().sendCommand(somfy_commands::My));
-  TEST_ASSERT_FALSE(member(0).moveToTarget(20)); TEST_ASSERT_EQUAL_UINT(1,submitted.size());
+  TEST_ASSERT_EQUAL_UINT(1,submitted.size());
   auto shared=next(); TEST_ASSERT_EQUAL_UINT32(ticket,shared.ticket); completeJob(shared);
   TEST_ASSERT_EQUAL_FLOAT(80,member(0).state().target); TEST_ASSERT_EQUAL_FLOAT(80,member(1).state().target);
   TEST_ASSERT_EQUAL_UINT(1,submitted.size());
@@ -182,11 +181,14 @@ static void reverse_slider_burst_defers_stop_until_shared_start_completes() {
   TEST_ASSERT_EQUAL(somfy_commands::My,decoded(submitted[1]).cmd);
   TEST_ASSERT_EQUAL(somfy_commands::My,decoded(submitted[2]).cmd);
 }
-static void ordinary_group_pending_start_still_refuses_target_replacement() {
+static void ordinary_group_pending_start_coalesces_target_replacement() {
   reset(); TEST_ASSERT_TRUE(group().sendCommand(somfy_commands::Down));
-  TEST_ASSERT_FALSE(group().moveToTarget(50)); TEST_ASSERT_EQUAL_UINT(1,submitted.size());
+  TEST_ASSERT_TRUE(group().moveToTarget(50)); TEST_ASSERT_EQUAL_UINT(1,submitted.size());
   auto shared=next(); TEST_ASSERT_EQUAL_UINT32(group().getRemoteAddress(),shared.frame.remoteAddress);
-  completeJob(shared);
+  completeJob(shared,274);
+  // The shared Down already moves both members toward 50: no extra RF.
+  TEST_ASSERT_EQUAL_FLOAT(50,member(0).state().target); TEST_ASSERT_EQUAL_FLOAT(50,member(1).state().target);
+  TEST_ASSERT_EQUAL_UINT(1,submitted.size());
 }
 static void compatible_active_retarget_reuses_shared_movement_without_extra_rf() {
   reset(); TEST_ASSERT_TRUE(group().moveToTarget(80)); completeJob(next()); tick(3000);
@@ -208,6 +210,130 @@ static void flipped_group_and_members_preserve_shared_wire_contract_for_burst() 
   TEST_ASSERT_EQUAL_UINT(1,submitted.size()); TEST_ASSERT_EQUAL(somfy_commands::Up,decoded(submitted[0]).cmd);
   completeJob(next()); TEST_ASSERT_EQUAL_FLOAT(80,member(0).state().target); TEST_ASSERT_EQUAL_FLOAT(80,member(1).state().target);
 }
+
+// Review findings for #23 (regressions: each failed before its fix).
+static size_t count(uint32_t address, somfy_commands cmd) {
+  size_t n=0;
+  for(auto &job : submitted) if(job.frame.remoteAddress==address && decoded(job).cmd==cmd) n++;
+  return n;
+}
+static std::vector<somfy_tx_job_t> airAll(uint32_t airtime=274) {
+  std::vector<somfy_tx_job_t> aired; somfy_tx_job_t job; uint32_t wait;
+  for(int i=0;i<12 && radio.next(millis(),job,wait);i++) {
+    if(!radio.start(job.ticket,millis())) { events(); continue; }
+    events(); aired.push_back(job);
+    stubMillis+=airtime; radio.ended(job.ticket,true,millis()); events(); tick(100);
+  }
+  return aired;
+}
+static void group_target_over_queued_individual_start_sends_no_my() {
+  reset(); member(0).restore(0,0,30,-1);
+  TEST_ASSERT_TRUE(member(0).moveToTarget(100));
+  const uint32_t queued=submitted[0].ticket;
+  TEST_ASSERT_TRUE(group().moveToTarget(100));
+  auto aired=airAll();
+  for(auto &job : aired) TEST_ASSERT_NOT_EQUAL(queued,job.ticket);
+  TEST_ASSERT_EQUAL_UINT(0,count(member(0).getRemoteAddress(),somfy_commands::My));
+  // The queued press never moved the motor, so both members share one start.
+  TEST_ASSERT_EQUAL_UINT(1,aired.size());
+  TEST_ASSERT_EQUAL_UINT32(group().getRemoteAddress(),aired[0].frame.remoteAddress);
+}
+static void member_stop_over_queued_individual_start_cancels_without_my() {
+  reset(); member(0).restore(0,0,30,-1);
+  TEST_ASSERT_TRUE(member(0).moveToTarget(60));
+  TEST_ASSERT_TRUE(member(0).sendCommand(somfy_commands::My));
+  TEST_ASSERT_EQUAL_UINT(0,airAll().size());
+  TEST_ASSERT_TRUE(member(0).isIdle()); TEST_ASSERT_EQUAL_FLOAT(0,member(0).state().currentPos);
+}
+static void group_stop_over_queued_individual_starts_cancels_without_my() {
+  reset();
+  TEST_ASSERT_TRUE(member(0).moveToTarget(60)); TEST_ASSERT_TRUE(member(1).moveToTarget(60));
+  TEST_ASSERT_TRUE(group().sendCommand(somfy_commands::My));
+  TEST_ASSERT_EQUAL_UINT(0,airAll().size());
+  TEST_ASSERT_TRUE(member(0).isIdle()); TEST_ASSERT_TRUE(member(1).isIdle());
+}
+static void group_stop_before_shared_start_airs_cancels_it() {
+  reset(); TEST_ASSERT_TRUE(group().moveToTarget(50));
+  TEST_ASSERT_TRUE(group().sendCommand(somfy_commands::My));
+  TEST_ASSERT_EQUAL_UINT(0,airAll().size());
+  tick(5000);
+  TEST_ASSERT_EQUAL_FLOAT(0,member(0).state().currentPos); TEST_ASSERT_EQUAL_FLOAT(0,member(1).state().currentPos);
+}
+static void group_stop_during_shared_start_stops_each_member_after_it() {
+  reset(); TEST_ASSERT_TRUE(group().moveToTarget(50));
+  auto shared=next(); TEST_ASSERT_TRUE(radio.start(shared.ticket,millis())); events();
+  TEST_ASSERT_TRUE(group().sendCommand(somfy_commands::My));
+  TEST_ASSERT_EQUAL_UINT(1,submitted.size());
+  stubMillis+=274; radio.ended(shared.ticket,true,millis()); events();
+  TEST_ASSERT_EQUAL_UINT(1,count(member(0).getRemoteAddress(),somfy_commands::My));
+  TEST_ASSERT_EQUAL_UINT(1,count(member(1).getRemoteAddress(),somfy_commands::My));
+  TEST_ASSERT_EQUAL_UINT(0,count(group().getRemoteAddress(),somfy_commands::My));
+}
+static void ordinary_group_reversal_during_pending_start_is_accepted() {
+  reset(); TEST_ASSERT_TRUE(group().sendCommand(somfy_commands::Down));
+  const uint32_t down=submitted[0].ticket;
+  TEST_ASSERT_TRUE(group().sendCommand(somfy_commands::Up));
+  auto aired=airAll();
+  TEST_ASSERT_EQUAL_UINT(1,aired.size()); TEST_ASSERT_NOT_EQUAL(down,aired[0].ticket);
+  TEST_ASSERT_EQUAL(somfy_commands::Up,decoded(aired[0]).cmd);
+}
+static void member_target_during_shared_start_is_coalesced_for_that_member() {
+  reset(); TEST_ASSERT_TRUE(group().moveToTarget(80));
+  TEST_ASSERT_TRUE(member(0).moveToTarget(30));
+  TEST_ASSERT_EQUAL_UINT(1,submitted.size());
+  completeJob(next(),274);
+  TEST_ASSERT_EQUAL_FLOAT(30,member(0).state().target); TEST_ASSERT_EQUAL_FLOAT(80,member(1).state().target);
+  TEST_ASSERT_EQUAL_UINT(1,submitted.size());
+}
+static void group_target_over_moving_individual_plans_needs_no_rf() {
+  reset(); TEST_ASSERT_TRUE(member(0).moveToTarget(100)); TEST_ASSERT_TRUE(member(1).moveToTarget(100));
+  completeJob(next(),274); completeJob(next(),274); tick(2000);
+  TEST_ASSERT_TRUE(group().moveToTarget(100));
+  airAll(); tick(25000);
+  TEST_ASSERT_EQUAL_UINT(2,submitted.size());
+  TEST_ASSERT_EQUAL_FLOAT(100,member(0).state().currentPos); TEST_ASSERT_EQUAL_FLOAT(100,member(1).state().currentPos);
+}
+static void reversal_stops_movers_then_restarts_with_one_native_press() {
+  reset(); TEST_ASSERT_TRUE(group().moveToTarget(80)); completeJob(next(),274); tick(3000);
+  TEST_ASSERT_TRUE(group().moveToTarget(0));
+  airAll();
+  TEST_ASSERT_EQUAL_UINT(1,count(member(0).getRemoteAddress(),somfy_commands::My));
+  TEST_ASSERT_EQUAL_UINT(1,count(member(1).getRemoteAddress(),somfy_commands::My));
+  TEST_ASSERT_EQUAL_UINT(0,count(member(0).getRemoteAddress(),somfy_commands::Up));
+  TEST_ASSERT_EQUAL_UINT(0,count(member(1).getRemoteAddress(),somfy_commands::Up));
+  TEST_ASSERT_EQUAL_UINT(1,count(group().getRemoteAddress(),somfy_commands::Up));
+}
+static void reverse_burst_during_start_restarts_with_one_native_press() {
+  reset(); TEST_ASSERT_TRUE(group().moveToTarget(80)); TEST_ASSERT_TRUE(group().moveToTarget(0));
+  airAll();
+  TEST_ASSERT_EQUAL_UINT(1,count(group().getRemoteAddress(),somfy_commands::Down));
+  TEST_ASSERT_EQUAL_UINT(1,count(group().getRemoteAddress(),somfy_commands::Up));
+  TEST_ASSERT_EQUAL_UINT(0,count(member(0).getRemoteAddress(),somfy_commands::Up));
+  TEST_ASSERT_EQUAL_UINT(0,count(member(1).getRemoteAddress(),somfy_commands::Up));
+}
+static void dropped_stop_cancels_waiting_native_restart() {
+  reset(); TEST_ASSERT_TRUE(group().moveToTarget(80)); completeJob(next(),274); tick(3000);
+  TEST_ASSERT_TRUE(group().moveToTarget(0));
+  radio.flush(millis()); events(); airAll();
+  TEST_ASSERT_EQUAL_UINT(0,count(group().getRemoteAddress(),somfy_commands::Up));
+  TEST_ASSERT_FALSE(group().replanPending);
+}
+static void member_override_cancels_waiting_native_restart() {
+  reset(); TEST_ASSERT_TRUE(group().moveToTarget(80)); completeJob(next(),274); tick(3000);
+  TEST_ASSERT_TRUE(group().moveToTarget(0));
+  TEST_ASSERT_TRUE(member(0).moveToTarget(90));
+  TEST_ASSERT_FALSE(group().replanPending);
+}
+static void subpercent_residue_counts_as_reached() {
+  reset(); member(0).setPosition(50.3f,-1); member(1).setPosition(49.8f,-1); tick(20);
+  TEST_ASSERT_TRUE(group().moveToTarget(50));
+  TEST_ASSERT_EQUAL_UINT(0,submitted.size());
+}
+static void repeated_endpoint_during_its_start_sends_once() {
+  reset(); TEST_ASSERT_TRUE(group().moveToTarget(100)); TEST_ASSERT_TRUE(group().moveToTarget(100));
+  airAll(); tick(30000);
+  TEST_ASSERT_EQUAL_UINT(1,submitted.size());
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(saved_configuration_uses_one_native_group_start);
@@ -220,6 +346,20 @@ int main() {
   RUN_TEST(ordinary_native_group_and_target_native_group_encode_same_command_contract);
   RUN_TEST(slider_burst_keeps_one_shared_start_and_latest_target);
   RUN_TEST(reverse_slider_burst_defers_stop_until_shared_start_completes);
-  RUN_TEST(ordinary_group_pending_start_still_refuses_target_replacement);
+  RUN_TEST(ordinary_group_pending_start_coalesces_target_replacement);
+  RUN_TEST(group_target_over_queued_individual_start_sends_no_my);
+  RUN_TEST(member_stop_over_queued_individual_start_cancels_without_my);
+  RUN_TEST(group_stop_over_queued_individual_starts_cancels_without_my);
+  RUN_TEST(group_stop_before_shared_start_airs_cancels_it);
+  RUN_TEST(group_stop_during_shared_start_stops_each_member_after_it);
+  RUN_TEST(ordinary_group_reversal_during_pending_start_is_accepted);
+  RUN_TEST(member_target_during_shared_start_is_coalesced_for_that_member);
+  RUN_TEST(group_target_over_moving_individual_plans_needs_no_rf);
+  RUN_TEST(reversal_stops_movers_then_restarts_with_one_native_press);
+  RUN_TEST(reverse_burst_during_start_restarts_with_one_native_press);
+  RUN_TEST(dropped_stop_cancels_waiting_native_restart);
+  RUN_TEST(member_override_cancels_waiting_native_restart);
+  RUN_TEST(subpercent_residue_counts_as_reached);
+  RUN_TEST(repeated_endpoint_during_its_start_sends_once);
   return UNITY_END();
 }

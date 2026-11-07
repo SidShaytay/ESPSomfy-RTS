@@ -315,7 +315,7 @@ void SomfyShadeController::loop() {
     }
   }
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++)
-    if(this->groups[i].getGroupId() != 255) this->groups[i].updateTargetDirection();
+    if(this->groups[i].getGroupId() != 255) { this->groups[i].serviceTarget(); this->groups[i].updateTargetDirection(); }
   // Only commit the file once per second.
   if(this->isDirty && millis() - this->lastCommit > 1000) {
     this->commit();

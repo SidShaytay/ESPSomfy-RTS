@@ -36,9 +36,20 @@ void SomfyShadeController::cancelGroupStartsForShade(uint8_t shadeId, uint32_t e
   }
 }
 
+void SomfyShadeController::cancelGroupReplansForShade(uint8_t shadeId) {
+  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
+    SomfyGroup &group = this->groups[i];
+    if(group.getGroupId() != 255 && group.hasShadeId(shadeId)) group.cancelReplan();
+  }
+}
+
 void SomfyShadeController::processTxEvent(const somfy_tx_event_t &evt) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++)
     if(this->shades[i].getShadeId() != 255) this->shades[i].processTxEvent(evt);
+  // A waiting group target is planned as soon as the outcome it waited for
+  // arrives, not a loop later.
+  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++)
+    if(this->groups[i].getGroupId() != 255) this->groups[i].serviceTarget();
 }
 
 uint32_t SomfyShadeController::sendFrame(somfy_frame_t &frame, uint8_t repeat, uint16_t delayMs, bool priority) {
