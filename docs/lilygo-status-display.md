@@ -1,6 +1,6 @@
 # Optional LILYGO status display
 
-The Plus LCD shows controller status without controlling shades. This implements the software portion of [issue #15](https://github.com/SidShaytay/ESPSomfy-RTS/issues/15); hardware acceptance is pending. It builds on the verified standard-layout branch, separately from the minimal headless upstream contribution in #21.
+The Plus LCD shows controller status without controlling shades. This implements the software portion of [issue #15](https://github.com/SidShaytay/ESPSomfy-RTS/issues/15); the firmware is installed, with remaining physical acceptance checks documented in the validation report. It builds on the verified standard-layout branch, separately from the minimal headless upstream contribution in #21.
 
 ## Build the optional display
 
@@ -45,7 +45,7 @@ Snapshots are sampled once per second after setup. Only changed text rows transf
 
 The renderer uses a 720-byte monochrome row canvas and a 640-byte static pixel scanline, not a 108,800-byte full-screen framebuffer. It requests no PSRAM or DMA buffers. Allocation/PWM/SPI initialization/initialization timeout failures leave the backlight off and let controller startup continue. The LCD is write-only: command completion cannot detect a disconnected or damaged panel; a dark panel must not be interpreted as controller failure.
 
-Every 30 seconds USB diagnostics report free internal SRAM, free PSRAM, maximum complete row rendering time (`maxRowUs`), maximum SPI-lock duration (`maxBusUs`), and skipped row transfers. These measurements contain no configuration or shade data. Physical display brightness, legibility, timing and radio responsiveness remain to be measured.
+Every 30 seconds USB diagnostics report free internal SRAM, free PSRAM, maximum complete row rendering time (`maxRowUs`), maximum SPI-lock duration (`maxBusUs`), and skipped row transfers. These measurements contain no configuration or shade data. Measured row rendering and bus-lock times are in the validation report. Physical display brightness/legibility and on-air radio responsiveness still need direct confirmation.
 
 ## Offline verification
 
