@@ -6,9 +6,7 @@
 #include <string.h>
 namespace LocalUi {
 namespace {
-constexpr uint16_t rgb(unsigned c) {
-  return ((c >> 8) & 0xf800) | ((c >> 5) & 0x07e0) | ((c >> 3) & 0x001f);
-}
+constexpr uint16_t rgb(unsigned c) { return ((c >> 8) & 0xf800) | ((c >> 5) & 0x07e0) | ((c >> 3) & 0x001f); }
 constexpr uint16_t bg = rgb(0x111719), white = rgb(0xeaece8), muted = rgb(0x929d9b), teal = rgb(0x66c6b5),
                    amber = rgb(0xe5bc67), selected = rgb(0x21433f), line = rgb(0x3a4848);
 const char *notices[] = {"",
@@ -161,16 +159,15 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
     const auto &t = m.targets[v.selected];
     text(12, 28, t.name[0] ? t.name : "Not configured", true, white);
     if(v.selected == 2) {
-      snprintf(label, sizeof(label), "Bedroom %s", t.open[0] < 0 ? "--" : "");
-      if(t.open[0] >= 0)
-        snprintf(label, sizeof(label), "Bedroom  %d%% open", t.open[0]);
-      text(12, 52, label, false, muted);
-      if(t.open[1] < 0)
-        snprintf(label, sizeof(label), "Bathroom --");
-      else
-        snprintf(label, sizeof(label), "Bathroom %d%% open", t.open[1]);
-      text(12, 73, label, false, muted);
-      text(214, 63, "Estimated", false, amber, 96);
+      for(int i = 0; i < 2; i++) {
+        text(12, 52 + i * 21, m.targets[i].name[0] ? m.targets[i].name : "Not configured", false, muted, 145);
+        if(t.open[i] < 0)
+          snprintf(label, sizeof(label), "--");
+        else
+          snprintf(label, sizeof(label), "%d%%", t.open[i]);
+        text(168, 52 + i * 21, label, false, white, 52);
+      }
+      text(228, 63, "Estimated", false, amber, 80);
     } else {
       shutter(14, 42, t.open[0], teal);
       if(t.open[0] < 0)

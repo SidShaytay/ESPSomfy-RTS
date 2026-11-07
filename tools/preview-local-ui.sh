@@ -19,4 +19,8 @@ trap 'rm -rf -- "$scratch"' EXIT
   "$repo/src/LocalUi.cpp" "$repo/src/StatusDisplay.cpp" "$gfx/Adafruit_GFX.cpp" \
   -o "$scratch/runtime"
 "$scratch/runtime"
+"${CXX:-c++}" -std=c++17 -O2 -DESPSOMFY_LOCAL_UI -DUI_RUNTIME_HOST_TEST \
+  -I"$repo/tests/ui-render" -I"$repo/src" \
+  "$repo/tests/ui-render/capture-test.cpp" "$repo/src/LocalUiCapture.cpp" -o "$scratch/capture"
+"$scratch/capture"
 python3 "$repo/tools/local_ui_previews.py" "$out"

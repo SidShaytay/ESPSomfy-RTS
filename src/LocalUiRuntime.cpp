@@ -1,6 +1,7 @@
 #ifdef ESPSOMFY_LOCAL_UI
 #include "LocalUiRuntime.h"
 #include "LocalUiAdapter.h"
+#include "LocalUiCapture.h"
 #include "BoardProfile.h"
 #include <esp_heap_caps.h>
 #include <string.h>
@@ -54,6 +55,7 @@ void Runtime::begin() {
 bool Runtime::tick(uint32_t now, const StatusDisplay::Snapshot &s, bool pressed,
                    bool (*sendBand)(uint8_t, uint8_t, const uint8_t *, size_t), void (*light)(uint8_t)) {
   if(!memory.pixels) {
+    capturePoll(nullptr, true, 0, 0);
     return false;
   }
   const Model model = snapshotModel(s.running);
@@ -76,6 +78,7 @@ bool Runtime::tick(uint32_t now, const StatusDisplay::Snapshot &s, bool pressed,
     controller.result(now, dispatch(command));
   light(controller.brightness());
   if(!controller.brightness()) {
+    capturePoll(memory.pixels, bandIndex == 43, 0, revision);
     return true;
   }
   const uint32_t desired = sceneHash(model, controller.view(), s);
@@ -94,6 +97,7 @@ bool Runtime::tick(uint32_t now, const StatusDisplay::Snapshot &s, bool pressed,
     attempted = true;
     ++revision;
   }
+  capturePoll(memory.pixels, bandIndex == 43, controller.brightness(), revision);
   if(bandIndex == 43 || uint32_t(now - lastBand) < 2)
     return true;
   lastBand = now;

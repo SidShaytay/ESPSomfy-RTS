@@ -13,6 +13,7 @@
 #include "StatusDisplay.h"
 #ifdef ESPSOMFY_LOCAL_UI
 #include "LocalUiRuntime.h"
+#include "LocalUiCapture.h"
 #endif
 
 namespace StatusPanel {
@@ -164,7 +165,7 @@ void loop(bool running) {
   }
 #ifdef ESPSOMFY_LOCAL_UI
   const auto initialized=panel.initialize(millis());
-  if(initialized==Result::failed) {panel.brightness(0);return;}
+  if(initialized==Result::failed) {panel.brightness(0);LocalUi::capturePoll(nullptr,true,0,0);return;}
   if(initialized==Result::pending)return;
   s.graphicsFailure=uint8_t(ui.failure());
   if(!ui.tick(millis(),s,digitalRead(wake)==LOW,sendBand,light))
