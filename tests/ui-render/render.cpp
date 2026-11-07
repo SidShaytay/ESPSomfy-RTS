@@ -36,6 +36,7 @@ int main(int argc, char **argv) {
   m.targets[0].moving = true;
   StatusDisplay::Snapshot s;
   s.running = true;
+  s.battery = {BatteryGauge::State::ready, 74, 3920, -100};
   s.link = StatusDisplay::Link::connected;
   s.web = StatusDisplay::Web::listening;
   s.radio = StatusDisplay::Radio::ready;

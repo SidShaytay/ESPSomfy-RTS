@@ -69,4 +69,19 @@ static void disabled_fallback_timeouts_keep_the_status_awake() {
   Panel p;Session session(p,20000);Snapshot s;session.setTimeouts(0,0);
   session.tick(0,s,false);session.tick(600000,s,false);TEST_ASSERT_EQUAL(32,p.light);
 }
-int main() { UNITY_BEGIN(); RUN_TEST(states); RUN_TEST(lifecycle); RUN_TEST(failure); RUN_TEST(busy_and_wrap); RUN_TEST(disabled_fallback_timeouts_keep_the_status_awake); return UNITY_END(); }
+static void battery_readings_and_failures_are_explicit() {
+  Snapshot s; Page p;
+  s.battery = {BatteryGauge::State::ready, 74, 3920, -100};
+  format(s, p);
+  TEST_ASSERT_EQUAL_STRING("Battery: 74% (3.92V)", p.lines[1]);
+  s.battery.state = BatteryGauge::State::readFailed;
+  format(s, p);
+  TEST_ASSERT_EQUAL_STRING("Battery: read failed", p.lines[1]);
+  s.battery.state = BatteryGauge::State::noBattery;
+  format(s, p);
+  TEST_ASSERT_EQUAL_STRING("Battery: not detected", p.lines[1]);
+  s.graphicsFailure = 2;
+  format(s, p);
+  TEST_ASSERT_EQUAL_STRING("LCD: PSRAM alloc failed", p.lines[1]);
+}
+int main() { UNITY_BEGIN(); RUN_TEST(battery_readings_and_failures_are_explicit); RUN_TEST(states); RUN_TEST(lifecycle); RUN_TEST(failure); RUN_TEST(busy_and_wrap); RUN_TEST(disabled_fallback_timeouts_keep_the_status_awake); return UNITY_END(); }

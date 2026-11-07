@@ -13,6 +13,8 @@ constexpr bool integratedRadio = false;
 
 // LILYGO utilities.h and CC1101 schematics: see LILYGO.md for pinned sources.
 constexpr uint8_t power = 15;
+constexpr uint8_t powerSDA = 8;
+constexpr uint8_t powerSCL = 18;
 constexpr uint8_t sck = 11;
 constexpr uint8_t mosi = 9;
 constexpr uint8_t miso = 10;

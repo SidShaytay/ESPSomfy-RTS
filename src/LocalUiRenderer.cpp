@@ -141,7 +141,11 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
          s.web == StatusDisplay::Web::listening  ? "HTTP listening"
          : s.web == StatusDisplay::Web::starting ? "HTTP starting"
                                                  : "HTTP error",
-         false, s.web == StatusDisplay::Web::error ? amber : muted);
+         false, s.web == StatusDisplay::Web::error ? amber : muted, 170);
+    if(s.battery.state == BatteryGauge::State::ready) {
+      snprintf(label, sizeof(label), "Battery %u%%", unsigned(s.battery.percent));
+      text(194, 146, label, false, s.battery.percent <= 15 ? amber : muted, 114);
+    }
     text(12, 164, "Turn: choose   Hold: details", false, muted);
   } else if(v.screen == Screen::choose) {
     text(12, 28, "Choose shutters", true, white);
