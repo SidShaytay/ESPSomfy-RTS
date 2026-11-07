@@ -27,7 +27,7 @@ class IdentityTests(unittest.TestCase):
         self.assertNotEqual(result['version'], 'v4.0.3')
 
     def test_untagged_or_ambiguous_tags_are_development(self):
-        for tags in ([], ['v4.0.3-rc.1'], ['v4.0.3', 'v4.0.4']):
+        for tags in ([], ['v4.0.3-rc.1'], ['v4.0.3', 'v4.0.4'], ['v4294967296.1.0']):
             self.assertTrue(i.identity({'revision': '1' * 40, 'dirty': False}, '4.0.1', tags)['version'].startswith('dev-'))
 
     def test_rejects_invalid_identity_component(self):
@@ -45,7 +45,7 @@ class ReleaseTests(ManifestTests):
         # Put the actual identity inside the checked image's data segment.
         firmware = self.out / 'firmware.bin'
         raw = firmware.read_bytes()
-        payload = self.identity['marker'].encode() + b'\0'
+        payload = (self.identity['marker'].encode() + b'\0').ljust(1024, b'\0')
         import struct
         image = bytearray(raw[:24]) + struct.pack('<II', 0x3c000000, len(payload)) + payload
         checksum = 0xef
@@ -92,6 +92,10 @@ class ReleaseTests(ManifestTests):
         with patch.object(r.build, 'source_record', return_value=self.record), patch.object(r, 'tags_at_head', return_value=['v4.0.3']), patch.object(r, 'read_app_version', return_value='4.0.2'):
             with self.assertRaisesRegex(ValueError, 'identity mismatch'):
                 r.release_manifest(self.out, Path('/source'), 'v4.0.3')
+
+    def test_rejects_version_outside_runtime_integer_bounds(self):
+        with self.assertRaisesRegex(ValueError, 'stable'):
+            r.release_manifest(self.out, Path('/source'), 'v4294967296.1.0')
 
     def test_rejects_missing_prebuild_identity(self):
         (self.out / 'update-source.json').unlink()

@@ -7,7 +7,7 @@ from pathlib import Path
 import shutil
 
 import lilygo_manifest as build
-from update_identity import (BOARD, LAYOUT, STABLE_TAG, MANIFEST_ASSET,
+from update_identity import (BOARD, LAYOUT, stable_tag, MANIFEST_ASSET,
                              FIRMWARE_ASSET, identity, tags_at_head)
 
 
@@ -16,7 +16,7 @@ def read_app_version(source):
 
 
 def release_manifest(package, source, version):
-    if not STABLE_TAG.fullmatch(version):
+    if not stable_tag(version):
         raise ValueError('release version must be a stable vMAJOR.MINOR.PATCH tag')
     manifest = build.validate(json.loads((package / 'flash-manifest.json').read_text()), package)
     provenance = json.loads((package / 'update-source.json').read_text())
@@ -33,6 +33,8 @@ def release_manifest(package, source, version):
     firmware = (package / 'firmware.bin').read_bytes()
     # The compiled marker is part of the image covered by its ESP checksum/SHA.
     # Require the delimiter and terminator to defeat prefix/version substitutions.
+    if len(firmware) < 1024:
+        raise ValueError('firmware is below the supported runtime size')
     marker = expected_identity['marker'].encode('ascii') + b'\0'
     if firmware.count(marker) != 1:
         raise ValueError('firmware does not contain exactly one matching compiled build identity')
