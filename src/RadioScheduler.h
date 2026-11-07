@@ -35,7 +35,9 @@ class RadioScheduler {
     bool next(uint32_t now, somfy_tx_job_t &job, uint32_t &waitMs);
     // The job taken is about to go on air.  False when it was flushed since,
     // it is then dropped and must not be sent.
-    bool start(uint32_t ticket, uint32_t now);
+    // An unavailable transmitter has attempted no frame: report dropped,
+    // not started/aborted, so member models do not invent movement.
+    bool start(uint32_t ticket, uint32_t now, bool transmitterReady = true);
     // Whether the job on air should send its next frame.  A flush cuts it
     // short.
     bool keepSending(uint32_t ticket) const;

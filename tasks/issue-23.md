@@ -24,8 +24,23 @@ The installed device advertises schema `c109d9d8` and operation 55. Read-only ch
 
 Private recovery/deployment evidence is selected by `~/.local/state/espsomfy-lilygo/ISSUE23_CURRENT_INSTALL`. HA preparation and rollback evidence are under `~/.local/state/espsomfy-ha-homekit/deploy-issue23-20261107T030226Z`. Fresh recovery precedes future writes; backups become historical once real commands advance counters. Never restore stale counters unchanged.
 
-Next ID: G23-8.
+## Offline repair checkpoint
 
-## User-observed outcome — November 6, 2026
+- [x] G23-8: reproduced production-path failures in `issue-23-debug`, branch `codex/issue-23-debug`, based on completed `main` (`953927b`, documentation `e17ecc1`) plus the existing unfinished issue-23 feature. Saved configuration selects a real native shared start; ordinary Down and target-100 encode the same command. No idle-start adapter fault or RF reception cause was established.
+- [x] G23-9: reviewed offline fixes committed and validated. `a3639fb` extracts five controller TX methods unchanged for real host integration coverage. `0a0cb2d` drops known-untransmitted jobs instead of emitting misleading started/aborted events and inventing travel. `40dcd8d` coalesces the latest group target during an unfinished owned start; same-direction active targets retain the shared movement/clock without extra RF; reversing targets retain Stop/completion guards. Elapsed travel is refreshed before target-direction decisions, including safe restart from a predicted self-stopping limit.
 
-The software/build checks and read-only installation checks passed, but the subsequent physical behavior did not meet the feature requirements. Preserve the installed firmware/HA revisions and recovery evidence. No rollback, HA restart, firmware change or additional motor test was performed after this report.
+New production regressions reproduced rejected final slider targets and two unnecessary individual Stops. Two delayed-loop regressions failed with stale20% estimates instead of current30%/limit100%, then passed. The production harness executes actual group/shade/remote/controller TX code with host-only hardware/persistence/startup/output boundaries. Airtime tests include actual packet-duration formulas and the100ms inter-job gap; close Stop deadlines still serialize and may overshoot. These are model limits, not evidence of received RF.
+
+Final validation: **728 native tests passed, one optional private-fixture skip;63web tests passed**. Enabled UI, headless Plus and generic ESP32 builds passed. Independent review found no required changes. Removing canonical shared-ticket preservation broke seven production tests; latest-target and unavailable-transmitter mutations also failed as expected, with sources restored.
+
+No hardware/USB/serial/controller/HA access, flashing, reboots or RF/motor commands occurred during this repair. Installed firmware and HA were not changed by this work. The exact cause of every user-observed failure remains unproven; keep issue23 open and the unfinished group feature outside main. Next: retain offline changes and continuity in issue23; physical confirmation awaits a later user instruction, never an automatic deployment.
+
+A separate display task documented a later installed combined source `b1ad2e4`, preserving groupTarget55, after the failed test. Its source/artifact record is selected by `LATEST_UI_DETAILS_POWER_INSTALL`. This does not explain the earlier physical failure and does not authorize live inspection or further writes.
+
+## Independent review fixes
+
+- [x] G23-10: independent offline review of `9444072` (issue #23 comment 6712490533) confirmed My could reach idle motors and that commands were refused during pending starts. Fixed on `codex/issue-23-review-fixes`: a press still queued is cancelled and replaced, never stopped with My (group target, member Stop and group Stop); Stop during an unfinished start cancels a queued press or stops on-air members after it finishes; group Up/Down replace an unfinished start; member targets/Up/Down and group targets coalesce during any unfinished start; pending starts time out after 30 s. Same-direction targets need no RF for any active movement; when every mover must stop, members restart with one native press; intermediate targets within 1% count as reached.
+
+The saved configuration confirms the test travel times (Bedroom 23.75 s up / 22.10 s down, Bathroom 21.15 s up / 19.30 s down); the issue text has up/down swapped. Twelve new production regressions failed against `9444072` and pass now. Validation: 745 native tests passed, one optional private-fixture skip; 63 web tests; UI Plus, headless Plus and esp32dev builds. HA unchanged; its 142 tests still pass against `34eb042`. Not flashed or physically tested.
+
+Next ID: G23-11.

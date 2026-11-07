@@ -73,7 +73,7 @@ struct Rig : GroupMotionOps, GroupStopOps {
     Member &m = at(i);
     out.current = m.motion.state().currentPos;
     out.idle = m.motion.isIdle() && !m.motion.hasGroupTargetWork();
-    out.targetSupported = !m.motion.hasPendingGroupStart();
+    out.targetSupported = !m.motion.hasPendingGroupStart() || m.motion.ownsGroupPositioning();
     return true;
   }
   bool startGroup(int dir, float target) override {
@@ -200,35 +200,37 @@ static void repeated_endpoints_still_submit_native_commands() {
   TEST_ASSERT_EQUAL(2, r.groupStarts);
   TEST_ASSERT_EQUAL(0, r.sent.size());
 }
-static void replacement_stops_each_member_before_its_new_start() {
+static void reversal_stops_each_member_before_its_new_start() {
   Rig r;
   TEST_ASSERT_TRUE(runGroupTarget(r, 50));
   TEST_ASSERT_EQUAL(100, r.transmitNext());
   r.tick(2000);
-  TEST_ASSERT_TRUE(runGroupTarget(r, 70));
+  TEST_ASSERT_TRUE(runGroupTarget(r, 10));
   TEST_ASSERT_EQUAL(1, r.groupStarts);
   TEST_ASSERT_EQUAL(2, r.sent.size());
   TEST_ASSERT_EQUAL(somfy_commands::My, r.sent[0].command);
   TEST_ASSERT_EQUAL(somfy_commands::My, r.sent[1].command);
   TEST_ASSERT_EQUAL(1, r.transmitNext());
   TEST_ASSERT_EQUAL(3, r.sent.size());
-  TEST_ASSERT_EQUAL(somfy_commands::Down, r.sent[2].command);
+  TEST_ASSERT_EQUAL(somfy_commands::Up, r.sent[2].command);
   TEST_ASSERT_EQUAL(2, r.transmitNext());
   TEST_ASSERT_EQUAL(4, r.sent.size());
-  TEST_ASSERT_EQUAL(somfy_commands::Down, r.sent[3].command);
+  TEST_ASSERT_EQUAL(somfy_commands::Up, r.sent[3].command);
   TEST_ASSERT_EQUAL(1, r.transmitNext());
   TEST_ASSERT_EQUAL(2, r.transmitNext());
-  r.tick(5000);
-  TEST_ASSERT_EQUAL_FLOAT(70, r.a.motion.state().currentPos);
-  TEST_ASSERT_EQUAL_FLOAT(70, r.b.motion.state().currentPos);
+  r.tick(1000);
+  TEST_ASSERT_EQUAL_FLOAT(10, r.a.motion.state().currentPos);
+  TEST_ASSERT_EQUAL_FLOAT(10, r.b.motion.state().currentPos);
 }
-static void pending_shared_start_refuses_replacement_without_cancelling_it() {
+static void pending_shared_start_coalesces_replacement_without_cancelling_it() {
   Rig r;
   TEST_ASSERT_TRUE(runGroupTarget(r, 50));
-  TEST_ASSERT_FALSE(runGroupTarget(r, 70));
+  TEST_ASSERT_TRUE(runGroupTarget(r, 70));
   TEST_ASSERT_EQUAL(1, r.groupStarts);
   TEST_ASSERT_EQUAL(0, r.sent.size());
   TEST_ASSERT_EQUAL(100, r.transmitNext());
+  TEST_ASSERT_EQUAL_FLOAT(70, r.a.motion.state().target);
+  TEST_ASSERT_EQUAL_FLOAT(70, r.b.motion.state().target);
   r.tick(2000);
   TEST_ASSERT_EQUAL_FLOAT(20, r.a.motion.state().currentPos);
 }
@@ -262,8 +264,8 @@ int main() {
   RUN_TEST(all_correct_members_do_not_send_a_start_or_stop);
   RUN_TEST(opposite_directions_use_individual_starts);
   RUN_TEST(repeated_endpoints_still_submit_native_commands);
-  RUN_TEST(replacement_stops_each_member_before_its_new_start);
-  RUN_TEST(pending_shared_start_refuses_replacement_without_cancelling_it);
+  RUN_TEST(reversal_stops_each_member_before_its_new_start);
+  RUN_TEST(pending_shared_start_coalesces_replacement_without_cancelling_it);
   RUN_TEST(group_stop_skips_completed_member_and_stops_remaining_member);
   return UNITY_END();
 }

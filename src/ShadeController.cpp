@@ -116,40 +116,6 @@ void SomfyRoom::clear() {
   strcpy(this->name, "");
 }
 bool SomfyRoom::save() { somfy.commit(); return true; }
-void SomfyShadeController::processFrame(somfy_frame_t &frame, bool internal, const SomfyRemote *skip) {
-  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
-    if(&this->shades[i] == skip) continue;
-    if(this->shades[i].getShadeId() != 255) this->shades[i].processFrame(frame, internal);
-  }
-}
-void SomfyShadeController::markTxPending(uint32_t remoteAddress, uint32_t ticket, const SomfyRemote *skip) {
-  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
-    SomfyShade *shade = &this->shades[i];
-    if(shade == skip) continue;
-    if(shade->getShadeId() != 255 && shade->findRemote(remoteAddress)) shade->markTxPending(ticket);
-  }
-  // Group commands move their member shades through processInternalCommand.
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
-    SomfyGroup *group = &this->groups[i];
-    if(group->getGroupId() == 255 || group->getRemoteAddress() != remoteAddress) continue;
-    for(uint8_t j = 0; j < SOMFY_MAX_GROUPED_SHADES; j++) {
-      if(group->linkedShades[j] == 0) continue;
-      SomfyShade *shade = this->getShadeById(group->linkedShades[j]);
-      if(shade) shade->markTxPending(ticket);
-    }
-  }
-}
-void SomfyShadeController::cancelGroupStartsForShade(uint8_t shadeId, uint32_t exceptTicket) {
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
-    SomfyGroup &group = this->groups[i];
-    if(group.getGroupId() != 255 && group.hasShadeId(shadeId))
-      this->transceiver.cancelTx(group.getRemoteAddress(), exceptTicket);
-  }
-}
-void SomfyShadeController::processTxEvent(const somfy_tx_event_t &evt) {
-  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++)
-    if(this->shades[i].getShadeId() != 255) this->shades[i].processTxEvent(evt);
-}
 void SomfyShadeController::processWaitingFrame() {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++)
     if(this->shades[i].getShadeId() != 255) this->shades[i].processWaitingFrame();
@@ -286,12 +252,6 @@ SomfyGroup *SomfyShadeController::addGroup() {
   }
   return group;
 }
-uint32_t SomfyShadeController::sendFrame(somfy_frame_t &frame, uint8_t repeat, uint16_t delayMs, bool priority) {
-  somfy_tx_job_t job;
-  encodeTxJob(job, frame, repeat);
-  job.firstRepeat = 1;
-  return this->transceiver.submitTx(job, priority, delayMs);
-}
 bool SomfyShadeController::deleteShade(uint8_t shadeId) {
   Preferences pref;
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
@@ -355,7 +315,7 @@ void SomfyShadeController::loop() {
     }
   }
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++)
-    if(this->groups[i].getGroupId() != 255) this->groups[i].updateTargetDirection();
+    if(this->groups[i].getGroupId() != 255) { this->groups[i].serviceTarget(); this->groups[i].updateTargetDirection(); }
   // Only commit the file once per second.
   if(this->isDirty && millis() - this->lastCommit > 1000) {
     this->commit();

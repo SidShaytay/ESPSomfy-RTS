@@ -941,10 +941,10 @@ void Transceiver::runJob(somfy_tx_job_t &job) {
     {
       // The queue may have been flushed while we waited.
       TxQueueLock qlock;
-      start = this->sched.start(job.ticket, millis());
+      start = this->sched.start(job.ticket, millis(), this->available());
     }
     if(!start) return;
-    const bool complete = this->available() && this->transmitJob(job);
+    const bool complete = this->transmitJob(job);
     TxQueueLock qlock;
     this->sched.ended(job.ticket, complete, millis());
   }

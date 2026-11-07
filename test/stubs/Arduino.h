@@ -14,8 +14,14 @@
 
 typedef uint8_t byte;
 
-// Fixed so anything formatted from it is deterministic.
-inline unsigned long millis() { return 0; }
+// Tests default to a fixed clock and advance it explicitly when needed.
+inline unsigned long stubMillis = 0;
+inline unsigned long millis() { return stubMillis; }
+class IPAddress {
+  public:
+    IPAddress() {}
+    IPAddress(uint8_t, uint8_t, uint8_t, uint8_t) {}
+};
 // Tests that measure time set this.
 inline unsigned long stubMicros = 0;
 inline unsigned long micros() { return stubMicros; }

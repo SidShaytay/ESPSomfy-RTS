@@ -96,7 +96,7 @@ void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
   SomfyRemote *remote = this->findRemote(frame.remoteAddress);
   if(!remote) return;
   if(remote != this && frame.cmd != somfy_commands::Sensor) remote->setRollingCode(frame.rollingCode);
-  if(!internal && commandSupersedesPositioning(frame.cmd)) this->prepareCommand();
+  if(!internal && commandSupersedesPositioning(frame.cmd)) { this->userOverride(); this->prepareCommand(); }
   this->behaviour.onFrame(frame, internal, millis());
 }
 void SomfyShade::processWaitingFrame() { this->behaviour.onWaitingFrame(millis()); }
@@ -109,11 +109,26 @@ void SomfyShade::prepareCommand(uint32_t exceptTicket) {
   somfy.transceiver.cancelTx(this->getRemoteAddress(), exceptTicket);
   this->behaviour.cancelPositioning();
 }
+void SomfyShade::userOverride() { somfy.cancelGroupReplansForShade(this->getShadeId()); }
+bool SomfyShade::supportsGroupTarget() const {
+  const bool percentageType = this->shadeType == shade_types::roller || this->shadeType == shade_types::blind ||
+    this->shadeType == shade_types::awning || this->shadeType == shade_types::shutter ||
+    this->shadeType == shade_types::ldrapery || this->shadeType == shade_types::rdrapery || this->shadeType == shade_types::cdrapery;
+  return percentageType && this->tiltType == tilt_types::none && this->upTime > 0 && this->downTime > 0;
+}
 bool SomfyShade::sendCommand(somfy_commands cmd) { return this->sendCommand(cmd, this->repeats); }
 bool SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
-  if(commandSupersedesPositioning(cmd) && this->hasPendingGroupStart()) return false;
-  if(this->behaviour.ownsGroupPositioning() && (cmd == somfy_commands::My || cmd == somfy_commands::Stop))
+  if(commandSupersedesPositioning(cmd)) this->userOverride();
+  if((cmd == somfy_commands::My || cmd == somfy_commands::Stop) &&
+      (this->hasPendingGroupStart() || this->startQueuedOnly() || this->behaviour.ownsGroupPositioning()))
     return this->stopGroupTarget();
+  if(commandSupersedesPositioning(cmd) && this->hasPendingGroupStart()) {
+    // Coalesce a directional press with the unfinished start; it is applied
+    // as an endpoint target once the start's outcome is known.
+    if((cmd == somfy_commands::Up || cmd == somfy_commands::Down) && this->supportsGroupTarget())
+      return this->behaviour.moveToGroupTarget(cmd == somfy_commands::Up ? 0 : 100, millis());
+    return false;
+  }
   // This sendCommand function will always be called externally. sendCommand at the remote level
   // is expected to be called internally when the motor needs commanded.
   if(this->bitLength == 0) this->bitLength = somfy.transceiver.config.type;
@@ -124,29 +139,49 @@ bool SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
 }
 bool SomfyShade::sendTiltCommand(somfy_commands cmd) {
   if(this->hasPendingGroupStart()) return false;
+  this->userOverride();
   this->prepareOnSend = true;
   const bool accepted = this->behaviour.sendTiltCommand(cmd, millis());
   this->prepareOnSend = false;
   return accepted;
 }
 bool SomfyShade::moveToTarget(float pos, float tilt) {
-  if(this->hasPendingGroupStart()) return false;
+  if(this->hasPendingGroupStart()) {
+    // Keep the unfinished start; apply this member's latest target after it.
+    if(tilt < 0 && this->supportsGroupTarget()) {
+      this->userOverride();
+      return this->behaviour.moveToGroupTarget(pos, millis());
+    }
+    return false;
+  }
+  this->userOverride();
+  if(this->behaviour.ownsGroupPositioning() && tilt < 0) return this->moveToGroupTarget(pos);
   this->prepareOnSend = true;
-  const bool accepted = this->behaviour.ownsGroupPositioning() && tilt < 0
-    ? this->behaviour.moveToGroupTarget(pos, millis())
-    : this->behaviour.moveToTarget(pos, tilt, millis());
+  const bool accepted = this->behaviour.moveToTarget(pos, tilt, millis());
   this->prepareOnSend = false;
   return accepted;
 }
 bool SomfyShade::moveToGroupTarget(float pos) {
-  if(this->hasPendingGroupStart()) return false;
+  // A press still queued has not moved the motor: cancel it so it is
+  // replaced rather than stopped with My.
+  this->cancelQueuedStart();
   this->prepareOnSend = true;
   const bool accepted = this->behaviour.moveToGroupTarget(pos, millis());
   this->prepareOnSend = false;
   return accepted;
 }
 bool SomfyShade::stopGroupTarget() {
-  if(this->hasPendingGroupStart()) return false;
+  if(this->hasPendingGroupStart()) {
+    // Drop this member's own start if it is still queued; a shared start
+    // already on air is stopped once its outcome is known.
+    somfy.transceiver.cancelTx(this->getRemoteAddress());
+    return this->behaviour.stopGroupTarget(millis());
+  }
+  if(this->startQueuedOnly()) {
+    this->prepareCommand();
+    this->emitState();
+    return true;
+  }
   this->prepareOnSend = true;
   const bool accepted = this->behaviour.stopGroupTarget(millis());
   this->prepareOnSend = false;
@@ -154,6 +189,7 @@ bool SomfyShade::stopGroupTarget() {
 }
 bool SomfyShade::moveToTiltTarget(float target) {
   if(this->hasPendingGroupStart()) return false;
+  this->userOverride();
   this->prepareOnSend = true;
   const bool accepted = this->behaviour.moveToTiltTarget(target, millis());
   this->prepareOnSend = false;
@@ -161,10 +197,12 @@ bool SomfyShade::moveToTiltTarget(float target) {
 }
 bool SomfyShade::setMyPosition(int8_t pos, int8_t tilt) {
   if(this->hasPendingGroupStart()) return false;
+  this->userOverride();
   return this->behaviour.setMyPosition(pos, tilt, millis());
 }
 bool SomfyShade::moveToMyPosition() {
   if(this->hasPendingGroupStart()) return false;
+  this->userOverride();
   this->prepareOnSend = true;
   const bool accepted = this->behaviour.moveToMyPosition(millis());
   this->prepareOnSend = false;
