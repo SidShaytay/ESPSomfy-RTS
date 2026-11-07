@@ -30,7 +30,9 @@ jobs:
       - name: Host board profile and GPIO checks
         run: CXX=g++ bash tools/test-board-profile.sh
       - name: Offline manifest rejection tests
-        run: python tools/test_lilygo_manifest.py
+        run: |
+          python tools/test_lilygo_manifest.py
+          python tools/test_update_release.py
       - name: Build and validate exact Plus artifacts
         run: bash tools/build-lilygo.sh
       - name: Retain reviewable artifacts and manifest
