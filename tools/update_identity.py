@@ -25,7 +25,13 @@ def tags_at_head(source):
     return git(source, 'tag', '--points-at', 'HEAD').splitlines()
 
 
-def identity(source, app_compat, tags):
+def identity(source, app_compat, tags, profile=None):
+    # The explicit default is the existing Plus packager's compatibility API.
+    # Other environments always pass their registered exact board profile.
+    profile = profile or {'board': BOARD, 'layout': LAYOUT}
+    for name in ('board', 'layout'):
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', profile[name]):
+            raise ValueError('invalid board or layout identity')
     if not re.fullmatch(r'[0-9a-f]{40}', source['revision']):
         raise ValueError('invalid source revision')
     if not re.fullmatch(r'sha256:[0-9a-f]{64}', app_compat):
@@ -33,7 +39,7 @@ def identity(source, app_compat, tags):
     stable = [tag for tag in tags if stable_tag(tag)]
     version = stable[0] if not source['dirty'] and len(stable) == 1 else (
         'dev-' + source['revision'][:12] + ('-dirty' if source['dirty'] else ''))
-    marker = '|'.join(('ESPSOMFY_UPDATE_ID:1', BOARD, LAYOUT, source['revision'], version, app_compat))
-    return {'schema': 1, 'board': BOARD, 'layout': LAYOUT,
+    marker = '|'.join(('ESPSOMFY_UPDATE_ID:1', profile['board'], profile['layout'], source['revision'], version, app_compat))
+    return {'schema': 1, 'board': profile['board'], 'layout': profile['layout'],
             'source_sha': source['revision'], 'version': version,
             'app_compat': app_compat, 'marker': marker}

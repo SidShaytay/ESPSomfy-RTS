@@ -153,6 +153,12 @@ MINIFIERS = {
 }
 
 
+def _verified_updates():
+    sys.path.insert(0, os.path.join(_project_dir(), "tools"))
+    from update_profiles import load_profile
+    return load_profile(_project_dir(), env.get("PIOENV")) is not None
+
+
 # ──────────────────────────────────────────────
 # Optional external tools (used when available)
 # ──────────────────────────────────────────────
@@ -162,7 +168,7 @@ def _has_command(cmd: str) -> bool:
 
 def _try_terser(src_path: str, dst_path: str) -> bool:
     """Use terser for JS if installed (npm i -g terser)."""
-    if env.get("PIOENV") == "lilygo-t-embed-cc1101-plus" or not _has_command("terser"):
+    if _verified_updates() or not _has_command("terser"):
         return False
     try:
         subprocess.run(
@@ -176,7 +182,7 @@ def _try_terser(src_path: str, dst_path: str) -> bool:
 
 def _try_optipng(path: str) -> None:
     """Optimise PNG in-place if optipng is available."""
-    if env.get("PIOENV") != "lilygo-t-embed-cc1101-plus" and _has_command("optipng"):
+    if not _verified_updates() and _has_command("optipng"):
         try:
             subprocess.run(
                 ["optipng", "-quiet", "-o2", path],
@@ -237,7 +243,7 @@ def process_file(src_path: str, dst_path: str) -> dict:
         shutil.copy2(src_path, dst_path)
         _try_optipng(dst_path)
         stats["final"] = os.path.getsize(dst_path)
-        stats["action"] = "optipng" if env.get("PIOENV") != "lilygo-t-embed-cc1101-plus" and _has_command("optipng") else "copy"
+        stats["action"] = "optipng" if not _verified_updates() and _has_command("optipng") else "copy"
         return stats
 
     # ── Everything else: plain copy ─────────
@@ -312,7 +318,7 @@ def minify_all():
 
             report(rel_path, process_file(src_path, dst_path))
 
-    if env.get("PIOENV") == "lilygo-t-embed-cc1101-plus":
+    if _verified_updates():
         sys.path.insert(0, os.path.join(_project_dir(), "tools"))
         from update_assets import write_manifest
         print(f"[minify] Exact web compatibility: {write_manifest(dst_dir)}")

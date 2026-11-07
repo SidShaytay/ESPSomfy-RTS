@@ -40,6 +40,10 @@ class ReleaseTests(ManifestTests):
     """Reuse independent valid ESP image/partition fixtures."""
     def setUp(self):
         super().setUp()
+        self.profile = r.load_profile(Path(__file__).resolve().parent.parent, i.BOARD)
+        self.profile_patch = patch.object(r, 'load_profile', return_value=self.profile)
+        self.profile_patch.start()
+        self.addCleanup(self.profile_patch.stop)
         self.record = dict(self.manifest['source'])
         self.identity = i.identity(self.record, 'sha256:' + 'a' * 64, ['v4.0.3'])
         # Put the actual identity inside the checked image's data segment.
@@ -113,6 +117,44 @@ class ReleaseTests(ManifestTests):
         with tempfile.TemporaryDirectory() as output:
             with self.assertRaises(FileExistsError):
                 r.write_release(self.out, Path('/source'), 'v4.0.3', Path(output))
+
+
+class ProfiledReleaseTests(unittest.TestCase):
+    def test_every_registered_profile_releases_only_its_exact_compiled_identity(self):
+        from update_profiles import supported_profiles
+        from test_update_package import PackageTests, image, table
+        import update_package
+        profiles=supported_profiles(Path(__file__).resolve().parent.parent)
+        for environment, spec in profiles.items():
+            with self.subTest(profile=environment), tempfile.TemporaryDirectory() as directory:
+                package=Path(directory)
+                source={'revision':'a'*40,'dirty':False,'input_sha256':{'platformio.ini':'b'*64}}
+                compat='sha256:'+'c'*64
+                identity=i.identity(source,compat,['v4.0.3'],spec)
+                payload=(identity['marker'].encode()+b'\0').ljust(1024,b'\0')
+                (package/'firmware.bin').write_bytes(image(spec['chip_id'],spec['flash_bytes'],payload))
+                (package/'bootloader.bin').write_bytes(image(spec['chip_id'],spec['flash_bytes']))
+                (package/'partitions.bin').write_bytes(table(spec))
+                (package/'littlefs.bin').write_bytes(b'\xff'*spec['fs_bytes'])
+                (package/'firmware.elf').write_bytes(b'ELF')
+                (package/'update-source.json').write_text(json.dumps({'source':source,'identity':identity}))
+                fixture=PackageTests();fixture.profile=spec;fixture.directory=package;fixture.write_metadata()
+                (package/'update-build.json').write_text(json.dumps({'source':source,'artifacts':update_package.artifact_manifest(package,spec)}))
+                with patch.object(r,'load_profile',return_value=spec), patch.object(r.build,'source_record',return_value=source), patch.object(r,'tags_at_head',return_value=['v4.0.3']), patch.object(r,'read_app_compat',return_value=compat):
+                    manifest=r.release_manifest(package,Path('/source'),'v4.0.3',environment)
+                    self.assertEqual(manifest['board'],environment)
+                    self.assertEqual(manifest['asset'],'firmware-'+environment+'.bin')
+                    self.assertEqual(manifest['layout'],spec['layout'])
+                    self.assertEqual(manifest['flash_bytes'],spec['flash_bytes'])
+                    self.assertEqual(manifest['psram_bytes'],spec['psram_bytes'])
+                    self.assertEqual(manifest['bootloader_sha256'],hashlib.sha256((package/'bootloader.bin').read_bytes()).hexdigest())
+                    changed=dict(spec,board=environment+'-other')
+                    with patch.object(r,'load_profile',return_value=changed), self.assertRaises(ValueError):
+                        r.release_manifest(package,Path('/source'),'v4.0.3',environment)
+
+    def test_unregistered_environment_never_falls_back_to_a_generic_binary(self):
+        with patch.object(r,'load_profile',return_value=None), self.assertRaisesRegex(ValueError,'registered'):
+            r.release_manifest(Path('/missing'),Path('/source'),'v4.0.3','esp32s3')
 
 
 if __name__ == '__main__':

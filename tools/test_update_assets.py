@@ -72,6 +72,7 @@ class AssetTests(unittest.TestCase):
         project = Path(self.temp.name) / 'project'
         root = Path(__file__).resolve().parent.parent
         shutil.copytree(root / 'data-src', project / 'data-src')
+        shutil.copyfile(root / 'update-profiles.json', project / 'update-profiles.json')
         class Env:
             def get(self, key): return 'lilygo-t-embed-cc1101-plus' if key == 'PIOENV' else str(project)
             def subst(self, value): return str(project)
