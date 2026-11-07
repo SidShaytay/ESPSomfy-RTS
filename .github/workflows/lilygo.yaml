@@ -33,6 +33,9 @@ jobs:
         run: |
           python tools/test_lilygo_manifest.py
           python tools/test_update_release.py
+          python tools/test_update_assets.py
+          bash tools/test-update-assets.sh
+          bash tools/test-restore-upload.sh
       - name: Build and validate exact Plus artifacts
         run: bash tools/build-lilygo.sh
       - name: Retain reviewable artifacts and manifest

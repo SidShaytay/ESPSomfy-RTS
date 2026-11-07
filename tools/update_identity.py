@@ -28,8 +28,8 @@ def tags_at_head(source):
 def identity(source, app_compat, tags):
     if not re.fullmatch(r'[0-9a-f]{40}', source['revision']):
         raise ValueError('invalid source revision')
-    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,30}', app_compat):
-        raise ValueError('invalid application compatibility version')
+    if not re.fullmatch(r'sha256:[0-9a-f]{64}', app_compat):
+        raise ValueError('invalid packaged application compatibility digest')
     stable = [tag for tag in tags if stable_tag(tag)]
     version = stable[0] if not source['dirty'] and len(stable) == 1 else (
         'dev-' + source['revision'][:12] + ('-dirty' if source['dirty'] else ''))

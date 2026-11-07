@@ -162,7 +162,7 @@ def _has_command(cmd: str) -> bool:
 
 def _try_terser(src_path: str, dst_path: str) -> bool:
     """Use terser for JS if installed (npm i -g terser)."""
-    if not _has_command("terser"):
+    if env.get("PIOENV") == "lilygo-t-embed-cc1101-plus" or not _has_command("terser"):
         return False
     try:
         subprocess.run(
@@ -176,7 +176,7 @@ def _try_terser(src_path: str, dst_path: str) -> bool:
 
 def _try_optipng(path: str) -> None:
     """Optimise PNG in-place if optipng is available."""
-    if _has_command("optipng"):
+    if env.get("PIOENV") != "lilygo-t-embed-cc1101-plus" and _has_command("optipng"):
         try:
             subprocess.run(
                 ["optipng", "-quiet", "-o2", path],
@@ -223,8 +223,11 @@ def process_file(src_path: str, dst_path: str) -> dict:
 
         # Write gzipped version
         gz_path = dst_path + ".gz"
-        with gzip.open(gz_path, "wb", compresslevel=9) as gz:
-            gz.write(minified)
+        # Neither build time nor a temporary bundle path enters the gzip
+        # header: firmware and filesystem builds must derive the same ABI.
+        with open(gz_path, "wb") as raw:
+            with gzip.GzipFile(filename="", mode="wb", compresslevel=9, fileobj=raw, mtime=0) as gz:
+                gz.write(minified)
 
         stats["final"] = os.path.getsize(gz_path)
         return stats
@@ -308,6 +311,11 @@ def minify_all():
             dst_path = os.path.join(dst_dir, rel_path)
 
             report(rel_path, process_file(src_path, dst_path))
+
+    if env.get("PIOENV") == "lilygo-t-embed-cc1101-plus":
+        sys.path.insert(0, os.path.join(_project_dir(), "tools"))
+        from update_assets import write_manifest
+        print(f"[minify] Exact web compatibility: {write_manifest(dst_dir)}")
 
     print(f"[minify] {file_count} files processed")
     print(
