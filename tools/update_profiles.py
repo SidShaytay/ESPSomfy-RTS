@@ -21,7 +21,7 @@ def validate_profile(profile):
             raise ValueError(f'invalid update profile {name}')
     if profile['psram_bytes'] < 0x800000 or profile['flash_bytes'] not in (0x400000, 0x800000, 0x1000000, 0x2000000):
         raise ValueError('insufficient or unsupported profile memory')
-    if (profile['chip'], profile['chip_id']) not in (('esp32s3', 9), ('esp32p4', 18), ('esp32p4_es', 18)):
+    if (profile['chip'], profile['chip_id']) not in (('esp32s3', 9), ('esp32p4', 18), ('esp32p4_es', 18), ('esp32c5', 23)):
         raise ValueError('unsupported update profile chip')
     regions = [(0x8000, 0x1000), (0xe000, 0x2000),
                (profile['nvs_address'], profile['nvs_bytes']),
