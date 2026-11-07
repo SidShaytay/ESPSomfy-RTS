@@ -185,6 +185,8 @@ void loop(bool running) {
 #ifdef ESPSOMFY_LOCAL_UI
     Serial.printf("LCD UI PSRAM=%u paintUs=%lu fallback=%u\n", unsigned(ui.failure()==LocalUi::GraphicsFailure::none?LocalUi::graphicsBytes:0), (unsigned long)ui.maxPaintUs, unsigned(ui.failure()));
 #endif
+    Serial.printf("LCD battery state=%u percent=%u mV=%u mA=%d\n", unsigned(s.battery.state),
+      unsigned(s.battery.percent), unsigned(s.battery.millivolts), int(s.battery.milliamps));
     Serial.printf("LCD internal=%u PSRAM=%u maxRowUs=%lu maxBusUs=%lu busySkips=%lu\n",
       heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
       (unsigned long)panel.maxRowUs, (unsigned long)panel.maxBusUs, (unsigned long)panel.skipped);
