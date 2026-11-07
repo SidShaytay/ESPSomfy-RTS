@@ -80,7 +80,29 @@ void Canvas::shutter(int x, int y, int open, uint16_t color) {
 void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot &s) {
   fillScreen(bg);
   char label[48];
-  if(v.screen == Screen::details || !s.running) {
+  if(v.screen == Screen::details && s.running) {
+    StatusDisplay::Page page;
+    StatusDisplay::format(s, page);
+    text(12, 28, "Details", true, white);
+    drawFastHLine(12, 38, 296, line);
+    const unsigned last = detailsRowCount - detailsVisibleRows;
+    const unsigned offset = v.detailsOffset > last ? last : v.detailsOffset;
+    for(unsigned row = 0; row < detailsVisibleRows; ++row) {
+      const unsigned index = offset + row;
+      if(index == 0)
+        snprintf(label, sizeof(label), "Firmware: %s", s.firmwareVersion[0] ? s.firmwareVersion : "unavailable");
+      else if(index == 1)
+        snprintf(label, sizeof(label), "Application: %s", s.applicationVersion[0] ? s.applicationVersion : "unavailable");
+      else
+        snprintf(label, sizeof(label), "%s", page.lines[index - 2]);
+      text(12, 58 + row * 18, label, false, index < 2 ? white : muted);
+    }
+    snprintf(label, sizeof(label), "Turn: scroll   Back   %u-%u/%u", offset + 1,
+             offset + detailsVisibleRows, unsigned(detailsRowCount));
+    text(12, 166, label, false, teal);
+    return;
+  }
+  if(!s.running) {
     StatusDisplay::Page page;
     StatusDisplay::format(s, page);
     for(int i = 0; i < 9; i++)

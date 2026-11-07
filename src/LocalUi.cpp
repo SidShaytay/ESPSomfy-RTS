@@ -165,9 +165,10 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
   }
   if(stable && !consumed && !held && uint32_t(now - pressedSince) >= 800) {
     held = true;
-    if(state.screen == Screen::status)
+    if(state.screen == Screen::status) {
       state.screen = Screen::details;
-    else
+      state.detailsOffset = 0;
+    } else
       goBack();
   }
   if(turn) {
@@ -180,7 +181,11 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
     if(waking)
       return;
     state.notice = Notice::none;
-    if(state.screen == Screen::status || state.screen == Screen::details) {
+    if(state.screen == Screen::details) {
+      int offset = int(state.detailsOffset) + (turn > 0 ? 1 : -1);
+      const int last = detailsRowCount - detailsVisibleRows;
+      state.detailsOffset = offset < 0 ? 0 : offset > last ? last : offset;
+    } else if(state.screen == Screen::status) {
       state.screen = Screen::choose;
       state.selected = 0;
     } else if(state.screen == Screen::choose)

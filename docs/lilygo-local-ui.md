@@ -7,7 +7,7 @@ The optional 320×170 UI adds status, room selection, controls, details and save
 ## Use the encoder
 
 - First input after dim/off wakes only. A button held during boot is ignored until released.
-- From Status, turn or press to choose an item. Hold for Details (build, power telemetry availability and service diagnostics).
+- From Status, turn or press to choose an item. Hold for Details. Details lists Firmware (the compiled firmware version) and Application (the installed web-filesystem version) separately. Turn the wheel to scroll through all ten diagnostic rows; press or Back returns to Status. Missing version data is shown as unavailable.
 - Turn clockwise to move down through the list and anticlockwise to move up, one item per physical detent. Choose an individual shade, Both rooms, Status or Display settings.
 - Press opens the selected page. Hold returns; the separate Back button also returns. Back saves any display-setting changes.
 - On Controls, turn to highlight UP/STOP/DOWN and press to submit the action. STOP is selected initially and after an attempt. A long hold goes back and never repeats a command.

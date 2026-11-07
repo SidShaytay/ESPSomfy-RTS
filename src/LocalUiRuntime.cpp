@@ -21,6 +21,7 @@ uint32_t sceneHash(const Model &m, const View &v, const StatusDisplay::Snapshot 
                              uint32_t(v.notice),
                              v.level,
                              v.setting,
+                             v.detailsOffset,
                              v.dimSeconds,
                              v.offSeconds,
                              m.ready,
@@ -34,6 +35,8 @@ uint32_t sceneHash(const Model &m, const View &v, const StatusDisplay::Snapshot 
   h = hash(values, sizeof(values), h);
   h = hash(s.address, strlen(s.address), h);
   h = hash(s.build, strlen(s.build), h);
+  h = hash(s.firmwareVersion, strlen(s.firmwareVersion), h);
+  h = hash(s.applicationVersion, strlen(s.applicationVersion), h);
   for(const auto &t : m.targets) {
     const uint32_t x[] = {t.identity, t.members[0],        t.members[1],       t.valid,
                           t.moving,   uint32_t(t.open[0]), uint32_t(t.open[1])};

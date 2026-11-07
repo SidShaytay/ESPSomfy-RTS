@@ -7,11 +7,14 @@
 extern SomfyShadeController somfy;
 extern ESPNetwork net;
 extern Web webServer;
+extern ConfigSettings settings;
 namespace StatusPanel {
 StatusDisplay::Snapshot snapshot(bool running) {
   using namespace StatusDisplay;
   Snapshot s;
   s.running = running;
+  snprintf(s.firmwareVersion, sizeof(s.firmwareVersion), "%s", FW_VERSION);
+  snprintf(s.applicationVersion, sizeof(s.applicationVersion), "%s", settings.appVersion.name);
   s.uptimeSeconds = esp_timer_get_time() / 1000000;
   if(WiFi.status() == WL_CONNECTED) {
     s.link = Link::connected;

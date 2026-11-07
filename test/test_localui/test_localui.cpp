@@ -267,8 +267,31 @@ static void moving_stop_is_not_blocked_by_a_repaint() {
   TEST_ASSERT_TRUE(c.take(cmd));
   TEST_ASSERT_EQUAL((int)Action::stop, (int)cmd.action);
 }
+static void details_wheel_scrolls_without_leaving_or_sending() {
+  Controller c;
+  auto m = model();
+  Command cmd;
+  c.tick(0, m, 0, false, true);
+  c.tick(100, m, 0, true, true);
+  c.tick(141, m, 0, true, true);
+  c.tick(942, m, 0, true, true);
+  c.tick(1000, m, 0, false, true);
+  c.tick(1041, m, 0, false, true);
+  TEST_ASSERT_EQUAL((int)Screen::details, (int)c.view().screen);
+  c.tick(1100, m, 1, false, true);
+  TEST_ASSERT_EQUAL((int)Screen::details, (int)c.view().screen);
+  TEST_ASSERT_EQUAL(1, c.view().detailsOffset);
+  for(int i = 0; i < 20; ++i) c.tick(1200 + i, m, 1, false, true);
+  TEST_ASSERT_EQUAL(detailsRowCount - detailsVisibleRows, c.view().detailsOffset);
+  for(int i = 0; i < 20; ++i) c.tick(1300 + i, m, -1, false, true);
+  TEST_ASSERT_EQUAL(0, c.view().detailsOffset);
+  TEST_ASSERT_FALSE(c.take(cmd));
+  click(c, 1400, m);
+  TEST_ASSERT_EQUAL((int)Screen::status, (int)c.view().screen);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(details_wheel_scrolls_without_leaving_or_sending);
   RUN_TEST(navigation_does_not_emit);
   RUN_TEST(wake_consumes_input_and_hold_is_back);
   RUN_TEST(stop_identity_and_presentation_guards);

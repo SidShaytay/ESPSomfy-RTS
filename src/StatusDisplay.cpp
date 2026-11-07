@@ -6,7 +6,7 @@ namespace StatusDisplay {
 void format(const Snapshot &s, Page &p) {
   snprintf(p.lines[0], sizeof(p.lines[0]), "%s up %luh %02um", s.running ? "RUN" : "BOOT",
     (unsigned long)(s.uptimeSeconds / 3600 % 1000000), (unsigned)(s.uptimeSeconds / 60 % 60));
-  snprintf(p.lines[1], sizeof(p.lines[1]), "%s", s.graphicsFailure==1 ? "LCD: PSRAM not found" : s.graphicsFailure==2 ? "LCD: PSRAM alloc failed" : "Power: unavailable");
+  snprintf(p.lines[1], sizeof(p.lines[1]), "%s", s.graphicsFailure==1 ? "LCD: PSRAM not found" : s.graphicsFailure==2 ? "LCD: PSRAM alloc failed" : "Power: not monitored");
   const char *link = "disconnected";
   if(s.link == Link::connecting) link = "connecting";
   else if(s.link == Link::connected) link = "connected";

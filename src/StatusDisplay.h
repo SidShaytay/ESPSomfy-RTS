@@ -16,6 +16,8 @@ struct Snapshot {
   Radio radio = Radio::initializing;
   float frequency = 433.42f;
   char build[27] = {};
+  char firmwareVersion[27] = {};
+  char applicationVersion[15] = {};
 };
 struct Page { char lines[9][27] = {}; };
 void format(const Snapshot &snapshot, Page &page);
