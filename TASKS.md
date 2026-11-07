@@ -4,7 +4,7 @@
 
 - Objective: implement/install the approved 320×170 phase-2 LCD UI for #15, including PSRAM graphics, screenshots and bedroom brightness.
 - Workspace: `/var/mnt/data/projects/personal/ESPSomfy-RTS/issue-15-phase2-ui`, branch `codex/issue-15-phase2-ui`. The phase-1 source remains in sibling `issue-15-display`.
-- Authority: Sid authorized board updates after suitable backup and firmware-only A/B OTA. **No shutter/RF/motor movement testing is authorized.** The installed canonical `lilygo-t-embed-cc1101-plus-ui` preview does not define `ESPSOMFY_LOCAL_COMMANDS`. A separate offline armed compile-check exists under `build/`; never install it under current authority.
+- Authority: Sid authorized board updates after suitable backup and firmware-only A/B OTA. **Sid clarified that he may operate the shutters manually through the UI; the assistant must not send shutter/RF/motor commands.** Sid explicitly requested flashing with physical controls enabled. The canonical `lilygo-t-embed-cc1101-plus-ui` now defines `ESPSOMFY_LOCAL_COMMANDS`; the separate `-ui-preview` remains command-locked. Current work fixes TWO03 half-step decoding/direction, adds GPIO6 Back, and adds saved dim/off timeout choices including zero = No dim/No sleep.
 
 ## Results
 
@@ -16,9 +16,18 @@
    - Saved brightness feature; dim 10 s/off 20 s idle; estimated motion keeps controls awake. Manufacturer documents no ambient-light sensor. Local commands remain locked regardless of encoder input.
    - Checks: native 651 passed plus one existing optional private-backup skip; JS 62, manifest 24, image codec 2, real GFX/runtime/capture and board/SPI harnesses passed; UI/simple/headless/generic firmware builds passed. Temporary armed adapter compiled offline only.
 
-2. [!] Physical UI confirmation and future movement testing.
-   - Need: Sid returns to the device to check screen colors/readability, encoder direction/feel and brightness/persistence. He is currently away; do not wait or repeatedly ask.
-   - Next: safely collect UI feedback/captures in the locked preview. Only if Sid explicitly approves shutter testing, review/enable the existing guarded command adapter and prepare a fresh backup plus a controlled movement/STOP plan. General “continue” is not movement permission.
+2. [x] Installed the authorized input/settings fixes with manual controls enabled.
+   - Source `7061e98`: TWO03 two-transition detents, clockwise down, GPIO6 Back, saved independent dim/sleep settings including No dim/No sleep. Separate `-ui-preview` remains locked.
+   - Fresh portable backup and all five settings sections captured. Verified partition layout, then firmware-only inactive-slot OTA; retained previous preview binary/ELF and rollback slot. Private evidence: `~/.local/state/espsomfy-lilygo/LATEST_UI_INPUT_FIX`.
+   - Actual framebuffer header confirms `X-LCD-Commands: enabled`. Post-reboot read-only checks found identical entity state/counters and settings, connected Wi-Fi, radio ready at 433.42 MHz, and all three HA covers available/idle. Uptime progressed beyond the 60-second OTA confirmation window without a restart. No assistant movement commands or HA services sent.
+   - Checks: 655 native passes plus one optional skip; real GFX/runtime/capture and GPIO/SPI harnesses passed; UI/simple/headless builds passed. Graphics use 108,800 bytes PSRAM; measured paint 6,470 µs and SPI lock 1,491 µs.
+   - Next: Sid can manually verify revised wheel direction/detents, Back, controls, and saved display timers. No assistant actuation is authorized. Sid confirmed display/wheel/Back work; screen commands exposed the category bug below.
+
+3. [!] Category bug fixed and build ready offline; installation withheld.
+   - Root cause: adapter required roller (0), but configured devices are shutter (4). Removed the category gate; existing shared dispatcher handles categories.
+   - Production adapter regression failed on the actual shutter configuration before the fix and passes after it, including all device categories, individual/group dispatch and identity/STOP guards. 655 native passes plus one optional skip; renderer/runtime/capture/adapter harnesses and enabled UI build passed.
+   - Need: Sid must return the device; he explicitly said not to flash or use it because another agent is using it. No live controller access or actuation was performed during this fix.
+   - Next: notify Sid the build is ready. Upon return, capture fresh backup/state and revalidate current layout/firmware before any authorized installation. Do not rely on stale preflight/counters from the previous update. Offline artifact pointer: `~/.local/state/espsomfy-lilygo/LATEST_UI_COMMAND_FIX_BUILD`.
 
 ## Reproduction and limits
 

@@ -65,4 +65,8 @@ static void busy_and_wrap() {
   display.tick(start + 60001, s, false); TEST_ASSERT_EQUAL(0, p.light);
   display.tick(start, s, false); TEST_ASSERT_EQUAL(0, p.light); // remains off over millis wrap
 }
-int main() { UNITY_BEGIN(); RUN_TEST(states); RUN_TEST(lifecycle); RUN_TEST(failure); RUN_TEST(busy_and_wrap); return UNITY_END(); }
+static void disabled_fallback_timeouts_keep_the_status_awake() {
+  Panel p;Session session(p,20000);Snapshot s;session.setTimeouts(0,0);
+  session.tick(0,s,false);session.tick(600000,s,false);TEST_ASSERT_EQUAL(32,p.light);
+}
+int main() { UNITY_BEGIN(); RUN_TEST(states); RUN_TEST(lifecycle); RUN_TEST(failure); RUN_TEST(busy_and_wrap); RUN_TEST(disabled_fallback_timeouts_keep_the_status_awake); return UNITY_END(); }

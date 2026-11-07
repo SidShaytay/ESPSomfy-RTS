@@ -150,7 +150,8 @@ void begin() {
 #ifdef ESPSOMFY_LOCAL_UI
   ui.begin();
   panel.requireFallbackText(ui.failure()!=LocalUi::GraphicsFailure::none);
-  session.setBrightness(ui.brightnessPreference());
+  const auto prefs=ui.preferences();
+  session.setBrightness(prefs.brightness);session.setTimeouts(uint32_t(prefs.dimSeconds)*1000,uint32_t(prefs.offSeconds)*1000);
 #endif
   // Show BOOT while the rest of setup has not yet run. No radio task exists.
   const uint32_t start = millis();
@@ -170,7 +171,11 @@ void loop(bool running) {
   s.graphicsFailure=uint8_t(ui.failure());
   if(!ui.tick(millis(),s,digitalRead(wake)==LOW,sendBand,light))
 #endif
-    session.tick(millis(), s, digitalRead(wake) == LOW);
+    session.tick(millis(), s, digitalRead(wake) == LOW
+#ifdef ESPSOMFY_LOCAL_UI
+      || digitalRead(BoardProfile::backButton)==LOW
+#endif
+    );
   // Private diagnostics deliberately contain only memory/timing, never model data.
   static uint32_t logged = 0;
   if(millis() - logged >= 30000) {

@@ -16,8 +16,8 @@ const char *notices[] = {"",
                          "STOP unavailable while idle",
                          "Target changed - reopen",
                          "Wait for screen, then press",
-                         "Brightness saved",
-                         "Brightness save failed"};
+                         "Display settings saved",
+                         "Display settings save failed"};
 } // namespace
 void Canvas::drawPixel(int16_t x, int16_t y, uint16_t color) {
   if(pixels && x >= 0 && x < screenWidth && y >= 0 && y < screenHeight)
@@ -142,19 +142,31 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
         text(i == 2 ? 62 : 48, y + 21, t.name[0] ? t.name : "Not configured", false, t.valid ? white : muted,
              i == 2 ? 236 : 250);
       } else
-        text(48, y + 21, i == 3 ? "Status" : "Brightness", false, white);
+        text(48, y + 21, i == 3 ? "Status" : "Display settings", false, white);
     }
     text(12, 164, v.notice == Notice::none ? "Turn: select   Press: open" : notices[int(v.notice)], false,
          v.notice == Notice::none ? muted : teal);
   } else if(v.screen == Screen::brightness) {
-    text(12, 28, "Brightness", true, white);
-    snprintf(label, sizeof(label), "%u%%", unsigned((v.level * 100 + 127) / 255));
-    text(12, 70, label, true, teal);
-    text(112, 69, "Awake brightness", false, muted, 195);
-    drawRoundRect(12, 89, 296, 18, 5, line);
-    fillRoundRect(15, 92, (290 * v.level + 254) / 255, 12, 3, teal);
-    text(12, 132, "Dim: 10s   Off: 20s idle", false, muted);
-    text(12, 164, "Turn: adjust   Press: save", false, muted);
+    text(12, 28, "Display settings", true, white);
+    const char *labels[] = {"Brightness", "Dim after", "Sleep after"};
+    for(int i = 0; i < 3; i++) {
+      const int y = 42 + i * 34;
+      const bool active = v.setting == i;
+      fillRoundRect(10, y, 300, 30, 5, active ? selected : bg);
+      drawRoundRect(10, y, 300, 30, 5, active ? teal : line);
+      text(20, y + 21, labels[i], false, white, 160);
+      if(i == 0)
+        snprintf(label, sizeof(label), "%u%%", unsigned((v.level * 100 + 127) / 255));
+      else {
+        const auto seconds = i == 1 ? v.dimSeconds : v.offSeconds;
+        if(!seconds)
+          snprintf(label, sizeof(label), "%s", i == 1 ? "No dim" : "No sleep");
+        else
+          snprintf(label, sizeof(label), "%us", unsigned(seconds));
+      }
+      text(216, y + 21, label, false, active ? teal : muted, 86);
+    }
+    text(12, 164, v.setting == 2 ? "Press: save   Back: save" : "Press: next   Back: save", false, muted);
   } else {
     const auto &t = m.targets[v.selected];
     text(12, 28, t.name[0] ? t.name : "Not configured", true, white);
@@ -198,7 +210,7 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
     else if(!m.controlsEnabled)
       text(12, 163, "Preview: commands locked", false, amber);
     else
-      text(12, 163, "Press: send   Hold: back", false, muted);
+      text(12, 163, "Press: send   Back: return", false, muted);
   }
 }
 } // namespace LocalUi

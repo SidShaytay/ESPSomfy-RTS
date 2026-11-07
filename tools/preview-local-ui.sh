@@ -23,4 +23,5 @@ trap 'rm -rf -- "$scratch"' EXIT
   -I"$repo/tests/ui-render" -I"$repo/src" \
   "$repo/tests/ui-render/capture-test.cpp" "$repo/src/LocalUiCapture.cpp" -o "$scratch/capture"
 "$scratch/capture"
+bash "$repo/tools/test-local-ui-adapter.sh"
 python3 "$repo/tools/local_ui_previews.py" "$out"

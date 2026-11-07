@@ -85,7 +85,7 @@ int main() {
     assert(!BoardProfile::usesPin(255));
     assert(BoardProfile::usesPin(16));
     assert(BoardProfile::usesPin(0));
-    assert(BoardProfile::usesPin(4) && BoardProfile::usesPin(5));
+    assert(BoardProfile::usesPin(4) && BoardProfile::usesPin(5) && BoardProfile::usesPin(6));
   }
   else {
     assert(powerTransitions == 0);

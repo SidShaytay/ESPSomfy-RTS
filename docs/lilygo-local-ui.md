@@ -1,20 +1,22 @@
-# Local shutter UI preview
+# Local shutter UI
 
-The optional 320×170 UI adds status, room selection, controls, details and saved brightness to the LILYGO Plus display. It follows the approved dark/teal mockup using the real Adafruit fonts and vector drawing; the generated previews use the same renderer as the board.
+The optional 320×170 UI adds status, room selection, controls, details and saved display settings to the LILYGO Plus display. It follows the approved dark/teal mockup using the real Adafruit fonts and vector drawing; the generated previews use the same renderer as the board.
 
-**The installed preview cannot send local shutter commands.** Sid authorized firmware updates and display/status checks, but not shutter movement testing. Web/HA controls retain their existing behavior. No upstream publication is included.
+**Physical shutter controls are enabled in the installed firmware.** Sid authorized manual operation and firmware installation; the assistant has sent no shutter commands. No upstream publication is included.
 
 ## Use the encoder
 
 - First input after dim/off wakes only. A button held during boot is ignored until released.
 - From Status, turn or press to choose an item. Hold for Details (build, power telemetry availability and service diagnostics).
-- Turn through the two individual shades, Both rooms, Status and Brightness. Press opens the selected page; hold returns.
-- On Controls, turn to highlight UP/STOP/DOWN. A short press attempts the action; this build shows `Preview only - no commands`. STOP is selected initially and after an attempt. A long hold goes back and never repeats a command.
+- Turn clockwise to move down through the list and anticlockwise to move up, one item per physical detent. Choose an individual shade, Both rooms, Status or Display settings.
+- Press opens the selected page. Hold returns; the separate Back button also returns. Back saves any display-setting changes.
+- On Controls, turn to highlight UP/STOP/DOWN and press to submit the action. STOP is selected initially and after an attempt. A long hold goes back and never repeats a command.
 - Positions are estimates. Both rooms shows the current names and separate estimates for its members; group selection has an amber double-shutter icon.
-- On Brightness, turn to change the awake level immediately, then press or hold to save and return. Levels are 2, 4, 8, 16, 32, 64, 128 and 255 out of 255 (default 32). The selected setting persists in the separate `LCDUI/brightness` NVS key; encoder turns do not write flash. A failure to save is shown explicitly.
-- At ten seconds idle the screen dims; at twenty seconds it turns off and returns to Status. While any configured shade is estimated moving, the UI stays awake so STOP remains reachable in a future enabled build. Wake/rotation/holding alone never creates a command request.
+- In Display settings, turn to adjust the highlighted value. Press advances through Brightness, Dim after and Sleep after; pressing on the last row saves and returns. Back or hold also saves and returns. Changes are saved together when leaving, rather than writing flash on every turn. A failure to save is shown explicitly.
+- Brightness levels are 2, 4, 8, 16, 32, 64, 128 and 255 out of 255 (default 32). Dim/sleep choices are disabled, 5, 10, 15, 20, 30, 60, 120 and 300 seconds. **No dim** disables dimming; **No sleep** keeps the display on. Defaults are dim after 10 seconds and sleep after 20 seconds, measured independently from the last activity.
+- While any configured shade is estimated moving, the UI stays awake so STOP remains reachable. Wake/rotation/holding/Back alone never creates a shutter request. With No sleep selected, idle navigation returns to Status after 30 seconds while leaving the display on.
 
-The [manufacturer schematic](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/hardware/T-Embed-CC1101%20V1.0%2024-07-29.pdf) and [component/pin list](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/README.md) do not document an ambient-light sensor. Brightness is manual; no automatic light reading is inferred. The encoder uses INA 4, INB 5 and KEY 0 from that pin list. Its full-detent decoder rejects invalid Gray-code transitions and incomplete/bouncing steps. Physical direction/detent feel still needs user validation.
+The [manufacturer schematic](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/hardware/T-Embed-CC1101%20V1.0%202024-07-29.pdf) and [component/pin list](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/README.md) do not document an ambient-light sensor. Brightness is manual. The encoder uses INA 4, INB 5 and KEY 0; Back uses GPIO6. The decoder follows the manufacturer's TWO03 mode, recognizing detents at both 00 and 11 and rejecting invalid Gray-code transitions/bounce. Sid confirmed the display, wheel and separate Back button work on the installed update.
 
 The Wi-Fi glyph indicates connection, not measured signal strength. Power readings remain unimplemented, rather than reporting fabricated USB/charging/battery information. They appear as unavailable on Details. The BQ power hardware needs separate read-only integration/validation before adding telemetry.
 
@@ -30,13 +32,13 @@ The Wi-Fi glyph indicates connection, not measured signal strength. Power readin
 
 The main drawing buffer uses about 1.3% of the 8 MiB PSRAM. With one screenshot in flight, pixel storage peaks around 2.6%. Font bitmaps and drawing code reside in flash. Navigation/model values, tiny band hashes, driver state and normal network bookkeeping remain in internal memory; they do not justify using a second internal framebuffer.
 
-The graphics allocation never silently falls back to internal SRAM. If PSRAM is absent or the allocation fails, the existing simple status renderer shows `LCD: PSRAM not found` or `LCD: PSRAM alloc failed`, with the same 10/20-second bedroom timer and saved awake brightness. If its small text buffer, PWM or SPI initialization also fails, the backlight remains off and web/HA continue. Failure of the fallback text allocation alone does not disable a working PSRAM renderer.
+The graphics allocation never silently falls back to internal SRAM. If PSRAM is absent or the allocation fails, the existing simple status renderer shows `LCD: PSRAM not found` or `LCD: PSRAM alloc failed`, with the same saved dim/sleep timeouts and awake brightness. If its small text buffer, PWM or SPI initialization also fails, the backlight remains off and web/HA continue. Failure of the fallback text allocation alone does not disable a working PSRAM renderer.
 
 Rendering happens only when visible state changes. Frame contents live in PSRAM; changed four-line bands are copied/byte-swapped into the internal transfer buffer before trying the existing radio mutex. One band is attempted per two milliseconds, with zero lock wait; the last band contains two lines. The LCD path never remaps radio pins, changes SPI pin modes, masks interrupts or ends the shared bus. Hashes skip unchanged bands. No full-screen animation or double buffering is used.
 
-Commands require the currently selected page/target/action to have been presented. Position/uptime repainting does not disable an already presented STOP selection. Fresh model validation checks the exact existing RF identity and group member identities before dispatch; there are no new rolling-code identities. GPIO4/5 are reserved against relay output assignments in every Plus build.
+Commands require the currently selected page/target/action to have been presented. Position/uptime repainting does not disable an already presented STOP selection. Fresh model validation checks the exact existing RF identity and group member identities before dispatch; there are no new rolling-code identities. GPIO4/5/6 are reserved against relay output assignments in every Plus build.
 
-An enabled build would reuse `ShadeRequests` on the model-owning loop. Group UP/DOWN use the existing group identity. Group STOP would address only members estimated moving, rechecking each immediately before submission, to avoid broadcasting MY to idle members. RTS has no motor position acknowledgement: estimates can be wrong, and a shared STOP/MY radio command cannot provide an absolute physical no-favourite guarantee. Actual RF/STOP semantics require separate approved testing. No enabled environment is offered by default; `ESPSOMFY_LOCAL_COMMANDS` is deliberately absent from the preview build.
+The enabled build reuses `ShadeRequests` on the model-owning loop. Group UP/DOWN use the existing group identity. Group STOP addresses only members estimated moving, rechecking each immediately before submission, to avoid broadcasting MY to idle members. RTS has no motor position acknowledgement: estimates can be wrong, and a shared STOP/MY radio command cannot provide an absolute physical no-favourite guarantee. Actual RF/STOP semantics require separate approved testing. The canonical `lilygo-t-embed-cc1101-plus-ui` environment defines `ESPSOMFY_LOCAL_COMMANDS`. Use the separate `lilygo-t-embed-cc1101-plus-ui-preview` environment when a command-locked build is wanted.
 
 ## Build and inspect offline
 
@@ -69,7 +71,7 @@ The board waits for a fully transferred frame, copies it on the main loop into a
 
 `X-LCD-Frame`, `X-LCD-Backlight` and `X-LCD-Commands` identify the frame, PWM value and local command lock. PWM0 means the physical backlight is off even though a screenshot still shows the panel's stored pixels. A capture is evidence of pixels sent, not a camera observation of physical brightness, orientation, wiring or panel faults. Simple fallback mode has no full RGB framebuffer and returns 503; use a photo for that case.
 
-See the installation evidence below for live memory/timing and regression results. Physical navigation and appearance remain pending while Sid is away from the device.
+See the installation evidence below for live memory/timing and regression results. Physical validation of the revised wheel/Back behavior and display settings remains pending.
 
 ## Offline verification — November 6, 2026
 
@@ -80,7 +82,7 @@ See the installation evidence below for live memory/timing and regression result
 - Final source candidate `1664cf1`: 108,044 bytes linker-reported static RAM, 1,359,642 bytes linker-reported flash usage and a 1,404,336-byte actual firmware image in a 3,342,336-byte OTA slot. The simple-status build reports 105,132 bytes static RAM, so the new static cost is 2,912 bytes; the large drawing allocation is external PSRAM, not included in that static figure.
 - Review covered input bounds, held/release gestures, STOP/identity safeguards, model ownership, GPIO reservations, PSRAM failure policy, SPI transaction lifetime, HTTP access checks, request/response lifetimes and bounded capture memory. A review fix made Both rooms use the current model names for its separate estimates. The installed preview's disassembly independently showed its local dispatch function only returning false, with no calls.
 
-The device still needs direct physical validation of encoder direction/feel, brightness/readability and the fallback screen under an induced hardware failure. No RF responsiveness, shutter movement, favourite, pairing or motor-limit test has been performed. Phase-2 movement testing needs Sid's explicit approval.
+The device still needs direct physical validation of encoder direction/feel, brightness/readability and the fallback screen under an induced hardware failure. No RF responsiveness, shutter movement, favourite, pairing or motor-limit test has been performed. The assistant must not initiate movement testing; Sid may operate the controls manually.
 
 
 ## Installed preview — November 6, 2026
@@ -95,4 +97,24 @@ The initial capture reported PWM 4 during dimming; a later idle capture reported
 
 Nineteen periodic comparisons over 613 seconds passed without a restart; the final follow-up, including after closing the task-owned USB reader, reported 662.336 seconds of uninterrupted candidate uptime. Captured diagnostics reported the 108,800-byte PSRAM allocation with fallback 0, maximum full-frame paint 6,469 µs, maximum four-line transfer 1,508 µs and maximum radio/SPI lock 1,489 µs. Twenty samples in the observation window recorded minimum free internal SRAM 156,656 bytes and minimum free PSRAM 8,260,548 bytes, with no busy skips or crash/watchdog markers. These timings cover boot/status rendering and capture under an idle radio workload; they are not a measurement of RF responsiveness or every physical control page.
 
-Sid was away from the device, so encoder direction/detent feel, physical color/readability, manual brightness/persistence, induced fallback behavior and on-air STOP/MY semantics remain pending. No motion testing or upstream publication occurred. The preview remains installed with local commands locked. Private backups, screenshots, scripts, checksums and logs are selected by `~/.local/state/espsomfy-lilygo/LATEST_UI_INSTALL`; no raw configuration or actual hardware screenshots are committed.
+Sid was away from the device, so encoder direction/detent feel, physical color/readability, manual brightness/persistence, induced fallback behavior and on-air STOP/MY semantics remain pending. No motion testing or upstream publication occurred. This installation was later superseded by the enabled-controls update below. Private backups, screenshots, scripts, checksums and logs are selected by `~/.local/state/espsomfy-lilygo/LATEST_UI_INSTALL`; no raw configuration or actual hardware screenshots are committed.
+
+
+## Installed input/settings update — November 6, 2026
+
+Installed source `7061e98`, canonical UI environment, with manual controls enabled. Firmware SHA256: `5df30962d252eb7753984a6c30af7cf7901bb8668171681d8c13da7025891f6c`. This fixes wheel detent rate/direction, enables GPIO6 Back, and adds saved independent dim/sleep choices including No dim/No sleep.
+
+A fresh portable controller backup and all five settings sections were saved before upload. The candidate partition table matched the verified installed layout; only the inactive firmware slot was updated through `/updateFirmware`. The previous preview binary/ELF and active rollback slot were retained. No new full-flash dump was required under Sid's firmware-only A/B authorization.
+
+The live framebuffer returned `X-LCD-Commands: enabled`. Read-only checks confirmed Wi-Fi connectivity, radio initialization at 433.42 MHz, identical entity state/counters and all five settings sections after reboot, and all three Home Assistant covers available and idle. The candidate ran beyond the 60-second network-up OTA confirmation window without a restart. USB diagnostics reported PSRAM framebuffer 108,800 bytes, fallback 0, maximum paint 6,470 µs and maximum SPI lock 1,491 µs. No shutter command or HA service was sent by the assistant.
+
+Verification: 655 native tests passed with one pre-existing optional private-backup skip; real-GFX renderer/runtime/capture and GPIO/SPI harnesses passed. UI, simple-status and headless builds passed. Physical wheel feel, Back, display-setting persistence and on-air control behavior await Sid's manual validation. Private installation evidence is selected by `~/.local/state/espsomfy-lilygo/LATEST_UI_INPUT_FIX`.
+
+
+## Command-category fix — built offline, not installed
+
+Sid confirmed that display, wheel and Back work, but screen commands did not move the shutters while web controls worked. The adapter incorrectly required `shade_types::roller`; both configured devices are `shade_types::shutter` (4), so they and their group were marked invalid before dispatch. The UI now leaves category handling to the existing shared dispatcher.
+
+A regression harness compiles the production adapter with an in-memory model and recording request sink. It reproduced the failure with the actual shutter category, then passed after the fix. It covers every defined device category, individual/group requests, stale identities and idle/mixed-group STOP behavior without linking any radio implementation. Run `bash tools/test-local-ui-adapter.sh`; this also runs with the existing preview harness.
+
+The enabled-controls UI firmware builds successfully; 655 native tests passed with the existing optional fixture skip, and renderer/runtime/capture/adapter harnesses passed. The build has **not** been flashed: Sid reserved the device for another agent. Do not access or update the board until Sid returns it; collect fresh state and recheck its current firmware/layout before any later installation.

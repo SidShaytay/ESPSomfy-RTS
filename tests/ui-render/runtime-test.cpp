@@ -23,12 +23,8 @@ LocalUi::Model LocalUi::snapshotModel(bool running) {
   return m; // controls remain locked in the actual preview runtime
 }
 void LocalUi::capturePoll(const uint16_t *, bool, uint8_t, uint32_t) {}
-uint8_t LocalUi::loadBrightness() {
-  return 32;
-}
-bool LocalUi::saveBrightness(uint8_t) {
-  return true;
-}
+LocalUi::DisplayPreferences LocalUi::loadPreferences() { return {}; }
+bool LocalUi::savePreferences(const DisplayPreferences &) { return true; }
 bool LocalUi::dispatch(const Command &) {
   ++dispatches;
   return false;
@@ -40,9 +36,7 @@ static bool send(uint8_t y, uint8_t rows, const uint8_t *data, size_t bytes) {
   ++bands;
   return true;
 }
-static void light(uint8_t value) {
-  assert(value == 0 || value == 4 || value == 32);
-}
+static void light(uint8_t value) { assert(value == 0 || value == 4 || value == 32); }
 int main() {
   using namespace LocalUi;
   StatusDisplay::Snapshot s;
@@ -50,7 +44,7 @@ int main() {
   s.link = StatusDisplay::Link::connected;
   s.web = StatusDisplay::Web::listening;
   s.radio = StatusDisplay::Radio::ready;
-  testPins[4] = testPins[5] = 1;
+  testPins[4] = testPins[5] = testPins[6] = 1;
   Runtime ui;
   ui.begin();
   assert(ui.failure() == GraphicsFailure::none && allocated);
@@ -72,27 +66,29 @@ int main() {
     testNow += 50;
     ui.tick(testNow, s, pressed, send, light);
   };
-  tick(2, false);
-  tick(0, false);
-  tick(1, false);
-  tick(3, false);
-  for(int i = 0; i < 60; i++)
-    tick(3, false);
-  auto click = [&] {
-    tick(3, true);
-    tick(3, true);
-    tick(3, false);
-    tick(3, false);
+  int ab = 3;
+  auto idle = [&] {
+    for(int i = 0; i < 60; i++)
+      tick(ab, false);
   };
+  auto rotate = [&](int direction) {
+    const int middle = direction > 0 ? (ab == 3 ? 1 : 2) : (ab == 3 ? 2 : 1);
+    ab = ab == 3 ? 0 : 3;
+    tick(middle, false);
+    tick(ab, false);
+  };
+  auto click = [&] {
+    tick(ab, true);
+    tick(ab, true);
+    tick(ab, false);
+    tick(ab, false);
+  };
+  rotate(1);
+  idle();
   click();
-  for(int i = 0; i < 60; i++)
-    tick(3, false);
-  tick(1, false);
-  tick(0, false);
-  tick(2, false);
-  tick(3, false);
-  for(int i = 0; i < 60; i++)
-    tick(3, false);
+  idle();
+  rotate(-1);
+  idle();
   click();
   assert(dispatches == 0);
   free(allocated);
