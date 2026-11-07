@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from test_lilygo_manifest import ManifestTests
 import update_bootloader as b
+from update_profiles import load_profile
 
 
 class BootloaderTests(ManifestTests):
@@ -22,6 +23,11 @@ class BootloaderTests(ManifestTests):
         digest = hashlib.sha256(image.read_bytes()).digest()
         self.assertIn(', '.join(f'0x{byte:02x}' for byte in digest), text)
         self.assertIn('ESPSOMFY_BOOTLOADER_SHA256_HEX[] = \"' + digest.hex() + '\";', text)
+
+    def test_p4_bootloader_uses_its_own_chip_contract(self):
+        profile = load_profile(Path(__file__).resolve().parent.parent, 'esp32p4')
+        with self.assertRaisesRegex(ValueError, 'chip'):
+            b.expected_header(self.out / 'bootloader.bin', self.sdkconfig, profile)
 
     def test_rollback_config_missing_or_disabled_is_rejected(self):
         for text in ('', '#define CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE 0\n', '#define CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE 1\n#undef CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE\n'):

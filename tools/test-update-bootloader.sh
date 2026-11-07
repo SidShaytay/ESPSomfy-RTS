@@ -5,7 +5,7 @@ repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 build="$(mktemp -d)"
 trap 'rm -rf -- "$build"' EXIT
 "${CXX:-g++}" -std=c++17 -Wall -Wextra -Werror \
-  -DESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS \
+  -DESPSOMFY_GITHUB_UPDATES \
   -I"$repo/tests/update-bootloader/stubs" -I"$repo/src" \
   "$repo/tests/update-bootloader/bootloader-test.cpp" \
   "$repo/src/GitUpdateBootloader.cpp" -o "$build/test-bootloader"
