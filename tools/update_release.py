@@ -7,12 +7,13 @@ from pathlib import Path
 import shutil
 
 import lilygo_manifest as build
+from update_assets import verify_manifest
 from update_identity import (BOARD, LAYOUT, stable_tag, MANIFEST_ASSET,
                              FIRMWARE_ASSET, identity, tags_at_head)
 
 
-def read_app_version(source):
-    return (source / 'data-src' / 'appversion').read_text().strip()
+def read_app_compat(source):
+    return verify_manifest(source / 'data')
 
 
 def release_manifest(package, source, version):
@@ -26,7 +27,7 @@ def release_manifest(package, source, version):
         raise ValueError('release requires a clean source tree before and after compilation')
     if built_source != current_source or built_source != manifest['source']:
         raise ValueError('source changed since compilation; rebuild the reviewed tagged commit')
-    app_compat = read_app_version(source)
+    app_compat = read_app_compat(source)
     expected_identity = identity(built_source, app_compat, tags_at_head(source))
     if version != expected_identity['version'] or provenance['identity'] != expected_identity:
         raise ValueError('release tag or build identity mismatch; rebuild from the release tag')
@@ -38,11 +39,12 @@ def release_manifest(package, source, version):
     marker = expected_identity['marker'].encode('ascii') + b'\0'
     if firmware.count(marker) != 1:
         raise ValueError('firmware does not contain exactly one matching compiled build identity')
-    markers = re.findall(rb'ESPSOMFY_UPDATE_ID:1\|[a-z0-9-]+\|[A-Za-z0-9_]+\|[0-9a-f]{40}\|[A-Za-z0-9.-]+\|[A-Za-z0-9._-]+\x00', firmware)
+    markers = re.findall(rb'ESPSOMFY_UPDATE_ID:1\|[a-z0-9-]+\|[A-Za-z0-9_]+\|[0-9a-f]{40}\|[A-Za-z0-9.-]+\|sha256:[0-9a-f]{64}\x00', firmware)
     if markers != [marker]:
         raise ValueError('firmware contains conflicting update identities')
     return {'schema': 1, 'board': BOARD, 'layout': LAYOUT,
             'flash_bytes': 0x1000000, 'psram_bytes': 0x800000,
+            'bootloader_sha256': build.digest((package / 'bootloader.bin').read_bytes()),
             'app_compat': app_compat, 'version': version,
             'source_sha': built_source['revision'], 'asset': FIRMWARE_ASSET,
             'size': len(firmware), 'sha256': build.digest(firmware), 'channel': 'stable'}

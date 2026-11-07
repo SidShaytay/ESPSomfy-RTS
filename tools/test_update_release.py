@@ -17,18 +17,18 @@ from test_lilygo_manifest import ManifestTests
 class IdentityTests(unittest.TestCase):
     def test_clean_exact_stable_tag(self):
         record = {'revision': '1' * 40, 'dirty': False, 'input_sha256': {}}
-        identity = i.identity(record, '4.0.1', ['v4.0.3'])
+        identity = i.identity(record, 'sha256:' + 'a' * 64, ['v4.0.3'])
         self.assertEqual(identity['version'], 'v4.0.3')
-        self.assertEqual(identity['marker'], 'ESPSOMFY_UPDATE_ID:1|lilygo-t-embed-cc1101-plus|default_8MB|' + '1' * 40 + '|v4.0.3|4.0.1')
+        self.assertEqual(identity['marker'], 'ESPSOMFY_UPDATE_ID:1|lilygo-t-embed-cc1101-plus|default_8MB|' + '1' * 40 + '|v4.0.3|sha256:' + 'a' * 64)
 
     def test_dirty_tagged_build_is_development(self):
-        result = i.identity({'revision': '1' * 40, 'dirty': True}, '4.0.1', ['v4.0.3'])
+        result = i.identity({'revision': '1' * 40, 'dirty': True}, 'sha256:' + 'a' * 64, ['v4.0.3'])
         self.assertTrue(result['version'].startswith('dev-'))
         self.assertNotEqual(result['version'], 'v4.0.3')
 
     def test_untagged_or_ambiguous_tags_are_development(self):
         for tags in ([], ['v4.0.3-rc.1'], ['v4.0.3', 'v4.0.4'], ['v4294967296.1.0']):
-            self.assertTrue(i.identity({'revision': '1' * 40, 'dirty': False}, '4.0.1', tags)['version'].startswith('dev-'))
+            self.assertTrue(i.identity({'revision': '1' * 40, 'dirty': False}, 'sha256:' + 'a' * 64, tags)['version'].startswith('dev-'))
 
     def test_rejects_invalid_identity_component(self):
         for app in ('4.0.1|oops', '4.0.1\nextra', '', 'a' * 32):
@@ -41,7 +41,7 @@ class ReleaseTests(ManifestTests):
     def setUp(self):
         super().setUp()
         self.record = dict(self.manifest['source'])
-        self.identity = i.identity(self.record, '4.0.1', ['v4.0.3'])
+        self.identity = i.identity(self.record, 'sha256:' + 'a' * 64, ['v4.0.3'])
         # Put the actual identity inside the checked image's data segment.
         firmware = self.out / 'firmware.bin'
         raw = firmware.read_bytes()
@@ -61,16 +61,17 @@ class ReleaseTests(ManifestTests):
         (self.out / 'update-source.json').write_text(json.dumps({'source': self.record, 'identity': self.identity}))
 
     def package(self):
-        with patch.object(r.build, 'source_record', return_value=self.record), patch.object(r, 'tags_at_head', return_value=['v4.0.3']), patch.object(r, 'read_app_version', return_value='4.0.1'):
+        with patch.object(r.build, 'source_record', return_value=self.record), patch.object(r, 'tags_at_head', return_value=['v4.0.3']), patch.object(r, 'read_app_compat', return_value='sha256:' + 'a' * 64):
             return r.release_manifest(self.out, Path('/source'), 'v4.0.3')
 
     def test_release_binds_actual_image_identity_and_digest(self):
         manifest = self.package()
         self.assertEqual(manifest['source_sha'], self.record['revision'])
-        self.assertEqual(manifest['app_compat'], '4.0.1')
+        self.assertEqual(manifest['app_compat'], 'sha256:' + 'a' * 64)
         self.assertEqual(manifest['size'], (self.out / 'firmware.bin').stat().st_size)
         self.assertEqual(manifest['sha256'], hashlib.sha256((self.out / 'firmware.bin').read_bytes()).hexdigest())
         self.assertEqual(manifest['asset'], 'firmware-lilygo-t-embed-cc1101-plus.bin')
+        self.assertEqual(manifest['bootloader_sha256'], hashlib.sha256((self.out / 'bootloader.bin').read_bytes()).hexdigest())
 
     def test_rejects_changed_source_after_build(self):
         self.record = dict(self.record, input_sha256={'platformio.ini': '9' * 64})
@@ -84,12 +85,12 @@ class ReleaseTests(ManifestTests):
             self.package()
 
     def test_rejects_relabelled_version(self):
-        with patch.object(r.build, 'source_record', return_value=self.record), patch.object(r, 'tags_at_head', return_value=['v4.0.4']), patch.object(r, 'read_app_version', return_value='4.0.1'):
+        with patch.object(r.build, 'source_record', return_value=self.record), patch.object(r, 'tags_at_head', return_value=['v4.0.4']), patch.object(r, 'read_app_compat', return_value='sha256:' + 'a' * 64):
             with self.assertRaises(ValueError):
                 r.release_manifest(self.out, Path('/source'), 'v4.0.4')
 
     def test_rejects_wrong_application_compatibility(self):
-        with patch.object(r.build, 'source_record', return_value=self.record), patch.object(r, 'tags_at_head', return_value=['v4.0.3']), patch.object(r, 'read_app_version', return_value='4.0.2'):
+        with patch.object(r.build, 'source_record', return_value=self.record), patch.object(r, 'tags_at_head', return_value=['v4.0.3']), patch.object(r, 'read_app_compat', return_value='sha256:' + 'b' * 64):
             with self.assertRaisesRegex(ValueError, 'identity mismatch'):
                 r.release_manifest(self.out, Path('/source'), 'v4.0.3')
 

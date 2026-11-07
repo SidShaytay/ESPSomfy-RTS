@@ -38,6 +38,8 @@ jobs:
           python tools/test_lilygo_manifest.py
           python tools/test_update_release.py
           python tools/test_update_bootloader.py
+          python tools/test_update_assets.py
+          CXX=g++ bash tools/test-update-assets.sh
       - name: Build and validate exact Plus artifacts
         run: bash tools/build-lilygo.sh
       - name: Exercise production update worker with offline SDK faults

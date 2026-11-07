@@ -39,8 +39,10 @@ if env.get("PIOENV") == "lilygo-t-embed-cc1101-plus":
     sys.path.insert(0, os.path.join(project_dir, "tools"))
     from lilygo_manifest import source_record
     from update_identity import identity, tags_at_head, git
+    from update_assets import verify_manifest
     source = source_record(Path(project_dir))
-    build_identity = identity(source, version, tags_at_head(project_dir))
+    app_compat = verify_manifest(Path(project_dir) / "data")
+    build_identity = identity(source, app_compat, tags_at_head(project_dir))
     source_epoch = int(git(project_dir, "show", "-s", "--format=%ct", "HEAD"))
     if source_epoch < 1577836800:
         raise ValueError("invalid source timestamp for verified update clock floor")
