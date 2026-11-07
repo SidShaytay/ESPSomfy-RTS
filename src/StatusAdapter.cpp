@@ -4,6 +4,7 @@
 #include "ESPNetwork.h"
 #include "entryPoints/Web.h"
 #include <esp_timer.h>
+#include <esp_ota_ops.h>
 #include "BoardProfile.h"
 #include <Wire.h>
 extern SomfyShadeController somfy;
@@ -24,6 +25,14 @@ void pollPower(bool running) {
   static bool attempted = false;
   if(!attempted) {
     attempted = true;
+    const auto *partition = esp_ota_get_running_partition();
+    esp_app_desc_t app{};
+    if(partition && esp_ota_get_partition_description(partition, &app) == ESP_OK) {
+      char digest[65];
+      for(unsigned i = 0; i < sizeof(app.app_elf_sha256); ++i)
+        snprintf(digest + i * 2, 3, "%02x", app.app_elf_sha256[i]);
+      Serial.printf("LCD running slot=%s elfSHA256=%s\n", partition->label, digest);
+    }
     powerBus.setTimeOut(2);
     powerBusReady = powerBus.begin(BoardProfile::powerSDA, BoardProfile::powerSCL, 100000);
   }
