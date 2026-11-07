@@ -1,24 +1,29 @@
 # RAM in the supported board configurations
 
-The LILYGO T-Embed CC1101 Plus has 8 MiB octal PSRAM in addition to its ESP32-S3's internal SRAM. Several other supported configurations have no PSRAM enabled, so the GitHub updater is enabled only for the exact Plus profile.
+Verified GitHub updates require a selected exact-board release profile with at least 8 MiB working PSRAM, matching flash/partitions, enough application-slot headroom, matching packaged web assets, and an attested rollback-enabled bootloader. PSRAM capacity alone does not enable installation. Several supported configurations have no PSRAM enabled; they retain manual updates.
 
-This table covers every firmware environment in this branch's `platformio.ini`, checked against the pinned pioarduino `55.03.312` board definitions on November 6, 2026. The native/coverage environments run on a host computer and have no board memory contract. Sizes below describe physical SRAM and configured external memory, **not available heap**; code, stacks, caches, drivers and reserved regions consume part of these totals.
+This table covers every firmware environment in this branch's `platformio.ini`, checked against the pinned pioarduino `55.03.312` board definitions on November 6, 2026. The additional PSRAM release targets are explicit opt-ins; existing no-PSRAM and single-slot debug targets retain their layouts. The native/coverage environments run on a host computer and have no board memory contract. Sizes below describe physical SRAM and configured external memory, **not available heap**; code, stacks, caches, drivers and reserved regions consume part of these totals.
 
 | Firmware environment | Configured board | Internal SRAM | PSRAM selected by this configuration | Flash selected |
 | --- | --- | --- | --- | --- |
 | `esp32dev` | Generic ESP32 Dev Module | 520 KiB main + 16 KiB RTC | None enabled; physical module varies | 4 MiB |
 | `esp32s3` | ESP32-S3-DevKitC-1-N8 | 512 KiB main + 16 KiB RTC | None; board definition explicitly says “No PSRAM” | 8 MiB |
-| `esp32s3dbg` | ESP32-S3-DevKitC-1-N16R8V | 512 KiB main + 16 KiB RTC | 8 MiB octal, QIO flash / OPI RAM SDK | 16 MiB |
+| `esp32s3dbg` | ESP32-S3-DevKitC-1-N16R8V | 512 KiB main + 16 KiB RTC | 8 MiB octal, QIO flash / OPI RAM SDK; single-slot debug, no OTA | 16 MiB |
+| `esp32s3-psram` | ESP32-S3-DevKitC-1-N16R8V release profile | 512 KiB main + 16 KiB RTC | 8 MiB octal; dual-slot updater profile | 16 MiB; table uses lower 8 MiB |
 | `lilygo-t-embed-cc1101-plus` | Exact T-Embed CC1101 Plus profile, N16R8 | 512 KiB main + 16 KiB RTC | 8 MiB octal, QIO flash / OPI RAM SDK | 16 MiB; partition table uses lower 8 MiB |
+| `lilygo-t-embed-cc1101` | Standard T-Embed CC1101, N16R8 | 512 KiB main + 16 KiB RTC | 8 MiB octal; separate board identity from Plus | 16 MiB; table uses lower 8 MiB |
 | `esp32c3` | ESP32-C3-DevKitM-1 | 400 KiB main (includes 16 KiB cache) + 8 KiB RTC | None enabled | 4 MiB |
 | `esp32c5` | ESP32-C5-DevKitC-1, pinned older 4 MiB profile | 384 KiB HP + 16 KiB LP | None enabled by the pinned board definition | 4 MiB |
+| `esp32c5-psram` | Official current C5 DevKitC-1 N8R8 release profile | 384 KiB HP + 16 KiB LP | 8 MiB quad, enabled explicitly; dual-slot updater profile | 8 MiB |
 | `esp32c6` | Seeed XIAO ESP32C6 | 512 KiB HP + 16 KiB LP | None; C6 does not support external PSRAM | 4 MiB |
 | `esp32p4` | Generic P4 revision 3.01 or later | 768 KiB HP + 32 KiB LP + 8 KiB TCM | Enabled (`BOARD_HAS_PSRAM`, 200 MHz); physical capacity not declared by generic board profile | 16 MiB |
 | `esp32p4es` | Generic early P4 revision before 2.0 | 768 KiB HP + 32 KiB LP + 8 KiB TCM | Enabled (`BOARD_HAS_PSRAM`, 200 MHz); physical capacity not declared by generic board profile | 4 MiB |
 
 An ESP32-S3 chip name does not imply PSRAM is present. An N8 board, N16R8 board and Plus board are different compatibility targets even when their CPU is the same. The generic P4 profiles do not establish which physical module is attached; an actual board's PSRAM capacity must be identified independently before promising an updater memory budget.
 
-Similarly, current ESP32-C5-DevKitC-1 v1.2 boards are sold as **N8R8 with 8 MiB PSRAM**. That newer hardware does not change the pinned project's older C5 configuration, which assumes 4 MiB flash and enables no PSRAM. Generic ESP32 hardware can also use a PSRAM-equipped WROVER module, but this project's generic `esp32dev` profile does not enable it.
+Similarly, current ESP32-C5-DevKitC-1 v1.2 boards are sold as **N8R8 with 8 MiB PSRAM**. Use the new `esp32c5-psram` profile for that N8R8 hardware. The older `esp32c5` configuration still assumes 4 MiB flash, enables no PSRAM and uses a single application slot. Generic ESP32 hardware can also use a PSRAM-equipped WROVER module, but this project's generic `esp32dev` profile does not enable it.
+
+The six update profiles are centralized in [`update-profiles.json`](../update-profiles.json): Plus, standard LILYGO, PSRAM S3 release, PSRAM C5 release, P4 and early P4. S3/C5 profiles use `default_8MB` dual application slots of `0x330000` bytes; existing P4 profiles keep `esp32_3MB` slots of `0x180000` bytes. A P4 build must pass its actual slot/headroom check before becoming a releasable updater image; the physical memory capacity is not permission to migrate its layout. Unconfigured flash/PSRAM variants require a reviewed exact profile. Standard LILYGO and the added memory variants have not been tested on hardware by this task.
 
 The historical original-firmware branch also built ESP32-S2. It is not an environment in the maintained cjkas-based branch. ESP32-S2 has 320 KiB main SRAM plus 16 KiB RTC SRAM; PSRAM depends on the module (including variants with 2 MiB), rather than universally providing 8 MiB.
 
