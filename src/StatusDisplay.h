@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include "BatteryGauge.h"
 
 // Read-only values only: no controller, command queue or credentials cross this boundary.
 namespace StatusDisplay {
@@ -8,6 +9,7 @@ enum class Web { starting, listening, error };
 enum class Radio { initializing, ready, unavailable };
 struct Snapshot {
   uint8_t graphicsFailure = 0; // 1: PSRAM missing, 2: allocation failed
+  BatteryGauge::Reading battery;
   bool running = false;
   uint64_t uptimeSeconds = 0;
   Link link = Link::disconnected;
@@ -16,6 +18,8 @@ struct Snapshot {
   Radio radio = Radio::initializing;
   float frequency = 433.42f;
   char build[27] = {};
+  char firmwareVersion[27] = {};
+  char applicationVersion[15] = {};
 };
 struct Page { char lines[9][27] = {}; };
 void format(const Snapshot &snapshot, Page &page);

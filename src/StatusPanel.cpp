@@ -146,6 +146,7 @@ static void light(uint8_t value) {panel.brightness(value);}
 }
 // Implemented in the adapter: this driver has no command/model dependency.
 Snapshot snapshot(bool running);
+void pollPower(bool running);
 void begin() {
 #ifdef ESPSOMFY_LOCAL_UI
   ui.begin();
@@ -158,6 +159,7 @@ void begin() {
   while(millis() - start < 1200) { loop(false); delay(1); }
 }
 void loop(bool running) {
+  pollPower(running);
   static Snapshot s;
   static uint32_t sampled = 0;
   if(!running || !s.running || millis() - sampled >= 1000) {

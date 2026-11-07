@@ -9,7 +9,7 @@ The optional 320×170 UI adds status, room selection, controls, details and save
 ## Use the encoder
 
 - First input after dim/off wakes only. A button held during boot is ignored until released.
-- From Status, turn or press to choose an item. Hold for Details (build, power telemetry availability and service diagnostics).
+- From Status, turn or press to choose an item. Hold for Details. Details lists Firmware (the compiled firmware version) and Application (the installed web-filesystem version) separately. Turn the wheel to scroll through all ten diagnostic rows; press or Back returns to Status. Missing version data is shown as unavailable.
 - Turn clockwise to move down through the list and anticlockwise to move up, one item per physical detent. Choose an individual shade, Both rooms, Status or Display settings.
 - Press opens the selected page. Hold returns; the separate Back button also returns. Back saves any display-setting changes.
 - On Controls, turn to highlight UP/STOP/DOWN and press to submit the action. STOP is selected initially and after an attempt. A long hold goes back and never repeats a command.
@@ -18,9 +18,9 @@ The optional 320×170 UI adds status, room selection, controls, details and save
 - Brightness levels are 2, 4, 8, 16, 32, 64, 128 and 255 out of 255 (default 32). Dim/sleep choices are disabled, 5, 10, 15, 20, 30, 60, 120 and 300 seconds. **No dim** disables dimming; **No sleep** keeps the display on. Defaults are dim after 10 seconds and sleep after 20 seconds, measured independently from the last activity.
 - While any configured shade is estimated moving, the UI stays awake so STOP remains reachable. Wake/rotation/holding/Back alone never creates a shutter request. With No sleep selected, idle navigation returns to Status after 30 seconds while leaving the display on.
 
-The [manufacturer schematic](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/hardware/T-Embed-CC1101%20V1.0%202024-07-29.pdf) and [component/pin list](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/README.md) do not document an ambient-light sensor. Brightness is manual. The encoder uses INA 4, INB 5 and KEY 0; Back uses GPIO6. The decoder follows the manufacturer's TWO03 mode, recognizing detents at both 00 and 11 and rejecting invalid Gray-code transitions/bounce. Sid confirmed the display, wheel and separate Back button work on the installed update.
+The [manufacturer schematic](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/hardware/T-Embed-CC1101%20V1.0%2024-07-29.pdf) and [component/pin list](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/README.md) do not document an ambient-light sensor. Brightness is manual. The encoder uses INA 4, INB 5 and KEY 0; Back uses GPIO6. The decoder follows the manufacturer's TWO03 mode, recognizing detents at both 00 and 11 and rejecting invalid Gray-code transitions/bounce. Sid confirmed the display, wheel and separate Back button work on the installed update.
 
-The Wi-Fi glyph indicates connection, not measured signal strength. Power readings remain unimplemented, rather than reporting fabricated USB/charging/battery information. They appear as unavailable on Details. The BQ power hardware needs separate read-only integration/validation before adding telemetry.
+The Wi-Fi glyph indicates connection, not measured signal strength. The offline build now reads battery percentage and voltage from the BQ27220 fuel gauge. Status shows percentage; Details shows percentage and voltage. Startup, no battery, invalid values and failed reads are labeled explicitly. USB/charging detection remains outside this change. These readings have not yet been validated on Sid’s hardware; the older installed firmware still lacks battery telemetry.
 
 ## Memory and rendering
 
@@ -120,3 +120,12 @@ Sid confirmed that display, wheel and Back work, but screen commands did not mov
 A regression harness compiles the production adapter with an in-memory model and recording request sink. It reproduced the failure with the actual shutter category, then passed after the fix. It covers every defined device category, individual/group requests, stale identities and idle/mixed-group STOP behavior without linking any radio implementation. Run `bash tools/test-local-ui-adapter.sh`; this also runs with the existing preview harness.
 
 The enabled-controls UI firmware builds successfully; 655 native tests passed with the existing optional fixture skip, and renderer/runtime/capture/adapter harnesses passed. The build has **not** been flashed: Sid reserved the device for another agent. Do not access or update the board until Sid returns it; collect fresh state and recheck its current firmware/layout before any later installation.
+
+
+## Battery percentage — built offline, not installed
+
+The [LILYGO schematic](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/hardware/T-Embed-CC1101%20V1.0%2024-07-29.pdf) specifies SDA8/SCL18 and BQ27220 address 0x55. The [TI technical reference](https://www.ti.com/lit/ug/sluubd4a/sluubd4a.pdf) documents the direct SOC, voltage, current, battery-presence and initialization registers. The display uses the gauge-reported percentage, never a voltage-to-percent guess.
+
+The reader uses I2C controller 1 at 100 kHz with a 2 ms transaction timeout, one register read per loop pass separated by at least 10 ms. A five-register sample is attempted every ten seconds. It writes only register pointers for reads: no charger settings, gauge profiles, battery capacity, calibration, reset or control subcommands are changed. SDA8/SCL18 are reserved against relay assignments. A failed read clears the prior sample instead of presenting stale percentages as fresh. Missing battery and incomplete/config-update states do not produce percentages.
+
+Host tests cover byte order/short reads/NACK, bounded polling and clock wrap, battery presence, initialization/config-update, invalid percentages, zero charge, voltage/current, failed-read recovery and display messages. Inverting the percentage validity condition caused four tests to fail. All 662 native tests passed with the existing optional fixture skip; renderer/runtime/capture/adapter and panel/radio/GPIO harnesses passed. Enabled UI, simple-status and headless Plus builds passed. Hardware percentage accuracy and I2C timing under live radio activity remain unverified because the device is reserved for another agent. No live access, flashing or movement was performed for this change.

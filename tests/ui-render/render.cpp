@@ -36,12 +36,15 @@ int main(int argc, char **argv) {
   m.targets[0].moving = true;
   StatusDisplay::Snapshot s;
   s.running = true;
+  s.battery = {BatteryGauge::State::ready, 74, 3920, -100};
   s.link = StatusDisplay::Link::connected;
   s.web = StatusDisplay::Web::listening;
   s.radio = StatusDisplay::Radio::ready;
   s.uptimeSeconds = 4140;
   strcpy(s.address, "192.0.2.12");
   strcpy(s.build, "Plus UI #15 v4.0.1");
+  strcpy(s.firmwareVersion, "v4.0.1");
+  strcpy(s.applicationVersion, "4.0.2");
   View v;
   const Screen screens[] = {Screen::status, Screen::choose, Screen::control, Screen::details};
   const char *names[] = {"status", "choose", "control", "details"};
@@ -51,6 +54,21 @@ int main(int argc, char **argv) {
     save(argv[1], names[i], buffer);
     assert(buffer.front() == 0xdead && buffer.back() == 0xdead);
   }
+  // Version values and scrolling must each affect the actual rendered pixels.
+  auto initialDetails = buffer;
+  strcpy(s.applicationVersion, "4.0.3");
+  c.paint(m, v, s);
+  assert(buffer != initialDetails);
+  strcpy(s.applicationVersion, "4.0.2");
+  strcpy(s.firmwareVersion, "v4.0.2");
+  c.paint(m, v, s);
+  assert(buffer != initialDetails);
+  strcpy(s.firmwareVersion, "v4.0.1");
+  v.detailsOffset = detailsRowCount - detailsVisibleRows;
+  c.paint(m, v, s);
+  assert(buffer != initialDetails);
+  save(argv[1], "details-scrolled", buffer);
+  v.detailsOffset = 0;
   v.screen = Screen::control;
   v.selected = 2;
   c.paint(m, v, s);

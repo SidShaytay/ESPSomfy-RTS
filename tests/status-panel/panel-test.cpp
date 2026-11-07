@@ -12,6 +12,7 @@ bool tryDisplayBus(void (*fn)(void *), void *ctx) {
   owned = true; fn(ctx); owned = false; return true;
 }
 #include "../../src/StatusPanel.cpp"
+void StatusPanel::pollPower(bool) {}
 StatusDisplay::Snapshot StatusPanel::snapshot(bool running) {
   StatusDisplay::Snapshot s; s.running = running; strcpy(s.build, "Plus LCD test"); return s;
 }

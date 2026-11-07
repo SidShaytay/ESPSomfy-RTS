@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 namespace LocalUi {
+constexpr uint8_t detailsRowCount = 10, detailsVisibleRows = 6;
 enum class Screen : uint8_t { status, choose, control, details, brightness };
 enum class Action : uint8_t { up, stop, down };
 enum class Notice : uint8_t { none, preview, queued, refused, idle, changed, wait, saved, saveFailed };
@@ -21,7 +22,7 @@ struct DisplayPreferences {
 };
 struct View {
   Screen screen = Screen::status;
-  uint8_t selected = 0, level = 32, setting = 0;
+  uint8_t selected = 0, level = 32, setting = 0, detailsOffset = 0;
   uint16_t dimSeconds = 10, offSeconds = 20;
   Action action = Action::stop;
   Notice notice = Notice::none;

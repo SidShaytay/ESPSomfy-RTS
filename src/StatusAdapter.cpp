@@ -4,14 +4,38 @@
 #include "ESPNetwork.h"
 #include "entryPoints/Web.h"
 #include <esp_timer.h>
+#include "BoardProfile.h"
+#include <Wire.h>
 extern SomfyShadeController somfy;
 extern ESPNetwork net;
 extern Web webServer;
+extern ConfigSettings settings;
 namespace StatusPanel {
+namespace {
+BatteryGauge::Monitor gauge;
+TwoWire powerBus(1);
+bool powerBusReady = false;
+bool readPowerWord(uint8_t reg, uint16_t &value) {
+  return BatteryGauge::readWord(powerBus, reg, value);
+}
+}
+void pollPower(bool running) {
+  if(!running) return;
+  static bool attempted = false;
+  if(!attempted) {
+    attempted = true;
+    powerBus.setTimeOut(2);
+    powerBusReady = powerBus.begin(BoardProfile::powerSDA, BoardProfile::powerSCL, 100000);
+  }
+  gauge.tick(millis(), powerBusReady ? readPowerWord : nullptr);
+}
 StatusDisplay::Snapshot snapshot(bool running) {
   using namespace StatusDisplay;
   Snapshot s;
   s.running = running;
+  s.battery = gauge.reading();
+  snprintf(s.firmwareVersion, sizeof(s.firmwareVersion), "%s", FW_VERSION);
+  snprintf(s.applicationVersion, sizeof(s.applicationVersion), "%s", settings.appVersion.name);
   s.uptimeSeconds = esp_timer_get_time() / 1000000;
   if(WiFi.status() == WL_CONNECTED) {
     s.link = Link::connected;

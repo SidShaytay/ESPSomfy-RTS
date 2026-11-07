@@ -16,7 +16,7 @@ struct SomfyShade : SomfyRemote, ShadeSettings {
   radio_proto proto = radio_proto::GP_Relay;
   uint8_t gpioFlags = 0;
   int8_t gpioDir = 0;
-  uint8_t gpioUp = 17, gpioDown = 18, gpioMy = 40;
+  uint8_t gpioUp = 17, gpioDown = 40, gpioMy = 42;
   uint32_t gpioRelease = 0;
   struct State { int8_t direction = -1, tiltDirection = 0; float currentPos = 0; } position;
   const State &state() const { return position; }
@@ -46,13 +46,13 @@ void TestSPI::end() {}
 int main() {
   SomfyShade shade;
   shade.setGPIOs();
-  assert(writes == 2 && levels[17] == HIGH && levels[18] == LOW);
+  assert(writes == 2 && levels[17] == HIGH && levels[40] == LOW);
   somfy_frame_t frame;
   frame.cmd = somfy_commands::Down;
   frame.repeats = 2;
   shade.proto = radio_proto::GP_Remote;
   shade.triggerGPIOs(frame);
-  assert(writes == 5 && levels[18] == HIGH);
+  assert(writes == 5 && levels[40] == HIGH);
   const unsigned int before = writes;
   // These assignments can arrive from an old backup with the radio disabled.
   // Test every reserved pad in each output slot, including USB/flash pads.
@@ -60,8 +60,8 @@ int main() {
     if(!BoardProfile::usesPin(pin)) continue;
     for(uint8_t slot = 0; slot < 3; slot++) {
       shade.gpioUp = slot == 0 ? pin : 17;
-      shade.gpioDown = slot == 1 ? pin : 18;
-      shade.gpioMy = slot == 2 ? pin : 40;
+      shade.gpioDown = slot == 1 ? pin : 40;
+      shade.gpioMy = slot == 2 ? pin : 42;
       shade.proto = radio_proto::GP_Remote;
       shade.triggerGPIOs(frame);
       shade.setGPIOs();
