@@ -60,6 +60,10 @@ constexpr uint32_t OPERATION_MS=180000;
 constexpr size_t API_LIMIT=65536;
 constexpr size_t MANIFEST_LIMIT=4096;
 constexpr size_t CHUNK=4096;
+// Conservative operation admission limits, separate from the smaller postboot
+// health reserve. Live measurements must still establish handshake headroom.
+constexpr size_t ADMISSION_INTERNAL_FREE=48*1024;
+constexpr size_t ADMISSION_INTERNAL_LARGEST=16*1024;
 struct Snapshot {
   char state[16]="idle";
   char available[48]="";
@@ -223,6 +227,9 @@ bool check(uint32_t start) {
   JsonDocument release(&jsonAllocator);
   if(deserializeJson(release,api.data,size,DeserializationOption::Filter(filter),DeserializationOption::NestingLimit(6))) { fail("Invalid GitHub release metadata"); return false; }
   const char *tag=release["tag_name"] | "";
+  // Bound before copying into std::string: malformed metadata must not request
+  // an internally allocated API-sized release tag merely to reject it later.
+  if(strlen(tag)>47) { fail("Release tag exceeds the supported version length");return false; }
   if(!release["draft"].is<bool>() || !release["prerelease"].is<bool>() || release["draft"].as<bool>() || release["prerelease"].as<bool>()) { fail("Only published stable releases are supported"); return false; }
   // Validate tag before constructing any release URL.
   Manifest probe;probe=Manifest();probe.schema=1;probe.board=BOARD;probe.layout=LAYOUT;probe.flashBytes=FLASH_BYTES;probe.psramBytes=PSRAM_BYTES;
@@ -263,6 +270,9 @@ bool check(uint32_t start) {
   return true;
 }
 const char *environmentError() {
+  if(heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)<ADMISSION_INTERNAL_FREE ||
+    heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)<ADMISSION_INTERNAL_LARGEST)
+    return "Temporary low or fragmented internal memory; retry after resources recover";
   if(!gitUpdateBootloaderMatches()) return "Installed bootloader is not attested for rollback";
   if(!installedAssetsCompatible) return "Installed LittleFS assets differ from compiled compatibility";
 #if !defined(CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE) || !CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE

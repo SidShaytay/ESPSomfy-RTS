@@ -49,6 +49,7 @@ inline std::function<void()> onRead;
 inline std::vector<uint8_t> written;
 inline size_t psramPhysical=8388608;
 inline size_t flashPhysical=GitUpdateProfile::flashBytes;
+inline size_t internalFree=100000,internalLargest=80000;
 inline std::map<std::string,std::string> seenAccept;
 struct Response {
   int status=200;
@@ -67,9 +68,9 @@ inline uint32_t millis() { return Fake::now; }
 inline void *heap_caps_malloc(size_t bytes,int) { return Fake::allocationFail ? nullptr : std::malloc(bytes); }
 inline void *heap_caps_realloc(void *p,size_t bytes,int) { return std::realloc(p,bytes); }
 inline void heap_caps_free(void *p) { std::free(p); }
-inline size_t heap_caps_get_free_size(int) { return 100000; }
+inline size_t heap_caps_get_free_size(int) { return Fake::internalFree; }
 inline size_t heap_caps_get_minimum_free_size(int) { return 70000; }
-inline size_t heap_caps_get_largest_free_block(int) { return 80000; }
+inline size_t heap_caps_get_largest_free_block(int) { return Fake::internalLargest; }
 inline size_t esp_psram_get_size() { return Fake::psramPhysical; }
 struct FakeEsp {
   uint32_t getPsramSize() const { return 8300000; }

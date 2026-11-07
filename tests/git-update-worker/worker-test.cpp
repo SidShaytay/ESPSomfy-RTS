@@ -54,7 +54,7 @@ static void reset() {
   Fake::cancelledDuringPrepare=false;Fake::cancelDuringWrite=false;Fake::cancelAcceptedDuringWrite=false;
   Fake::extraAppPartition=false;Fake::extraOtaPartition=false;
   Fake::prepareCalls=0;Fake::otaBegins=0;Fake::otaWrites=0;Fake::otaEnds=0;Fake::otaActivations=0;Fake::otaAborts=0;
-  Fake::autoLoop=true;Fake::onYield=nullptr;Fake::onRead=nullptr;Fake::psramPhysical=8388608;Fake::flashPhysical=GitUpdateProfile::flashBytes;
+  Fake::autoLoop=true;Fake::onYield=nullptr;Fake::onRead=nullptr;Fake::psramPhysical=8388608;Fake::flashPhysical=GitUpdateProfile::flashBytes;Fake::internalFree=100000;Fake::internalLargest=80000;
   Fake::written.clear();Fake::responses.clear();Fake::urls.clear();Fake::seenAccept.clear();
   rebootDelay={};runningPartition={GitUpdateProfile::app0Address,GitUpdateProfile::appBytes};
   nextPartition={GitUpdateProfile::app1Address,GitUpdateProfile::appBytes,ESP_PARTITION_TYPE_APP,ESP_PARTITION_SUBTYPE_APP_OTA_1};
@@ -150,6 +150,25 @@ static void check_environment_and_allocator_fail_closed() {
   reset();fakeImageState=ESP_OTA_IMG_PENDING_VERIFY;CHECK(gitUpdate.requestCheck());run();CHECK(currentState()=="error");CHECK(Fake::urls.empty());
   reset();Fake::allocationFail=true;CHECK(gitUpdate.requestCheck());run();CHECK(currentState()=="error");CHECK(Fake::otaBegins==0);
 }
+static void low_or_fragmented_internal_memory_refuses_then_allows_retry() {
+  for(unsigned which=0;which<2;which++) {
+    reset();
+    if(which==0) Fake::internalFree=48*1024-1;
+    else Fake::internalLargest=16*1024-1;
+    CHECK(gitUpdate.requestCheck());run();CHECK(currentState()=="error");CHECK(Fake::urls.empty());CHECK(Fake::otaBegins==0);CHECK(!gitUpdate.busy());
+    Fake::internalFree=100000;Fake::internalLargest=80000;
+    available();
+    // A previously available release does not bypass the install admission
+    // check when ordinary network/driver use has since consumed the reserve.
+    const size_t requests=Fake::urls.size();
+    if(which==0) Fake::internalFree=48*1024-1;
+    else Fake::internalLargest=16*1024-1;
+    installNow();CHECK(currentState()=="error");CHECK(Fake::urls.size()==requests);CHECK(Fake::otaBegins==0);CHECK(!gitUpdate.busy());
+    Fake::internalFree=100000;Fake::internalLargest=80000;
+    installNow();CHECK(currentState()=="rebooting");CHECK(Fake::otaActivations==1);
+  }
+  reset();Fake::internalFree=48*1024;Fake::internalLargest=16*1024;available();
+}
 static void altered_partition_semantics_reject_before_https() {
   for(unsigned which=0;which<8;which++) {
     reset();
@@ -189,7 +208,7 @@ static void success_writes_only_inactive_slot_and_refuses_late_cancel() {
 int main() {
   check_success_headers_and_manual_exclusion();verified_connection_and_host_failures_never_write();
   transfer_faults_leave_active_slot_untouched();authenticated_but_incompatible_images_never_write();check_environment_and_allocator_fail_closed();
-  altered_partition_semantics_reject_before_https();cancel_before_and_during_preparation_preserves_slot();ota_failures_never_activate_and_resume_with_reboot();
+  low_or_fragmented_internal_memory_refuses_then_allows_retry();altered_partition_semantics_reject_before_https();cancel_before_and_during_preparation_preserves_slot();ota_failures_never_activate_and_resume_with_reboot();
   success_writes_only_inactive_slot_and_refuses_late_cancel();
   std::cout<<GitUpdatePolicy::BOARD<<" production worker: "<<assertions<<" assertions passed\n";
 }
