@@ -98,9 +98,10 @@ jobs:
           retention-days: 14
 
   # The coverage of main on the repo's GitHub Pages site
-  # (Settings > Pages > Source: GitHub Actions).
+  # (Settings > Pages > Source: GitHub Actions). The push payload reflects
+  # whether Pages is enabled; forks without Pages still retain coverage artifacts.
   coverage-pages:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.repository.has_pages == true
     needs: [test, webui]
     name: Publish coverage
     runs-on: ubuntu-latest
