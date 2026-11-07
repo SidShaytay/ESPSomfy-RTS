@@ -62,7 +62,7 @@ static void test_the_web_ui_is_public() {
 }
 static void test_the_other_routes_need_the_token() {
   static const char *const routes[] = {"/backup", "/restore", "/updateFirmware", "/updateApplication",
-    "/shadeCommand", "/groupCommand", "/tiltCommand"};
+    "/shadeCommand", "/groupCommand", "/tiltCommand", "/lcd/screenshot"};
   for(const char *route : routes) TEST_ASSERT_FALSE_MESSAGE(isPublicRoute(route, false), route);
 }
 static void test_an_unknown_path_needs_the_token() {
@@ -78,6 +78,7 @@ static void test_a_route_differing_in_case_or_length_needs_the_token() {
 }
 static void test_a_web_asset_name_below_a_route_needs_the_token() {
   TEST_ASSERT_FALSE(isPublicRoute("/backup/a.js", false));
+  TEST_ASSERT_FALSE(isPublicRoute("/lcd/screenshot/a.png", false));
   TEST_ASSERT_FALSE(isPublicRoute("/shadeCommand/a.png", false));
   TEST_ASSERT_FALSE(isPublicRoute("/updateFirmware/x.js", false));
   TEST_ASSERT_FALSE(isPublicRoute("/login/a.js", false));

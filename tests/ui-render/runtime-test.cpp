@@ -1,5 +1,6 @@
 #include "LocalUiRuntime.h"
 #include "LocalUiAdapter.h"
+#include "LocalUiCapture.h"
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>
@@ -21,6 +22,7 @@ LocalUi::Model LocalUi::snapshotModel(bool running) {
   }
   return m; // controls remain locked in the actual preview runtime
 }
+void LocalUi::capturePoll(const uint16_t *, bool, uint8_t, uint32_t) {}
 uint8_t LocalUi::loadBrightness() {
   return 32;
 }
