@@ -34,6 +34,7 @@ jobs:
           CXX=g++ bash tools/test-update-memory.sh
           CXX=g++ bash tools/test-restore-upload.sh
           CXX=g++ bash tools/test-manual-upload.sh
+          CXX=g++ bash tools/test-update-quiesce.sh
       - name: Offline manifest rejection tests
         run: |
           python -m unittest discover -s tools -p 'test_*.py'
