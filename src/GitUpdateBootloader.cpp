@@ -10,6 +10,10 @@
 namespace {
 std::atomic<int> attestation{-1};
 bool readAndVerify() {
+  // Refer to the compiled record here as well as through status; the packager
+  // requires its exact address/length/digest to match the bootloader artifact.
+  const volatile char *record = gitUpdateBootloaderIdentity();
+  if(record[0] != 'E') return false;
   static_assert(ESPSOMFY_BOOTLOADER_BYTES > 0 && ESPSOMFY_BOOTLOADER_BYTES + ESPSOMFY_BOOTLOADER_ADDRESS <= 0x8000,
     "bootloader identity must not overlap partitions");
   mbedtls_sha256_context hash;
@@ -40,8 +44,10 @@ bool gitUpdateBootloaderMatches() {
   }
   return result == 1;
 }
+const char *gitUpdateBootloaderIdentity() { return ESPSOMFY_BOOTLOADER_ID; }
 const char *gitUpdateBootloaderDigest() { return ESPSOMFY_BOOTLOADER_SHA256_HEX; }
 #else
+const char *gitUpdateBootloaderIdentity() { return ""; }
 const char *gitUpdateBootloaderDigest() { return ""; }
 bool gitUpdateBootloaderMatches() { return false; }
 #endif

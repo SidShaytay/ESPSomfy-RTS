@@ -25,6 +25,7 @@ def expected_header(bootloader, sdkconfig, profile=None):
             f'constexpr uint32_t ESPSOMFY_BOOTLOADER_ADDRESS = {profile["bootloader_address"]};\n'
             f'constexpr size_t ESPSOMFY_BOOTLOADER_BYTES = {len(data)};\n'
             f'constexpr uint8_t ESPSOMFY_BOOTLOADER_SHA256[32] = {{{digest}}};\n'
+            f'constexpr char ESPSOMFY_BOOTLOADER_ID[] = \"ESPSOMFY_BOOT_ID:{profile["bootloader_address"]}:{len(data)}:{hashlib.sha256(data).hexdigest()}\";\n'
             f'constexpr char ESPSOMFY_BOOTLOADER_SHA256_HEX[] = \"{hashlib.sha256(data).hexdigest()}\";\n')
 
 

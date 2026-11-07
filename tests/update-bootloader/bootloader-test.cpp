@@ -40,6 +40,7 @@ void mbedtls_sha256_free(mbedtls_sha256_context *) { ++freed; }
 int main(int argc, char **argv) {
   assert(argc == 2);
   mode = argv[1];
+  assert(!strcmp(gitUpdateBootloaderIdentity(), "ESPSOMFY_BOOT_ID:8192:1025:0104000000000000000000000000000000000000000000000000000000000000"));
   assert(!strcmp(gitUpdateBootloaderDigest(), "0104000000000000000000000000000000000000000000000000000000000000"));
   memset(flash, 1, sizeof(flash));
   if(!strcmp(mode, "tampered")) flash[512] = 2;
