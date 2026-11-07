@@ -408,6 +408,8 @@ static void requireToken(AsyncWebServerRequest *request, ArMiddlewareNext next) 
   request->send(401, _encoding_text, "Unauthorized API Key");
 }
 
+uint8_t Web::listenerState() const { return asyncServer.state(); }
+
 void Web::begin() {
   ESP_LOGI(TAG, "Creating Web MicroServices...");
   asyncServer.addMiddleware([](AsyncWebServerRequest *r, ArMiddlewareNext next) { timeRequest(r, next); });

@@ -54,6 +54,22 @@ struct RadioLock {
   }
   ~RadioLock() { if(owned) xSemaphoreGiveRecursive(radioMutex); }
 };
+#ifdef ESPSOMFY_STATUS_DISPLAY
+#include "DisplayBus.h"
+bool tryDisplayBus(void (*transfer)(void *), void *context) {
+  RadioLock lock(0);
+  if(!lock.locked) return false;
+  transfer(context);
+  return true;
+}
+#endif
+bool Transceiver::displayStatus(bool &ready, float &frequency) const {
+  RadioLock lock(0);
+  if(!lock.locked) return false;
+  ready = this->available();
+  frequency = this->config.frequency;
+  return true;
+}
 struct TxQueueLock {
   TxQueueLock() { if(txQueueMutex) xSemaphoreTake(txQueueMutex, portMAX_DELAY); }
   ~TxQueueLock() { if(txQueueMutex) xSemaphoreGive(txQueueMutex); }

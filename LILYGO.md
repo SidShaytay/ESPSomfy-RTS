@@ -67,3 +67,7 @@ CXX=g++ bash tools/test-board-profile.sh
 Use the cache override consistently if configured. Build-tool tests and exact artifact verification are recorded in [the port validation report](docs/lilygo-port-validation.md).
 
 Compile, GPIO harness and fake-device protocol results do not prove RF transmission, actual calibration accuracy, real-device import or rollback. Before considering deployment, finish [recovery validation #9](https://github.com/SidShaytay/ESPSomfy-RTS/issues/9), [safe releases/pull updates #12](https://github.com/SidShaytay/ESPSomfy-RTS/issues/12), and the relevant [security review #14](https://github.com/SidShaytay/ESPSomfy-RTS/issues/14). Obtain explicit approval for a concrete migration plan. Do not flash the sole working board, transmit with duplicate identities, pair, calibrate or issue motor commands as a substitute for offline evidence.
+
+## Optional read-only LCD
+
+For the opt-in status screen, build `lilygo-t-embed-cc1101-plus-display`; the existing Plus environment stays headless. See the [display guide](docs/lilygo-status-display.md) for behavior, wiring and build instructions, and the [hardware approval plan](docs/lilygo-status-validation.md) before any installation. Local shutter controls are deferred.

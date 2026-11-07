@@ -124,6 +124,9 @@ void ELECHOUSE_CC1101::SpiStart(void)
   #else
   SPI.begin();
   #endif
+  // Shared peripherals change bus settings. Every radio access owns an
+  // explicit mode-0 transaction below the CC1101's 10 MHz limit.
+  SPI.beginTransaction(SPISettings(4000000, MSBFIRST, SPI_MODE0));
 }
 /****************************************************************
 *FUNCTION NAME:SpiEnd
@@ -191,8 +194,8 @@ void ELECHOUSE_CC1101::Init(void)
   // handed them to the SPI bus, so Arduino 3.x refused the writes and logged
   // an error; the bus already idles SCK and MOSI.
   Reset();                    //CC1101 reset
+  SpiEnd(); // Register helpers start their own transactions; never nest them.
   RegConfigSettings();            //CC1101 register config
-  SpiEnd();
 }
 /****************************************************************
 *FUNCTION NAME:SpiWriteReg

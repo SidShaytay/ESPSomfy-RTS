@@ -78,9 +78,12 @@ static void onAllocFailed(size_t size, uint32_t caps, const char *function) {
     (unsigned)heap_caps_get_largest_free_block(caps), (unsigned)heap_caps_get_minimum_free_size(caps));
 }
 
+#include "StatusPanel.h"
+
 void setup() {
   Serial.begin(SERIAL_BAUD);
   BoardProfile::begin();
+  StatusPanel::begin();
   heap_caps_register_failed_alloc_callback(onAllocFailed);
   ESP_LOGI(TAG, "Startup/Boot....");
   esp_core_dump_summary_t summary;
@@ -199,5 +202,6 @@ void loop() {
     else ESP_LOGE(TAG, "Unable to confirm the updated firmware");
   }
   esp_task_wdt_reset();
+  StatusPanel::loop();
   loopStats.record(pass.us());
 }

@@ -67,6 +67,8 @@ class Transceiver {
     void runJob(somfy_tx_job_t &job);
   public:
     transceiver_config_t config;
+    // Nonblocking read-only LCD snapshot; outputs are unchanged if busy.
+    bool displayStatus(bool &ready, float &frequency) const;
     bool available() const { return _available.load(); }
     bool printBuffer = false;
     bool fromJSON(JsonObject& obj);
