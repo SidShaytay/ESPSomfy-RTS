@@ -15,3 +15,20 @@ We removed it: the release check and its setting, the release list, download and
 - A broken filesystem is recovered by uploading `littlefs.bin`, or over USB, rather than with `/recoverFilesystem`.
 - Issue #76 and PR #72 (GitOTA's per-chip littlefs file name) become obsolete.
 - The HTTPS client leaves the firmware, which frees flash in the 1.5 MB OTA slot.
+
+## Fork follow-up: exact-board Plus updates (issue #12)
+
+The upstream decision above remains accepted for its generic builds. This fork's
+[Plus update design](../github-updates.md) revisits the constraints for an opt-in
+16 MiB-flash/8 MiB-PSRAM profile only: verified outbound HTTPS, deliberate PSRAM
+allocation/staging, bounded background operations, consistent authenticated
+routes, exact-board release identity and manifest validation, and firmware-only
+inactive-slot writes with postboot health/rollback checks. The local web UI still
+uses HTTP; this does not add a local HTTPS server.
+
+[Other board configurations](../board-memory.md) frequently have no PSRAM enabled
+and retain the upstream manual update behavior. The Plus's standard 3.1875 MiB
+OTA slots permit a different flash budget from the generic 1.5 MiB slots.
+Independent review, measured memory/responsiveness and fault/rollback/state
+continuity tests remain requirements for live acceptance. No hardware access or
+service-window approval is implied by this addendum.
