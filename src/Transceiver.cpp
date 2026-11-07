@@ -14,6 +14,7 @@
 #include "outputs/ProtoSocket.h"
 #include "ProtoSync.h"
 #include "BitLength.h"
+#include "RadioUpdateActivity.h"
 
 static const char *TAG = "Somfy";
 
@@ -76,6 +77,19 @@ void somfy_frame_t::decodeFrame(somfy_rx_t *rx) {
   this->decodeFrame(rx->payload);
 }
 // Transceiver Implementation
+// The ISR and loop share decoder/receive-queue state. Update admission sets
+// rxPausedForUpdate under this mux before detaching the interrupt, so an ISR
+// that was already waiting cannot admit another frame after the snapshot.
+static portMUX_TYPE rxMux = portMUX_INITIALIZER_UNLOCKED;
+static bool rxPausedForUpdate = false;
+struct RxTaskLock {
+  RxTaskLock() { portENTER_CRITICAL(&rxMux); }
+  ~RxTaskLock() { portEXIT_CRITICAL(&rxMux); }
+};
+struct RxInterruptLock {
+  __attribute__((always_inline)) inline RxInterruptLock() { portENTER_CRITICAL_ISR(&rxMux); }
+  __attribute__((always_inline)) inline ~RxInterruptLock() { portEXIT_CRITICAL_ISR(&rxMux); }
+};
 static somfy_rx_t somfy_rx;
 static somfy_rx_queue_t rx_queue;
 static somfy_tx_queue_t tx_queue;
@@ -177,6 +191,8 @@ void Transceiver::sendFrame(byte *frame, uint8_t sync, uint8_t bitLength) {
   }
 }
 void RECEIVE_ATTR Transceiver::handleReceive() {
+    RxInterruptLock receiveLock;
+    if(rxPausedForUpdate) return;
     if (noiseDetected) return;
     if (somfy.transceiver.config.noiseDetection) {
         unsigned long now = millis();
@@ -325,10 +341,9 @@ void Transceiver::emitFrequencyScan() {
   }
 }
 bool Transceiver::receive(somfy_rx_t *rx) {
-    // Check to see if there is anything in the buffer
-    if(rx_queue.length > 0) {
-      //Serial.printf("Processing receive %d\n", rx_queue.length);
-      rx_queue.pop(rx);
+    bool received;
+    { RxTaskLock lock; received = rx_queue.pop(rx); }
+    if(received) {
       this->frame.decodeFrame(rx);
       if(this->frame.valid) {
         ESP_LOGI(TAG, "RX ADDR:%d CMD:%s RAW_CMD:0x%X KEY:0x%02X PROTO:%u",
@@ -752,12 +767,13 @@ void transceiver_config_t::apply() {
     }
     //somfy.transceiver.printBuffer = this->printBuffer;
 }
+static bool rxInProgress();
 bool Transceiver::begin() {
     if(!radioMutex) radioMutex = xSemaphoreCreateRecursiveMutex();
     if(!txQueueMutex) txQueueMutex = xSemaphoreCreateMutex();
     this->config.load();
-    this->config.apply();
     rx_queue.init();
+    this->config.apply();
     this->startTxTask();
     return true;
 }
@@ -813,7 +829,7 @@ void Transceiver::loop() {
     // Repeater frames are handed to the radio task like any other transmission.
     // One stays here until the radio has room for it rather than being lost
     // while the radio is busy.  While TX is suspended nothing goes out anyway.
-    if(tx_queue.length > 0 && millis() > tx_queue.delay_time && somfy_rx.cpt_synchro_hw == 0 &&
+    if(tx_queue.length > 0 && millis() > tx_queue.delay_time && !rxInProgress() &&
       (this->txSuspended() || this->txHasRoom())) {
       somfy_tx_job_t job;
       job.repeater = true;
@@ -868,10 +884,35 @@ bool Transceiver::txHasRoom() {
   return this->sched.hasRoom();
 }
 bool Transceiver::suspendForUpdateIfIdle() {
-  TxQueueLock lock;
-  if(this->sched.suspended() || !this->sched.idle()) return false;
-  this->sched.suspend(TX_SUSPEND_OTA, millis());
+  // Match the TX task's lock order: radio, scheduler, receive ISR. Never wait
+  // behind an on-air transmission merely to attempt an update.
+  RadioLock radio(0);
+  if(!radio.locked) return false;
+  TxQueueLock queue;
+  {
+    RxTaskLock receive;
+    RadioUpdateActivity activity;
+    activity.schedulerIdle = this->sched.idle();
+    activity.suspended = this->sched.suspended();
+    activity.receivedFrames = rx_queue.length;
+    activity.receivingFrame = somfy_rx.cpt_synchro_hw != 0 || somfy_rx.cpt_bits != 0 || somfy_rx.status == receiving_data;
+    activity.repeaterFrames = tx_queue.length;
+    activity.scanning = rxmode == 3;
+    if(!activity.canPause()) return false;
+    rxPausedForUpdate = true;
+    this->updateResumeReceive = rxmode == 1;
+    this->sched.suspend(TX_SUSPEND_OTA, millis());
+  }
+  // The ISR mux is released before the GPIO driver detaches its handler.
+  this->disableReceive();
   return true;
+}
+void Transceiver::resumeAfterUpdatePreparation() {
+  RadioLock radio;
+  { TxQueueLock queue; this->sched.resume(TX_SUSPEND_OTA); }
+  { RxTaskLock receive; rxPausedForUpdate = false; }
+  if(this->updateResumeReceive) this->enableReceive();
+  this->updateResumeReceive = false;
 }
 void Transceiver::suspendTx(uint8_t reason) {
   {
@@ -886,7 +927,7 @@ void Transceiver::resumeTx(uint8_t reason) {
   this->sched.resume(reason);
 }
 // cpt_synchro_hw is updated by the RX interrupt and read here from the radio task.
-static bool rxInProgress() { return *(volatile uint8_t *)&somfy_rx.cpt_synchro_hw != 0; }
+static bool rxInProgress() { RxTaskLock lock; return somfy_rx.cpt_synchro_hw != 0; }
 bool Transceiver::transmitJob(somfy_tx_job_t &job) {
   somfy_tx_t &tx = job.tx;
   bool complete = true;

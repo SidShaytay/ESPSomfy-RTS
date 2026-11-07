@@ -643,8 +643,35 @@ static void test_restore_set_position_and_clear_tilt() {
   TEST_ASSERT_EQUAL_FLOAT(-1.0f, r.st().myTiltPos);
 }
 
+static void test_update_waits_for_unprocessed_remote_action() {
+  Rig r;
+  r.b.setPosition(50, 0);
+  r.b.restore(50, 0, 25, -1);
+  TEST_ASSERT_TRUE(r.b.readyForUpdate());
+  r.press(somfy_commands::My);
+  TEST_ASSERT_TRUE(r.b.isIdle());
+  TEST_ASSERT_FALSE(r.b.readyForUpdate());
+  r.wait(510);
+  TEST_ASSERT_FALSE(r.b.readyForUpdate()); // favorite move now active
+  r.b.setPosition(25, 0);
+  r.b.tick(r.now);
+  TEST_ASSERT_TRUE(r.b.readyForUpdate());
+}
+static void test_update_ignores_already_processed_wait_timestamp() {
+  Rig r;
+  r.lastFrame.await = r.now + 500;
+  r.lastFrame.processed = true;
+  TEST_ASSERT_TRUE(r.b.readyForUpdate());
+  r.lastFrame.processed = false;
+  TEST_ASSERT_FALSE(r.b.readyForUpdate());
+  r.lastFrame.await = 0;
+  TEST_ASSERT_TRUE(r.b.readyForUpdate());
+}
+
 int main(int argc, char **argv) {
   UNITY_BEGIN();
+  RUN_TEST(test_update_waits_for_unprocessed_remote_action);
+  RUN_TEST(test_update_ignores_already_processed_wait_timestamp);
   RUN_TEST(test_down_waits_for_the_radio_then_travels);
   RUN_TEST(test_refused_command_moves_nothing);
   RUN_TEST(test_hold_times_out_without_a_radio_event);

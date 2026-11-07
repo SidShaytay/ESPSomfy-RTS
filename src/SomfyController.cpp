@@ -10,6 +10,7 @@
 #include "Somfy.h"
 #include "MqttConnection.h"
 #include "LoopQueue.h"
+#include "RebootDeadline.h"
 #include "ShadeRequests.h"
 #include "SomfyShadeOps.h"
 #include "esp_core_dump.h"
@@ -28,6 +29,7 @@
 #include "GitUpdateAssets.h"
 #include "GitUpdateBootloader.h"
 #include "ConfigFile.h"
+#include "UpdateSnapshot.h"
 
 static const char *TAG = "Main";
 #define LOOP_SLOW_MS 100
@@ -45,6 +47,7 @@ extern "C" bool verifyRollbackLater() { return true; }
 static bool otaPending = false;
 extern SomfyShadeController somfy;
 extern MqttConnection mqtt;
+extern LoopQueue loopQueue;
 #if defined(ESPSOMFY_GITHUB_UPDATES)
 static GitUpdateHealth updateHealth;
 static bool filesystemHealthy = false;
@@ -58,17 +61,24 @@ static bool updateQuiesced = false;
 static bool prepareGitInstall() {
   if(!filesystemHealthy || !configHealthy || !applicationHealthy || !bootloaderHealthy || (somfy.transceiver.config.enabled && !somfy.transceiver.available())) return false;
   for(auto &shade : somfy.shades) {
-    if(shade.getShadeId() != 255 && !shade.isIdle()) return false;
+    if(shade.getShadeId() != 255 && !shade.readyForUpdate()) return false;
   }
-  if(!somfy.transceiver.suspendForUpdateIfIdle()) return false;
+  // Allocate before taking either admission gate; OOM leaves RX and callers
+  // untouched. All serialized record counts are bounded by the model limits.
+  String serialized;
+  if(!serialized.reserve(UPDATE_SNAPSHOT_CAPACITY)) return false;
+  if(!loopQueue.freezeIfEmpty()) return false;
+  if(!somfy.transceiver.suspendForUpdateIfIdle()) {
+    loopQueue.resumeAdmission();
+    return false;
+  }
   // Serialize in RAM first, write a temporary file, and compare it back before
   // atomic replacement. A short write must not destroy the current config.
-  String serialized;
   ShadeConfigFile config;
   config.beginRAM(&serialized);
   const bool encoded = config.save(&somfy);
   config.end();
-  bool saved = encoded && serialized.length() > 0;
+  bool saved = encoded && updateSnapshotComplete(config.header, serialized.length());
   File temporary = LittleFS.open("/shades.ota.tmp", "w");
   saved = saved && temporary && temporary.write(reinterpret_cast<const uint8_t *>(serialized.c_str()), serialized.length()) == serialized.length();
   if(temporary) { temporary.flush(); temporary.close(); }
@@ -86,7 +96,8 @@ static bool prepareGitInstall() {
   saved = saved && ShadeConfigFile::validateFile("/shades.ota.tmp") && LittleFS.rename("/shades.ota.tmp", "/shades.cfg");
   if(!saved) {
     LittleFS.remove("/shades.ota.tmp");
-    somfy.transceiver.resumeTx(TX_SUSPEND_OTA);
+    somfy.transceiver.resumeAfterUpdatePreparation();
+    loopQueue.resumeAdmission();
     return false;
   }
   somfy.transceiver.end();
@@ -238,8 +249,10 @@ void loop() {
   // Times the whole pass for the memory event, including any time the loop task was
   // pre-empted, since that delays the loop too.
   ElapsedTimer pass;
-  if(rebootDelay.reboot && millis() > rebootDelay.rebootTime) {
-    ESP_LOGI(TAG, "Rebooting after %lums", rebootDelay.rebootTime);
+  loopQueue.applyRequestedReboot();
+  if(rebootDelay.reboot && rebootDeadlineReached(millis(), rebootDelay.rebootTime)) {
+    ESP_LOGI(TAG, "Rebooting at %" PRIu32 "ms", rebootDelay.rebootTime);
+    loopQueue.commitBeforeReboot();
     net.end();
     ESP.restart();
     return;
@@ -250,8 +263,8 @@ void loop() {
   logIfSlow(TAG, "Loop net", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
 #if defined(ESPSOMFY_GITHUB_UPDATES)
-  gitUpdate.loop();
   if(updateQuiesced) {
+    gitUpdate.loop();
     // Keep status/cancellation responsive, without executing queued model edits
     // or commands after the state snapshot. Every prepared outcome reboots.
     protoSocket.loop();
@@ -277,7 +290,19 @@ void loop() {
     logIfSlow(TAG, "Loop sockets", timing.lap(), LOOP_SLOW_MS);
     esp_task_wdt_reset();
   }
-  if(rebootDelay.reboot && millis() > rebootDelay.rebootTime) {
+#if defined(ESPSOMFY_GITHUB_UPDATES)
+  // Run normal RX, delayed actions, accepted queue items and change fan-out
+  // before considering a persisted update snapshot. Admission is frozen by the
+  // preparation callback only after the queue is observed empty.
+  gitUpdate.loop();
+  if(updateQuiesced) {
+    esp_task_wdt_reset();
+    return;
+  }
+#endif
+  loopQueue.applyRequestedReboot();
+  if(rebootDelay.reboot && rebootDeadlineReached(millis(), rebootDelay.rebootTime)) {
+    loopQueue.commitBeforeReboot();
     net.end();
     ESP.restart();
   }

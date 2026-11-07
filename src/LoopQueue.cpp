@@ -7,6 +7,7 @@
 #include "Somfy.h"
 #include "SomfyEditor.h"
 #include "Utils.h"
+#include "RebootDeadline.h"
 #include "outputs/ProtoSocket.h"
 #include "DeviceOps.h"
 #include "entryPoints/WebRoutes.h"
@@ -32,15 +33,34 @@ void LoopQueue::begin() {
   if(!this->queue) this->queue = xQueueCreate(LOOP_QUEUE_SIZE, sizeof(loop_item_t));
 }
 bool LoopQueue::submit(const loop_item_t &item, bool first) {
-  if(!this->queue) return false;
+  if(!this->queue || !this->admission.enter()) return false;
   // async_tcp also services the sockets, so it must never wait on loop() or
   // the radio.
   QueueHandle_t q = static_cast<QueueHandle_t>(this->queue);
-  if((first ? xQueueSendToFront(q, &item, 0) : xQueueSend(q, &item, 0)) != pdTRUE) {
+  const bool sent = (first ? xQueueSendToFront(q, &item, 0) : xQueueSend(q, &item, 0)) == pdTRUE;
+  this->admission.leave();
+  if(!sent) {
     ESP_LOGE(TAG, "Loop queue full, dropping item");
     return false;
   }
   return true;
+}
+bool LoopQueue::freezeIfEmpty() {
+  if(!this->queue) return false;
+  return this->admission.freezeIfEmpty([&]() {
+    return uxQueueMessagesWaiting(static_cast<QueueHandle_t>(this->queue)) == 0;
+  });
+}
+void LoopQueue::resumeAdmission() { this->admission.resume(); }
+void LoopQueue::requestReboot(uint32_t delayMs) { this->rebootRequest.request(millis(), delayMs); }
+void LoopQueue::applyRequestedReboot() {
+  uint32_t deadline;
+  if(!this->rebootRequest.take(deadline)) return;
+  rebootDelay.rebootTime = earlierRebootDeadline(deadline, 0, rebootDelay.reboot, rebootDelay.rebootTime);
+  rebootDelay.reboot = true;
+}
+void LoopQueue::commitBeforeReboot() {
+  if(this->stateCommitRequested.exchange(false)) somfy.commit();
 }
 void LoopQueue::drain() {
   if(!this->queue) return;
