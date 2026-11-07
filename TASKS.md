@@ -1,40 +1,34 @@
-# Task Memory
+# Issue 15 — complete
 
-## Context
+## Context and authority
 
-- Objective: implement/install the approved 320×170 phase-2 LCD UI for #15, including PSRAM graphics, screenshots and bedroom brightness.
-- Workspace: `/var/mnt/data/projects/personal/ESPSomfy-RTS/issue-15-phase2-ui`, branch `codex/issue-15-phase2-ui`. The phase-1 source remains in sibling `issue-15-display`.
-- Authority: Sid authorized board updates after suitable backup and firmware-only A/B OTA. **Sid clarified that he may operate the shutters manually through the UI; the assistant must not send shutter/RF/motor commands.** Sid explicitly requested flashing with physical controls enabled. The canonical `lilygo-t-embed-cc1101-plus-ui` now defines `ESPSOMFY_LOCAL_COMMANDS`; the separate `-ui-preview` remains command-locked. Current work fixes TWO03 half-step decoding/direction, adds GPIO6 Back, and adds saved dim/off timeout choices including zero = No dim/No sleep.
+- Objective: issue #15, 320×170 PSRAM LCD UI, physical controls, saved brightness/dim/sleep, screenshots, version details and battery percentage.
+- Completed source is integrated into `main` at `/var/mnt/data/projects/personal/ESPSomfy-RTS/main`. Main is pushed, issue #15 is closed, and all three display worktrees are removed at Sid’s request. Historical feature/deployment branch refs and private recovery evidence are retained. Use `git-agent` / `gh-agent` as `r-sidshaytay`.
+- Sid explicitly returned the device and authorized flashing after the offline changes. Fresh backups and firmware-only A/B OTA are authorized. **Physical shutter controls must be enabled for Sid; the assistant must not send shutter/RF/motor commands or HA services.** No HA changes are required.
+- The other agent installed source `c41cfc4` (UI plus unfinished issue-23 group targeting). Preserve that installed functionality in a separate deployment build; do not roll it back or represent issue 23 as physically validated. Completed display changes are now integrated into local main; unfinished group changes remain confined to the deployment branch.
 
-## Results
+## Completed work
 
-1. [x] Implemented and installed the command-locked preview.
-   - Source commits: `495db0a` safe state/fallback, `67aea60` renderer, `78f5a61` PSRAM runtime, `ea7c18e` screenshots, `1664cf1` current group names. Detailed design and evidence: `docs/lilygo-local-ui.md`.
-   - Fresh portable/protocol/settings/counter backup; verified standard layout; firmware-only A/B OTA retained the previous active phase-1 slot and firmware/ELF. New full-flash dump omitted under Sid's explicit A/B exception. Private evidence pointer: `~/.local/state/espsomfy-lilygo/LATEST_UI_INSTALL`.
-   - Actual framebuffer PNGs retrieved with local command lock. Nineteen status comparisons over ten minutes, unchanged counters/all five settings sections, no resets; final uptime 662.336 s. Web/HA available, radio initialization/RX ready at 433.42 MHz. No shutter requests or HA services sent.
-   - Graphics allocated 108,800 bytes in PSRAM; internal transfer buffer 2,560 bytes. Full-frame paint 6,469 µs, SPI lock 1,489 µs. Idle capture PWM 0. Primary graphics → simple status with PSRAM failure cause → blank if fallback also fails.
-   - Saved brightness feature; dim 10 s/off 20 s idle; estimated motion keeps controls awake. Manufacturer documents no ambient-light sensor. Local commands remain locked regardless of encoder input.
-   - Checks: native 651 passed plus one existing optional private-backup skip; JS 62, manifest 24, image codec 2, real GFX/runtime/capture and board/SPI harnesses passed; UI/simple/headless/generic firmware builds passed. Temporary armed adapter compiled offline only.
+1. [x] Installed phase-2 PSRAM UI preview, source `1664cf1`, then input/settings update `7061e98`. Private evidence pointers: `~/.local/state/espsomfy-lilygo/LATEST_UI_INSTALL` and `LATEST_UI_INPUT_FIX`.
+   - Main RGB565 framebuffer 108,800 bytes explicit PSRAM; internal transfer buffer 2,560 bytes. Allocation failure -> simple status with cause -> blank if fallback also fails. Read-only framebuffer endpoint uses immutable PSRAM copy and existing authentication.
+   - Wheel one item per detent, clockwise down; GPIO6 Back. Saved brightness and independent dim/sleep delays including No dim / No sleep. First input after dim/off wakes only. Sid confirmed screen, wheel and Back work.
+2. [x] Fixed category gate, source `11ef3d4`. Actual paired RTS shutters (category 4) were incorrectly rejected by a roller-only condition. All categories now reach the existing dispatcher. Production-adapter regression reproduced the bug then passed, with identity/STOP checks retained. The other agent already included this fix in its installed firmware.
+3. [x] Scrollable Details versions, source `49b715f`. Firmware comes from compiled `FW_VERSION`; Application from installed filesystem `settings.appVersion.name`. Six visible rows, ten total, wheel scroll; removed redundant issue/build label. Renderer tests check changed version values and scrolling change pixels.
+4. [x] Battery reader implemented and checked offline; committed as `ebeb209`; USB identity/battery diagnostics added in `ce5f559`.
+   - BQ27220 at 0x55 on SDA8/SCL18, I2C controller1 at100kHz, 2ms transaction timeout. Only register-pointer reads; no charger/gauge configuration changes. Five registers sampled across loop passes, ten-second cycles. Gauge SOC/voltage shown on Status/Details; absent/uninitialized/invalid/failed readings explicit.
+   - Final checks: 662 native tests passed plus one optional skip; renderer/runtime/capture/adapter, panel/radio/GPIO harnesses passed. UI/simple-status/headless builds passed. SOC-condition mutation caused four tests to fail.
 
-2. [x] Installed the authorized input/settings fixes with manual controls enabled.
-   - Source `7061e98`: TWO03 two-transition detents, clockwise down, GPIO6 Back, saved independent dim/sleep settings including No dim/No sleep. Separate `-ui-preview` remains locked.
-   - Fresh portable backup and all five settings sections captured. Verified partition layout, then firmware-only inactive-slot OTA; retained previous preview binary/ELF and rollback slot. Private evidence: `~/.local/state/espsomfy-lilygo/LATEST_UI_INPUT_FIX`.
-   - Actual framebuffer header confirms `X-LCD-Commands: enabled`. Post-reboot read-only checks found identical entity state/counters and settings, connected Wi-Fi, radio ready at 433.42 MHz, and all three HA covers available/idle. Uptime progressed beyond the 60-second OTA confirmation window without a restart. No assistant movement commands or HA services sent.
-   - Checks: 655 native passes plus one optional skip; real GFX/runtime/capture and GPIO/SPI harnesses passed; UI/simple/headless builds passed. Graphics use 108,800 bytes PSRAM; measured paint 6,470 µs and SPI lock 1,491 µs.
-   - Next: Sid can manually verify revised wheel direction/detents, Back, controls, and saved display timers. No assistant actuation is authorized. Sid confirmed display/wheel/Back work; screen commands exposed the category bug below.
+## Installed firmware and verification
 
-3. [!] Category bug fixed and build ready offline; installation withheld.
-   - Root cause: adapter required roller (0), but configured devices are shutter (4). Removed the category gate; existing shared dispatcher handles categories.
-   - Production adapter regression failed on the actual shutter configuration before the fix and passes after it, including all device categories, individual/group dispatch and identity/STOP guards. 655 native passes plus one optional skip; renderer/runtime/capture/adapter harnesses and enabled UI build passed.
-   - Need: Sid must return the device; he explicitly said not to flash or use it because another agent is using it. No live controller access or actuation was performed during this fix.
-   - Next: notify Sid the build is ready. Upon return, capture fresh backup/state and revalidate current layout/firmware before any authorized installation. Do not rely on stale preflight/counters from the previous update. Offline artifact pointer: `~/.local/state/espsomfy-lilygo/LATEST_UI_COMMAND_FIX_BUILD`.
+5. [x] Installed cumulative display update after a verified full backup.
+   - Retired deployment worktree `/var/mnt/data/projects/personal/ESPSomfy-RTS/issue-15-details-power-deployment`, branch `codex/issue-15-details-power-deployment`, source `b1ad2e4`, preserves installed issue-23 source plus current UI. Combined build passed; 706 native tests plus one optional skip, 63 JS tests, renderer/runtime/capture/adapter and panel/radio/GPIO harnesses passed.
+   - Fresh full16MiB ROM dump verified: partition MD5, both app checksums/SHA256, OTA-selection CRC, active NVS CRCs, extracted authoritative configuration and counters. Explicit DTR deassert/reset restored the old application after the USB read; fresh live state then matched the dump. Only `/updateFirmware` wrote inactive app0; prior app1 and current NVS/filesystem/layout were preserved.
+   - Running app0 ELF fingerprint exactly matched candidate. `X-LCD-Commands: enabled`; actual status framebuffer shows Battery100%. Gauge: ready,100%,4146mV,0mA. Firmwarev4.0.1 and installed Application4.0.1 are separate Details rows. Wi-Fi connected, radio initialized433.42MHz, groupTarget55 preserved; HA3covers available/idle with no services called.
+   - At118151ms uptime, all five settings sections and entity state/counters still matched; no restart/crash/OTA-confirmation-error markers. Task-owned USB reader stopped. Private pointer: `~/.local/state/espsomfy-lilygo/LATEST_UI_DETAILS_POWER_INSTALL`; retains exact binaries/ELF, full dump, checksum inventory and verification.json.
+   - Sid accepted completion and requested closure. Future problems belong in separate bug reports; no further feature, installation or movement-testing work remains under #15. No assistant actuation was performed.
+   - Worktree cleanup preserves Git branch refs, exact installed/previous firmware and ELF, full-flash recovery records and archived ELF history under `~/.local/state/espsomfy-lilygo/LATEST_ISSUE15_CLOSEOUT`.
 
-4. [-] Add scrollable Details versions and battery telemetry offline.
-   - Details now shows compiled Firmware and installed Application version separately, with six visible rows and wheel scrolling through ten total. Removed the redundant issue/build label from Details. Version changes participate in scene hashing. Missing values remain explicit.
-   - New details-navigation regression failed before implementation; new renderer checks verify both version strings and scrolling change pixels. Full native run: 656 passed plus optional skip; UI/simple-status builds and UI harnesses passed before final removal of the redundant row.
-   - Sid also requested functional battery percentage. Manufacturer documents BQ27220 fuel gauge at 0x55 and BQ25896 charger at 0x6B, SDA8/SCL18. Implement read-only gauge telemetry; no charger configuration changes. Device remains reserved for another agent; all work offline.
-   - Next: finish final Details checks/commit, then add tested battery reader and refreshed offline build. Do not access/flash device until Sid returns it.
 
-## Reproduction and limits
+## Limits and tools
 
-Use `git-agent` / `gh-agent`; GitHub must be `r-sidshaytay`. No upstream publication or issue closure. Host builds use pinned `~/.cache/espsomfy-lilygo/pio-python/bin/pio`, with build/libdeps under `build/`; native C++ checks use the existing `rocm-7.2.3` container. Task-owned USB/status observers were stopped; no background task is required. Power telemetry, induced fallback hardware faults and on-air responsiveness remain unverified. Do not restore stale counters or whole raw images for routine firmware rollback.
+Host PIO uses `~/.cache/espsomfy-lilygo/pio-python/bin/pio`, build/libdeps under build/. Native/GFX harnesses use existing `rocm-7.2.3` container. Do not restore old rolling counters. Gauge communication and percentage display are hardware-verified; capacity accuracy, induced display fallback, physical control RF behavior and issue-23 movement reliability remain unverified.

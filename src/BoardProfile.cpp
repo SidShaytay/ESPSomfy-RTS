@@ -62,7 +62,7 @@ bool prepareRadio(float frequency) {
 bool usesPin(uint8_t pin) {
   // USB CDC and in-package flash/OPI PSRAM must never become relay outputs.
   return pin == 19 || pin == 20 || (pin >= 26 && pin <= 37) ||
-    pin == power || pin == sck || pin == mosi || pin == miso ||
+    pin == powerSDA || pin == powerSCL || pin == power || pin == sck || pin == mosi || pin == miso ||
     pin == cs || pin == tx || pin == rx || pin == sw1 || pin == sw0 ||
     pin == backButton || pin == encoderA || pin == encoderB || pin == displayDC || pin == wakeButton || pin == displayCS || pin == sdCS || pin == nrfCS || pin == nrfCE || pin == backlight;
 }
