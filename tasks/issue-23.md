@@ -43,4 +43,8 @@ A separate display task documented a later installed combined source `b1ad2e4`, 
 
 The saved configuration confirms the test travel times (Bedroom 23.75 s up / 22.10 s down, Bathroom 21.15 s up / 19.30 s down); the issue text has up/down swapped. Twelve new production regressions failed against `9444072` and pass now. Validation: 745 native tests passed, one optional private-fixture skip; 63 web tests; UI Plus, headless Plus and esp32dev builds. HA unchanged; its 142 tests still pass against `34eb042`. Not flashed or physically tested.
 
-Next ID: G23-11.
+## Fix deployment
+
+- [x] G23-11: Sid authorized flashing the review fixes for his own physical testing (November 7, 2026). The controller had been left in the ROM bootloader since the issue-12 night maintenance (22:44 PST, November 6), with the transmitter saved as disabled. A fresh full 16 MiB ROM backup was byte-identical to that night's image, and live counters, entities and settings matched. Deployment source `a9ccb24` merges `5cbe11b` onto the installed `b1ad2e4`; its `src/` is identical to `5cbe11b`. Validation: 745 native tests passed, one skip; 63 web tests; board profile checks; UI Plus build. Partition table identical. Firmware SHA256 `6ae400f2b3eff040591d22f2bd67ee9c9a9e3716283e55f59f7c63eeeed15d4f`, 1,418,240 bytes, installed via `/updateFirmware` into app1. app0 retains `b1ad2e4` for rollback. Serial confirmed `slot=app1` and ELF SHA256 `e1c1a62c…`. Afterwards: schema `c109d9d8`, operation 55, LCD controls enabled, no crash markers, entities/counters/settings unchanged. The transmitter was restored to its original enabled setting; CC1101 detection and register validation passed. No assistant RF/motor commands or HA services. Physical testing by Sid is pending. Private evidence is selected by `ISSUE23_CURRENT_INSTALL`.
+
+Next ID: G23-12.
