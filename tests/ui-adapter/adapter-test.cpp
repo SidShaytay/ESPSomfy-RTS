@@ -36,10 +36,11 @@ struct SomfyShadeController {
 } somfy;
 // This isolated sink replaces only the final dispatcher boundary.
 static std::vector<shade_request_t> submitted;
+static shade_request_result_t submissionResult = shade_request_result_t::done;
 struct RecordingRequests {
   shade_request_result_t run(const shade_request_t &r) {
     submitted.push_back(r);
-    return shade_request_result_t::done;
+    return submissionResult;
   }
 } shadeRequests;
 #define ShadeRequests RecordingRequests
@@ -77,5 +78,29 @@ int main() {
   assert(dispatch(command(2, Action::stop)));
   assert(submitted.size() == count + 1 && submitted.back().id == 2);
   assert(submitted.back().command == somfy_commands::My);
+  // A moving pair uses the same shared identity as its Up/Down press.
+  somfy.shades[0].idle = false;
+  const auto bothMoving = submitted.size();
+  assert(dispatch(command(2, Action::stop)));
+  assert(submitted.size() == bothMoving + 1);
+  assert(submitted.back().type == shade_request_type_t::group_command);
+  assert(submitted.back().id == 1 && submitted.back().command == somfy_commands::My);
+  // A refused group Stop is reported without extra individual commands.
+  submissionResult = shade_request_result_t::radio_refused;
+  const auto refused = submitted.size();
+  assert(!dispatch(command(2, Action::stop)));
+  assert(submitted.size() == refused + 1);
+  assert(submitted.back().type == shade_request_type_t::group_command);
+  submissionResult = shade_request_result_t::done;
+  // A single selection still addresses only itself even if both are moving.
+  assert(dispatch(command(0, Action::stop)));
+  assert(submitted.back().type == shade_request_type_t::shade_command);
+  assert(submitted.back().id == 1 && submitted.back().command == somfy_commands::My);
+  somfy.shades[1].idle = true;
+  const auto bedroomOnly = submitted.size();
+  assert(dispatch(command(2, Action::stop)));
+  assert(submitted.size() == bedroomOnly + 1);
+  assert(submitted.back().type == shade_request_type_t::shade_command);
+  assert(submitted.back().id == 1 && submitted.back().command == somfy_commands::My);
   puts("Production UI adapter: shutter/all-category eligibility, dispatch and identity/STOP checks passed");
 }
