@@ -221,7 +221,7 @@ def validate(manifest, out):
 
 def source_record(source):
     git(source, 'merge-base', '--is-ancestor', BASELINE['revision'], 'HEAD')
-    inputs = [*source.glob('*.py'), source / 'platformio.ini']
+    inputs = [*source.glob('*.py'), *source.glob('*.csv'), source / 'platformio.ini']
     if (source / 'update-profiles.json').is_file():
         inputs.append(source / 'update-profiles.json')
     for directory in ('src', 'lib', 'data-src', 'tools'):

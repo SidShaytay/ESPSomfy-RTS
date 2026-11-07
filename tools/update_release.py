@@ -55,11 +55,17 @@ def release_manifest(package, source, version, environment=BOARD):
     markers = re.findall(rb'ESPSOMFY_UPDATE_ID:1\|[a-z0-9-]+\|[A-Za-z0-9_]+\|[0-9a-f]{40}\|[A-Za-z0-9.-]+\|sha256:[0-9a-f]{64}\x00', firmware)
     if markers != [marker]:
         raise ValueError('firmware contains conflicting update identities')
+    bootloader = (package / 'bootloader.bin').read_bytes()
+    boot_marker = ('ESPSOMFY_BOOT_ID:' + str(profile['bootloader_address']) + ':' +
+                   str(len(bootloader)) + ':' + build.digest(bootloader)).encode('ascii') + b'\0'
+    boot_markers = re.findall(rb'ESPSOMFY_BOOT_ID:[0-9]+:[0-9]+:[0-9a-f]{64}\x00', firmware)
+    if firmware.count(b'ESPSOMFY_BOOT_ID:') != 1 or boot_markers != [boot_marker]:
+        raise ValueError('firmware compiled bootloader identity differs from actual package bootloader')
     if len(firmware) > profile['app_bytes']:
         raise ValueError('firmware exceeds exact-profile OTA slot')
     return {'schema': 1, 'board': profile['board'], 'layout': profile['layout'],
             'flash_bytes': profile['flash_bytes'], 'psram_bytes': profile['psram_bytes'],
-            'bootloader_sha256': build.digest((package / 'bootloader.bin').read_bytes()),
+            'bootloader_sha256': build.digest(bootloader),
             'app_compat': app_compat, 'version': version,
             'source_sha': built_source['revision'], 'asset': 'firmware-' + profile['board'] + '.bin',
             'size': len(firmware), 'sha256': build.digest(firmware), 'channel': 'stable'}

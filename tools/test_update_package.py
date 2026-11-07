@@ -6,6 +6,7 @@ import struct
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).parent))
 import update_package as p
 
@@ -73,6 +74,24 @@ class PackageTests(unittest.TestCase):
                 (self.directory/'littlefs.bin').write_bytes(b'\xff'*spec['fs_bytes'])
                 self.write_metadata()
                 self.assertEqual(p.artifact_manifest(self.directory,spec)['profile']['board'],spec['board'])
+
+    def test_source_provenance_hashes_actual_partition_templates(self):
+        import lilygo_manifest
+        source=self.directory/'source';source.mkdir()
+        (source/'platformio.ini').write_text('[env:fixture]')
+        (source/'update-profiles.json').write_text('{"schema":1}')
+        table=source/'esp32_psram_4MB.csv'
+        table.write_text('app0,app,ota_0,0x10000,0x1b0000')
+        with patch.object(lilygo_manifest,'git',side_effect=[None,'a'*40,' M already-dirty']):
+            before=lilygo_manifest.source_record(source)
+        self.assertIn('esp32_psram_4MB.csv',before['input_sha256'])
+        self.assertIn('update-profiles.json',before['input_sha256'])
+        table.write_text('app0,app,ota_0,0x10000,0x330000')
+        with patch.object(lilygo_manifest,'git',side_effect=[None,'a'*40,' M already-dirty']):
+            after=lilygo_manifest.source_record(source)
+        self.assertEqual(before['revision'],after['revision'])
+        self.assertEqual(before['dirty'],after['dirty'])
+        self.assertNotEqual(before['input_sha256']['esp32_psram_4MB.csv'],after['input_sha256']['esp32_psram_4MB.csv'])
 
     def test_accepts_only_exact_profile_artifacts(self):
         evidence=p.artifact_manifest(self.directory,self.profile)
