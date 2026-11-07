@@ -14,7 +14,7 @@ class BootloaderTests(ManifestTests):
         self.sdk_tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.sdk_tmp.cleanup)
         self.sdkconfig = Path(self.sdk_tmp.name) / 'sdkconfig.h'
-        self.sdkconfig.write_text('#define CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE 1\n')
+        self.sdkconfig.write_text('#define CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE 1\n#define CONFIG_BOOTLOADER_OFFSET_IN_FLASH 0\n')
 
     def test_hashes_exact_bootloader_bytes(self):
         image = self.out / 'bootloader.bin'
@@ -26,6 +26,7 @@ class BootloaderTests(ManifestTests):
 
     def test_p4_bootloader_uses_its_own_chip_contract(self):
         profile = load_profile(Path(__file__).resolve().parent.parent, 'esp32p4')
+        self.sdkconfig.write_text('#define CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE 1\n#define CONFIG_BOOTLOADER_OFFSET_IN_FLASH 0x2000\n')
         with self.assertRaisesRegex(ValueError, 'chip'):
             b.expected_header(self.out / 'bootloader.bin', self.sdkconfig, profile)
 
@@ -34,6 +35,11 @@ class BootloaderTests(ManifestTests):
             self.sdkconfig.write_text(text)
             with self.assertRaisesRegex(ValueError, 'rollback'):
                 b.expected_header(self.out / 'bootloader.bin', self.sdkconfig)
+
+    def test_bootloader_address_is_bound_to_sdk_configuration(self):
+        self.sdkconfig.write_text('#define CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE 1\n#define CONFIG_BOOTLOADER_OFFSET_IN_FLASH 0x2000\n')
+        with self.assertRaisesRegex(ValueError, 'offset'):
+            b.expected_header(self.out / 'bootloader.bin', self.sdkconfig)
 
     def test_corrupt_bootloader_image_is_rejected(self):
         (self.out / 'bootloader.bin').write_bytes(b'corrupt')

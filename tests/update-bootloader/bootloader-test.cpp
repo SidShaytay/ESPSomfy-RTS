@@ -10,7 +10,8 @@ static unsigned reads = 0, freed = 0;
 static const char *mode;
 int esp_flash_read(void *, void *out, uint32_t offset, uint32_t count) {
   assert(reinterpret_cast<uintptr_t>(out) % 4 == 0);
-  assert(offset == reads * 512);
+  assert(offset == 0x2000 + reads * 512);
+  offset -= 0x2000;
   assert(offset + count <= sizeof(flash));
   assert(count == (offset < 1024 ? 512 : 1));
   ++reads;
