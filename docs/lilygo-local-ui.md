@@ -1,5 +1,7 @@
 # Local shutter UI
 
+Use [the standard flashing procedure](flashing.md) for backup and firmware-only A/B updates. Select the UI environment that preserves the intended command-lock setting; the headless packager does not package this UI.
+
 The optional 320×170 UI adds status, room selection, controls, details and saved display settings to the LILYGO Plus display. It follows the approved dark/teal mockup using the real Adafruit fonts and vector drawing; the generated previews use the same renderer as the board.
 
 **Physical shutter controls are enabled in the installed firmware.** Sid authorized manual operation and firmware installation; the assistant has sent no shutter commands. No upstream publication is included.
