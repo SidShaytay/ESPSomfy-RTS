@@ -6,6 +6,9 @@ from pathlib import Path
 import re
 import struct
 
+FEATURE_DEFINES = ('ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS', 'ESPSOMFY_LILYGO_T_EMBED_CC1101',
+                   'ESPSOMFY_STATUS_DISPLAY', 'ESPSOMFY_LOCAL_UI', 'ESPSOMFY_LOCAL_COMMANDS')
+
 NUMBERS = ('flash_bytes', 'psram_bytes', 'chip_id', 'bootloader_address', 'app_bytes',
            'app0_address', 'app1_address', 'fs_address', 'fs_bytes', 'nvs_address', 'nvs_bytes')
 DEFINE_FIELDS = {'PROFILE': 'board', 'LAYOUT': 'layout',
@@ -39,6 +42,16 @@ def validate_profile(profile):
         raise ValueError('invalid bootloader or compiler profile')
     if profile['build_settings'].get('build_type') != 'release':
         raise ValueError('updater requires a release build with two OTA slots')
+    required = profile.get('required_defines')
+    forbidden = profile.get('forbidden_defines')
+    if (not isinstance(required, dict) or not isinstance(forbidden, list) or
+            any(not isinstance(name, str) or not re.fullmatch(r'[A-Z_][A-Z0-9_]*', name)
+                for name in list(required) + forbidden) or
+            any(not isinstance(value, str) or '\n' in value or '\r' in value for value in required.values()) or
+            len(forbidden) != len(set(forbidden)) or set(required) & set(forbidden) or
+            not set(FEATURE_DEFINES).issubset(set(required) | set(forbidden)) or
+            required.get('ESPSOMFY_GITHUB_UPDATES') != ''):
+        raise ValueError('update feature policy must be complete and unambiguous')
     return profile
 
 

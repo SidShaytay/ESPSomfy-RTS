@@ -31,6 +31,8 @@ def release_manifest(package, source, version, environment=BOARD):
     elif environment == BOARD:
         # Preserve the independently checked legacy Plus provisioning package.
         manifest = build.validate(json.loads((package / 'flash-manifest.json').read_text()), package)
+        effective = manifest['effective_build']
+        update_package.feature_configuration(effective['resolved'], effective['compiler'], profile)
     else:
         raise ValueError('generic release requires exact-profile update-build.json evidence')
     provenance = json.loads((package / 'update-source.json').read_text())

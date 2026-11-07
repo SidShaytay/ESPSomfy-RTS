@@ -7,6 +7,7 @@
 
 class Web {
   public:
+    uint8_t listenerState() const;
     bool uploadSuccess = false;
     void startup();
     void begin();

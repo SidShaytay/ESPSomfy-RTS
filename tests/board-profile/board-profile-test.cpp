@@ -86,7 +86,10 @@ int main() {
     assert(BoardProfile::usesPin(19) && BoardProfile::usesPin(20));
     for(uint8_t pin = 26; pin <= 37; pin++) assert(BoardProfile::usesPin(pin));
     assert(!BoardProfile::usesPin(255));
-    assert(!BoardProfile::usesPin(16));
+    assert(BoardProfile::usesPin(16));
+    assert(BoardProfile::usesPin(0));
+    assert(BoardProfile::usesPin(4) && BoardProfile::usesPin(5) && BoardProfile::usesPin(6));
+    assert(BoardProfile::usesPin(8) && BoardProfile::usesPin(18));
   }
   else {
     assert(powerTransitions == 0);

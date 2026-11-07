@@ -44,6 +44,16 @@ class ReleaseTests(ManifestTests):
         self.profile_patch = patch.object(r, 'load_profile', return_value=self.profile)
         self.profile_patch.start()
         self.addCleanup(self.profile_patch.stop)
+        # Legacy Plus evidence still has to prove the exact headless features.
+        resolved=json.loads((self.out/'resolved-config.json').read_text())
+        settings=dict(resolved[0][1])
+        settings['build_flags']=['-D'+name+('='+value if value else '') for name,value in self.profile['required_defines'].items()]
+        resolved[0][1]=list(settings.items());(self.out/'resolved-config.json').write_text(json.dumps(resolved))
+        compiler=json.loads((self.out/'compiler-metadata.json').read_text())
+        definitions=compiler[i.BOARD]['defines']
+        for name,value in self.profile['required_defines'].items():
+            if not any(entry.partition('=')[0]==name for entry in definitions): definitions.append(name+('='+value if value else ''))
+        (self.out/'compiler-metadata.json').write_text(json.dumps(compiler))
         self.record = dict(self.manifest['source'])
         self.identity = i.identity(self.record, 'sha256:' + 'a' * 64, ['v4.0.3'])
         # Put the actual identity inside the checked image's data segment.
@@ -125,6 +135,16 @@ class ReleaseTests(ManifestTests):
         record['source']=self.record
         (self.out / 'flash-manifest.json').write_text(json.dumps(record))
         with self.assertRaisesRegex(ValueError,'compiled bootloader identity'):
+            self.package()
+
+    def test_legacy_plus_evidence_cannot_bypass_headless_capability_policy(self):
+        path=self.out/'compiler-metadata.json';metadata=json.loads(path.read_text())
+        metadata[i.BOARD]['defines'].append('ESPSOMFY_LOCAL_COMMANDS')
+        path.write_text(json.dumps(metadata))
+        # Even recomputing legacy hashes/evidence must not bless wrong features.
+        manifest=r.build.artifact_manifest(self.out);manifest['source']=self.record
+        (self.out/'flash-manifest.json').write_text(json.dumps(manifest))
+        with self.assertRaisesRegex(ValueError,'forbidden'):
             self.package()
 
     def test_rejects_missing_prebuild_identity(self):

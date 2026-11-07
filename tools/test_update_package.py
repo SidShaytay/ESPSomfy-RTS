@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).parent))
 import update_package as p
+from update_profiles import load_profile, FEATURE_DEFINES
 
 
 def profile(chip=9):
@@ -18,6 +19,7 @@ def profile(chip=9):
             'app0_address':0x10000,'app1_address':0x340000,'fs_address':0x670000,
             'fs_bytes':0x180000,'nvs_address':0x9000,'nvs_bytes':0x5000,
             'bootloader_address':0 if chip==9 else 0x2000,'sdk_memory':'qio_opi' if chip==9 else 'qio_qspi',
+            'required_defines':{'ESPSOMFY_GITHUB_UPDATES':''}, 'forbidden_defines':list(FEATURE_DEFINES),
             'build_settings':{'board':'fixture','build_type':'release','board_build.partitions':'fixture.csv'}}
 
 
@@ -56,6 +58,7 @@ class PackageTests(unittest.TestCase):
     def write_metadata(self):
         spec=self.profile
         settings=dict(spec['build_settings'],platform=p.PLATFORM,framework=['arduino'])
+        settings['build_flags']=['-D'+name+('='+value if value else '') for name,value in spec.get('required_defines',{}).items()]
         defines=p.expected_defines(spec)
         compiler={'env_name':spec['board'],'build_type':'release','defines':[key+('='+value if value else '') for key,value in defines.items()],
                   'cc_flags':[],'cxx_flags':[],'includes':{'build':['/sdk/'+spec['chip']+'/'+spec['sdk_memory']+'/include']},
@@ -74,6 +77,60 @@ class PackageTests(unittest.TestCase):
                 (self.directory/'littlefs.bin').write_bytes(b'\xff'*spec['fs_bytes'])
                 self.write_metadata()
                 self.assertEqual(p.artifact_manifest(self.directory,spec)['profile']['board'],spec['board'])
+
+    def variant(self, environment):
+        self.profile=load_profile(Path(__file__).resolve().parent.parent,environment)
+        self.write_metadata()
+        return self.directory/'compiler-metadata.json',self.directory/'resolved-config.json'
+
+    def test_compiled_preview_cannot_enable_physical_commands(self):
+        compiler,_=self.variant('lilygo-t-embed-cc1101-plus-ui-preview')
+        data=json.loads(compiler.read_text())
+        data[self.profile['board']]['defines'].append('ESPSOMFY_LOCAL_COMMANDS=0')
+        compiler.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError,'forbidden.*ESPSOMFY_LOCAL_COMMANDS'):
+            p.configuration(self.directory,self.profile)
+
+    def test_compiled_headless_cannot_contain_display_features(self):
+        for flag in ('ESPSOMFY_STATUS_DISPLAY','ESPSOMFY_LOCAL_UI','ESPSOMFY_LOCAL_COMMANDS'):
+            with self.subTest(flag=flag):
+                compiler,_=self.variant('lilygo-t-embed-cc1101-plus')
+                data=json.loads(compiler.read_text())
+                data[self.profile['board']]['cxx_flags']=['-D',flag]
+                compiler.write_text(json.dumps(data))
+                with self.assertRaisesRegex(ValueError,'forbidden'):
+                    p.configuration(self.directory,self.profile)
+
+    def test_display_profile_requires_its_actual_compiled_feature_and_board_macros(self):
+        for flag in ('ESPSOMFY_STATUS_DISPLAY','ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS'):
+            with self.subTest(flag=flag):
+                compiler,_=self.variant('lilygo-t-embed-cc1101-plus-display')
+                data=json.loads(compiler.read_text())
+                data[self.profile['board']]['defines']=[entry for entry in data[self.profile['board']]['defines'] if entry.partition('=')[0]!=flag]
+                compiler.write_text(json.dumps(data))
+                with self.assertRaisesRegex(ValueError,'macro'):
+                    p.configuration(self.directory,self.profile)
+
+    def test_resolved_flags_cannot_substitute_another_feature_variant(self):
+        _,resolved=self.variant('lilygo-t-embed-cc1101-plus-ui-preview')
+        data=json.loads(resolved.read_text())
+        rows=dict(data[0][1]);rows['build_flags'].append('-DESPSOMFY_LOCAL_COMMANDS')
+        data[0][1]=list(rows.items());resolved.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError,'forbidden'):
+            p.configuration(self.directory,self.profile)
+
+    def test_resolved_ui_requires_command_feature_and_pinned_display_libraries(self):
+        _,resolved=self.variant('lilygo-t-embed-cc1101-plus-ui')
+        data=json.loads(resolved.read_text());rows=dict(data[0][1])
+        rows['build_flags']=[flag for flag in rows['build_flags'] if flag!='-DESPSOMFY_LOCAL_COMMANDS']
+        data[0][1]=list(rows.items());resolved.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError,'feature'):
+            p.configuration(self.directory,self.profile)
+        _,resolved=self.variant('lilygo-t-embed-cc1101-plus-ui')
+        data=json.loads(resolved.read_text());rows=dict(data[0][1]);rows['lib_deps'].append('adafruit/Adafruit GFX Library@99')
+        data[0][1]=list(rows.items());resolved.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError,'board settings'):
+            p.configuration(self.directory,self.profile)
 
     def test_source_provenance_hashes_actual_partition_templates(self):
         import lilygo_manifest

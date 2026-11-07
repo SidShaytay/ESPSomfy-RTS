@@ -13,7 +13,44 @@ def expected_defines(profile):
     from update_profiles import profile_defines
     result={name: ('"'+value+'"' if isinstance(value,str) else str(value)) if value is not None else '' for name,value in profile_defines(profile)}
     result.update({'ESPSOMFY_GITHUB_UPDATES':'','BOARD_HAS_PSRAM':'','IDF_VER':'"v5.5.5"'})
+    result.update(profile['required_defines'])
     return result
+
+
+def feature_flags(flags, profile, origin, require_present=False):
+    """Check resolved/raw flags as well as the compiler's structured defines."""
+    tokens=shlex.split(' '.join(flags))
+    definitions={};undefined=set();index=0
+    while index<len(tokens):
+        flag=tokens[index];index+=1
+        if flag in ('-D','-U'):
+            if index==len(tokens): raise ValueError(origin+' has an incomplete macro flag')
+            flag+=tokens[index];index+=1
+        if flag.startswith(('-D','-U')):
+            name,_,value=flag[2:].partition('=')
+            if flag.startswith('-U'): undefined.add(name)
+            else: definitions.setdefault(name,[]).append(value.replace('\\"','"'))
+    for name in profile['forbidden_defines']:
+        if name in definitions: raise ValueError(origin+' contains forbidden feature macro: '+name)
+    for name,value in profile['required_defines'].items():
+        values=definitions.get(name)
+        if name in undefined or (values is not None and values!=[value]) or (require_present and values is None):
+            raise ValueError(origin+' differs from required feature macro: '+name)
+
+
+def feature_configuration(settings, compiler, profile):
+    """Preserve headless/display/command behavior even through legacy evidence."""
+    feature_flags(settings.get('build_flags',[]),profile,'resolved build flags',require_present=True)
+    definitions=compiler.get('defines',[])
+    for entry in definitions:
+        name=entry.partition('=')[0]
+        if name in profile['forbidden_defines']:
+            raise ValueError('compiler contains forbidden feature macro: '+name)
+    for name,value in profile['required_defines'].items():
+        matches=[entry.partition('=')[2].replace('\\"','"') for entry in definitions if entry.partition('=')[0]==name]
+        if matches!=[value]: raise ValueError('compiler differs from required feature macro: '+name)
+    for field in ('cc_flags','cxx_flags'):
+        feature_flags(compiler.get(field,[]),profile,field)
 
 
 def image(data,name,profile):
@@ -66,6 +103,7 @@ def configuration(directory,profile):
     if any(settings.get(key)!=value for key,value in profile['build_settings'].items()): raise ValueError('resolved board settings differ from exact profile')
     compiler=json.loads((directory/'compiler-metadata.json').read_text())[environment]
     if compiler.get('env_name')!=environment or compiler.get('build_type')!='release': raise ValueError('compiler environment differs from release profile')
+    feature_configuration(settings,compiler,profile)
     required=expected_defines(profile)
     def normalize(value): return value.replace('\\"','"')
     for key,value in required.items():

@@ -148,6 +148,8 @@ static void onAllocFailed(size_t size, uint32_t caps, const char *function) {
     (unsigned)heap_caps_get_largest_free_block(caps), (unsigned)heap_caps_get_minimum_free_size(caps));
 }
 
+#include "StatusPanel.h"
+
 void setup() {
   Serial.begin(SERIAL_BAUD);
   BoardProfile::begin();
@@ -155,6 +157,7 @@ void setup() {
   if(!gitUpdateMemoryBegin()) ESP_LOGE(TAG, "PSRAM TLS allocator unavailable; GitHub installation disabled");
   ESP_LOGI(TAG, "%s", gitUpdateIdentity());
 #endif
+  StatusPanel::begin();
   heap_caps_register_failed_alloc_callback(onAllocFailed);
   ESP_LOGI(TAG, "Startup/Boot....");
   esp_core_dump_summary_t summary;
@@ -306,6 +309,11 @@ void loop() {
     net.end();
     ESP.restart();
   }
+  // Include LCD, battery and local-control work in postboot loop health.
+  // The update-quiesced returns above must continue to bypass this call.
+  StatusPanel::loop();
+  logIfSlow(TAG, "Loop display", timing.lap(), LOOP_SLOW_MS);
+  esp_task_wdt_reset();
   const bool bootProven = otaPending &&
 #if defined(ESPSOMFY_GITHUB_UPDATES)
     updateHealth.proven(filesystemHealthy && configHealthy && applicationHealthy && bootloaderHealthy && net.connected() &&
