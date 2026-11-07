@@ -23,6 +23,7 @@ class BootloaderTests(ManifestTests):
         digest = hashlib.sha256(image.read_bytes()).digest()
         self.assertIn(', '.join(f'0x{byte:02x}' for byte in digest), text)
         self.assertIn('ESPSOMFY_BOOTLOADER_SHA256_HEX[] = \"' + digest.hex() + '\";', text)
+        self.assertIn(f'ESPSOMFY_BOOT_ID:0:{image.stat().st_size}:{digest.hex()}', text)
 
     def test_p4_bootloader_uses_its_own_chip_contract(self):
         profile = load_profile(Path(__file__).resolve().parent.parent, 'esp32p4-psram')

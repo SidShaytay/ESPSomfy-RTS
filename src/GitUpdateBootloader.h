@@ -6,3 +6,6 @@ bool gitUpdateBootloaderMatches();
 
 // Required bootloader identity for authenticated release compatibility metadata.
 const char *gitUpdateBootloaderDigest();
+
+// Compiled address/size/digest record, also validated by offline packaging.
+const char *gitUpdateBootloaderIdentity();
