@@ -6,7 +6,7 @@ namespace StatusDisplay {
 void format(const Snapshot &s, Page &p) {
   snprintf(p.lines[0], sizeof(p.lines[0]), "%s up %luh %02um", s.running ? "RUN" : "BOOT",
     (unsigned long)(s.uptimeSeconds / 3600 % 1000000), (unsigned)(s.uptimeSeconds / 60 % 60));
-  snprintf(p.lines[1], sizeof(p.lines[1]), "Power: unavailable");
+  snprintf(p.lines[1], sizeof(p.lines[1]), "%s", s.graphicsFailure==1 ? "LCD: PSRAM not found" : s.graphicsFailure==2 ? "LCD: PSRAM alloc failed" : "Power: unavailable");
   const char *link = "disconnected";
   if(s.link == Link::connecting) link = "connecting";
   else if(s.link == Link::connected) link = "connected";
@@ -37,9 +37,9 @@ void Session::tick(uint32_t now, const Snapshot &s, bool pressed) {
     if(stableInput) { awakeSince = now; sleepStage = 0; }
   }
   const auto age = uint32_t(now - awakeSince);
-  if(age >= 60000) sleepStage = 2;
-  else if(age >= 30000 && sleepStage == 0) sleepStage = 1;
-  output.brightness(sleepStage == 2 ? 0 : sleepStage == 1 ? 4 : 32);
+  if(age >= offAfter) sleepStage = 2;
+  else if(age >= offAfter/2 && sleepStage == 0) sleepStage = 1;
+  output.brightness(sleepStage == 2 ? 0 : sleepStage == 1 ? (awakeLevel<4?1:4) : awakeLevel);
   if(sleepStage == 2 || (attempted && uint32_t(now - lastRow) < 20)) return;
   lastRow = now;
   attempted = true;
