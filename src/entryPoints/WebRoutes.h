@@ -8,6 +8,8 @@
 
 // Registers the HTTP routes on port 80, and the web UI's files.
 void registerHttpRoutes(AsyncWebServer &server);
+// Called by loop() only if a queued restore fails before reboot.
+void releaseRestoreUpdateGate();
 
 #define WEB_MAX_RESPONSE 4096
 // Where replies are formatted before they are sent.  async_tcp only.

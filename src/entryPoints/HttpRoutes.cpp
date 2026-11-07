@@ -15,6 +15,8 @@
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncJson.h>
+#include <atomic>
+#include "RestoreUpload.h"
 #ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
 #include "GitUpdate.h"
 #endif
@@ -55,21 +57,41 @@ static bool uploadAllowed(AsyncWebServerRequest *request, size_t index) {
   if(index == 0) request->setAttribute("uploadAllowed", webServer.isAuthenticated(request));
   return request->getAttribute("uploadAllowed", false);
 }
+// A restore and a manual image upload share the GitHub worker's gate on the
+// Plus. Generic builds still serialize their local upload/restore operations.
+struct HttpUpdateGate {
+#ifndef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
+  std::atomic<bool> owned{false};
+#endif
+  bool beginManualUpdate() {
+    if(rebootDelay.reboot) return false;
+#ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
+    return gitUpdate.beginManualUpdate();
+#else
+    bool expected = false;
+    return owned.compare_exchange_strong(expected, true);
+#endif
+  }
+  void endManualUpdate() {
+#ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
+    gitUpdate.endManualUpdate();
+#else
+    owned.store(false);
+#endif
+  }
+};
+static HttpUpdateGate httpUpdateGate;
+// A queued restore that fails on loop() must relinquish ownership too.
+void releaseRestoreUpdateGate() { httpUpdateGate.endManualUpdate(); }
+
 // A manual update holds the same flash gate as GitHub installation. A refused
 // upload must not reach Update.write/end or cause its completion to reboot.
 static bool startManualUpdate(AsyncWebServerRequest *request, int command) {
   request->setAttribute("updateStarted", false);
   request->setAttribute("updateComplete", false);
-  if(rebootDelay.reboot) return false;
-#ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
-  if(!gitUpdate.beginManualUpdate()) return false;
-#else
-  if(Update.isRunning()) return false;
-#endif
+  if(!httpUpdateGate.beginManualUpdate()) return false;
   if(!Update.begin(UPDATE_SIZE_UNKNOWN, command)) {
-#ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
-    gitUpdate.endManualUpdate();
-#endif
+    httpUpdateGate.endManualUpdate();
     ESP_LOGE(TAG, "Update begin failed");
     return false;
   }
@@ -142,11 +164,9 @@ void registerHttpRoutes(AsyncWebServer &server) {
 
   server.on(AsyncURIMatcher::exact("/restore"), HTTP_POST,
     [](AsyncWebServerRequest *request) {
-      // An upload is restored once: a later /restore without a file must not
-      // find this one.
-      const bool uploaded = webServer.uploadSuccess;
-      webServer.uploadSuccess = false;
-      if(uploaded) {
+      // Only this request's complete upload can be restored. Another client
+      // cannot borrow completion state or release the owner's update gate.
+      if(restoreUploadComplete(request)) {
         restore_options_t opts;
         if(asyncHasParam(request, "data")) {
           String dataStr = asyncParam(request, "data");
@@ -154,7 +174,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
           JsonDocument doc;
           DeserializationError err = deserializeJson(doc, dataStr);
           if(err) {
-            LittleFS.remove("/shades.tmp");
+            discardRestoreUpload(request, httpUpdateGate, LittleFS);
             request->send(500, _encoding_json, "{\"status\":\"ERROR\",\"desc\":\"JSON parse error\"}");
             return;
           }
@@ -170,14 +190,14 @@ void registerHttpRoutes(AsyncWebServer &server) {
         // Otherwise the device would reboot having restored nothing.
         const uint8_t parts = restoreParts(opts);
         if(parts == 0) {
-          LittleFS.remove("/shades.tmp");
+          discardRestoreUpload(request, httpUpdateGate, LittleFS);
           request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"No part of the backup was chosen, so nothing was restored.\"}"));
           return;
         }
         // Checked here so the client hears about a bad file.  It only reads
         // the file; the shades are still changed on loop() alone.
         if(!ShadeConfigFile::validateFile("/shades.tmp")) {
-          LittleFS.remove("/shades.tmp");
+          discardRestoreUpload(request, httpUpdateGate, LittleFS);
           request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"This isn't a valid backup file, so nothing was restored.\"}"));
           return;
         }
@@ -186,28 +206,40 @@ void registerHttpRoutes(AsyncWebServer &server) {
         loop_item_t item;
         item.type = loop_item_type_t::restore_shades;
         item.restoreParts = parts;
-        if(!queueLoopItem(request, item)) return;
+        // Keep the gate across the handoff: the loop may consume immediately.
+        queueRestoreUpload(request);
+        if(!queueLoopItem(request, item)) {
+          request->setAttribute("restoreQueued", false);
+          discardRestoreUpload(request, httpUpdateGate, LittleFS);
+          return;
+        }
         request->send(200, _encoding_json, "{\"status\":\"Success\",\"desc\":\"Restoring Shade settings\"}");
       }
-      else request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"The upload didn't complete, so nothing was restored.\"}"));
+      else {
+        discardRestoreUpload(request, httpUpdateGate, LittleFS);
+        request->send(409, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Restore upload was refused, incomplete, or invalid; nothing was restored.\"}"));
+      }
     },
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
       if(!uploadAllowed(request, index)) return;
       resetTaskWdt();
       if(index == 0) {
-        webServer.uploadSuccess = false;
-        ESP_LOGD(TAG, "Restore: %s", filename.c_str());
+        if(!beginRestoreUpload(request, httpUpdateGate, LittleFS)) return;
         File fup = LittleFS.open("/shades.tmp", "w");
+        if(!fup) { discardRestoreUpload(request, httpUpdateGate, LittleFS); return; }
         fup.close();
       }
+      if(!request->getAttribute("restoreOwned", false)) return;
       if(len > 0) {
         File fup = LittleFS.open("/shades.tmp", "a");
-        fup.write(data, len);
+        if(!fup || fup.write(data, len) != len) {
+          fup.close();
+          discardRestoreUpload(request, httpUpdateGate, LittleFS);
+          return;
+        }
         fup.close();
       }
-      if(final) {
-        webServer.uploadSuccess = true;
-      }
+      if(final) finishRestoreUpload(request);
     });
 
 #ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
