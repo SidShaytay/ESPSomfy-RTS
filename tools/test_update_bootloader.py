@@ -21,6 +21,7 @@ class BootloaderTests(ManifestTests):
         self.assertIn(f'ESPSOMFY_BOOTLOADER_BYTES = {image.stat().st_size};', text)
         digest = hashlib.sha256(image.read_bytes()).digest()
         self.assertIn(', '.join(f'0x{byte:02x}' for byte in digest), text)
+        self.assertIn('ESPSOMFY_BOOTLOADER_SHA256_HEX[] = \"' + digest.hex() + '\";', text)
 
     def test_rollback_config_missing_or_disabled_is_rejected(self):
         for text in ('', '#define CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE 0\n', '#define CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE 1\n#undef CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE\n'):

@@ -40,6 +40,8 @@ bool gitUpdateBootloaderMatches() {
   }
   return result == 1;
 }
+const char *gitUpdateBootloaderDigest() { return ESPSOMFY_BOOTLOADER_SHA256_HEX; }
 #else
+const char *gitUpdateBootloaderDigest() { return ""; }
 bool gitUpdateBootloaderMatches() { return false; }
 #endif
