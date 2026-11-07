@@ -27,7 +27,7 @@ class ProfileTests(unittest.TestCase):
     def test_p4_release_profiles_are_explicit_layout_opt_ins(self):
         for env, flash, app_bytes, app1, fs_address in (
                 ('esp32p4-psram', 0x1000000, 0x330000, 0x340000, 0x670000),
-                ('esp32p4es-psram', 0x400000, 0x1b0000, 0x1c0000, 0x370000)):
+                ('esp32p4es-psram', 0x400000, 0x1c0000, 0x1d0000, 0x390000)):
             profile = p.load_profile(SOURCE, env)
             self.assertEqual(profile['flash_bytes'], flash)
             self.assertEqual(profile['app_bytes'], app_bytes)
