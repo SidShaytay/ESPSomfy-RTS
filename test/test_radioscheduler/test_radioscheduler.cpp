@@ -509,10 +509,29 @@ static void test_replacement_cancels_old_jobs_but_preserves_accepted_ticket() {
   TEST_ASSERT_FALSE(s.popEvent(event));
   TEST_ASSERT_EQUAL_UINT32(replacement, runNext(s));
 }
+static void test_unavailable_transmitter_drops_without_starting() {
+  RadioScheduler s;
+  const uint32_t first = submit(s, REMOTE_A);
+  const uint32_t next = submit(s, REMOTE_B);
+  somfy_tx_job_t job;
+  uint32_t wait;
+  TEST_ASSERT_TRUE(s.next(10, job, wait));
+  TEST_ASSERT_FALSE(s.start(first, 20, false));
+  assertEvent(s, tx_event_t::dropped, first);
+  assertNoEvents(s);
+  TEST_ASSERT_FALSE(s.keepSending(first));
+  // A late completion must not manufacture an aborted/finished event.
+  s.ended(first, false, 30);
+  assertNoEvents(s);
+  TEST_ASSERT_EQUAL_UINT32(next, runNext(s, 40));
+  assertEvent(s, tx_event_t::started, next);
+  assertEvent(s, tx_event_t::finished, next);
+}
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_unavailable_transmitter_drops_without_starting);
   RUN_TEST(test_replacement_cancels_old_jobs_but_preserves_accepted_ticket);
   RUN_TEST(test_cancel_remote_removes_stale_jobs_only_for_that_remote);
   RUN_TEST(test_cancel_preserves_job_already_on_air);

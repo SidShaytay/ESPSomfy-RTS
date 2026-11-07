@@ -87,9 +87,9 @@ bool RadioScheduler::next(uint32_t now, somfy_tx_job_t &job, uint32_t &waitMs) {
   this->takenJob = job;
   return true;
 }
-bool RadioScheduler::start(uint32_t ticket, uint32_t now) {
+bool RadioScheduler::start(uint32_t ticket, uint32_t now, bool transmitterReady) {
   if(ticket == 0 || ticket != this->taken) return false;
-  if(this->takenFlushed) {
+  if(this->takenFlushed || !transmitterReady) {
     // Flushed after the radio task took it.
     this->post(tx_event_t::dropped, this->takenJob, now);
     this->taken = 0;
