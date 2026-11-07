@@ -71,3 +71,5 @@ Compile, GPIO harness and fake-device protocol results do not prove RF transmiss
 ## Optional read-only LCD
 
 For the opt-in status screen, build `lilygo-t-embed-cc1101-plus-display`; the existing Plus environment stays headless. See the [display guide](docs/lilygo-status-display.md) for behavior, wiring and build instructions, and the [hardware approval plan](docs/lilygo-status-validation.md) before any installation. Local shutter controls are deferred.
+
+For the PSRAM-backed phase-2 UI preview, saved bedroom brightness and read-only framebuffer screenshots, see the [local UI guide](docs/lilygo-local-ui.md). The preview keeps local shutter commands locked.
