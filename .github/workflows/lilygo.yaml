@@ -1,4 +1,4 @@
-name: LILYGO Plus build validation
+name: PSRAM verified update validation
 
 on:
   push:
@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  plus:
-    name: Headless T-Embed CC1101 Plus
+  profiles:
+    name: Exact PSRAM release profiles
     runs-on: ubuntu-latest
     env:
       ESPSOMFY_TOOL_CACHE: ${{ runner.temp }}/espsomfy-lilygo
@@ -35,13 +35,14 @@ jobs:
           CXX=g++ bash tools/test-restore-upload.sh
       - name: Offline manifest rejection tests
         run: |
-          python tools/test_lilygo_manifest.py
-          python tools/test_update_release.py
-          python tools/test_update_bootloader.py
-          python tools/test_update_assets.py
+          python -m unittest discover -s tools -p 'test_*.py'
           CXX=g++ bash tools/test-update-assets.sh
-      - name: Build and validate exact Plus artifacts
-        run: bash tools/build-lilygo.sh
+      - name: Build and validate every registered PSRAM profile
+        run: |
+          python -c 'import json; print("\n".join(json.load(open("update-profiles.json"))["profiles"]))' > "$RUNNER_TEMP/update-profiles.txt"
+          while IFS= read -r environment; do
+            bash tools/build-update.sh "$environment"
+          done < "$RUNNER_TEMP/update-profiles.txt"
       - name: Exercise production update worker with offline SDK faults
         env:
           ARDUINOJSON_INCLUDE: .pio/libdeps/lilygo-t-embed-cc1101-plus/ArduinoJson/src
@@ -49,9 +50,9 @@ jobs:
       - name: Retain reviewable artifacts and manifest
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: lilygo-t-embed-cc1101-plus
+          name: verified-update-profiles
           path: |
-            build/lilygo/artifacts/
-            build/lilygo/build.log
-            build/lilygo/filesystem.log
+            build/*/artifacts/
+            build/*/build.log
+            build/*/filesystem.log
           retention-days: 5
