@@ -19,7 +19,7 @@ The existing `lilygo-t-embed-cc1101-plus` environment remains headless. Both use
 The landscape 320×170 page uses nine 18-pixel rows and text at twice the built-in font size:
 
 - BOOT/RUN and uptime in hours/minutes.
-- Battery percentage and voltage from the BQ27220 gauge in the latest offline build, with explicit starting/no-battery/read-failure messages. This update has not yet been installed or validated on hardware; the earlier installed firmware reports power unavailable. USB and charging state are not inferred.
+- Battery percentage and voltage from the BQ27220 gauge, with explicit starting/no-battery/read-failure messages. The shared reader was checked on the installed interactive UI and reported 100% at 4,146 mV. USB and charging state are not inferred.
 - Wi-Fi disconnected, connecting, connected, or access point; current IPv4 address when assigned. This reports local link state, without testing internet access.
 - HTTP starting/listening/error, from the actual asynchronous TCP listener state. The `http://` address appears only with an assigned address and a listening server. Listening does not establish client reachability.
 - Radio initializing/ready/unavailable and configured frequency. Ready reads the existing availability flag, which the Plus profile publishes only after register validation and successful RX entry. A busy snapshot reports unavailable until the next successful sample; the display never weakens the checks or probes/reconfigures the radio itself.

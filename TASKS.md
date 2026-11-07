@@ -20,10 +20,14 @@
 
 ## Active installation
 
-5. [-] Build and install cumulative display update.
+5. [x] Installed cumulative display update after a verified full backup.
    - Deployment worktree `/var/mnt/data/projects/personal/ESPSomfy-RTS/issue-15-details-power-deployment`, branch `codex/issue-15-details-power-deployment`, source `b1ad2e4`, preserves installed issue-23 source plus current UI. Combined build passed; 706 native tests plus one optional skip, 63 JS tests, renderer/runtime/capture/adapter and panel/radio/GPIO harnesses passed.
-   - Fresh portable/settings/counter capture passed with idle shades. Full16MiB ROM read is in progress (tool session24081) under private pointer `~/.local/state/espsomfy-lilygo/LATEST_UI_DETAILS_POWER_INSTALL`; board is held in ROM, no flash written yet. Exact previous installed firmware/ELF retained. Next: finish/verify dump, layout/OTA selection, NVS/config/counters; boot old app, refresh state, then install. Firmware-only inactive-slot OTA; no filesystem/NVS/bootloader/table overwrite. Check enabled-controls header, battery reading, Wi-Fi/radio, configuration and uptime after reboot. Do not actuate shutters.
+   - Fresh full16MiB ROM dump verified: partition MD5, both app checksums/SHA256, OTA-selection CRC, active NVS CRCs, extracted authoritative configuration and counters. Explicit DTR deassert/reset restored the old application after the USB read; fresh live state then matched the dump. Only `/updateFirmware` wrote inactive app0; prior app1 and current NVS/filesystem/layout were preserved.
+   - Running app0 ELF fingerprint exactly matched candidate. `X-LCD-Commands: enabled`; actual status framebuffer shows Battery100%. Gauge: ready,100%,4146mV,0mA. Firmwarev4.0.1 and installed Application4.0.1 are separate Details rows. Wi-Fi connected, radio initialized433.42MHz, groupTarget55 preserved; HA3covers available/idle with no services called.
+   - At118151ms uptime, all five settings sections and entity state/counters still matched; no restart/crash/OTA-confirmation-error markers. Task-owned USB reader stopped. Private pointer: `~/.local/state/espsomfy-lilygo/LATEST_UI_DETAILS_POWER_INSTALL`; retains exact binaries/ELF, full dump, checksum inventory and verification.json.
+   - Next: Sid may check physical scrolling/version labels and saved display settings. No assistant actuation is authorized or performed; no further install step remains.
+
 
 ## Limits and tools
 
-Host PIO uses `~/.cache/espsomfy-lilygo/pio-python/bin/pio`, build/libdeps under build/. Native/GFX harnesses use existing `rocm-7.2.3` container. Do not restore old rolling counters. Power readings are not yet hardware-validated; induced display fallback, physical control RF behavior and issue-23 movement reliability remain unverified.
+Host PIO uses `~/.cache/espsomfy-lilygo/pio-python/bin/pio`, build/libdeps under build/. Native/GFX harnesses use existing `rocm-7.2.3` container. Do not restore old rolling counters. Gauge communication and percentage display are hardware-verified; capacity accuracy, induced display fallback, physical control RF behavior and issue-23 movement reliability remain unverified.

@@ -18,7 +18,7 @@ The optional 320×170 UI adds status, room selection, controls, details and save
 
 The [manufacturer schematic](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/hardware/T-Embed-CC1101%20V1.0%2024-07-29.pdf) and [component/pin list](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/README.md) do not document an ambient-light sensor. Brightness is manual. The encoder uses INA 4, INB 5 and KEY 0; Back uses GPIO6. The decoder follows the manufacturer's TWO03 mode, recognizing detents at both 00 and 11 and rejecting invalid Gray-code transitions/bounce. Sid confirmed the display, wheel and separate Back button work on the installed update.
 
-The Wi-Fi glyph indicates connection, not measured signal strength. The offline build now reads battery percentage and voltage from the BQ27220 fuel gauge. Status shows percentage; Details shows percentage and voltage. Startup, no battery, invalid values and failed reads are labeled explicitly. USB/charging detection remains outside this change. These readings have not yet been validated on Sid’s hardware; the older installed firmware still lacks battery telemetry.
+The Wi-Fi glyph indicates connection, not measured signal strength. The installed build reads battery percentage and voltage from the BQ27220 fuel gauge. Status shows percentage; Details shows percentage and voltage. Startup, no battery, invalid values and failed reads are labeled explicitly. USB/charging detection remains outside this change. Live checks returned 100% and 4,146 mV; these are gauge-reported values, not an independent capacity measurement.
 
 ## Memory and rendering
 
@@ -71,7 +71,7 @@ The board waits for a fully transferred frame, copies it on the main loop into a
 
 `X-LCD-Frame`, `X-LCD-Backlight` and `X-LCD-Commands` identify the frame, PWM value and local command lock. PWM0 means the physical backlight is off even though a screenshot still shows the panel's stored pixels. A capture is evidence of pixels sent, not a camera observation of physical brightness, orientation, wiring or panel faults. Simple fallback mode has no full RGB framebuffer and returns 503; use a photo for that case.
 
-See the installation evidence below for live memory/timing and regression results. Physical validation of the revised wheel/Back behavior and display settings remains pending.
+See the installation evidence below for live memory/timing and regression results. Sid confirmed the display, wheel and Back button work. Saved display-setting persistence remains a manual acceptance check.
 
 ## Offline verification — November 6, 2026
 
@@ -111,19 +111,30 @@ The live framebuffer returned `X-LCD-Commands: enabled`. Read-only checks confir
 Verification: 655 native tests passed with one pre-existing optional private-backup skip; real-GFX renderer/runtime/capture and GPIO/SPI harnesses passed. UI, simple-status and headless builds passed. Physical wheel feel, Back, display-setting persistence and on-air control behavior await Sid's manual validation. Private installation evidence is selected by `~/.local/state/espsomfy-lilygo/LATEST_UI_INPUT_FIX`.
 
 
-## Command-category fix — built offline, not installed
+## Command-category fix
 
 Sid confirmed that display, wheel and Back work, but screen commands did not move the shutters while web controls worked. The adapter incorrectly required `shade_types::roller`; both configured devices are `shade_types::shutter` (4), so they and their group were marked invalid before dispatch. The UI now leaves category handling to the existing shared dispatcher.
 
 A regression harness compiles the production adapter with an in-memory model and recording request sink. It reproduced the failure with the actual shutter category, then passed after the fix. It covers every defined device category, individual/group requests, stale identities and idle/mixed-group STOP behavior without linking any radio implementation. Run `bash tools/test-local-ui-adapter.sh`; this also runs with the existing preview harness.
 
-The enabled-controls UI firmware builds successfully; 655 native tests passed with the existing optional fixture skip, and renderer/runtime/capture/adapter harnesses passed. The build has **not** been flashed: Sid reserved the device for another agent. Do not access or update the board until Sid returns it; collect fresh state and recheck its current firmware/layout before any later installation.
+The enabled-controls UI firmware builds successfully; 655 native tests passed with the existing optional fixture skip, and renderer/runtime/capture/adapter harnesses passed. The fix was first held offline while another agent used the board, then included in that agent’s installed group-control firmware and in the cumulative update below.
 
 
-## Battery percentage — built offline, not installed
+## Battery percentage
 
 The [LILYGO schematic](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/hardware/T-Embed-CC1101%20V1.0%2024-07-29.pdf) specifies SDA8/SCL18 and BQ27220 address 0x55. The [TI technical reference](https://www.ti.com/lit/ug/sluubd4a/sluubd4a.pdf) documents the direct SOC, voltage, current, battery-presence and initialization registers. The display uses the gauge-reported percentage, never a voltage-to-percent guess.
 
 The reader uses I2C controller 1 at 100 kHz with a 2 ms transaction timeout, one register read per loop pass separated by at least 10 ms. A five-register sample is attempted every ten seconds. It writes only register pointers for reads: no charger settings, gauge profiles, battery capacity, calibration, reset or control subcommands are changed. SDA8/SCL18 are reserved against relay assignments. A failed read clears the prior sample instead of presenting stale percentages as fresh. Missing battery and incomplete/config-update states do not produce percentages.
 
-Host tests cover byte order/short reads/NACK, bounded polling and clock wrap, battery presence, initialization/config-update, invalid percentages, zero charge, voltage/current, failed-read recovery and display messages. Inverting the percentage validity condition caused four tests to fail. All 662 native tests passed with the existing optional fixture skip; renderer/runtime/capture/adapter and panel/radio/GPIO harnesses passed. Enabled UI, simple-status and headless Plus builds passed. Hardware percentage accuracy and I2C timing under live radio activity remain unverified because the device is reserved for another agent. No live access, flashing or movement was performed for this change.
+Host tests cover byte order/short reads/NACK, bounded polling and clock wrap, battery presence, initialization/config-update, invalid percentages, zero charge, voltage/current, failed-read recovery and display messages. Inverting the percentage validity condition caused four tests to fail. All 662 native tests passed with the existing optional fixture skip; renderer/runtime/capture/adapter and panel/radio/GPIO harnesses passed. Enabled UI, simple-status and headless Plus builds passed. The initial checks were offline while the device was reserved for another agent. The later hardware installation below confirms gauge communication and displayed percentage; capacity accuracy and I2C timing under active radio transmission remain unverified. No movement testing was performed.
+
+
+## Installed versions/battery update — November 6, 2026
+
+Sid returned the board and explicitly authorized flashing. Deployment source `b1ad2e4` combines feature source `ce5f559` with the already-installed issue-23 source, preserving its protocol/group feature rather than reverting it. This does not validate issue-23 movement behavior or merge unfinished group work into main.
+
+A fresh complete 16 MiB flash image, portable export and all five settings sections were saved privately. Verification checked partition MD5, both application image checksums/SHA256, OTA selection CRC, active NVS CRCs, extracted authoritative configuration and current counters. The active source image matched the previous installed binary. After the USB read, the standard reset left the board offline; explicitly deasserting DTR and resetting restored the same application without a flash write. A fresh live capture then matched the verified backup.
+
+Only the checked `firmware.bin` was posted to `/updateFirmware`; the inactive app0 slot was used and app1 retained. No filesystem/NVS/bootloader/table image or restore was uploaded. The new USB boot fingerprint matched the candidate’s embedded ELF SHA256, and the live framebuffer returned `X-LCD-Commands: enabled`. Battery diagnostics reported state ready, 100%, 4,146 mV and 0 mA; the actual status framebuffer showed Battery 100%. The installed web filesystem’s application version remains 4.0.1, separately displayed from compiled firmware v4.0.1 in Details.
+
+Read-only verification found connected Wi-Fi, radio initialized at 433.42 MHz, operation 55/groupTarget still advertised, unchanged entity configuration/counters and all five settings sections, and all three HA covers available and idle. At 118.151 seconds uptime, settings/counters still matched, no restart/crash/OTA confirmation error appeared, and the task-owned USB reader was stopped. Combined checks passed: 706 native tests plus one optional skip, 63 JavaScript tests, real renderer/runtime/capture/adapter and panel/radio/GPIO harnesses, and the enabled UI firmware build. No assistant shutter commands or HA services were sent. Private evidence is selected by `~/.local/state/espsomfy-lilygo/LATEST_UI_DETAILS_POWER_INSTALL`.
