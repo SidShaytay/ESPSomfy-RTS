@@ -9,6 +9,7 @@
 #include "Utils.h"
 #include "outputs/ProtoSocket.h"
 #include "DeviceOps.h"
+#include "entryPoints/WebRoutes.h"
 
 static const char *TAG = "LoopQueue";
 
@@ -67,6 +68,7 @@ void LoopQueue::drain() {
         // nothing to reboot for.
         if(!restored) {
           ESP_LOGE(TAG, "Restore failed, keeping the current settings");
+          releaseRestoreUpdateGate();
           break;
         }
         ESP_LOGI(TAG, "Rebooting ESP for restored settings...");
