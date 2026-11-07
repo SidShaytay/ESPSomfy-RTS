@@ -49,7 +49,9 @@ class ReleaseTests(ManifestTests):
         # Put the actual identity inside the checked image's data segment.
         firmware = self.out / 'firmware.bin'
         raw = firmware.read_bytes()
-        payload = (self.identity['marker'].encode() + b'\0').ljust(1024, b'\0')
+        bootloader = (self.out / 'bootloader.bin').read_bytes()
+        boot_marker = f'ESPSOMFY_BOOT_ID:{self.profile["bootloader_address"]}:{len(bootloader)}:{hashlib.sha256(bootloader).hexdigest()}'.encode() + b'\0'
+        payload = (self.identity['marker'].encode() + b'\0' + boot_marker).ljust(1024, b'\0')
         import struct
         image = bytearray(raw[:24]) + struct.pack('<II', 0x3c000000, len(payload)) + payload
         checksum = 0xef
@@ -102,6 +104,29 @@ class ReleaseTests(ManifestTests):
         with self.assertRaisesRegex(ValueError, 'stable'):
             r.release_manifest(self.out, Path('/source'), 'v4294967296.1.0')
 
+    def test_rejects_missing_or_conflicting_compiled_bootloader_marker(self):
+        from test_update_package import image
+        bootloader=(self.out/'bootloader.bin').read_bytes()
+        boot_marker=f'ESPSOMFY_BOOT_ID:{self.profile["bootloader_address"]}:{len(bootloader)}:{hashlib.sha256(bootloader).hexdigest()}'.encode()+b'\0'
+        for suffix in (b'',boot_marker+boot_marker,boot_marker+b'ESPSOMFY_BOOT_ID:malformed\0'):
+            with self.subTest(suffix=suffix):
+                payload=(self.identity['marker'].encode()+b'\0'+suffix).ljust(1024,b'\0')
+                (self.out/'firmware.bin').write_bytes(image(9,payload=payload))
+                record=r.build.artifact_manifest(self.out)
+                record['source']=self.record
+                (self.out/'flash-manifest.json').write_text(json.dumps(record))
+                with self.assertRaisesRegex(ValueError,'compiled bootloader identity'):
+                    self.package()
+
+    def test_rejects_different_valid_bootloader_even_when_package_is_rehashed(self):
+        from test_update_package import image
+        (self.out / 'bootloader.bin').write_bytes(image(9,payload=b'different valid bootloader'))
+        record=r.build.artifact_manifest(self.out)
+        record['source']=self.record
+        (self.out / 'flash-manifest.json').write_text(json.dumps(record))
+        with self.assertRaisesRegex(ValueError,'compiled bootloader identity'):
+            self.package()
+
     def test_rejects_missing_prebuild_identity(self):
         (self.out / 'update-source.json').unlink()
         with self.assertRaises((ValueError, FileNotFoundError)):
@@ -131,9 +156,11 @@ class ProfiledReleaseTests(unittest.TestCase):
                 source={'revision':'a'*40,'dirty':False,'input_sha256':{'platformio.ini':'b'*64}}
                 compat='sha256:'+'c'*64
                 identity=i.identity(source,compat,['v4.0.3'],spec)
-                payload=(identity['marker'].encode()+b'\0').ljust(1024,b'\0')
+                bootloader=image(spec['chip_id'],spec['flash_bytes'])
+                boot_marker=f'ESPSOMFY_BOOT_ID:{spec["bootloader_address"]}:{len(bootloader)}:{hashlib.sha256(bootloader).hexdigest()}'.encode()+b'\0'
+                payload=(identity['marker'].encode()+b'\0'+boot_marker).ljust(1024,b'\0')
                 (package/'firmware.bin').write_bytes(image(spec['chip_id'],spec['flash_bytes'],payload))
-                (package/'bootloader.bin').write_bytes(image(spec['chip_id'],spec['flash_bytes']))
+                (package/'bootloader.bin').write_bytes(bootloader)
                 (package/'partitions.bin').write_bytes(table(spec))
                 (package/'littlefs.bin').write_bytes(b'\xff'*spec['fs_bytes'])
                 (package/'firmware.elf').write_bytes(b'ELF')
