@@ -8,6 +8,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent))
 import update_assets as assets
@@ -76,9 +77,11 @@ class AssetTests(unittest.TestCase):
             def subst(self, value): return str(project)
         # Bundler executes the real deterministic gzip path twice.
         namespace = {'env': Env(), 'Import': lambda _: None}
-        runpy.run_path(str(root / 'minify.py'), init_globals=namespace)
+        with patch('gzip.time.time', return_value=1700000000), patch('shutil.which', return_value='/fake/optional-tool'), patch('subprocess.run', side_effect=AssertionError('Plus packaging invoked optional tool')):
+            runpy.run_path(str(root / 'minify.py'), init_globals=namespace)
         first = {p.relative_to(project / 'data').as_posix(): p.read_bytes() for p in (project / 'data').rglob('*') if p.is_file()}
-        runpy.run_path(str(root / 'minify.py'), init_globals=namespace)
+        with patch('gzip.time.time', return_value=1800000000), patch('shutil.which', return_value='/fake/optional-tool'), patch('subprocess.run', side_effect=AssertionError('Plus packaging invoked optional tool')):
+            runpy.run_path(str(root / 'minify.py'), init_globals=namespace)
         second = {p.relative_to(project / 'data').as_posix(): p.read_bytes() for p in (project / 'data').rglob('*') if p.is_file()}
         self.assertEqual(first, second)
         self.assertIn(assets.FILENAME, first)

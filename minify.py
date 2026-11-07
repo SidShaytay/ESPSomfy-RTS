@@ -237,7 +237,7 @@ def process_file(src_path: str, dst_path: str) -> dict:
         shutil.copy2(src_path, dst_path)
         _try_optipng(dst_path)
         stats["final"] = os.path.getsize(dst_path)
-        stats["action"] = "optipng" if _has_command("optipng") else "copy"
+        stats["action"] = "optipng" if env.get("PIOENV") != "lilygo-t-embed-cc1101-plus" and _has_command("optipng") else "copy"
         return stats
 
     # ── Everything else: plain copy ─────────
