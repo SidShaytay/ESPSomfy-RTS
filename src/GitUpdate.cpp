@@ -437,6 +437,8 @@ void GitUpdateClass::status(JsonObject out) const {
   out["minLargestInternalBlock"]=copy.minLargestInternal;
   out["maxPsramUsed"]=copy.maxPsramUsed;
   const auto memory=gitUpdateMemoryStats();
+  const TaskHandle_t workerTask=task.load();
+  out["workerStackMinimumBytes"]=workerTask ? uxTaskGetStackHighWaterMark(workerTask) : 0;
   out["tlsPsramCurrent"]=memory.psramCurrent;
   out["tlsPsramPeak"]=memory.psramPeak;
   out["tlsPsramAllocations"]=memory.psramAllocations;

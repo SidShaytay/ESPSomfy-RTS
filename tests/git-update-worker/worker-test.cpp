@@ -70,6 +70,7 @@ static void check_success_headers_and_manual_exclusion() {
   CHECK(currentState()=="available");CHECK(Fake::seenAccept[apiUrl]=="application/vnd.github+json");
   CHECK(Fake::seenAccept[manifestUrl]=="application/octet-stream");CHECK(!gitUpdate.busy());
   CHECK(Fake::otaBegins==0);CHECK(!rebootDelay.reboot);
+  JsonDocument status;gitUpdate.status(status.to<JsonObject>());CHECK(status["workerStackMinimumBytes"].as<unsigned>()==8192);
 }
 static void verified_connection_and_host_failures_never_write() {
   reset();Fake::responses[apiUrl].connection=false;CHECK(gitUpdate.requestCheck());run();CHECK(currentState()=="error");CHECK(Fake::otaBegins==0);

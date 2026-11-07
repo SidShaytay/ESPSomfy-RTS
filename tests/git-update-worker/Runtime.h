@@ -186,6 +186,7 @@ inline int esp_http_client_read(esp_http_client_handle_t c,char *out,size_t coun
   std::memcpy(out,c->response.body.data()+c->offset,n);c->offset+=n;return int(n);
 }
 inline bool esp_http_client_is_complete_data_received(esp_http_client_handle_t c) { return c->response.clean && c->offset==c->response.body.size(); }
+inline unsigned uxTaskGetStackHighWaterMark(TaskHandle_t) { return 8192; }
 constexpr int eSetValueWithOverwrite=0;
 inline int xTaskCreatePinnedToCore(void (*)(void *),const char *,uint32_t,void *,unsigned,TaskHandle_t *task,int) { *task=reinterpret_cast<void *>(1);return pdPASS; }
 inline int xTaskNotify(TaskHandle_t,uint32_t command,int) { Fake::notified=command;Fake::queued=true;return pdPASS; }
