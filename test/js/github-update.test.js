@@ -122,3 +122,15 @@ test('network failure clears stale installation eligibility', async () => {
     assert.equal(node('spanGitError').textContent, 'Connection lost');
     assert.equal(node('btnGitCheck').disabled, false);
 });
+
+
+test('verified-update profiles disable legacy filesystem upload and explain provisioning', () => {
+    const { view, node } = setup();
+    view.render(available);
+    assert.equal(node('btnUpdateApplication').disabled, true);
+    assert.equal(node('btnUpdateApplication').style.display, 'none');
+    assert.match(node('spanGitFilesystemPolicy').textContent, /coherent provisioning/);
+    view.render({ supported: false });
+    assert.equal(node('btnUpdateApplication').disabled, false);
+    assert.equal(node('btnUpdateApplication').style.display, '');
+});

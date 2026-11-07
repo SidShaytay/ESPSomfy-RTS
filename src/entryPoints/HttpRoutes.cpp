@@ -17,6 +17,7 @@
 #include <AsyncJson.h>
 #include <atomic>
 #include "RestoreUpload.h"
+#include "ManualUpload.h"
 #ifdef ESPSOMFY_GITHUB_UPDATES
 #include "GitUpdate.h"
 #endif
@@ -27,10 +28,10 @@
 
 extern ConfigSettings settings;
 extern SSDPClass SSDP;
-extern rebootDelay_t rebootDelay;
 extern SomfyShadeController somfy;
 extern Web webServer;
 extern MqttConnection mqtt;
+extern LoopQueue loopQueue;
 
 static const char *TAG = "Web";
 
@@ -39,16 +40,6 @@ static uint8_t restoreParts(const restore_options_t &opts) {
   return (opts.settings ? RESTORE_SETTINGS : 0) | (opts.shades ? RESTORE_SHADES : 0) |
     (opts.network ? RESTORE_NETWORK : 0) | (opts.transceiver ? RESTORE_TRANSCEIVER : 0) |
     (opts.repeaters ? RESTORE_REPEATERS : 0) | (opts.mqtt ? RESTORE_MQTT : 0);
-}
-// The radio and MQTT are shut down once an upload starts and only a reboot
-// brings them back.  The completion handler schedules it but never runs if the
-// client goes away mid-upload, so make sure the device reboots then too.
-static void onUploadDisconnect() {
-  if(rebootDelay.reboot) return;
-  ESP_LOGW(TAG, "Upload abandoned, rebooting");
-  if(Update.isRunning()) Update.abort();
-  rebootDelay.reboot = true;
-  rebootDelay.rebootTime = millis() + 500;
 }
 // The token check (requireToken in Web.cpp) runs once the body is in, after
 // every chunk was handled, so an upload checks the token on its first chunk
@@ -64,7 +55,7 @@ struct HttpUpdateGate {
   std::atomic<bool> owned{false};
 #endif
   bool beginManualUpdate() {
-    if(rebootDelay.reboot) return false;
+    if(loopQueue.rebootRequested()) return false;
 #ifdef ESPSOMFY_GITHUB_UPDATES
     return gitUpdate.beginManualUpdate();
 #else
@@ -84,23 +75,35 @@ static HttpUpdateGate httpUpdateGate;
 // A queued restore that fails on loop() must relinquish ownership too.
 void releaseRestoreUpdateGate() { httpUpdateGate.endManualUpdate(); }
 
-// A manual update holds the same flash gate as GitHub installation. A refused
-// upload must not reach Update.write/end or cause its completion to reboot.
-static bool startManualUpdate(AsyncWebServerRequest *request, int command) {
-  request->setAttribute("updateStarted", false);
-  request->setAttribute("updateComplete", false);
-  if(!httpUpdateGate.beginManualUpdate()) return false;
-  if(!Update.begin(UPDATE_SIZE_UNKNOWN, command)) {
-    httpUpdateGate.endManualUpdate();
-    ESP_LOGE(TAG, "Update begin failed");
-    return false;
+// The adapter keeps activation out of the multipart chunk callback.
+struct ManualUpdateWriter {
+  bool begin(int command) { return Update.begin(UPDATE_SIZE_UNKNOWN,command); }
+  size_t write(uint8_t *data,size_t size) { return Update.write(data,size); }
+  bool end() { return Update.end(true); }
+  bool isRunning() { return Update.isRunning(); }
+  bool hasError() { return Update.hasError(); }
+  void abort() { Update.abort(); }
+};
+struct ManualUpdateEffects {
+  ManualUploadDeadline deadline;
+  void quiesce() {
+    somfy.transceiver.end();
+    mqtt.end();
+    // Completion middleware can refuse a token changed during an upload.
+    // Even a client keeping that connection open cannot strand servicing.
+    deadline.begin(millis());
+    loopQueue.requestStateCommit();
+    loopQueue.requestReboot(180000);
   }
-  request->setAttribute("updateStarted", true);
-  somfy.transceiver.end();
-  mqtt.end();
-  request->onDisconnect(onUploadDisconnect);
-  return true;
-}
+  bool expired() { return deadline.expired(millis()); }
+  void reboot() {
+    loopQueue.requestStateCommit();
+    deadline.shorten(millis());
+    loopQueue.requestReboot(500);
+  }
+};
+static ManualUpdateWriter manualUpdateWriter;
+static ManualUpdateEffects manualUpdateEffects;
 
 #ifdef ESPSOMFY_GITHUB_UPDATES
 // Browsers on another origin cannot initiate an install even in the None
@@ -262,92 +265,51 @@ void registerHttpRoutes(AsyncWebServer &server) {
   });
 #endif
 
-  // updateFirmware - file upload
+  // Manual uploads activate only after the entire one-file request completes.
   server.on(AsyncURIMatcher::exact("/updateFirmware"), HTTP_POST,
     [](AsyncWebServerRequest *request) {
-      // Nothing was written or stopped, so there is nothing to reboot for.
       if(!settings.hasOtaSlot) {
         request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"This device has no OTA slot, so its firmware is flashed over USB.\"}"));
         return;
       }
-      if(!request->getAttribute("updateStarted", false)) {
-        request->send(409, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Upload not started: another update is active, initialization failed, or no file was sent.\"}"));
-        return;
-      }
-      // errorString() is one of the updater's fixed messages, none with a quote.
-      if(Update.hasError() || !request->getAttribute("updateComplete", false))
-        request->send(500, _encoding_json, String("{\"status\":\"ERROR\",\"desc\":\"Error updating firmware: ") + Update.errorString() + "\"}");
+      const ManualUploadResult result=finishManualUpload(request,manualUpdateWriter,manualUpdateEffects);
+      if(result==ManualUploadResult::notStarted)
+        request->send(409, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Upload was not accepted: another update is active, initialization failed, or no file was sent.\"}"));
+      else if(result==ManualUploadResult::failed)
+        request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Firmware upload failed, timed out, or contained more than one file. The controller will restart.\"}"));
       else
-        request->send(200, _encoding_json, "{\"status\":\"SUCCESS\",\"desc\":\"Successfully updated firmware\"}");
-      rebootDelay.reboot = true;
-      rebootDelay.rebootTime = millis() + 500;
+        request->send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Successfully updated firmware\"}"));
     },
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-      if(!uploadAllowed(request, index) || !settings.hasOtaSlot) return;
-      if(index == 0) {
-        webServer.uploadSuccess = false;
-        if(!startManualUpdate(request, U_FLASH)) return;
-      }
-      if(!request->getAttribute("updateStarted", false)) return;
-      if(len > 0) {
-        if(Update.write(data, len) != len) {
-          ESP_LOGE(TAG, "Upload of %s aborted invalid size %d", filename.c_str(), len);
-          Update.abort();
-        }
-      }
-      if(final) {
-        if(Update.end(true)) {
-          ESP_LOGI(TAG, "Update Success: %u Rebooting...", index + len);
-          webServer.uploadSuccess = true;
-          request->setAttribute("updateComplete", true);
-        }
-        else {
-          ESP_LOGE(TAG, "Update end failed");
-        }
-      }
+      if(!uploadAllowed(request,index)) { failManualUpload(request,manualUpdateWriter,manualUpdateEffects);return; }
+      if(!settings.hasOtaSlot) return;
+      if(index==0 && !beginManualUpload(request,httpUpdateGate,manualUpdateWriter,manualUpdateEffects,U_FLASH)) return;
+      writeManualUpload(request,manualUpdateWriter,manualUpdateEffects,data,len,final);
       resetTaskWdt();
     });
 
-  // updateApplication - file upload
   server.on(AsyncURIMatcher::exact("/updateApplication"), HTTP_POST,
     [](AsyncWebServerRequest *request) {
-      if(!request->getAttribute("updateStarted", false)) {
-        request->send(409, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Upload not started: another update is active, initialization failed, or no file was sent.\"}"));
-        return;
-      }
-      if(Update.hasError() || !request->getAttribute("updateComplete", false))
-        request->send(500, _encoding_json, String("{\"status\":\"ERROR\",\"desc\":\"Error updating application: ") + Update.errorString() + "\"}");
+#ifdef ESPSOMFY_GITHUB_UPDATES
+      // Shared LittleFS replacement is not an atomic part of firmware OTA.
+      request->send(409, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Filesystem changes require coherent provisioning during an approved service window. Web filesystem upload is disabled on this profile.\"}"));
+#else
+      const ManualUploadResult result=finishManualUpload(request,manualUpdateWriter,manualUpdateEffects);
+      if(result==ManualUploadResult::notStarted)
+        request->send(409, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Upload was not accepted: another update is active, initialization failed, or no file was sent.\"}"));
+      else if(result==ManualUploadResult::failed)
+        request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Application upload failed, timed out, or contained more than one file. The controller will restart.\"}"));
       else
-        request->send(200, _encoding_json, "{\"status\":\"SUCCESS\",\"desc\":\"Successfully updated application\"}");
-      rebootDelay.reboot = true;
-      rebootDelay.rebootTime = millis() + 500;
+        request->send(200, _encoding_json, F("{\"status\":\"SUCCESS\",\"desc\":\"Successfully updated application\"}"));
+#endif
     },
     [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-      if(!uploadAllowed(request, index)) return;
-      if(index == 0) {
-        webServer.uploadSuccess = false;
-        if(!startManualUpdate(request, U_SPIFFS)) return;
-      }
-      if(!request->getAttribute("updateStarted", false)) return;
-      if(len > 0) {
-        if(Update.write(data, len) != len) {
-          ESP_LOGE(TAG, "Upload of %s aborted invalid size %d", filename.c_str(), len);
-          Update.abort();
-        }
-      }
-      if(final) {
-        if(Update.end(true)) {
-          webServer.uploadSuccess = true;
-          request->setAttribute("updateComplete", true);
-          ESP_LOGI(TAG, "Update Success: %u Rebooting...", index + len);
-          somfy.commit();
-        }
-        else {
-          somfy.commit();
-          ESP_LOGE(TAG, "Update end failed");
-        }
-      }
+#ifndef ESPSOMFY_GITHUB_UPDATES
+      if(!uploadAllowed(request,index)) { failManualUpload(request,manualUpdateWriter,manualUpdateEffects);return; }
+      if(index==0 && !beginManualUpload(request,httpUpdateGate,manualUpdateWriter,manualUpdateEffects,U_SPIFFS)) return;
+      writeManualUpload(request,manualUpdateWriter,manualUpdateEffects,data,len,final);
       resetTaskWdt();
+#endif
     });
 
   server.onNotFound([](AsyncWebServerRequest *r) { webServer.handleNotFound(r); });
