@@ -19,5 +19,5 @@ out=Path(sys.argv[2]);data=out/'data';data.mkdir()
 compat=write_manifest(data)
 (out/'compat.h').write_text('#define ESPSOMFY_APP_COMPAT "'+compat+'"\n')
 PY
-"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -DESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS -include "$output/compat.h" -I"$repo/tests/update-assets" -I"$repo/test/stubs" -I"$repo/src" "$repo/src/GitUpdateAssets.cpp" "$repo/tests/update-assets/runtime.cpp" -o "$output/runtime"
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -DESPSOMFY_GITHUB_UPDATES -DESPSOMFY_UPDATE_FS_BYTES=0x180000 -include "$output/compat.h" -I"$repo/tests/update-assets" -I"$repo/test/stubs" -I"$repo/src" "$repo/src/GitUpdateAssets.cpp" "$repo/tests/update-assets/runtime.cpp" -o "$output/runtime"
 "$output/runtime" "$output/data"

@@ -222,6 +222,8 @@ def validate(manifest, out):
 def source_record(source):
     git(source, 'merge-base', '--is-ancestor', BASELINE['revision'], 'HEAD')
     inputs = [*source.glob('*.py'), source / 'platformio.ini']
+    if (source / 'update-profiles.json').is_file():
+        inputs.append(source / 'update-profiles.json')
     for directory in ('src', 'lib', 'data-src', 'tools'):
         inputs.extend(p for p in (source / directory).rglob('*')
                       if p.is_file() and '__pycache__' not in p.parts)

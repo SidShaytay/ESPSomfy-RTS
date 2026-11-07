@@ -1,5 +1,5 @@
 #include "GitUpdateAssets.h"
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_GITHUB_UPDATES)
 #include <LittleFS.h>
 #include "TaskWdt.h"
 #include <mbedtls/sha256.h>
@@ -8,11 +8,14 @@
 #include <cstdlib>
 
 #ifndef ESPSOMFY_APP_COMPAT
-#error "The Plus build requires the packaged web compatibility digest"
+#error "The verified update build requires the packaged web compatibility digest"
 #endif
 namespace {
 constexpr const char *MANIFEST="/update-assets.txt";
-constexpr size_t MAX_MANIFEST=16384, MAX_FILE=0x180000, MAX_FILES=128;
+#ifndef ESPSOMFY_UPDATE_FS_BYTES
+#error "The updater requires the exact profile filesystem bound"
+#endif
+constexpr size_t MAX_MANIFEST=16384, MAX_FILE=ESPSOMFY_UPDATE_FS_BYTES, MAX_FILES=128;
 bool hexDigest(const char *text) {
   if(strlen(text)!=64) return false;
   for(size_t i=0;i<64;i++) if(!((text[i]>='0' && text[i]<='9') || (text[i]>='a' && text[i]<='f'))) return false;
