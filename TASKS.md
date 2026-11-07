@@ -5,7 +5,7 @@
 - Objective: issue #15, 320×170 PSRAM LCD UI, physical controls, saved brightness/dim/sleep, screenshots, version details and battery percentage.
 - Feature worktree: `/var/mnt/data/projects/personal/ESPSomfy-RTS/issue-15-phase2-ui`, branch `codex/issue-15-phase2-ui`. Use `git-agent` / `gh-agent` as `r-sidshaytay`; no upstream publication or issue closure.
 - Sid explicitly returned the device and authorized flashing after the offline changes. Fresh backups and firmware-only A/B OTA are authorized. **Physical shutter controls must be enabled for Sid; the assistant must not send shutter/RF/motor commands or HA services.** No HA changes are required.
-- The other agent installed source `c41cfc4` (UI plus unfinished issue-23 group targeting). Preserve that installed functionality in a separate deployment build; do not roll it back or represent issue 23 as physically validated. Main remains older and is not changed by this deployment.
+- The other agent installed source `c41cfc4` (UI plus unfinished issue-23 group targeting). Preserve that installed functionality in a separate deployment build; do not roll it back or represent issue 23 as physically validated. Completed display changes are now integrated into local main; unfinished group changes remain confined to the deployment branch.
 
 ## Completed work
 
