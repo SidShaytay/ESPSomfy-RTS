@@ -32,6 +32,7 @@ EXPECTED = {
     'tiltDirection':('w','i',0),'position':('p','i',0),'target':('t','i',0),
     'tiltPosition':('q','i',0),'tiltTarget':('u','i',0),
     'section':('se','s',0),'enabled':('en','b',0),'radioInit':('ri','b',0),'ok':('k','b',0),
+    'rebooting':('rb','b',0),
 }
 
 def validate_outgoing(text):
@@ -142,6 +143,9 @@ def _operation(client,kind,data,deadline):
         raise GuardError('Concurrent or unexpected activity; no further operations')
     if type(frame['d'].get('k')) is not int or frame['d']['k'] != 1:
         raise GuardError('Controller refused maintenance; no automatic retry')
+    rebooting = frame['d'].get('rb',0)
+    if type(rebooting) is not int or rebooting != 0:
+        raise GuardError('Unexpected reboot indication; do not provision or retry')
     return frame['d']
 
 def _enabled(settings):
@@ -164,7 +168,9 @@ def disable_radio(host,expected_server_id,token=None,client_type=ProtoClient,tim
     client = None
     deadline = time.monotonic()+timeout
     try:
-        client = guarded_client_type(client_type)(host,headers={'apikey':token} if token else None,timeout=timeout)
+        # The deployed /ws authorization reads the apikey query parameter, not
+        # HTTP headers. Its URL and any transport exception stay out of output.
+        client = guarded_client_type(client_type)(host,params={'apikey':token} if token else None,timeout=timeout)
         if client.status != 101:
             raise GuardError('Protocol 2 upgrade was refused')
         _sync(client,expected_server_id,deadline)

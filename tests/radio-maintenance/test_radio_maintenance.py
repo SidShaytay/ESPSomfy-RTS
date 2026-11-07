@@ -26,7 +26,9 @@ class FakeClient(guard.ProtoClient):
     changed_field = False
     already_disabled = False
     unexpected_event = False
+    unexpected_reboot = False
     def __init__(self,*args,**kwargs):
+        self.connection_kwargs=kwargs
         self.status=101;self._next_id=1;self.outgoing=[];self.did_close=False
         self.__class__.instances.append(self)
         self.enabled=not self.already_disabled
@@ -48,6 +50,7 @@ class FakeClient(guard.ProtoClient):
         if frame['t']==50:
             if not self.reject_save:self.enabled=False
             data={} if self.reject_save else {'k':1}
+            if self.unexpected_reboot:data['rb']=1
             if not self.fail_reply:self.incoming.append({'v':2,'t':2,'id':frame['id'],'d':data})
     def recv(self,timeout=10):
         if not self.incoming:raise TimeoutError('fake timeout')
@@ -57,7 +60,7 @@ class FakeClient(guard.ProtoClient):
 class GuardTests(unittest.TestCase):
     def setUp(self):
         FakeClient.instances=[]
-        for flag in ('wrong_server','moving','gpio','bad_schema','reject_save','fail_reply','changed_field','already_disabled','unexpected_event'):
+        for flag in ('wrong_server','moving','gpio','bad_schema','reject_save','fail_reply','changed_field','already_disabled','unexpected_event','unexpected_reboot'):
             setattr(FakeClient,flag,False)
     def run_guard(self):return guard.disable_radio('192.0.2.1','expected',client_type=FakeClient)
     def test_exact_outbound_disable_and_readback(self):
@@ -66,6 +69,15 @@ class GuardTests(unittest.TestCase):
         self.assertEqual([f['t'] for f in client.outgoing],[3,3,49,50,49])
         self.assertEqual(client.outgoing[3]['d'],{'se':'radio','en':0})
         self.assertTrue(client.did_close)
+    def test_deployed_websocket_token_query_contract(self):
+        guard.disable_radio('192.0.2.1','expected',token='private-test-token',client_type=FakeClient)
+        client=FakeClient.instances[-1]
+        self.assertEqual(client.connection_kwargs.get('params'),{'apikey':'private-test-token'})
+        self.assertFalse(client.connection_kwargs.get('headers'))
+    def test_unexpected_reboot_reply_aborts_without_retry(self):
+        FakeClient.unexpected_reboot=True
+        with self.assertRaises(guard.GuardError):self.run_guard()
+        self.assertEqual([frame['t'] for frame in FakeClient.instances[-1].outgoing],[3,3,49,50])
     def test_already_disabled_is_read_only(self):
         FakeClient.already_disabled=True
         self.assertFalse(self.run_guard()['changed'])
