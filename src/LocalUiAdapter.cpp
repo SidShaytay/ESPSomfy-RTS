@@ -100,8 +100,16 @@ bool dispatch(const Command &cmd) {
     return false;
   shade_request_t request;
   if(cmd.action == Action::stop) {
-    // Never broadcast MY to a mixed/idle group. Recheck individual movement
-    // immediately on the model's owning loop, then reuse its command dispatcher.
+    // A moving pair can stop on its shared identity in one transmission,
+    // just like its Up/Down press. Never send a shared My to an idle member.
+    if(cmd.selected == 2 && current.targets[0].moving && current.targets[1].moving) {
+      request.type = shade_request_type_t::group_command;
+      request.id = 1;
+      request.command = somfy_commands::My;
+      return shadeRequests.run(request) == shade_request_result_t::done;
+    }
+    // Mixed groups and individual selections stop only the moving members,
+    // rechecked immediately on the model's owning loop.
     bool sent = false;
     for(uint8_t i = 0; i < 2; i++) {
       if(cmd.selected != 2 && cmd.selected != i)
