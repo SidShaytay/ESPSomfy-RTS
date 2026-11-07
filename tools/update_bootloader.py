@@ -18,7 +18,8 @@ def expected_header(bootloader, sdkconfig):
     return ('// Generated from the actual build bootloader; never edit or commit.\n'
             '#pragma once\n#include <cstddef>\n#include <cstdint>\n'
             f'constexpr size_t ESPSOMFY_BOOTLOADER_BYTES = {len(data)};\n'
-            f'constexpr uint8_t ESPSOMFY_BOOTLOADER_SHA256[32] = {{{digest}}};\n')
+            f'constexpr uint8_t ESPSOMFY_BOOTLOADER_SHA256[32] = {{{digest}}};\n'
+            f'constexpr char ESPSOMFY_BOOTLOADER_SHA256_HEX[] = \"{hashlib.sha256(data).hexdigest()}\";\n')
 
 
 def configure(env):
