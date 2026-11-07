@@ -135,6 +135,33 @@
         "board_build.psram_type": "qspi",
         "board_upload.flash_size": "4MB"
       }
+    },
+    "esp32c5-psram": {
+      "board": "esp32c5-psram",
+      "layout": "default_8MB",
+      "chip": "esp32c5",
+      "chip_id": 23,
+      "sdk_memory": "qio_qspi",
+      "flash_bytes": 8388608,
+      "psram_bytes": 8388608,
+      "bootloader_address": 0,
+      "app_bytes": 3342336,
+      "app0_address": 65536,
+      "app1_address": 3407872,
+      "fs_address": 6750208,
+      "fs_bytes": 1572864,
+      "nvs_address": 36864,
+      "nvs_bytes": 20480,
+      "build_settings": {
+        "board": "esp32-c5-devkitc-1",
+        "build_type": "release",
+        "board_build.partitions": "default_8MB.csv",
+        "board_build.flash_mode": "qio",
+        "board_build.f_flash": "80000000L",
+        "board_build.arduino.memory_type": "qio_qspi",
+        "board_build.psram_type": "qspi",
+        "board_upload.flash_size": "8MB"
+      }
     }
   }
 }

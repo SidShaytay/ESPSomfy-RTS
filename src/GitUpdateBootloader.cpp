@@ -1,6 +1,6 @@
 #include "GitUpdateBootloader.h"
 
-#ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
+#ifdef ESPSOMFY_GITHUB_UPDATES
 #include "GitUpdateBootloaderExpected.h"
 #include <esp_flash.h>
 #include <mbedtls/sha256.h>

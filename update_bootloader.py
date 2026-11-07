@@ -1,4 +1,4 @@
-"""PlatformIO pre-configuration hook for exact installed bootloader checks."""
+"""PlatformIO pre-configuration hook for exact installed bootloader checks across supported PSRAM profiles."""
 Import('env')
 import os
 import sys

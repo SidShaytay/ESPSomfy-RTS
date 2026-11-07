@@ -12,7 +12,7 @@ SOURCE = Path(__file__).resolve().parent.parent
 class ProfileTests(unittest.TestCase):
     def test_only_psram_release_profiles_are_enabled(self):
         profiles = p.supported_profiles(SOURCE)
-        self.assertEqual(set(profiles), {'lilygo-t-embed-cc1101-plus', 'lilygo-t-embed-cc1101', 'esp32s3-psram', 'esp32p4', 'esp32p4es'})
+        self.assertEqual(set(profiles), {'lilygo-t-embed-cc1101-plus', 'lilygo-t-embed-cc1101', 'esp32s3-psram', 'esp32p4', 'esp32p4es', 'esp32c5-psram'})
         for env in ('esp32dev', 'esp32s3', 'esp32s3dbg', 'esp32c3', 'esp32c5', 'esp32c6', 'native'):
             self.assertIsNone(p.load_profile(SOURCE, env))
 
@@ -31,6 +31,15 @@ class ProfileTests(unittest.TestCase):
             self.assertEqual(profile['app1_address'], 0x190000)
             self.assertEqual(profile['fs_address'], 0x310000)
             self.assertEqual(profile['chip_id'], 18)
+
+    def test_c5_psram_profile_does_not_change_legacy_target(self):
+        profile = p.load_profile(SOURCE, 'esp32c5-psram')
+        self.assertEqual(profile['chip_id'], 23)
+        self.assertEqual(profile['flash_bytes'], 0x800000)
+        self.assertEqual(profile['psram_bytes'], 0x800000)
+        self.assertEqual(profile['app_bytes'], 0x330000)
+        self.assertEqual(profile['sdk_memory'], 'qio_qspi')
+        self.assertIsNone(p.load_profile(SOURCE, 'esp32c5'))
 
     def test_profile_define_contract_is_complete(self):
         defines = dict(p.profile_defines(p.load_profile(SOURCE, 'esp32p4')))
@@ -61,6 +70,7 @@ class ProfileTests(unittest.TestCase):
         p.validate_image(self.image(), p.load_profile(SOURCE, 'esp32p4'))
         p.validate_image(self.image(chip=9), p.load_profile(SOURCE, 'esp32s3-psram'))
         p.validate_image(self.image(flash=0x2f), p.load_profile(SOURCE, 'esp32p4es'))
+        p.validate_image(self.image(chip=23, flash=0x3f), p.load_profile(SOURCE, 'esp32c5-psram'))
         with self.assertRaisesRegex(ValueError, 'chip'):
             p.validate_image(self.image(chip=9), p.load_profile(SOURCE, 'esp32p4'))
         with self.assertRaisesRegex(ValueError, 'flash'):
