@@ -88,6 +88,7 @@ class Transceiver {
     void resumeTx(uint8_t reason);
     bool txSuspended();
     bool txHasRoom();
+    bool suspendForUpdateIfIdle();
     void beginTransmit();
     void endTransmit();
     void emitFrame(somfy_frame_t *frame, somfy_rx_t *rx = nullptr);

@@ -867,6 +867,12 @@ bool Transceiver::txHasRoom() {
   TxQueueLock lock;
   return this->sched.hasRoom();
 }
+bool Transceiver::suspendForUpdateIfIdle() {
+  TxQueueLock lock;
+  if(this->sched.suspended() || !this->sched.idle()) return false;
+  this->sched.suspend(TX_SUSPEND_OTA, millis());
+  return true;
+}
 void Transceiver::suspendTx(uint8_t reason) {
   {
     // Suspends and flushes in one go so nothing is queued in between.

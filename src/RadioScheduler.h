@@ -47,6 +47,8 @@ class RadioScheduler {
     void suspend(uint8_t reason, uint32_t now);
     void resume(uint8_t reason);
     bool suspended() const { return this->suspendMask != 0; }
+    // Includes outcomes still awaiting loop-owned model accounting.
+    bool idle() const { return this->count == 0 && this->taken == 0 && this->eventCount == 0; }
     // Takes the oldest job outcome not yet handed out.  Every job submitted
     // that isn't a repeater frame is started and then finished or aborted, or
     // dropped.
