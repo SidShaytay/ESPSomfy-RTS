@@ -16,19 +16,25 @@ We removed it: the release check and its setting, the release list, download and
 - Issue #76 and PR #72 (GitOTA's per-chip littlefs file name) become obsolete.
 - The HTTPS client leaves the firmware, which frees flash in the 1.5 MB OTA slot.
 
-## Fork follow-up: exact-board Plus updates (issue #12)
+## Fork follow-up: verified PSRAM-board updates (issue #12)
 
-The upstream decision above remains accepted for its generic builds. This fork's
-[Plus update design](../github-updates.md) revisits the constraints for an opt-in
-16 MiB-flash/8 MiB-PSRAM profile only: verified outbound HTTPS, deliberate PSRAM
-allocation/staging, bounded background operations, consistent authenticated
-routes, exact-board release identity and manifest validation, and firmware-only
-inactive-slot writes with postboot health/rollback checks. The local web UI still
-uses HTTP; this does not add a local HTTPS server.
+The upstream decision above remains accepted for its original generic builds.
+This fork's [verified update design](../github-updates.md) revisits the constraints
+for explicit release profiles with at least 8 MiB working PSRAM: verified outbound
+HTTPS, deliberate PSRAM allocation/staging, bounded background operations,
+consistent authenticated routes, exact-board release identity and web-asset
+fingerprints, and firmware-only inactive-slot writes with attested bootloader and
+postboot health/rollback checks. The local web UI still uses HTTP.
 
-[Other board configurations](../board-memory.md) frequently have no PSRAM enabled
-and retain the upstream manual update behavior. The Plus's standard 3.1875 MiB
-OTA slots permit a different flash budget from the generic 1.5 MiB slots.
-Independent review, measured memory/responsiveness and fault/rollback/state
-continuity tests remain requirements for live acceptance. No hardware access or
-service-window approval is implied by this addendum.
+[Board memory and profile requirements](../board-memory.md) distinguish no-PSRAM
+builds, single-slot debug builds, and opt-in PSRAM release targets. Existing
+partition layouts are preserved; actual image size must fit each profile's slot
+and required headroom. Memory capacity alone never enables installation or
+selects another board's binary.
+
+The [evidence matrix](../github-update-validation.md) maps every original
+objection to an implemented control and offline verification, and identifies the
+remaining live tests. Independent review, measured memory/responsiveness and
+fault/rollback/state-continuity tests remain requirements for hardware acceptance.
+No controller access, release publication or service-window approval is implied
+by this addendum.
