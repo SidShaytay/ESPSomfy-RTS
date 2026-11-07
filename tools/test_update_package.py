@@ -16,7 +16,7 @@ def profile(chip=9):
             'flash_bytes':0x1000000,'psram_bytes':0x800000,'app_bytes':0x330000,
             'app0_address':0x10000,'app1_address':0x340000,'fs_address':0x670000,
             'fs_bytes':0x180000,'nvs_address':0x9000,'nvs_bytes':0x5000,
-            'bootloader_address':0,'sdk_memory':'qio_opi' if chip==9 else 'qio_qspi',
+            'bootloader_address':0 if chip==9 else 0x2000,'sdk_memory':'qio_opi' if chip==9 else 'qio_qspi',
             'build_settings':{'board':'fixture','build_type':'release','board_build.partitions':'fixture.csv'}}
 
 
@@ -57,7 +57,8 @@ class PackageTests(unittest.TestCase):
         settings=dict(spec['build_settings'],platform=p.PLATFORM,framework=['arduino'])
         defines=p.expected_defines(spec)
         compiler={'env_name':spec['board'],'build_type':'release','defines':[key+('='+value if value else '') for key,value in defines.items()],
-                  'cc_flags':[],'cxx_flags':[],'includes':{'build':['/sdk/'+spec['chip']+'/'+spec['sdk_memory']+'/include']}}
+                  'cc_flags':[],'cxx_flags':[],'includes':{'build':['/sdk/'+spec['chip']+'/'+spec['sdk_memory']+'/include']},
+                  'extra':{'flash_images':[{'offset':hex(spec['bootloader_address']),'path':'/build/'+spec['board']+'/bootloader.bin'},{'offset':'0x8000','path':'/build/'+spec['board']+'/partitions.bin'}]}}
         (self.directory/'resolved-config.json').write_text(json.dumps([['env:'+spec['board'],list(settings.items())]]))
         (self.directory/'compiler-metadata.json').write_text(json.dumps({spec['board']:compiler}))
 
@@ -88,6 +89,12 @@ class PackageTests(unittest.TestCase):
         changed=dict(self.profile,app1_address=0x350000)
         (self.directory/'partitions.bin').write_bytes(table(changed))
         with self.assertRaises(ValueError): p.artifact_manifest(self.directory,self.profile)
+
+    def test_rejects_wrong_bootloader_flash_offset(self):
+        path=self.directory/'compiler-metadata.json';metadata=json.loads(path.read_text())
+        metadata[self.profile['board']]['extra']['flash_images'][0]['offset']='0x2000'
+        path.write_text(json.dumps(metadata))
+        with self.assertRaisesRegex(ValueError,'flash image offset'): p.artifact_manifest(self.directory,self.profile)
 
     def test_rejects_effective_macro_override(self):
         path=self.directory/'compiler-metadata.json';metadata=json.loads(path.read_text())
