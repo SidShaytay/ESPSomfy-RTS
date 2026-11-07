@@ -4247,6 +4247,10 @@ class Firmware {
         if (this.isMobile()) document.getElementById('btnBackupCfg').style.display = 'inline-block';
     }
     updateApplication() {
+        if (this.gitUpdate && this.gitUpdate.snapshot && this.gitUpdate.snapshot.supported) {
+            ui.infoMessage('Filesystem changes require coherent provisioning during an approved service window. Web filesystem upload is disabled on this profile.');
+            return;
+        }
         let div = this.createFileUploader('/updateApplication');
         general.reloadApp = true;
         let inst = div.querySelector('div[id=divInstText]');

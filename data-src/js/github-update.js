@@ -17,6 +17,8 @@ class GitUpdateView {
     render(status) {
         this.snapshot = status;
         this.node('divGitUpdate').style.display = status.supported ? '' : 'none';
+        this.node('btnUpdateApplication').disabled = !!status.supported;
+        this.node('btnUpdateApplication').style.display = status.supported ? 'none' : '';
         if (!status.supported) return;
         // Release metadata and errors are untrusted text, never HTML.
         const labels = {
@@ -25,6 +27,7 @@ class GitUpdateView {
             spanGitSource: status.source || '',
             spanGitState: status.state || 'idle',
             spanGitError: status.error || '',
+            spanGitFilesystemPolicy: 'Filesystem changes require coherent provisioning during an approved service window. Web filesystem upload is disabled on this profile.',
             spanGitCompatibility: status.canInstall && status.compatible ? 'Exact board and application match' : 'Not approved for installation'
         };
         for (const id of Object.keys(labels)) this.node(id).textContent = labels[id];
