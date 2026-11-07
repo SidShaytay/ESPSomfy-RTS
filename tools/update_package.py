@@ -78,9 +78,17 @@ def configuration(directory,profile):
             if flag.startswith(('-D','-U')):
                 name,_,value=flag[2:].partition('=')
                 if name in required and (flag.startswith('-U') or normalize(value)!=normalize(required[name])): raise ValueError('compiler flag overrides profile: '+name)
+    flash_images=compiler.get('extra',{}).get('flash_images',[])
+    for filename,address in (('bootloader.bin',profile['bootloader_address']),('partitions.bin',0x8000)):
+        entries=[entry for entry in flash_images if Path(entry.get('path','')).name==filename]
+        try:
+            valid=len(entries)==1 and int(entries[0]['offset'],0)==address and Path(entries[0]['path']).parent.name==environment
+        except (KeyError,TypeError,ValueError):
+            valid=False
+        if not valid: raise ValueError('build flash image offset or environment differs: '+filename)
     suffix='/'+profile['chip']+'/'+profile['sdk_memory']+'/include'
     if not any(path.replace('\\','/').endswith(suffix) for path in compiler.get('includes',{}).get('build',[])): raise ValueError('compiler SDK memory configuration differs from exact profile')
-    return {'resolved':settings,'compiler':{key:compiler.get(key) for key in ('env_name','build_type','defines','cc_flags','cxx_flags','includes')}}
+    return {'resolved':settings,'compiler':{key:compiler.get(key) for key in ('env_name','build_type','defines','cc_flags','cxx_flags','includes','extra')}}
 
 
 def artifact_manifest(directory,profile):
