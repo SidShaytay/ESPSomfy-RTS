@@ -30,3 +30,22 @@ full_version_str = f'\\"v{version}\\"'
 env.Append(CPPDEFINES=[
     ("FW_VERSION", full_version_str)
 ])
+# Exact-board update identity is derived before compilation and checked again by
+# the release packager. A dirty/untagged build is explicitly a development build.
+if env.get("PIOENV") == "lilygo-t-embed-cc1101-plus":
+    import json
+    from pathlib import Path
+    import sys
+    sys.path.insert(0, os.path.join(project_dir, "tools"))
+    from lilygo_manifest import source_record
+    from update_identity import identity, tags_at_head
+    source = source_record(Path(project_dir))
+    build_identity = identity(source, version, tags_at_head(project_dir))
+    for name, value in (("ESPSOMFY_SOURCE_SHA", build_identity["source_sha"]),
+                        ("ESPSOMFY_RELEASE_TAG", build_identity["version"]),
+                        ("ESPSOMFY_APP_COMPAT", build_identity["app_compat"])):
+        env.Append(CPPDEFINES=[(name, '\\\"' + value + '\\\"')])
+    build_dir = Path(env.subst("$BUILD_DIR"))
+    build_dir.mkdir(parents=True, exist_ok=True)
+    (build_dir / "update-source.json").write_text(
+        json.dumps({"source": source, "identity": build_identity}, sort_keys=True, indent=2) + "\n")
