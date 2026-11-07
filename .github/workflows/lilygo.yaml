@@ -31,6 +31,8 @@ jobs:
         run: |
           CXX=g++ bash tools/test-board-profile.sh
           CXX=g++ bash tools/test-update-bootloader.sh
+          CXX=g++ bash tools/test-update-memory.sh
+          CXX=g++ bash tools/test-restore-upload.sh
       - name: Offline manifest rejection tests
         run: |
           python tools/test_lilygo_manifest.py
@@ -38,6 +40,10 @@ jobs:
           python tools/test_update_bootloader.py
       - name: Build and validate exact Plus artifacts
         run: bash tools/build-lilygo.sh
+      - name: Exercise production update worker with offline SDK faults
+        env:
+          ARDUINOJSON_INCLUDE: .pio/libdeps/lilygo-t-embed-cc1101-plus/ArduinoJson/src
+        run: CXX=g++ bash tools/test-update-worker.sh
       - name: Retain reviewable artifacts and manifest
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

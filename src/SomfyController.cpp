@@ -25,6 +25,7 @@
 #include "GitUpdateMemory.h"
 #include "GitUpdateHealth.h"
 #include "GitUpdateIdentity.h"
+#include "GitUpdateBootloader.h"
 #include "ConfigFile.h"
 
 static const char *TAG = "Main";
@@ -48,12 +49,13 @@ static GitUpdateHealth updateHealth;
 static bool filesystemHealthy = false;
 static bool configHealthy = false;
 static bool applicationHealthy = false;
+static bool bootloaderHealthy = false;
 static bool updateQuiesced = false;
 
 // Called on loop() alone after the entire candidate has been verified. Refuse
 // to interrupt a moving shade or a pending radio job (including its outcome).
 static bool prepareGitInstall() {
-  if(!filesystemHealthy || !configHealthy || !applicationHealthy) return false;
+  if(!filesystemHealthy || !configHealthy || !applicationHealthy || !bootloaderHealthy || !somfy.transceiver.available()) return false;
   for(auto &shade : somfy.shades) {
     if(shade.getShadeId() != 255 && !shade.isIdle()) return false;
   }
@@ -214,6 +216,7 @@ void setup() {
     applicationHealthy = version == ESPSOMFY_APP_COMPAT;
   }
   applicationVersion.close();
+  bootloaderHealthy = gitUpdateBootloaderMatches();
 #endif
   somfy.begin();
   // The core starts the watchdog with a 5s timeout before setup(), so
@@ -283,7 +286,7 @@ void loop() {
   }
   const bool bootProven = otaPending &&
 #if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
-    updateHealth.proven(filesystemHealthy && configHealthy && applicationHealthy && net.connected() &&
+    updateHealth.proven(filesystemHealthy && configHealthy && applicationHealthy && bootloaderHealthy && net.connected() &&
       somfy.transceiver.available() &&
       pass.us() < 1000000 && heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) >= 24576,
       millis(), OTA_PROVEN_MS);
