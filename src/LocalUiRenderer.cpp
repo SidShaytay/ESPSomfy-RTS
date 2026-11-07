@@ -1,0 +1,208 @@
+#if defined(ESPSOMFY_LOCAL_UI) || defined(LOCAL_UI_HOST_PREVIEW)
+#include "LocalUiRenderer.h"
+#include <Fonts/FreeSans9pt7b.h>
+#include <Fonts/FreeSansBold12pt7b.h>
+#include <stdio.h>
+#include <string.h>
+namespace LocalUi {
+namespace {
+constexpr uint16_t rgb(unsigned c) {
+  return ((c >> 8) & 0xf800) | ((c >> 5) & 0x07e0) | ((c >> 3) & 0x001f);
+}
+constexpr uint16_t bg = rgb(0x111719), white = rgb(0xeaece8), muted = rgb(0x929d9b), teal = rgb(0x66c6b5),
+                   amber = rgb(0xe5bc67), selected = rgb(0x21433f), line = rgb(0x3a4848);
+const char *notices[] = {"",
+                         "Preview only - no commands",
+                         "Command queued",
+                         "Radio unavailable / refused",
+                         "STOP unavailable while idle",
+                         "Target changed - reopen",
+                         "Wait for screen, then press",
+                         "Brightness saved",
+                         "Brightness save failed"};
+} // namespace
+void Canvas::drawPixel(int16_t x, int16_t y, uint16_t color) {
+  if(pixels && x >= 0 && x < screenWidth && y >= 0 && y < screenHeight)
+    pixels[y * screenWidth + x] = color;
+}
+void Canvas::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color) {
+  int x1 = x + w, y1 = y + h;
+  if(x < 0)
+    x = 0;
+  if(y < 0)
+    y = 0;
+  if(x1 > screenWidth)
+    x1 = screenWidth;
+  if(y1 > screenHeight)
+    y1 = screenHeight;
+  if(!pixels)
+    return;
+  for(int yy = y; yy < y1; ++yy)
+    for(int xx = x; xx < x1; ++xx)
+      pixels[yy * screenWidth + xx] = color;
+}
+void Canvas::text(int x, int y, const char *s, bool title, uint16_t color, int maxWidth) {
+  char label[48];
+  snprintf(label, sizeof(label), "%.47s", s);
+  setFont(title ? &FreeSansBold12pt7b : &FreeSans9pt7b);
+  setTextSize(1);
+  setTextColor(color);
+  setTextWrap(false);
+  int16_t bx, by;
+  uint16_t w, h;
+  getTextBounds(label, 0, 0, &bx, &by, &w, &h);
+  if(w > maxWidth) {
+    size_t n = strlen(label);
+    do {
+      if(n <= 3) {
+        label[0] = 0;
+        break;
+      }
+      --n;
+      label[n - 3] = '.';
+      label[n - 2] = '.';
+      label[n - 1] = '.';
+      label[n] = 0;
+      getTextBounds(label, 0, 0, &bx, &by, &w, &h);
+    } while(w > maxWidth);
+  }
+  setCursor(x, y);
+  print(label);
+}
+void Canvas::shutter(int x, int y, int open, uint16_t color) {
+  drawRoundRect(x, y, 28, 32, 2, color);
+  if(open < 0) {
+    drawLine(x + 8, y + 8, x + 20, y + 24, muted);
+    drawLine(x + 20, y + 8, x + 8, y + 24, muted);
+    return;
+  }
+  for(int yy = 4; yy < 28 * (100 - open) / 100; yy += 4)
+    drawFastHLine(x + 4, y + yy, 20, color);
+}
+void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot &s) {
+  fillScreen(bg);
+  char label[48];
+  if(v.screen == Screen::details || !s.running) {
+    StatusDisplay::Page page;
+    StatusDisplay::format(s, page);
+    for(int i = 0; i < 9; i++)
+      text(8, 16 + i * 18, page.lines[i], false, i == 0 ? teal : muted);
+    return;
+  }
+  if(v.screen == Screen::status) {
+    text(12, 29, "Shutters", true, white);
+    drawFastHLine(12, 40, 296, line);
+    // Simple radio aerial and Wi-Fi bars; no unsupported battery/USB glyph.
+    drawLine(22, 57, 22, 77, teal);
+    drawLine(16, 79, 22, 66, teal);
+    drawLine(28, 79, 22, 66, teal);
+    drawCircle(22, 57, 3, teal);
+    const bool radio = s.radio == StatusDisplay::Radio::ready;
+    text(40, 67, radio ? "Radio ready" : "Radio offline", false, radio ? white : amber, 132);
+    snprintf(label, sizeof(label), "%.2f MHz", s.frequency);
+    text(40, 88, label, false, muted, 132);
+    const char *wifi = s.link == StatusDisplay::Link::connected     ? "Connected"
+                       : s.link == StatusDisplay::Link::accessPoint ? "Access point"
+                       : s.link == StatusDisplay::Link::connecting  ? "Connecting"
+                                                                    : "Disconnected";
+    text(194, 63, "Wi-Fi", false, muted, 110);
+    text(194, 86, wifi, false, s.link == StatusDisplay::Link::disconnected ? amber : white, 110);
+    for(int i = 0; i < 3; i++)
+      fillRect(282 + i * 7, 27 - i * 5, 4, 5 + i * 5,
+               s.link == StatusDisplay::Link::connected ? teal : muted);
+    drawFastHLine(12, 103, 296, line);
+    const bool address =
+        s.link == StatusDisplay::Link::connected || s.link == StatusDisplay::Link::accessPoint;
+    text(12, 125, address && s.address[0] ? s.address : "No IP address", false, white, 190);
+    snprintf(label, sizeof(label), "Up %luh%02um", (unsigned long)(s.uptimeSeconds / 3600 % 10000),
+             (unsigned)(s.uptimeSeconds / 60 % 60));
+    text(207, 125, label, false, muted, 102);
+    text(12, 146,
+         s.web == StatusDisplay::Web::listening  ? "HTTP listening"
+         : s.web == StatusDisplay::Web::starting ? "HTTP starting"
+                                                 : "HTTP error",
+         false, s.web == StatusDisplay::Web::error ? amber : muted);
+    text(12, 164, "Turn: choose   Hold: details", false, muted);
+  } else if(v.screen == Screen::choose) {
+    text(12, 28, "Choose shutters", true, white);
+    const int first = v.selected >= 3 ? v.selected - 2 : 0;
+    for(int row = 0; row < 3; row++) {
+      int i = first + row, y = 40 + row * 34;
+      bool active = i == v.selected;
+      fillRoundRect(10, y, 300, 30, 5, active ? selected : bg);
+      drawRoundRect(10, y, 300, 30, 5, active ? teal : line);
+      if(active)
+        fillRoundRect(10, y, 4, 30, 2, teal);
+      if(i < 3) {
+        const auto &t = m.targets[i];
+        uint16_t color = i == 2 ? amber : muted;
+        drawRect(21, y + 7, 14, 16, color);
+        for(int yy = 11; yy < 22; yy += 4)
+          drawFastHLine(24, y + yy, 8, color);
+        if(i == 2)
+          drawRect(38, y + 7, 14, 16, amber);
+        text(i == 2 ? 62 : 48, y + 21, t.name[0] ? t.name : "Not configured", false, t.valid ? white : muted,
+             i == 2 ? 236 : 250);
+      } else
+        text(48, y + 21, i == 3 ? "Status" : "Brightness", false, white);
+    }
+    text(12, 164, v.notice == Notice::none ? "Turn: select   Press: open" : notices[int(v.notice)], false,
+         v.notice == Notice::none ? muted : teal);
+  } else if(v.screen == Screen::brightness) {
+    text(12, 28, "Brightness", true, white);
+    snprintf(label, sizeof(label), "%u%%", unsigned((v.level * 100 + 127) / 255));
+    text(12, 70, label, true, teal);
+    text(112, 69, "Awake brightness", false, muted, 195);
+    drawRoundRect(12, 89, 296, 18, 5, line);
+    fillRoundRect(15, 92, (290 * v.level + 254) / 255, 12, 3, teal);
+    text(12, 132, "Dim: 10s   Off: 20s idle", false, muted);
+    text(12, 164, "Turn: adjust   Press: save", false, muted);
+  } else {
+    const auto &t = m.targets[v.selected];
+    text(12, 28, t.name[0] ? t.name : "Not configured", true, white);
+    if(v.selected == 2) {
+      snprintf(label, sizeof(label), "Bedroom %s", t.open[0] < 0 ? "--" : "");
+      if(t.open[0] >= 0)
+        snprintf(label, sizeof(label), "Bedroom  %d%% open", t.open[0]);
+      text(12, 52, label, false, muted);
+      if(t.open[1] < 0)
+        snprintf(label, sizeof(label), "Bathroom --");
+      else
+        snprintf(label, sizeof(label), "Bathroom %d%% open", t.open[1]);
+      text(12, 73, label, false, muted);
+      text(214, 63, "Estimated", false, amber, 96);
+    } else {
+      shutter(14, 42, t.open[0], teal);
+      if(t.open[0] < 0)
+        snprintf(label, sizeof(label), "Position unavailable");
+      else
+        snprintf(label, sizeof(label), "Estimated %d%% open", t.open[0]);
+      text(56, 64, label, false, muted, 252);
+    }
+    const char *actions[] = {"UP", "STOP", "DOWN"};
+    for(int i = 0; i < 3; i++) {
+      int x = 12 + i * 102;
+      bool active = i == int(v.action);
+      bool enabled = t.valid && (i != 1 || t.moving);
+      fillRoundRect(x, 85, 94, 52, 6, active ? selected : bg);
+      drawRoundRect(x, 85, 94, 52, 6, active ? teal : line);
+      uint16_t color = enabled ? white : muted;
+      if(i == 1)
+        drawRect(x + 42, 94, 10, 10, color);
+      else {
+        int dir = i == 0 ? -1 : 1;
+        drawLine(x + 37, 99 - dir * 4, x + 47, 99 + dir * 4, color);
+        drawLine(x + 47, 99 + dir * 4, x + 57, 99 - dir * 4, color);
+      }
+      text(x + (i == 2 ? 19 : i == 1 ? 23 : 32), 127, actions[i], false, color, 90);
+    }
+    if(v.notice != Notice::none)
+      text(12, 163, notices[int(v.notice)], false, amber);
+    else if(!m.controlsEnabled)
+      text(12, 163, "Preview: commands locked", false, amber);
+    else
+      text(12, 163, "Press: send   Hold: back", false, muted);
+  }
+}
+} // namespace LocalUi
+#endif
