@@ -52,10 +52,15 @@ static void reset() {
   Fake::memoryReady=true;Fake::fsCompatible=true;Fake::bootloaderMatches=true;
   Fake::failBegin=false;Fake::failWrite=false;Fake::failEnd=false;Fake::failActivate=false;Fake::allocationFail=false;
   Fake::cancelledDuringPrepare=false;Fake::cancelDuringWrite=false;Fake::cancelAcceptedDuringWrite=false;
+  Fake::extraAppPartition=false;Fake::extraOtaPartition=false;
   Fake::prepareCalls=0;Fake::otaBegins=0;Fake::otaWrites=0;Fake::otaEnds=0;Fake::otaActivations=0;Fake::otaAborts=0;
   Fake::autoLoop=true;Fake::onYield=nullptr;Fake::onRead=nullptr;Fake::psramPhysical=8388608;Fake::flashPhysical=GitUpdateProfile::flashBytes;
   Fake::written.clear();Fake::responses.clear();Fake::urls.clear();Fake::seenAccept.clear();
-  rebootDelay={};nextPartition={GitUpdateProfile::app1Address,GitUpdateProfile::appBytes};fsPartition={GitUpdateProfile::fsAddress,GitUpdateProfile::fsBytes};fakeImageState=ESP_OTA_IMG_VALID;
+  rebootDelay={};runningPartition={GitUpdateProfile::app0Address,GitUpdateProfile::appBytes};
+  nextPartition={GitUpdateProfile::app1Address,GitUpdateProfile::appBytes,ESP_PARTITION_TYPE_APP,ESP_PARTITION_SUBTYPE_APP_OTA_1};
+  fsPartition={GitUpdateProfile::fsAddress,GitUpdateProfile::fsBytes,ESP_PARTITION_TYPE_DATA,ESP_PARTITION_SUBTYPE_DATA_SPIFFS};
+  nvsPartition={GitUpdateProfile::nvsAddress,GitUpdateProfile::nvsBytes,ESP_PARTITION_TYPE_DATA,ESP_PARTITION_SUBTYPE_DATA_NVS};
+  otaPartition={0xe000,0x2000,ESP_PARTITION_TYPE_DATA,ESP_PARTITION_SUBTYPE_DATA_OTA};fakeImageState=ESP_OTA_IMG_VALID;
   fixtures();gitUpdate.begin(prepare);
 }
 static void run() { try { worker(nullptr); } catch(FakeTaskExit &) {} gitUpdate.loop(); }
@@ -69,6 +74,8 @@ static void check_success_headers_and_manual_exclusion() {
   CHECK(Fake::seenAccept[manifestUrl]=="application/octet-stream");CHECK(!gitUpdate.busy());
   CHECK(Fake::otaBegins==0);CHECK(!rebootDelay.reboot);
   JsonDocument status;gitUpdate.status(status.to<JsonObject>());CHECK(status["workerStackMinimumBytes"].as<unsigned>()==8192);
+  CHECK(status["lifetimeMinimumInternalFree"].as<unsigned>()==70000);
+  CHECK(status["bootloaderIdentity"].as<std::string>().find("ESPSOMFY_BOOT_ID:")==0);
 }
 static void verified_connection_and_host_failures_never_write() {
   reset();Fake::responses[apiUrl].connection=false;CHECK(gitUpdate.requestCheck());run();CHECK(currentState()=="error");CHECK(Fake::otaBegins==0);
@@ -143,6 +150,20 @@ static void check_environment_and_allocator_fail_closed() {
   reset();fakeImageState=ESP_OTA_IMG_PENDING_VERIFY;CHECK(gitUpdate.requestCheck());run();CHECK(currentState()=="error");CHECK(Fake::urls.empty());
   reset();Fake::allocationFail=true;CHECK(gitUpdate.requestCheck());run();CHECK(currentState()=="error");CHECK(Fake::otaBegins==0);
 }
+static void altered_partition_semantics_reject_before_https() {
+  for(unsigned which=0;which<8;which++) {
+    reset();
+    if(which==0) otaPartition.address+=0x1000;
+    if(which==1) otaPartition.size-=0x1000;
+    if(which==2) { runningPartition.subtype=ESP_PARTITION_SUBTYPE_APP_OTA_1;nextPartition.subtype=ESP_PARTITION_SUBTYPE_APP_OTA_0; }
+    if(which==3) runningPartition.type=ESP_PARTITION_TYPE_DATA;
+    if(which==4) Fake::extraAppPartition=true;
+    if(which==5) Fake::extraOtaPartition=true;
+    if(which==6) fsPartition.size+=0x1000;
+    if(which==7) nvsPartition.address+=0x1000;
+    CHECK(gitUpdate.requestCheck());run();CHECK(currentState()=="error");CHECK(Fake::urls.empty());CHECK(Fake::otaBegins==0);
+  }
+}
 static void cancel_before_and_during_preparation_preserves_slot() {
   reset();CHECK(gitUpdate.requestCheck());CHECK(gitUpdate.requestCancel());run();CHECK(currentState()=="cancelled");CHECK(Fake::otaBegins==0);CHECK(!gitUpdate.busy());
   reset();available();Fake::onRead=[] { if(currentState()=="downloading") { CHECK(gitUpdate.requestCancel());Fake::onRead=nullptr; } };
@@ -168,7 +189,7 @@ static void success_writes_only_inactive_slot_and_refuses_late_cancel() {
 int main() {
   check_success_headers_and_manual_exclusion();verified_connection_and_host_failures_never_write();
   transfer_faults_leave_active_slot_untouched();authenticated_but_incompatible_images_never_write();check_environment_and_allocator_fail_closed();
-  cancel_before_and_during_preparation_preserves_slot();ota_failures_never_activate_and_resume_with_reboot();
+  altered_partition_semantics_reject_before_https();cancel_before_and_during_preparation_preserves_slot();ota_failures_never_activate_and_resume_with_reboot();
   success_writes_only_inactive_slot_and_refuses_late_cancel();
   std::cout<<GitUpdatePolicy::BOARD<<" production worker: "<<assertions<<" assertions passed\n";
 }

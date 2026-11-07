@@ -41,6 +41,7 @@ inline bool memoryReady=true,fsCompatible=true,bootloaderMatches=true;
 inline bool failBegin=false,failWrite=false,failEnd=false,failActivate=false,allocationFail=false;
 inline bool cancelledDuringPrepare=false,cancelDuringWrite=false,cancelAcceptedDuringWrite=false;
 inline bool autoLoop=true;
+inline bool extraAppPartition=false,extraOtaPartition=false;
 inline unsigned prepareCalls=0,otaBegins=0,otaWrites=0,otaEnds=0,otaActivations=0,otaAborts=0;
 inline uint32_t otaAddress=0;
 inline std::function<void()> onYield;
@@ -67,6 +68,7 @@ inline void *heap_caps_malloc(size_t bytes,int) { return Fake::allocationFail ? 
 inline void *heap_caps_realloc(void *p,size_t bytes,int) { return std::realloc(p,bytes); }
 inline void heap_caps_free(void *p) { std::free(p); }
 inline size_t heap_caps_get_free_size(int) { return 100000; }
+inline size_t heap_caps_get_minimum_free_size(int) { return 70000; }
 inline size_t heap_caps_get_largest_free_block(int) { return 80000; }
 inline size_t esp_psram_get_size() { return Fake::psramPhysical; }
 struct FakeEsp {
@@ -100,12 +102,33 @@ inline GitUpdateMemoryStats gitUpdateMemoryStats() { return {1,2,3,0}; }
 inline const char *gitUpdateIdentity() { return "test-running-identity"; }
 inline bool gitUpdateAssetsMatch() { return Fake::fsCompatible; }
 inline const char *gitUpdateBootloaderDigest() { return "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"; }
+inline const char *gitUpdateBootloaderIdentity() { return "ESPSOMFY_BOOT_ID:0:256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"; }
 inline bool gitUpdateBootloaderMatches() { return Fake::bootloaderMatches; }
 inline esp_err_t esp_crt_bundle_attach(void *) { return ESP_OK; }
 
-constexpr int ESP_PARTITION_TYPE_DATA=1,ESP_PARTITION_SUBTYPE_DATA_SPIFFS=2,ESP_PARTITION_SUBTYPE_DATA_NVS=3;
-struct esp_partition_t { uint32_t address;uint32_t size; };
-inline esp_partition_t runningPartition{GitUpdateProfile::app0Address,GitUpdateProfile::appBytes},nextPartition{GitUpdateProfile::app1Address,GitUpdateProfile::appBytes},fsPartition{GitUpdateProfile::fsAddress,GitUpdateProfile::fsBytes},nvsPartition{GitUpdateProfile::nvsAddress,GitUpdateProfile::nvsBytes};
+constexpr int ESP_PARTITION_TYPE_APP=0,ESP_PARTITION_TYPE_DATA=1,ESP_PARTITION_SUBTYPE_DATA_SPIFFS=2,ESP_PARTITION_SUBTYPE_DATA_NVS=3;
+constexpr int ESP_PARTITION_SUBTYPE_APP_OTA_0=16,ESP_PARTITION_SUBTYPE_APP_OTA_1=17,ESP_PARTITION_SUBTYPE_ANY=255,ESP_PARTITION_SUBTYPE_DATA_OTA=0;
+struct esp_partition_t { uint32_t address;uint32_t size;int type=ESP_PARTITION_TYPE_APP;int subtype=ESP_PARTITION_SUBTYPE_APP_OTA_0; };
+inline esp_partition_t runningPartition{GitUpdateProfile::app0Address,GitUpdateProfile::appBytes},nextPartition{GitUpdateProfile::app1Address,GitUpdateProfile::appBytes,ESP_PARTITION_TYPE_APP,ESP_PARTITION_SUBTYPE_APP_OTA_1},
+  fsPartition{GitUpdateProfile::fsAddress,GitUpdateProfile::fsBytes,ESP_PARTITION_TYPE_DATA,ESP_PARTITION_SUBTYPE_DATA_SPIFFS},nvsPartition{GitUpdateProfile::nvsAddress,GitUpdateProfile::nvsBytes,ESP_PARTITION_TYPE_DATA,ESP_PARTITION_SUBTYPE_DATA_NVS},
+  otaPartition{0xe000,0x2000,ESP_PARTITION_TYPE_DATA,ESP_PARTITION_SUBTYPE_DATA_OTA},extraApp{0xf00000,0x10000,ESP_PARTITION_TYPE_APP,0};
+struct FakePartitionIterator { std::vector<const esp_partition_t *> partitions;size_t index=0; };
+using esp_partition_iterator_t=FakePartitionIterator *;
+inline esp_partition_iterator_t esp_partition_find(int type,int subtype,const char *) {
+  auto *iterator=new FakePartitionIterator;
+  std::vector<const esp_partition_t *> all{&runningPartition,&nextPartition,&fsPartition,&nvsPartition,&otaPartition};
+  if(Fake::extraAppPartition) all.push_back(&extraApp);
+  if(Fake::extraOtaPartition) all.push_back(&otaPartition);
+  for(const auto *partition:all) if(partition->type==type && (subtype==ESP_PARTITION_SUBTYPE_ANY || partition->subtype==subtype)) iterator->partitions.push_back(partition);
+  if(iterator->partitions.empty()) { delete iterator;return nullptr; }
+  return iterator;
+}
+inline const esp_partition_t *esp_partition_get(esp_partition_iterator_t iterator) { return iterator->partitions[iterator->index]; }
+inline void esp_partition_iterator_release(esp_partition_iterator_t iterator) { delete iterator; }
+inline esp_partition_iterator_t esp_partition_next(esp_partition_iterator_t iterator) {
+  if(++iterator->index<iterator->partitions.size()) return iterator;
+  delete iterator;return nullptr;
+}
 enum esp_ota_img_states_t { ESP_OTA_IMG_VALID=0,ESP_OTA_IMG_PENDING_VERIFY=1,ESP_OTA_IMG_UNDEFINED=2 };
 inline esp_ota_img_states_t fakeImageState=ESP_OTA_IMG_VALID;
 inline const esp_partition_t *esp_ota_get_running_partition() { return &runningPartition; }

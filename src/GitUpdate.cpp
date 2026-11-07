@@ -269,9 +269,29 @@ const char *environmentError() {
   return "Framework has no boot rollback support";
 #else
   if(ESP.getFlashChipSize()!=FLASH_BYTES || esp_psram_get_size()<PSRAM_BYTES) return "Exact-board flash/PSRAM requirements are not met";
+  const auto exactApp=[](const esp_partition_t *partition) {
+    return partition && partition->type==ESP_PARTITION_TYPE_APP && partition->size==APP_BYTES &&
+      ((partition->address==GitUpdateProfile::app0Address && partition->subtype==ESP_PARTITION_SUBTYPE_APP_OTA_0) ||
+       (partition->address==GitUpdateProfile::app1Address && partition->subtype==ESP_PARTITION_SUBTYPE_APP_OTA_1));
+  };
+  unsigned app0=0,app1=0;
+  for(esp_partition_iterator_t it=esp_partition_find(ESP_PARTITION_TYPE_APP,ESP_PARTITION_SUBTYPE_ANY,nullptr);it;it=esp_partition_next(it)) {
+    const esp_partition_t *partition=esp_partition_get(it);
+    if(!exactApp(partition)) { esp_partition_iterator_release(it);return "Unexpected application partition in update layout"; }
+    if(partition->address==GitUpdateProfile::app0Address) app0++;
+    else app1++;
+  }
+  if(app0!=1 || app1!=1) return "Update layout must contain exactly one of each OTA application slot";
+  unsigned otaData=0;
+  for(esp_partition_iterator_t it=esp_partition_find(ESP_PARTITION_TYPE_DATA,ESP_PARTITION_SUBTYPE_DATA_OTA,nullptr);it;it=esp_partition_next(it)) {
+    const esp_partition_t *partition=esp_partition_get(it);
+    if(!partition || partition->address!=0xe000 || partition->size!=0x2000) { esp_partition_iterator_release(it);return "OTA selection metadata differs from supported layout"; }
+    otaData++;
+  }
+  if(otaData!=1) return "Update layout must contain exactly one OTA selection metadata partition";
   const esp_partition_t *running=esp_ota_get_running_partition();
   const esp_partition_t *next=esp_ota_get_next_update_partition(nullptr);
-  if(!running || !next || running==next || running->size!=APP_BYTES || next->size!=APP_BYTES ||
+  if(!exactApp(running) || !exactApp(next) || running==next ||
     !((running->address==GitUpdateProfile::app0Address && next->address==GitUpdateProfile::app1Address) ||
     (running->address==GitUpdateProfile::app1Address && next->address==GitUpdateProfile::app0Address))) return "Running partition layout differs from exact-board dual-slot profile";
   const esp_partition_t *fs=esp_partition_find_first(ESP_PARTITION_TYPE_DATA,ESP_PARTITION_SUBTYPE_DATA_SPIFFS,"spiffs");
@@ -430,12 +450,14 @@ void GitUpdateClass::status(JsonObject out) const {
   out["available"]=copy.available;
   out["source"]=REPOSITORY;
   out["identity"]=gitUpdateIdentity();
+  out["bootloaderIdentity"]=gitUpdateBootloaderIdentity();
   out["compatible"]=copy.compatible;
   out["busy"]=busy();
   out["progress"]=copy.progress;
   out["error"]=copy.error;
   out["canInstall"]=!busy() && task && !quiesced && copy.compatible && newer(copy.available,ESPSOMFY_RELEASE_TAG) && !environmentError();
   out["minInternalFree"]=copy.minInternal;
+  out["lifetimeMinimumInternalFree"]=heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT);
   out["minLargestInternalBlock"]=copy.minLargestInternal;
   out["maxPsramUsed"]=copy.maxPsramUsed;
   const auto memory=gitUpdateMemoryStats();
