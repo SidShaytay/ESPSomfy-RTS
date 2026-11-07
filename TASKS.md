@@ -14,15 +14,15 @@
    - Wheel one item per detent, clockwise down; GPIO6 Back. Saved brightness and independent dim/sleep delays including No dim / No sleep. First input after dim/off wakes only. Sid confirmed screen, wheel and Back work.
 2. [x] Fixed category gate, source `11ef3d4`. Actual paired RTS shutters (category 4) were incorrectly rejected by a roller-only condition. All categories now reach the existing dispatcher. Production-adapter regression reproduced the bug then passed, with identity/STOP checks retained. The other agent already included this fix in its installed firmware.
 3. [x] Scrollable Details versions, source `49b715f`. Firmware comes from compiled `FW_VERSION`; Application from installed filesystem `settings.appVersion.name`. Six visible rows, ten total, wheel scroll; removed redundant issue/build label. Renderer tests check changed version values and scrolling change pixels.
-4. [x] Battery reader implemented and checked offline; commit pending.
+4. [x] Battery reader implemented and checked offline; committed as `ebeb209`; USB identity/battery diagnostics added in `ce5f559`.
    - BQ27220 at 0x55 on SDA8/SCL18, I2C controller1 at100kHz, 2ms transaction timeout. Only register-pointer reads; no charger/gauge configuration changes. Five registers sampled across loop passes, ten-second cycles. Gauge SOC/voltage shown on Status/Details; absent/uninitialized/invalid/failed readings explicit.
    - Final checks: 662 native tests passed plus one optional skip; renderer/runtime/capture/adapter, panel/radio/GPIO harnesses passed. UI/simple-status/headless builds passed. SOC-condition mutation caused four tests to fail.
 
 ## Active installation
 
 5. [-] Build and install cumulative display update.
-   - Need: commit battery changes, create separate `codex/issue-15-details-power-deployment` worktree from the installed issue-23 deployment baseline, integrate this feature branch, resolve native source-filter union, then build/test combined source.
-   - Next: take fresh controller/settings/counter backup; verify current standard partition layout against the other agent’s verified full dump (`~/.local/state/espsomfy-lilygo/issue23-install-20261107T030006Z`). Retain exact installed rollback binary/ELF. Firmware-only inactive-slot OTA; no filesystem/NVS/bootloader/table overwrite. Check enabled-controls header, battery reading, Wi-Fi/radio, configuration and uptime after reboot. Do not actuate shutters.
+   - Deployment worktree `/var/mnt/data/projects/personal/ESPSomfy-RTS/issue-15-details-power-deployment`, branch `codex/issue-15-details-power-deployment`, source `b1ad2e4`, preserves installed issue-23 source plus current UI. Combined build passed; 706 native tests plus one optional skip, 63 JS tests, renderer/runtime/capture/adapter and panel/radio/GPIO harnesses passed.
+   - Fresh portable/settings/counter capture passed with idle shades. Full16MiB ROM read is in progress (tool session24081) under private pointer `~/.local/state/espsomfy-lilygo/LATEST_UI_DETAILS_POWER_INSTALL`; board is held in ROM, no flash written yet. Exact previous installed firmware/ELF retained. Next: finish/verify dump, layout/OTA selection, NVS/config/counters; boot old app, refresh state, then install. Firmware-only inactive-slot OTA; no filesystem/NVS/bootloader/table overwrite. Check enabled-controls header, battery reading, Wi-Fi/radio, configuration and uptime after reboot. Do not actuate shutters.
 
 ## Limits and tools
 
