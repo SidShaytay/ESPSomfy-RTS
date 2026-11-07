@@ -18,6 +18,7 @@ static Manifest valid() {
   m.asset = FIRMWARE_ASSET;
   m.size = 1000000;
   m.sha256 = std::string(64, 'a');
+  m.bootloaderSha = std::string(64, 'b');
   m.channel = "stable";
   return m;
 }
@@ -34,6 +35,7 @@ static void rejects_wrong_web_application_and_generic_artifact() {
 }
 static void rejects_bad_digest_size_revision_and_version() {
   Manifest m=valid();m.sha256[5]='g';TEST_ASSERT_NOT_NULL(validate(m,"4.0.2"));
+  m=valid();m.bootloaderSha[5]='g';TEST_ASSERT_NOT_NULL(validate(m,"4.0.2"));
   m=valid();m.sourceSha.resize(39);TEST_ASSERT_NOT_NULL(validate(m,"4.0.2"));
   m=valid();m.size=APP_BYTES+1;TEST_ASSERT_NOT_NULL(validate(m,"4.0.2"));
   m=valid();m.size=0;TEST_ASSERT_NOT_NULL(validate(m,"4.0.2"));
@@ -60,6 +62,7 @@ static void image_identity_must_match_authenticated_manifest() {
   m.sourceSha[0]='b';TEST_ASSERT_FALSE(hasIdentity(reinterpret_cast<const uint8_t *>(image.data()),image.size(),m));
   m=valid();image.resize(100+marker.size()-1);TEST_ASSERT_FALSE(hasIdentity(reinterpret_cast<const uint8_t *>(image.data()),image.size(),m));
 }
+#include "transfer_cases.h"
 int main() {
   UNITY_BEGIN();
   RUN_TEST(accepts_exact_board_release);
@@ -69,5 +72,9 @@ int main() {
   RUN_TEST(versions_compare_numerically_and_reject_downgrades);
   RUN_TEST(permits_only_known_https_redirect_hosts);
   RUN_TEST(image_identity_must_match_authenticated_manifest);
+  RUN_TEST(body_rejects_missing_and_oversized_lengths);
+  RUN_TEST(body_accepts_partial_reads_and_requires_clean_completion);
+  RUN_TEST(body_stalls_cancellation_and_chunked_overflow_fail_closed);
+  RUN_TEST(chunked_metadata_requires_real_end_and_enforces_capacity);
   return UNITY_END();
 }

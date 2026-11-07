@@ -15,7 +15,7 @@ constexpr uint32_t PSRAM_BYTES = 8388608;
 constexpr uint32_t APP_BYTES = 0x330000;
 struct Manifest {
   uint32_t schema = 0, flashBytes = 0, psramBytes = 0, size = 0;
-  std::string board, layout, appCompat, version, sourceSha, asset, sha256, channel;
+  std::string board, layout, appCompat, version, sourceSha, asset, sha256, channel, bootloaderSha;
 };
 const char *validate(const Manifest &manifest, const char *installedApp);
 bool newer(const char *available, const char *installed);

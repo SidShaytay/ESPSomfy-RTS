@@ -19,11 +19,18 @@ bool GitUpdateClass::busy() const { return owner.load() != 0; }
 
 #if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
 #include "GitUpdatePolicy.h"
+#include "GitUpdateTransfer.h"
+#if defined(GIT_UPDATE_HOST_TEST)
+#include "../tests/git-update-worker/Runtime.h"
+#else
 #include "GitUpdateMemory.h"
 #include "GitUpdateIdentity.h"
+#include "GitUpdateAssets.h"
+#include "GitUpdateBootloader.h"
 #include "ConfigSettings.h"
 #include "Utils.h"
 #include <Arduino.h>
+#include <LittleFS.h>
 #include <esp_http_client.h>
 #include <esp_crt_bundle.h>
 #include <esp_ota_ops.h>
@@ -33,6 +40,7 @@ bool GitUpdateClass::busy() const { return owner.load() != 0; }
 #include <mbedtls/sha256.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#endif
 #include <ctime>
 #include <cstring>
 #include <cstdio>
@@ -62,11 +70,12 @@ struct Snapshot {
 };
 portMUX_TYPE lock=portMUX_INITIALIZER_UNLOCKED;
 Snapshot snapshot;
-TaskHandle_t task=nullptr;
+std::atomic<TaskHandle_t> task{nullptr};
 std::atomic<bool> cancelled{false};
 std::atomic<unsigned> preparation{0}; // 1 requested, 2 prepared, 3 refused, 4 loop preparing
 std::atomic<bool> operationDone{false};
 bool (*prepareCallback)()=nullptr;
+std::atomic<bool> installedAssetsCompatible{false};
 std::atomic<bool> quiesced{false};
 Manifest candidate;
 std::string firmwareDigest;
@@ -150,7 +159,7 @@ bool download(const std::string &initial, Buffer &out,size_t &received,uint32_t 
     if(!client) { fail("Unable to allocate verified HTTPS client"); return false; }
     struct Cleanup { esp_http_client_handle_t client; ~Cleanup() { esp_http_client_cleanup(client); } } cleanup{client};
     esp_http_client_set_header(client,"Accept-Encoding","identity");
-    esp_http_client_set_header(client,"Accept","application/octet-stream");
+    esp_http_client_set_header(client,"Accept",metadata ? "application/vnd.github+json" : "application/octet-stream");
     if(esp_http_client_open(client,0)!=ESP_OK) { fail("Verified HTTPS connection failed (certificate, hostname, clock, or network)"); return false; }
     measure();
     const int64_t length=esp_http_client_fetch_headers(client);
@@ -162,20 +171,21 @@ bool download(const std::string &initial, Buffer &out,size_t &received,uint32_t 
       continue;
     }
     if(code!=200) { fail(code==404 ? "No exact-board stable release is published" : "GitHub refused download; retry later"); return false; }
-    const bool chunked=esp_http_client_is_chunked_response(client);
-    if((chunked && !metadata) || (!chunked && length<=0) || uint64_t(length)>out.size) { fail("Download size missing or exceeds staging bound"); return false; }
-    while(chunked ? !esp_http_client_is_complete_data_received(client) : received<size_t(length)) {
-      if(stopped(start)) { fail("Download cancelled or exceeded time limit"); return false; }
-      const size_t left=(chunked ? out.size : size_t(length))-received;
-      if(left==0) { fail("Metadata exceeds download bound");return false; }
-      const int bytes=esp_http_client_read(client,reinterpret_cast<char *>(out.data+received),left>CHUNK ? CHUNK : left);
-      if(bytes==0 && chunked && esp_http_client_is_complete_data_received(client)) break;
-      if(bytes<=0) { fail("Download truncated or connection stalled"); return false; }
-      received+=size_t(bytes);
-      if(report) progress(received,size_t(length));
-      vTaskDelay(1);
+    const GitUpdateTransfer::Bounds bounds{out.size,length,esp_http_client_is_chunked_response(client),metadata};
+    const auto result=GitUpdateTransfer::readBody(bounds,out.data,received,
+      [&](uint8_t *destination,size_t count) { return esp_http_client_read(client,reinterpret_cast<char *>(destination),count); },
+      [&] { return esp_http_client_is_complete_data_received(client); },
+      [&] { return stopped(start); },
+      [&](size_t count,size_t total) { if(report) progress(count,total);vTaskDelay(1); });
+    if(result!=GitUpdateTransfer::Result::Complete) {
+      switch(result) {
+        case GitUpdateTransfer::Result::Stopped: fail("Download cancelled or exceeded time limit");break;
+        case GitUpdateTransfer::Result::Overflow: fail("Download exceeds staging bound");break;
+        case GitUpdateTransfer::Result::InvalidBounds: fail("Download size missing or exceeds staging bound");break;
+        default: fail("Download truncated or connection stalled");break;
+      }
+      return false;
     }
-    if(!esp_http_client_is_complete_data_received(client)) { fail("Download did not finish cleanly"); return false; }
     return true;
   }
   fail("Too many HTTPS redirects");
@@ -216,7 +226,7 @@ bool check(uint32_t start) {
   if(!release["draft"].is<bool>() || !release["prerelease"].is<bool>() || release["draft"].as<bool>() || release["prerelease"].as<bool>()) { fail("Only published stable releases are supported"); return false; }
   // Validate tag before constructing any release URL.
   Manifest probe;probe=Manifest();probe.schema=1;probe.board=BOARD;probe.layout=LAYOUT;probe.flashBytes=FLASH_BYTES;probe.psramBytes=PSRAM_BYTES;
-  probe.appCompat=ESPSOMFY_APP_COMPAT;probe.version=tag;probe.sourceSha=std::string(40,'0');probe.asset=FIRMWARE_ASSET;probe.size=1024;probe.sha256=std::string(64,'0');probe.channel="stable";
+  probe.appCompat=ESPSOMFY_APP_COMPAT;probe.version=tag;probe.sourceSha=std::string(40,'0');probe.asset=FIRMWARE_ASSET;probe.size=1024;probe.sha256=std::string(64,'0');probe.bootloaderSha=std::string(64,'0');probe.channel="stable";
   if(validate(probe,ESPSOMFY_APP_COMPAT)) { fail("Release tag is not a supported stable semantic version"); return false; }
   std::string manifestDigest;
   size_t firmwareSize=0,manifestSize=0;
@@ -239,8 +249,9 @@ bool check(uint32_t start) {
   Manifest m;
   m.schema=json["schema"];m.size=json["size"];m.flashBytes=json["flash_bytes"];m.psramBytes=json["psram_bytes"];
   m.board=json["board"] | "";m.layout=json["layout"] | "";m.appCompat=json["app_compat"] | "";
-  m.version=json["version"] | "";m.sourceSha=json["source_sha"] | "";m.asset=json["asset"] | "";m.sha256=json["sha256"] | "";m.channel=json["channel"] | "";
+  m.version=json["version"] | "";m.sourceSha=json["source_sha"] | "";m.asset=json["asset"] | "";m.sha256=json["sha256"] | "";m.channel=json["channel"] | "";m.bootloaderSha=json["bootloader_sha256"] | "";
   if(const char *error=validate(m,ESPSOMFY_APP_COMPAT)) { fail(error);return false; }
+  if(m.bootloaderSha!=gitUpdateBootloaderDigest()) { fail("Release requires a different installed bootloader; service provisioning required");return false; }
   if(m.version!=tag || m.size!=firmwareSize || firmwareDigest.substr(7)!=m.sha256) { fail("Manifest differs from authenticated GitHub release");return false; }
   candidate=m;
   const bool update=newer(m.version.c_str(),ESPSOMFY_RELEASE_TAG);
@@ -252,6 +263,8 @@ bool check(uint32_t start) {
   return true;
 }
 const char *environmentError() {
+  if(!gitUpdateBootloaderMatches()) return "Installed bootloader is not attested for rollback";
+  if(!installedAssetsCompatible) return "Installed LittleFS assets differ from compiled compatibility";
 #if !defined(CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE) || !CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE
   return "Framework has no boot rollback support";
 #else
@@ -264,7 +277,8 @@ const char *environmentError() {
   const esp_partition_t *nvs=esp_partition_find_first(ESP_PARTITION_TYPE_DATA,ESP_PARTITION_SUBTYPE_DATA_NVS,"nvs");
   if(!fs || fs->address!=0x670000 || fs->size!=0x180000 || !nvs || nvs->address!=0x9000 || nvs->size!=0x5000) return "Filesystem or NVS partition differs from supported layout";
   esp_ota_img_states_t imageState;
-  if(esp_ota_get_state_partition(running,&imageState)==ESP_OK && imageState==ESP_OTA_IMG_PENDING_VERIFY) return "Current firmware is awaiting health confirmation";
+  if(esp_ota_get_state_partition(running,&imageState)!=ESP_OK ||
+    (imageState!=ESP_OTA_IMG_VALID && imageState!=ESP_OTA_IMG_UNDEFINED)) return "Current firmware is unconfirmed or has an invalid OTA state";
   return nullptr;
 #endif
 }
@@ -325,7 +339,12 @@ void worker(void *) {
     // NTP/bootstrap is not weakened to make HTTPS connect. The user configures
     // NTP normally; its wall clock remains subject to the existing network's
     // trust. TLS itself enforces certificate validity and hostname afterwards.
-    if(time(nullptr)<1735689600) fail("Clock is unset; wait for configured NTP before checking GitHub");
+#if defined(ESPSOMFY_SOURCE_EPOCH)
+    const time_t clockFloor=ESPSOMFY_SOURCE_EPOCH;
+#else
+    const time_t clockFloor=1735689600;
+#endif
+    if(time(nullptr)<clockFloor) fail("Clock is unset; wait for configured NTP before checking GitHub");
     else if(!gitUpdateMemoryReady()) fail("PSRAM TLS allocator is unavailable");
     else if(const char *error=environmentError()) fail(error);
     else if(command==1) check(start);
@@ -343,9 +362,12 @@ void worker(void *) {
 void GitUpdateClass::begin(bool (*callback)()) {
   if(task) return;
   prepareCallback=callback;
+  installedAssetsCompatible=gitUpdateAssetsMatch();
   // ESP-IDF xTaskCreate allocates an internal task stack even when the large
   // TLS buffers and complete firmware image live in external PSRAM.
-  if(xTaskCreatePinnedToCore(worker,"github-update",12288,nullptr,1,&task,0)!=pdPASS) state("error","Unable to start bounded GitHub update worker");
+  TaskHandle_t created=nullptr;
+  if(xTaskCreatePinnedToCore(worker,"github-update",12288,nullptr,1,&created,0)!=pdPASS) state("error","Unable to start bounded GitHub update worker");
+  else task.store(created);
 }
 void GitUpdateClass::loop() {
   if(owner.load()==1) measure();
@@ -389,11 +411,13 @@ bool GitUpdateClass::requestInstall() {
 }
 bool GitUpdateClass::requestCancel() {
   if(owner.load()!=1) return false;
-  Snapshot copy;
-  portENTER_CRITICAL(&lock);copy=snapshot;portEXIT_CRITICAL(&lock);
-  if(strcmp(copy.state,"rebooting")==0) return false;
-  cancelled.store(true);
-  return true;
+  // Serialize the accepted cancellation with entry into the non-cancellable
+  // flash phase. A request can never report success after activation starts.
+  portENTER_CRITICAL(&lock);
+  const bool allowed=strcmp(snapshot.state,"checking")==0 || strcmp(snapshot.state,"downloading")==0 || strcmp(snapshot.state,"verifying")==0;
+  if(allowed) cancelled.store(true);
+  portEXIT_CRITICAL(&lock);
+  return allowed;
 }
 void GitUpdateClass::status(JsonObject out) const {
   Snapshot copy;

@@ -32,7 +32,7 @@ const char *validate(const Manifest &m, const char *installedApp) {
   if(!installedApp || m.appCompat != installedApp) return "Release needs different web assets; firmware-only update refused";
   if(m.asset != FIRMWARE_ASSET) return "Release firmware asset is not exact-board";
   if(m.size < 1024 || m.size > APP_BYTES) return "Release firmware size exceeds supported slot";
-  if(!hex(m.sha256,64) || !hex(m.sourceSha,40)) return "Release digest or source revision invalid";
+  if(!hex(m.sha256,64) || !hex(m.sourceSha,40) || !hex(m.bootloaderSha,64)) return "Release digest or source revision invalid";
   if(m.version.size() > 47 || !version(m.version.c_str(),parts) || m.channel != "stable") return "Only stable semantic-version releases are supported";
   return nullptr;
 }
