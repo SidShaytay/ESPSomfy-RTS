@@ -1,6 +1,7 @@
 #include <Preferences.h>
 #include "esp_log.h"
 #include "Somfy.h"
+#include "GroupMotion.h"
 
 static const char *TAG = "Somfy";
 
@@ -95,6 +96,7 @@ void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
   SomfyRemote *remote = this->findRemote(frame.remoteAddress);
   if(!remote) return;
   if(remote != this && frame.cmd != somfy_commands::Sensor) remote->setRollingCode(frame.rollingCode);
+  if(!internal && commandSupersedesPositioning(frame.cmd)) this->prepareCommand();
   this->behaviour.onFrame(frame, internal, millis());
 }
 void SomfyShade::processWaitingFrame() { this->behaviour.onWaitingFrame(millis()); }
@@ -102,21 +104,83 @@ void SomfyShade::processInternalCommand(somfy_commands cmd, uint8_t repeat) { th
 void SomfyShade::checkMovement() { this->behaviour.tick(millis()); }
 void SomfyShade::markTxPending(uint32_t ticket) { this->behaviour.onTxQueued(ticket, millis()); }
 void SomfyShade::processTxEvent(const somfy_tx_event_t &evt) { this->behaviour.onTxEvent(evt); }
+void SomfyShade::prepareCommand(uint32_t exceptTicket) {
+  somfy.cancelGroupStartsForShade(this->getShadeId());
+  somfy.transceiver.cancelTx(this->getRemoteAddress(), exceptTicket);
+  this->behaviour.cancelPositioning();
+}
 bool SomfyShade::sendCommand(somfy_commands cmd) { return this->sendCommand(cmd, this->repeats); }
 bool SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
+  if(commandSupersedesPositioning(cmd) && this->hasPendingGroupStart()) return false;
+  if(this->behaviour.ownsGroupPositioning() && (cmd == somfy_commands::My || cmd == somfy_commands::Stop))
+    return this->stopGroupTarget();
   // This sendCommand function will always be called externally. sendCommand at the remote level
   // is expected to be called internally when the motor needs commanded.
   if(this->bitLength == 0) this->bitLength = somfy.transceiver.config.type;
-  return this->behaviour.sendCommand(cmd, repeat, stepSize, millis());
+  this->prepareOnSend = commandSupersedesPositioning(cmd);
+  const bool accepted = this->behaviour.sendCommand(cmd, repeat, stepSize, millis());
+  this->prepareOnSend = false;
+  return accepted;
 }
-bool SomfyShade::sendTiltCommand(somfy_commands cmd) { return this->behaviour.sendTiltCommand(cmd, millis()); }
-bool SomfyShade::moveToTarget(float pos, float tilt) { return this->behaviour.moveToTarget(pos, tilt, millis()); }
-bool SomfyShade::moveToTiltTarget(float target) { return this->behaviour.moveToTiltTarget(target, millis()); }
-bool SomfyShade::setMyPosition(int8_t pos, int8_t tilt) { return this->behaviour.setMyPosition(pos, tilt, millis()); }
-bool SomfyShade::moveToMyPosition() { return this->behaviour.moveToMyPosition(millis()); }
+bool SomfyShade::sendTiltCommand(somfy_commands cmd) {
+  if(this->hasPendingGroupStart()) return false;
+  this->prepareOnSend = true;
+  const bool accepted = this->behaviour.sendTiltCommand(cmd, millis());
+  this->prepareOnSend = false;
+  return accepted;
+}
+bool SomfyShade::moveToTarget(float pos, float tilt) {
+  if(this->hasPendingGroupStart()) return false;
+  this->prepareOnSend = true;
+  const bool accepted = this->behaviour.ownsGroupPositioning() && tilt < 0
+    ? this->behaviour.moveToGroupTarget(pos, millis())
+    : this->behaviour.moveToTarget(pos, tilt, millis());
+  this->prepareOnSend = false;
+  return accepted;
+}
+bool SomfyShade::moveToGroupTarget(float pos) {
+  if(this->hasPendingGroupStart()) return false;
+  this->prepareOnSend = true;
+  const bool accepted = this->behaviour.moveToGroupTarget(pos, millis());
+  this->prepareOnSend = false;
+  return accepted;
+}
+bool SomfyShade::stopGroupTarget() {
+  if(this->hasPendingGroupStart()) return false;
+  this->prepareOnSend = true;
+  const bool accepted = this->behaviour.stopGroupTarget(millis());
+  this->prepareOnSend = false;
+  return accepted;
+}
+bool SomfyShade::moveToTiltTarget(float target) {
+  if(this->hasPendingGroupStart()) return false;
+  this->prepareOnSend = true;
+  const bool accepted = this->behaviour.moveToTiltTarget(target, millis());
+  this->prepareOnSend = false;
+  return accepted;
+}
+bool SomfyShade::setMyPosition(int8_t pos, int8_t tilt) {
+  if(this->hasPendingGroupStart()) return false;
+  return this->behaviour.setMyPosition(pos, tilt, millis());
+}
+bool SomfyShade::moveToMyPosition() {
+  if(this->hasPendingGroupStart()) return false;
+  this->prepareOnSend = true;
+  const bool accepted = this->behaviour.moveToMyPosition(millis());
+  this->prepareOnSend = false;
+  return accepted;
+}
 void SomfyShade::setPosition(float pos, float tilt) { this->behaviour.setPosition(pos, tilt); }
 send_result_t SomfyShade::send(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority) {
-  return SomfyRemote::sendCommandAfter(cmd, repeat, stepSize, delayMs, priority, true);
+  const send_result_t sent = SomfyRemote::sendCommandAfter(cmd, repeat, stepSize, delayMs, priority, true);
+  // Only supersede the old target after admission. A refused replacement must
+  // leave its queued stop and timing intact. Behaviour hears the new frame
+  // after this returns, so clearing old timing cannot erase the new plan.
+  if(sent.sent && this->prepareOnSend) {
+    this->prepareOnSend = false;
+    this->prepareCommand(sent.ticket);
+  }
+  return sent;
 }
 void SomfyShade::onSaveWanted() { somfy.isDirty = true; }
 void SomfyShade::onSensorFlags() { somfy.updateGroupFlags(); }

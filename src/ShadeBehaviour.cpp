@@ -1,5 +1,6 @@
 #include "esp_log.h"
 #include "ShadeBehaviour.h"
+#include "GroupMotion.h"
 
 static const char *TAG = "Somfy";
 
@@ -14,6 +15,9 @@ ShadeBehaviour::ShadeBehaviour(const ShadeSettings &settings, const RemoteSettin
     MotorLink &link, ShadeEvents &events, const uint8_t &shadeId, const char *name)
   : settings(settings), remote(remote), lastFrame(lastFrame), link(link), events(events), shadeId(shadeId), name(name) {}
 void ShadeBehaviour::clear() {
+  this->tx = ShadeTxState{};
+  this->groupStartTicket = 0;
+  this->groupPositioning = this->groupDeferred = this->groupStopOnAir = false;
   this->moveStart = 0;
   this->tiltStart = 0;
   this->sensors.clear();
@@ -75,6 +79,29 @@ bool ShadeBehaviour::isAtTarget() const {
 }
 void ShadeBehaviour::tick(uint32_t now) {
   const uint32_t curTime = now;
+  if(this->hasPendingGroupStart()) {
+    // Do not queue any My before a full directional press has gone on air.
+    // A partial start might leave the motor idle, when My recalls a favorite.
+    if(this->tx.hold.held()) this->moveStart = this->tiltStart = now;
+    else if(this->groupStartDir) {
+      const uint32_t travel = this->groupStartDir > 0 ? this->settings.downTime : this->settings.upTime;
+      this->p_currentPos(travelPosition(this->startPos, this->groupStartDir, now - this->moveStart, travel));
+      this->p_direction(this->groupStartDir);
+    }
+    return;
+  }
+  if(this->groupPositioning && this->tx.stopTicket) {
+    if(this->groupStopOnAir) return; // stop is on air; wait for its outcome
+    const int8_t dir = this->tx.stopDir;
+    const uint32_t travel = dir > 0 ? this->settings.downTime : this->settings.upTime;
+    this->p_currentPos(travelPosition(this->groupStopPos, dir, now - this->tx.stopAt, travel));
+    this->p_direction(dir);
+    return; // One queued stop; do not send another or claim it already stopped.
+  }
+  if(this->groupPositioning && this->isIdle()) {
+    this->groupPositioning = false;
+    this->settingPos = false;
+  }
   const bool sunFlag = this->s.stateFlags & static_cast<uint8_t>(somfy_flags_t::SunFlag);
   const bool isSunny = this->s.stateFlags & static_cast<uint8_t>(somfy_flags_t::Sunny);
   const bool isWindy = this->s.stateFlags & static_cast<uint8_t>(somfy_flags_t::Windy);
@@ -92,7 +119,8 @@ void ShadeBehaviour::tick(uint32_t now) {
   // moving. If this is only a tilt action then the regular tilt action should operate fine.
   int8_t currDir = this->s.direction;
   int8_t currTiltDir = this->s.tiltDirection;
-  this->p_direction(this->s.currentPos == this->s.target ? 0 : this->s.currentPos > this->s.target ? -1 : 1);
+  if(this->groupPositioning && this->groupStartDir) this->p_direction(this->groupStartDir);
+  else this->p_direction(this->s.currentPos == this->s.target ? 0 : this->s.currentPos > this->s.target ? -1 : 1);
   bool tilt_first = this->settings.tiltType == tilt_types::integrated && ((this->s.direction == -1 && this->s.currentTiltPos != 0.0f) || (this->s.direction == 1 && this->s.currentTiltPos != 100.0f));
 
   this->p_tiltDirection(this->s.currentTiltPos == this->s.tiltTarget ? 0 : this->s.currentTiltPos > this->s.tiltTarget ? -1 : 1);
@@ -119,7 +147,7 @@ void ShadeBehaviour::tick(uint32_t now) {
   if(!tilt_first && this->s.direction > 0) {
     this->p_currentPos(travelPosition(this->startPos, 1, (uint32_t)(curTime - this->moveStart), downTime));
     if(this->s.currentPos >= this->s.target) {
-      this->p_currentPos(this->s.target);
+      if(!this->groupPositioning) this->p_currentPos(this->s.target);
       //if(this->settingMyPos) Serial.printf("IsAtTarget: %d  %f=%f\n", this->isAtTarget(), this->s.currentPos, this->s.target);
       // If we need to stop the shade do this before we indicate that we are
       // not moving otherwise the my function will kick in.
@@ -133,9 +161,16 @@ void ShadeBehaviour::tick(uint32_t now) {
             this->moveToTiltTarget(this->s.tiltTarget, now);
           }
         }
+        else return;
+      }
+      if(this->groupPositioning && this->tx.stopTicket) {
+        this->p_direction(1);
+        this->settingPos = false;
+        return;
       }
       this->p_direction(0);
       this->settingPos = false;
+      if(!this->tx.stopTicket) this->groupPositioning = false;
       this->tiltStart = curTime;
       this->startTiltPos = this->s.currentTiltPos;
       if(this->isAtTarget()) this->commitShadePosition();
@@ -145,7 +180,7 @@ void ShadeBehaviour::tick(uint32_t now) {
     // Shades often move slower up so this uses its own travel time.
     this->p_currentPos(travelPosition(this->startPos, -1, (uint32_t)(curTime - this->moveStart), upTime));
     if(this->s.currentPos <= this->s.target) {
-      this->p_currentPos(this->s.target);
+      if(!this->groupPositioning) this->p_currentPos(this->s.target);
       //if(this->settingMyPos) Serial.printf("IsAtTarget: %d  %f=%f\n", this->isAtTarget(), this->s.currentPos, this->s.target);
       
       // If we need to stop the shade do this before we indicate that we are
@@ -160,9 +195,16 @@ void ShadeBehaviour::tick(uint32_t now) {
             this->moveToTiltTarget(this->s.tiltTarget, now);
           }
         }
+        else return;
+      }
+      if(this->groupPositioning && this->tx.stopTicket) {
+        this->p_direction(-1);
+        this->settingPos = false;
+        return;
       }
       this->p_direction(0);
       this->settingPos = false;
+      if(!this->tx.stopTicket) this->groupPositioning = false;
       this->tiltStart = curTime;
       this->startTiltPos = this->s.currentTiltPos;
       if(this->isAtTarget()) this->commitShadePosition();
@@ -466,7 +508,7 @@ void ShadeBehaviour::onFrame(somfy_frame_t &frame, bool internal, uint32_t now) 
   this->startPos = this->s.currentPos;
   this->startTiltPos = this->s.currentTiltPos;
   // If the command is coming from a remote then we are aborting all these positioning operations.
-  if(!internal) this->settingMyPos = this->settingPos = this->settingTiltPos = false;
+  if(!internal && commandSupersedesPositioning(frame.cmd)) this->settingMyPos = this->settingPos = this->settingTiltPos = false;
   somfy_commands cmd = this->transformCommand(frame.cmd);
   // At this point we are not processing the combo buttons
   // will need to see what the shade does when you press both.
@@ -699,11 +741,100 @@ void ShadeBehaviour::onFrame(somfy_frame_t &frame, bool internal, uint32_t now) 
   //if(dir == 0 && this->settings.tiltType == tilt_types::tiltmotor && this->s.tiltDirection != 0) this->setTiltMovement(0, now);
   this->setMovement(dir, now);
 }
+void ShadeBehaviour::cancelPositioning() {
+  // Cancelling a queued stop leaves a moving motor running to its limit.
+  // Forget its ticket so a late dropped outcome cannot revive an old plan.
+  if(this->tx.stopTicket && !this->groupStopOnAir) {
+    this->runToLimit(this->tx.stopDir, this->tx.stopTilt, this->tx.stopAt);
+  }
+  else if(this->tx.hold.held()) {
+    this->p_target(this->s.currentPos);
+    this->p_tiltTarget(this->s.currentTiltPos);
+    this->p_direction(0);
+    this->p_tiltDirection(0);
+  }
+  else {
+    if(this->s.direction) this->p_target(limitTarget(this->s.direction));
+    if(this->s.tiltDirection) this->p_tiltTarget(limitTarget(this->s.tiltDirection));
+  }
+  this->settingPos = this->settingTiltPos = this->settingMyPos = false;
+  this->tx = ShadeTxState{};
+  this->groupStartTicket = 0;
+  this->groupPositioning = this->groupDeferred = this->groupStopOnAir = false;
+}
+bool ShadeBehaviour::stopGroupTarget(uint32_t now) {
+  if(this->hasPendingGroupStart()) return false;
+  if(this->tx.stopTicket) { this->groupDeferred = false; return true; }
+  if(this->isIdle()) return true;
+  const int8_t dir = this->s.direction ? this->s.direction : this->s.target > this->s.currentPos ? 1 : -1;
+  if(!this->queueStop(dir, false, now)) return false;
+  this->groupPositioning = true;
+  this->groupDeferred = false;
+  this->p_direction(dir);
+  return true;
+}
+bool ShadeBehaviour::moveToGroupTarget(float target, uint32_t now) {
+  if(!(target >= 0 && target <= 100) || this->hasPendingGroupStart()) return false;
+  if(this->groupPositioning && this->tx.stopTicket) {
+    this->groupDeferred = true;
+    this->groupNextTarget = target;
+    return true;
+  }
+  if(!this->isIdle()) {
+    // Stop before a reversal or a same-direction replacement. Sending a fresh
+    // directional button while moving can have motor-specific stop semantics.
+    int8_t dir = this->s.direction;
+    if(!dir) dir = this->s.target > this->s.currentPos ? 1 : -1;
+    if(!this->tx.stopTicket && !this->queueStop(dir, false, now)) return false;
+    this->groupPositioning = true;
+    this->groupDeferred = true;
+    this->groupNextTarget = target;
+    this->p_direction(dir);
+    return true;
+  }
+  bool sent;
+  if(target == 0 || target == 100)
+    sent = this->sendCommand(target == 0 ? somfy_commands::Up : somfy_commands::Down, this->remote.repeats, 0, now);
+  else sent = this->moveToTarget(target, -1, now);
+  if(sent) {
+    this->groupPositioning = true;
+    this->groupStartTicket = this->tx.hold.ticket;
+    this->groupStartDir = target > this->s.currentPos ? 1 : target < this->s.currentPos ? -1 : 0;
+  }
+  return sent;
+}
+void ShadeBehaviour::observeGroupStart(uint32_t ticket) {
+  // Ordinary directional group commands need the same override barrier:
+  // a priority individual My must not overtake their queued shared start.
+  this->groupStartTicket = ticket;
+  this->groupStartDir = this->s.target > this->s.currentPos ? 1 : this->s.target < this->s.currentPos ? -1 : 0;
+}
+void ShadeBehaviour::adoptGroupTarget(float target, uint32_t ticket, uint32_t now) {
+  this->cancelPositioning();
+  this->startPos = this->s.currentPos;
+  this->moveStart = now;
+  this->p_target(target);
+  this->settingPos = true;
+  this->groupPositioning = true;
+  // Force a hold even when replacing an already moving estimate. Native
+  // starts are only planned for idle members; endpoint refreshes may be idle
+  // at their target and therefore have no simulated travel to hold.
+  this->tx.hold.mark(ticket, false, now);
+  this->groupStartTicket = ticket;
+  this->groupStartDir = target > this->s.currentPos ? 1 : target < this->s.currentPos ? -1 : 0;
+  this->p_direction(target > this->s.currentPos ? 1 : target < this->s.currentPos ? -1 : 0);
+  this->emitState();
+}
 void ShadeBehaviour::onGroupCommand(somfy_commands cmd, uint8_t repeat, uint32_t now) {
   // The reason why we are processing all frames here is so
   // any linked remotes that may happen to be on the same ESPSomfy RTS
   // device can trigger the appropriate actions.
-  if(this->shadeId == 255) return; 
+  if(this->shadeId == 255) return;
+  if(commandSupersedesPositioning(cmd)) {
+    this->settingPos = this->settingTiltPos = this->settingMyPos = false;
+    this->tx.stopTicket = 0;
+    this->groupPositioning = this->groupDeferred = this->groupStopOnAir = false;
+  }
   const uint32_t curTime = now;
   int8_t dir = 0;
   this->moveStart = this->tiltStart = curTime;
@@ -833,6 +964,62 @@ void ShadeBehaviour::onTxQueued(uint32_t ticket, uint32_t now) {
   this->tx.hold.mark(ticket, this->s.direction != 0 || this->s.tiltDirection != 0, now);
 }
 void ShadeBehaviour::onTxEvent(const somfy_tx_event_t &evt) {
+  if(this->groupStartTicket && evt.ticket == this->groupStartTicket) {
+    if(evt.type == tx_event_t::finished) this->groupStartTicket = 0;
+    else if(evt.type == tx_event_t::aborted) {
+      // A partial directional press may not have reached the motor at all.
+      // Do not later send My to a potentially idle motor and recall a favorite.
+      const int8_t dir = this->groupStartDir;
+      this->groupStartTicket = 0;
+      this->tx.hold.clear();
+      this->tx.stopTicket = 0;
+      this->groupPositioning = this->groupDeferred = this->groupStopOnAir = false;
+      this->settingPos = this->settingTiltPos = this->settingMyPos = false;
+      if(dir) this->runToLimit(dir, false, evt.at);
+      this->p_direction(dir);
+      ESP_LOGW(TAG, "[Shade %u] Group start incomplete; physical position unknown, estimating travel to limit", this->shadeId);
+      this->emitState();
+      return;
+    }
+    else if(evt.type == tx_event_t::dropped) this->groupStartTicket = 0;
+  }
+  if(this->groupPositioning && this->tx.stopTicket && evt.ticket == this->tx.stopTicket) {
+    if(evt.type == tx_event_t::started || (evt.type == tx_event_t::finished && !this->groupStopOnAir)) {
+      const uint32_t travel = this->tx.stopDir > 0 ? this->settings.downTime : this->settings.upTime;
+      const float stoppedAt = travelPosition(this->groupStopPos, this->tx.stopDir, evt.at - this->tx.stopAt, travel);
+      this->groupStopOnAir = true;
+      this->settingPos = false;
+      this->p_currentPos(stoppedAt);
+      this->p_target(stoppedAt);
+      this->p_direction(0);
+      this->startPos = stoppedAt;
+      this->moveStart = evt.at;
+      this->emitState();
+      if(evt.type == tx_event_t::started) return;
+    }
+    if(evt.type == tx_event_t::finished) {
+      const bool deferred = this->groupDeferred;
+      const float target = this->groupNextTarget;
+      this->tx.stopTicket = 0;
+      this->groupPositioning = this->groupDeferred = this->groupStopOnAir = false;
+      this->commitShadePosition();
+      if(deferred && !this->moveToGroupTarget(target, evt.at))
+        ESP_LOGW(TAG, "[Shade %u] Deferred group target refused; remaining stopped", this->shadeId);
+      return;
+    }
+    // A partial stop may or may not have reached the motor. Conservatively
+    // estimate continuing to its limit; never follow it with a deferred start
+    // or a second My (which could recall a stopped motor's favorite).
+    const uint32_t travel = this->tx.stopDir > 0 ? this->settings.downTime : this->settings.upTime;
+    this->p_currentPos(travelPosition(this->groupStopPos, this->tx.stopDir, evt.at - this->tx.stopAt, travel));
+    this->runToLimit(this->tx.stopDir, false, evt.at);
+    this->tx.stopTicket = 0;
+    this->groupPositioning = this->groupDeferred = this->groupStopOnAir = false;
+    this->p_direction(this->s.target > this->s.currentPos ? 1 : this->s.target < this->s.currentPos ? -1 : 0);
+    ESP_LOGW(TAG, "[Shade %u] Group stop incomplete; physical position unknown, estimating travel to limit", this->shadeId);
+    this->emitState();
+    return;
+  }
   const ShadeTxActions act = this->tx.onEvent(evt, this->s.direction != 0 || this->s.tiltDirection != 0);
   if(act.startMovement) {
     // The motor starts now so the simulated movement does too.
@@ -842,6 +1029,7 @@ void ShadeBehaviour::onTxEvent(const somfy_tx_event_t &evt) {
     // The motor never got the command so it hasn't moved.
     ESP_LOGW(TAG, "[Shade %u] Command dropped by the radio, staying at %.2f%%", this->shadeId, this->s.currentPos);
     this->settingPos = this->settingTiltPos = this->settingMyPos = false;
+    this->groupPositioning = this->groupDeferred = this->groupStopOnAir = false;
     this->p_target(this->s.currentPos);
     this->p_tiltTarget(this->s.currentTiltPos);
     this->emitState();
@@ -859,12 +1047,18 @@ void ShadeBehaviour::onTxEvent(const somfy_tx_event_t &evt) {
     this->emitState();
   }
 }
-bool ShadeBehaviour::sendStop(int8_t dir, bool tilt, uint32_t now) {
+bool ShadeBehaviour::queueStop(int8_t dir, bool tilt, uint32_t now) {
   // Stops jump the radio queue so the motor stops as close to the target as it can.
   if(const send_result_t sent = this->transmit(somfy_commands::My, this->remote.repeats, 0, 0, true, now)) {
     this->tx.stopSent(sent.ticket, now, dir, tilt);
+    this->groupStopPos = this->s.currentPos;
+    this->groupStopOnAir = false;
     return true;
   }
+  return false;
+}
+bool ShadeBehaviour::sendStop(int8_t dir, bool tilt, uint32_t now) {
+  if(this->queueStop(dir, tilt, now)) return true;
   ESP_LOGW(TAG, "[Shade %u] Stop not sent, running on to the limit", this->shadeId);
   this->runToLimit(dir, tilt, now);
   return false;

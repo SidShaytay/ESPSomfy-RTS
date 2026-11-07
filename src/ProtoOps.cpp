@@ -29,6 +29,11 @@ class OpReader {
       }
       return this->get(field, lo, hi, out);
     }
+    void only(proto_field_t a, proto_field_t b) {
+      for(JsonPairConst kv : this->d)
+        if(strcmp(kv.key().c_str(), protoField(a).key) && strcmp(kv.key().c_str(), protoField(b).key))
+          this->fail("Unexpected field %s", kv.key().c_str());
+    }
     bool command(somfy_commands &cmd) {
       if(!this->has(proto_field_t::command)) {
         this->fail("command is missing");
@@ -163,10 +168,17 @@ const char *parseShadeOp(uint8_t type, JsonObjectConst d, shade_request_t &req) 
       break;
     case proto_type_t::groupCommand:
       req.type = shade_request_type_t::group_command;
+      if(!d[protoField(proto_field_t::target).key].isUnbound()) r.fail("Use groupTarget for a target");
       readId(r, proto_field_t::groupId, req);
       r.command(req.command);
       readRepeat(r, req);
       readStep(r, req);
+      break;
+    case proto_type_t::groupTarget:
+      req.type = shade_request_type_t::group_target;
+      readId(r, proto_field_t::groupId, req);
+      if(r.need(proto_field_t::target, 0, 100, n)) req.target = static_cast<int8_t>(n);
+      r.only(proto_field_t::groupId, proto_field_t::target);
       break;
     case proto_type_t::repeatCommand:
       readShadeOrGroup(r, req, shade_request_type_t::shade_repeat, shade_request_type_t::group_repeat);

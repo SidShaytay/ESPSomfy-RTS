@@ -41,6 +41,10 @@ class RadioScheduler {
     bool keepSending(uint32_t ticket) const;
     // The job on air stopped, after every frame when complete.
     void ended(uint32_t ticket, bool complete, uint32_t now);
+    // Cancels waiting jobs for one remote, preserving an on-air press.
+    // A job taken but not yet started is dropped by start().
+    // exceptTicket preserves a replacement already accepted by submit().
+    void cancelRemote(uint32_t remoteAddress, uint32_t now, uint32_t exceptTicket = 0);
     // Drops every waiting job and cuts short the one on air.
     void flush(uint32_t now);
     // Refuses new jobs until every reason (TX_SUSPEND_*) is resumed.  Flushes.
@@ -61,6 +65,7 @@ class RadioScheduler {
     uint32_t taken = 0;
     somfy_tx_job_t takenJob;
     bool takenFlushed = false;
+    bool takenStarted = false;
     // When a job last went off air, for the delay of the job after it.
     uint32_t lastEnded = 0;
     bool endedOnce = false;

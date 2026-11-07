@@ -83,6 +83,7 @@ bool RadioScheduler::next(uint32_t now, somfy_tx_job_t &job, uint32_t &waitMs) {
   this->remove(0);
   this->taken = job.ticket;
   this->takenFlushed = false;
+  this->takenStarted = false;
   this->takenJob = job;
   return true;
 }
@@ -94,6 +95,7 @@ bool RadioScheduler::start(uint32_t ticket, uint32_t now) {
     this->taken = 0;
     return false;
   }
+  this->takenStarted = true;
   this->post(tx_event_t::started, this->takenJob, now);
   return true;
 }
@@ -106,6 +108,19 @@ void RadioScheduler::ended(uint32_t ticket, bool complete, uint32_t now) {
   this->taken = 0;
   this->lastEnded = now;
   this->endedOnce = true;
+}
+void RadioScheduler::cancelRemote(uint32_t remoteAddress, uint32_t now, uint32_t exceptTicket) {
+  for(uint8_t i = 0; i < this->count;) {
+    if(!this->jobs[i].repeater && this->jobs[i].frame.remoteAddress == remoteAddress && this->jobs[i].ticket != exceptTicket) {
+      this->post(tx_event_t::dropped, this->jobs[i], now);
+      this->remove(i);
+    }
+    else i++;
+  }
+  // Once a press is on air it has already moved the motors. Let it finish;
+  // the replacement goes after it, rather than pretending it never happened.
+  if(this->taken && this->taken != exceptTicket && !this->takenStarted && this->takenJob.frame.remoteAddress == remoteAddress)
+    this->takenFlushed = true;
 }
 void RadioScheduler::flush(uint32_t now) {
   // Every discarded job is reported as dropped.
