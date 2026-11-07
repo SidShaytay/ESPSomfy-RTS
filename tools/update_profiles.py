@@ -34,7 +34,8 @@ def validate_profile(profile):
         if size <= 0 or address % 0x1000 or size % 0x1000 or address < previous_end or address + size > profile['flash_bytes']:
             raise ValueError('invalid or overlapping update profile partitions')
         previous_end = address + size
-    if profile['bootloader_address'] != 0 or not isinstance(profile.get('build_settings'), dict):
+    expected_bootloader = 0 if profile['chip'] == 'esp32s3' else 0x2000
+    if profile['bootloader_address'] != expected_bootloader or not isinstance(profile.get('build_settings'), dict):
         raise ValueError('invalid bootloader or compiler profile')
     if profile['build_settings'].get('build_type') != 'release':
         raise ValueError('updater requires a release build with two OTA slots')

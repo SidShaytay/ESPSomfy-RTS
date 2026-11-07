@@ -12,13 +12,17 @@ def expected_header(bootloader, sdkconfig, profile=None):
     defines = re.findall(r'^\s*#\s*define\s+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE\s+(\S+)', config, re.MULTILINE)
     if defines != ['1'] or re.search(r'^\s*#\s*undef\s+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE\b', config, re.MULTILINE):
         raise ValueError('pinned SDK bootloader rollback support is missing or disabled')
+    offsets = re.findall(r'^\s*#\s*define\s+CONFIG_BOOTLOADER_OFFSET_IN_FLASH\s+(\S+)', config, re.MULTILINE)
+    if len(offsets) != 1 or int(offsets[0], 0) != profile['bootloader_address']:
+        raise ValueError('pinned SDK bootloader offset differs from update profile')
     data = bootloader.read_bytes()
-    if not data or len(data) > 0x8000:
+    if not data or len(data) > 0x8000 - profile['bootloader_address']:
         raise ValueError('bootloader overlaps the partition table')
     validate_image(data, profile)
     digest = ', '.join(f'0x{byte:02x}' for byte in hashlib.sha256(data).digest())
     return ('// Generated from the actual build bootloader; never edit or commit.\n'
             '#pragma once\n#include <cstddef>\n#include <cstdint>\n'
+            f'constexpr uint32_t ESPSOMFY_BOOTLOADER_ADDRESS = {profile["bootloader_address"]};\n'
             f'constexpr size_t ESPSOMFY_BOOTLOADER_BYTES = {len(data)};\n'
             f'constexpr uint8_t ESPSOMFY_BOOTLOADER_SHA256[32] = {{{digest}}};\n'
             f'constexpr char ESPSOMFY_BOOTLOADER_SHA256_HEX[] = \"{hashlib.sha256(data).hexdigest()}\";\n')
