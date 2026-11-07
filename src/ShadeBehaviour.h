@@ -68,6 +68,9 @@ class ShadeBehaviour {
     ShadeBehaviour &operator=(const ShadeBehaviour &) = delete;
     const State &state() const { return this->s; }
     bool isIdle() const;
+    // An idle position can still have an unprocessed short/long remote press
+    // or an on-air outcome that must be serviced before an update snapshot.
+    bool readyForUpdate() const;
     bool isAtTarget() const;
 
     // A frame from a remote, sensor or linked remote, or one the shade or
