@@ -28,11 +28,14 @@ jobs:
           python -m venv "$ESPSOMFY_TOOL_CACHE/pio-python"
           "$ESPSOMFY_TOOL_CACHE/pio-python/bin/python" -m pip install -r tools/lilygo-python-requirements.txt
       - name: Host board profile and GPIO checks
-        run: CXX=g++ bash tools/test-board-profile.sh
+        run: |
+          CXX=g++ bash tools/test-board-profile.sh
+          CXX=g++ bash tools/test-update-bootloader.sh
       - name: Offline manifest rejection tests
         run: |
           python tools/test_lilygo_manifest.py
           python tools/test_update_release.py
+          python tools/test_update_bootloader.py
       - name: Build and validate exact Plus artifacts
         run: bash tools/build-lilygo.sh
       - name: Retain reviewable artifacts and manifest
