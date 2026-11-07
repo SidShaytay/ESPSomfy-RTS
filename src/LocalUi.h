@@ -15,9 +15,14 @@ struct Model {
   Target targets[3];
   bool ready = false, controlsEnabled = false;
 };
+struct DisplayPreferences {
+  uint8_t brightness = 32;
+  uint16_t dimSeconds = 10, offSeconds = 20; // zero disables that timeout
+};
 struct View {
   Screen screen = Screen::status;
-  uint8_t selected = 0, level = 32;
+  uint8_t selected = 0, level = 32, setting = 0;
+  uint16_t dimSeconds = 10, offSeconds = 20;
   Action action = Action::stop;
   Notice notice = Notice::none;
 };
@@ -33,13 +38,16 @@ class Controller {
   bool hasCommand = false, started = false, raw = false, stable = false;
   bool consumed = false, held = false, asleep = false;
   bool dimmed = false, savePending = false;
+  bool backRaw = false, backStable = false, backConsumed = false;
+  uint32_t backSince = 0;
   uint32_t rawSince = 0, pressedSince = 0, activity = 0, noticeSince = 0, openedIdentity = 0;
   uint32_t openedMembers[2] = {};
   void touch(uint32_t now);
+  void goBack();
   void shortPress(uint32_t now, const Model &, bool visible);
 
 public:
-  void tick(uint32_t now, const Model &, int8_t turn, bool pressed, bool visible);
+  void tick(uint32_t now, const Model &, int8_t turn, bool pressed, bool visible, bool backPressed = false);
   const View &view() const { return state; }
   uint8_t brightness() const { return asleep ? 0 : dimmed ? (state.level < 4 ? 1 : 4) : state.level; }
   bool take(Command &out);
@@ -48,10 +56,12 @@ public:
 
   void setBrightness(uint8_t value);
   uint8_t preference() const { return state.level; }
-  bool takeBrightness(uint8_t &value) {
+  DisplayPreferences preferences() const { return {state.level, state.dimSeconds, state.offSeconds}; }
+  void setPreferences(const DisplayPreferences &);
+  bool takePreferences(DisplayPreferences &value) {
     if(!savePending)
       return false;
-    value = state.level;
+    value = preferences();
     savePending = false;
     return true;
   }

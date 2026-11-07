@@ -20,6 +20,9 @@ uint32_t sceneHash(const Model &m, const View &v, const StatusDisplay::Snapshot 
                              uint32_t(v.action),
                              uint32_t(v.notice),
                              v.level,
+                             v.setting,
+                             v.dimSeconds,
+                             v.offSeconds,
                              m.ready,
                              m.controlsEnabled,
                              s.running,
@@ -44,7 +47,8 @@ void *allocate(size_t size) { return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | 
 uint16_t transfer[screenWidth * bandHeight];
 } // namespace
 void Runtime::begin() {
-  controller.setBrightness(loadBrightness());
+  controller.setPreferences(loadPreferences());
+  pinMode(BoardProfile::backButton, INPUT_PULLUP);
   memory.begin(heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0, allocate);
   if(memory.pixels) {
     canvas.attach(memory.pixels);
@@ -69,10 +73,10 @@ bool Runtime::tick(uint32_t now, const StatusDisplay::Snapshot &s, bool pressed,
                        presentedIdentity == identity;
   const int8_t turn =
       encoder.sample((digitalRead(BoardProfile::encoderA) << 1) | digitalRead(BoardProfile::encoderB));
-  controller.tick(now, model, turn, pressed, visible);
-  uint8_t brightness;
-  if(controller.takeBrightness(brightness))
-    controller.brightnessResult(now, saveBrightness(brightness));
+  controller.tick(now, model, turn, pressed, visible, digitalRead(BoardProfile::backButton) == 0);
+  DisplayPreferences preferences;
+  if(controller.takePreferences(preferences))
+    controller.brightnessResult(now, savePreferences(preferences));
   Command command;
   if(controller.take(command))
     controller.result(now, dispatch(command));

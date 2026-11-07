@@ -2,7 +2,7 @@
 #include "LocalUi.h"
 namespace LocalUi {
 Model snapshotModel(bool running);
-uint8_t loadBrightness();
-bool saveBrightness(uint8_t value);
+DisplayPreferences loadPreferences();
+bool savePreferences(const DisplayPreferences &);
 bool dispatch(const Command &);
 } // namespace LocalUi

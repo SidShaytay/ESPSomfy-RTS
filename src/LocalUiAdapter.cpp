@@ -28,19 +28,24 @@ void readShade(uint8_t id, Target &t) {
     t.open[0] = 100 - shade->transformPosition(pos);
 }
 } // namespace
-uint8_t loadBrightness() {
+DisplayPreferences loadPreferences() {
+  DisplayPreferences out;
   Preferences prefs;
   if(!prefs.begin("LCDUI", true))
-    return 32;
-  const uint8_t value = prefs.getUChar("brightness", 32);
+    return out;
+  out.brightness = prefs.getUChar("brightness", 32);
+  out.dimSeconds = prefs.getUShort("dimSeconds", 10);
+  out.offSeconds = prefs.getUShort("offSeconds", 20);
   prefs.end();
-  return value;
+  return out;
 }
-bool saveBrightness(uint8_t value) {
+bool savePreferences(const DisplayPreferences &value) {
   Preferences prefs;
   if(!prefs.begin("LCDUI"))
     return false;
-  const bool ok = prefs.putUChar("brightness", value) == 1;
+  const bool ok = prefs.putUChar("brightness", value.brightness) == 1 &&
+                  prefs.putUShort("dimSeconds", value.dimSeconds) == 2 &&
+                  prefs.putUShort("offSeconds", value.offSeconds) == 2;
   prefs.end();
   return ok;
 }

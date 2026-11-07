@@ -69,6 +69,7 @@ int main(int argc, char **argv) {
   v.screen = Screen::brightness;
   c.paint(m, v, s);
   save(argv[1], "brightness", buffer);
+  v.dimSeconds=v.offSeconds=0;v.setting=2;c.paint(m,v,s);save(argv[1],"no-timeouts",buffer);
   assert(buffer.front() == 0xdead && buffer.back() == 0xdead);
   puts("Real GFX renderer produced eight 320x170 screens with buffer bounds intact.");
 }

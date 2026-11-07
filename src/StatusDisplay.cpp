@@ -37,8 +37,8 @@ void Session::tick(uint32_t now, const Snapshot &s, bool pressed) {
     if(stableInput) { awakeSince = now; sleepStage = 0; }
   }
   const auto age = uint32_t(now - awakeSince);
-  if(age >= offAfter) sleepStage = 2;
-  else if(age >= offAfter/2 && sleepStage == 0) sleepStage = 1;
+  if(offAfter && age >= offAfter) sleepStage = 2;
+  else if(dimAfter && age >= dimAfter && sleepStage == 0) sleepStage = 1;
   output.brightness(sleepStage == 2 ? 0 : sleepStage == 1 ? (awakeLevel<4?1:4) : awakeLevel);
   if(sleepStage == 2 || (attempted && uint32_t(now - lastRow) < 20)) return;
   lastRow = now;

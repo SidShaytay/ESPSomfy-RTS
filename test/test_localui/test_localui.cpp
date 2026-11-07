@@ -80,14 +80,18 @@ static void stop_identity_and_presentation_guards() {
 static void decoder_rejects_bounce_and_partial_steps() {
   Encoder e;
   TEST_ASSERT_EQUAL(0, e.sample(3));
-  TEST_ASSERT_EQUAL(0, e.sample(2));
-  TEST_ASSERT_EQUAL(0, e.sample(3));
-  TEST_ASSERT_EQUAL(0, e.sample(2));
-  TEST_ASSERT_EQUAL(0, e.sample(0));
   TEST_ASSERT_EQUAL(0, e.sample(1));
-  TEST_ASSERT_EQUAL(1, e.sample(3));
+  TEST_ASSERT_EQUAL(0, e.sample(3)); // bounce
+  TEST_ASSERT_EQUAL(0, e.sample(1));
+  TEST_ASSERT_EQUAL(1, e.sample(0)); // clockwise detent
+  TEST_ASSERT_EQUAL(0, e.sample(2));
+  TEST_ASSERT_EQUAL(1, e.sample(3)); // second detent
+  TEST_ASSERT_EQUAL(0, e.sample(2));
+  TEST_ASSERT_EQUAL(-1, e.sample(0)); // anticlockwise
+  TEST_ASSERT_EQUAL(0, e.sample(1));
+  TEST_ASSERT_EQUAL(-1, e.sample(3));
   TEST_ASSERT_EQUAL(0, e.sample(0));
-  TEST_ASSERT_EQUAL(0, e.sample(3)); // invalid jump
+  TEST_ASSERT_EQUAL(0, e.sample(3)); // invalid jumps
 }
 static void preview_and_boot_hold_never_emit() {
   Controller c;
@@ -145,7 +149,7 @@ static void estimated_motion_keeps_stop_awake() {
 static void brightness_and_twenty_second_idle_timeout() {
   Controller c;
   auto m = model();
-  uint8_t saved = 0;
+  DisplayPreferences saved;
   Command command;
   c.tick(0, m, 0, false, true);
   c.tick(1, m, 1, false, true);
@@ -156,14 +160,16 @@ static void brightness_and_twenty_second_idle_timeout() {
   TEST_ASSERT_EQUAL((int)Screen::brightness, (int)c.view().screen);
   c.tick(300, m, -1, false, true);
   TEST_ASSERT_EQUAL(16, c.brightness());
-  TEST_ASSERT_FALSE(c.takeBrightness(saved));
+  TEST_ASSERT_FALSE(c.takePreferences(saved));
   click(c, 400, m);
-  TEST_ASSERT_TRUE(c.takeBrightness(saved));
-  TEST_ASSERT_EQUAL(16, saved);
+  click(c, 600, m);
+  click(c, 800, m);
+  TEST_ASSERT_TRUE(c.takePreferences(saved));
+  TEST_ASSERT_EQUAL(16, saved.brightness);
   TEST_ASSERT_FALSE(c.take(command));
-  c.tick(10500, m, 0, false, true);
+  c.tick(11000, m, 0, false, true);
   TEST_ASSERT_EQUAL(4, c.brightness());
-  c.tick(20500, m, 0, false, true);
+  c.tick(21000, m, 0, false, true);
   TEST_ASSERT_EQUAL(0, c.brightness());
   c.setBrightness(0);
   TEST_ASSERT_EQUAL(32, c.preference());
@@ -192,6 +198,75 @@ static void changed_group_members_and_mixed_gestures_are_blocked() {
   single.tick(541, m, 1, false, true);
   TEST_ASSERT_FALSE(single.take(cmd));
 }
+static void separate_back_button_and_disabled_timeouts() {
+  Controller c;
+  auto m = model();
+  Command cmd;
+  c.tick(0, m, 1, false, true);
+  click(c, 100, m);
+  c.tick(400, m, 0, false, true, true);
+  c.tick(441, m, 0, false, true, true);
+  TEST_ASSERT_EQUAL((int)Screen::choose, (int)c.view().screen);
+  TEST_ASSERT_FALSE(c.take(cmd));
+  c.tick(500, m, 0, false, true, false);
+  c.tick(541, m, 0, false, true, false);
+  click(c, 600, m);
+  TEST_ASSERT_EQUAL((int)Screen::control, (int)c.view().screen); // next knob press still works
+  Controller always;
+  always.setPreferences({32, 0, 0});
+  always.tick(0, m, 0, false, true);
+  always.tick(600000, m, 0, false, true);
+  TEST_ASSERT_EQUAL(32, always.brightness());
+  Controller dimOnly;
+  dimOnly.setPreferences({32, 5, 0});
+  dimOnly.tick(0, m, 0, false, true);
+  dimOnly.tick(6000, m, 0, false, true);
+  TEST_ASSERT_EQUAL(4, dimOnly.brightness());
+  Controller sleepOnly;
+  sleepOnly.setPreferences({32, 0, 5});
+  sleepOnly.tick(0, m, 0, false, true);
+  sleepOnly.tick(6000, m, 0, false, true);
+  TEST_ASSERT_EQUAL(0, sleepOnly.brightness());
+  sleepOnly.tick(7000, m, 0, false, true, true);
+  sleepOnly.tick(7041, m, 0, false, true, true);
+  TEST_ASSERT_EQUAL(32, sleepOnly.brightness());
+  TEST_ASSERT_EQUAL((int)Screen::status, (int)sleepOnly.view().screen);
+}
+static void no_dim_no_sleep_are_selectable_and_saved() {
+  Controller c;
+  auto m = model();
+  DisplayPreferences saved;
+  Command cmd;
+  c.tick(0, m, 1, false, true);
+  for(int i = 0; i < 4; i++)
+    c.tick(10 + i, m, 1, false, true);
+  click(c, 100, m);
+  click(c, 300, m); // display settings, then dim row
+  c.tick(500, m, -1, false, true);
+  c.tick(510, m, -1, false, true);
+  TEST_ASSERT_EQUAL(0, c.view().dimSeconds);
+  click(c, 600, m);
+  for(int i = 0; i < 4; i++)
+    c.tick(800 + i, m, -1, false, true);
+  TEST_ASSERT_EQUAL(0, c.view().offSeconds);
+  c.tick(1000, m, 0, false, true, true);
+  c.tick(1041, m, 0, false, true, true);
+  TEST_ASSERT_TRUE(c.takePreferences(saved));
+  TEST_ASSERT_EQUAL(0, saved.dimSeconds);
+  TEST_ASSERT_EQUAL(0, saved.offSeconds);
+  TEST_ASSERT_FALSE(c.take(cmd));
+}
+static void moving_stop_is_not_blocked_by_a_repaint() {
+  Controller c;
+  auto m = model();
+  m.targets[0].moving = true;
+  Command cmd;
+  c.tick(0, m, 1, false, true);
+  click(c, 100, m);
+  click(c, 300, m, false);
+  TEST_ASSERT_TRUE(c.take(cmd));
+  TEST_ASSERT_EQUAL((int)Action::stop, (int)cmd.action);
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(navigation_does_not_emit);
@@ -203,5 +278,8 @@ int main() {
   RUN_TEST(estimated_motion_keeps_stop_awake);
   RUN_TEST(brightness_and_twenty_second_idle_timeout);
   RUN_TEST(changed_group_members_and_mixed_gestures_are_blocked);
+  RUN_TEST(separate_back_button_and_disabled_timeouts);
+  RUN_TEST(no_dim_no_sleep_are_selectable_and_saved);
+  RUN_TEST(moving_stop_is_not_blocked_by_a_repaint);
   return UNITY_END();
 }

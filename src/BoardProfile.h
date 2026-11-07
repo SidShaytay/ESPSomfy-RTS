@@ -24,6 +24,7 @@ constexpr uint8_t sw0 = 48;
 constexpr uint8_t displayCS = 41;
 constexpr uint8_t displayDC = 16;
 constexpr uint8_t wakeButton = 0;
+constexpr uint8_t backButton = 6;
 constexpr uint8_t encoderA = 4;
 constexpr uint8_t encoderB = 5;
 constexpr uint8_t sdCS = 13;

@@ -2,12 +2,36 @@
 namespace LocalUi {
 namespace {
 constexpr uint8_t levels[] = {2, 4, 8, 16, 32, 64, 128, 255};
-}
+constexpr uint16_t delays[] = {0, 5, 10, 15, 20, 30, 60, 120, 300};
+} // namespace
 void Controller::setBrightness(uint8_t value) {
   state.level = 32;
   for(auto level : levels)
     if(level == value)
       state.level = value;
+}
+void Controller::setPreferences(const DisplayPreferences &p) {
+  setBrightness(p.brightness);
+  state.dimSeconds = 10;
+  state.offSeconds = 20;
+  for(auto value : delays) {
+    if(value == p.dimSeconds)
+      state.dimSeconds = value;
+    if(value == p.offSeconds)
+      state.offSeconds = value;
+  }
+}
+void Controller::goBack() {
+  hasCommand = false;
+  state.notice = Notice::none;
+  state.action = Action::stop;
+  if(state.screen == Screen::brightness) {
+    savePending = true;
+    state.screen = Screen::choose;
+  } else if(state.screen == Screen::control)
+    state.screen = Screen::choose;
+  else
+    state.screen = Screen::status;
 }
 void Controller::touch(uint32_t now) {
   activity = now;
@@ -23,12 +47,17 @@ void Controller::shortPress(uint32_t now, const Model &m, bool visible) {
     state.screen = Screen::status;
     break;
   case Screen::brightness:
-    savePending = true;
-    state.screen = Screen::choose;
+    if(state.setting < 2)
+      ++state.setting;
+    else {
+      savePending = true;
+      state.screen = Screen::choose;
+    }
     break;
   case Screen::choose:
     if(state.selected == 4) {
       state.screen = Screen::brightness;
+      state.setting = 0;
       break;
     }
     if(state.selected == 3) {
@@ -46,7 +75,7 @@ void Controller::shortPress(uint32_t now, const Model &m, bool visible) {
     if(!t.valid || t.identity != openedIdentity || t.members[0] != openedMembers[0] ||
        t.members[1] != openedMembers[1])
       state.notice = Notice::changed;
-    else if(!visible)
+    else if(!visible && state.action != Action::stop)
       state.notice = Notice::wait;
     else if(state.action == Action::stop && !t.moving)
       state.notice = Notice::idle;
@@ -67,13 +96,17 @@ void Controller::shortPress(uint32_t now, const Model &m, bool visible) {
   }
   }
 }
-void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, bool visible) {
+void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, bool visible,
+                      bool backPressed) {
   if(!started) {
     started = true;
     activity = now;
     raw = stable = pressed;
     consumed = pressed;
     rawSince = pressedSince = now;
+    backRaw = backStable = backPressed;
+    backConsumed = backPressed;
+    backSince = now;
   }
   // Stay awake while ANY configured target is estimated moving, even when the
   // user navigates away. A held button never extends this timer by itself.
@@ -82,12 +115,34 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
     moving |= t.valid && t.moving;
   if(moving)
     touch(now);
-  if(uint32_t(now - activity) >= 20000)
+  if(state.offSeconds && uint32_t(now - activity) >= uint32_t(state.offSeconds) * 1000)
     asleep = true;
-  else if(uint32_t(now - activity) >= 10000)
+  else if(state.dimSeconds && uint32_t(now - activity) >= uint32_t(state.dimSeconds) * 1000)
     dimmed = true;
   if(state.notice != Notice::none && uint32_t(now - noticeSince) >= 2500)
     state.notice = Notice::none;
+  if(backPressed != backRaw) {
+    backRaw = backPressed;
+    backSince = now;
+  }
+  if(backRaw != backStable && uint32_t(now - backSince) >= 40) {
+    backStable = backRaw;
+    if(backStable) {
+      const bool waking = asleep || dimmed;
+      touch(now);
+      if(!backConsumed && !waking)
+        goBack();
+      backConsumed = true;
+    } else {
+      backConsumed = false;
+      if(!pressed && !stable && !raw)
+        consumed = false;
+    }
+  }
+  if(backRaw || backStable) {
+    consumed = true;
+    return;
+  }
   if(turn && (stable || raw || pressed))
     consumed = true;
   if(pressed != raw) {
@@ -110,16 +165,10 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
   }
   if(stable && !consumed && !held && uint32_t(now - pressedSince) >= 800) {
     held = true;
-    state.notice = Notice::none;
-    if(state.screen == Screen::control)
-      state.screen = Screen::choose;
-    else if(state.screen == Screen::brightness) {
-      savePending = true;
-      state.screen = Screen::choose;
-    } else if(state.screen == Screen::status)
+    if(state.screen == Screen::status)
       state.screen = Screen::details;
     else
-      state.screen = Screen::status;
+      goBack();
   }
   if(turn) {
     const bool waking = asleep || dimmed;
@@ -127,7 +176,7 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
     if(stable || raw) {
       consumed = true;
       return;
-    } // turning a held knob cannot also click
+    }
     if(waking)
       return;
     state.notice = Notice::none;
@@ -137,18 +186,27 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
     } else if(state.screen == Screen::choose)
       state.selected = (state.selected + (turn > 0 ? 1 : 4)) % 5;
     else if(state.screen == Screen::brightness) {
-      int index = 0;
-      while(index < 7 && levels[index] != state.level)
-        ++index;
-      index += turn > 0 ? 1 : -1;
-      state.level = levels[index < 0 ? 0 : index > 7 ? 7 : index];
+      if(state.setting == 0) {
+        int index = 0;
+        while(index < 7 && levels[index] != state.level)
+          ++index;
+        index += turn > 0 ? 1 : -1;
+        state.level = levels[index < 0 ? 0 : index > 7 ? 7 : index];
+      } else {
+        uint16_t &value = state.setting == 1 ? state.dimSeconds : state.offSeconds;
+        int index = 0;
+        while(index < 8 && delays[index] != value)
+          ++index;
+        index += turn > 0 ? 1 : -1;
+        value = delays[index < 0 ? 0 : index > 8 ? 8 : index];
+      }
     } else {
-      int a = int(state.action) + (turn > 0 ? 1 : -1);
-      state.action = Action(a < 0 ? 0 : a > 2 ? 2 : a);
+      int action = int(state.action) + (turn > 0 ? 1 : -1);
+      state.action = Action(action < 0 ? 0 : action > 2 ? 2 : action);
     }
   }
   // Inactivity returns to status but never navigates away during estimated motion.
-  if(!moving && uint32_t(now - activity) >= 20000) {
+  if(!moving && uint32_t(now - activity) >= (state.offSeconds ? uint32_t(state.offSeconds) * 1000 : 30000)) {
     state.screen = Screen::status;
     state.action = Action::stop;
   }
@@ -178,9 +236,10 @@ int8_t Encoder::sample(uint8_t ab) {
   static const int8_t delta[16] = {0, -1, 1, 0, 1, 0, 0, -1, -1, 0, 0, 1, 0, 1, -1, 0};
   steps += delta[(previous << 2) | ab];
   previous = ab;
-  if(ab != 3)
+  // Manufacturer uses TWO03: physical detents at both 00 and 11.
+  if(ab != 0 && ab != 3)
     return 0;
-  const int8_t result = steps <= -4 ? 1 : steps >= 4 ? -1 : 0;
+  const int8_t result = steps >= 2 ? 1 : steps <= -2 ? -1 : 0;
   steps = 0;
   return result;
 }

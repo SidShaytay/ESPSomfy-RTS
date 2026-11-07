@@ -20,7 +20,7 @@ class Runtime {
 public:
   uint32_t maxPaintUs = 0;
   void begin();
-  uint8_t brightnessPreference() const { return controller.preference(); }
+  DisplayPreferences preferences() const { return controller.preferences(); }
   GraphicsFailure failure() const { return memory.failure; }
   bool tick(uint32_t now, const StatusDisplay::Snapshot &, bool pressed,
             bool (*sendBand)(uint8_t, uint8_t, const uint8_t *, size_t), void (*light)(uint8_t));
