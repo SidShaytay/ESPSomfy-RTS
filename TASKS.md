@@ -21,7 +21,13 @@
    - Fresh portable backup and all five settings sections captured. Verified partition layout, then firmware-only inactive-slot OTA; retained previous preview binary/ELF and rollback slot. Private evidence: `~/.local/state/espsomfy-lilygo/LATEST_UI_INPUT_FIX`.
    - Actual framebuffer header confirms `X-LCD-Commands: enabled`. Post-reboot read-only checks found identical entity state/counters and settings, connected Wi-Fi, radio ready at 433.42 MHz, and all three HA covers available/idle. Uptime progressed beyond the 60-second OTA confirmation window without a restart. No assistant movement commands or HA services sent.
    - Checks: 655 native passes plus one optional skip; real GFX/runtime/capture and GPIO/SPI harnesses passed; UI/simple/headless builds passed. Graphics use 108,800 bytes PSRAM; measured paint 6,470 µs and SPI lock 1,491 µs.
-   - Next: Sid can manually verify revised wheel direction/detents, Back, controls, and saved display timers. No assistant actuation is authorized. No further installation or approval needed.
+   - Next: Sid can manually verify revised wheel direction/detents, Back, controls, and saved display timers. No assistant actuation is authorized. Sid confirmed display/wheel/Back work; screen commands exposed the category bug below.
+
+3. [!] Category bug fixed and build ready offline; installation withheld.
+   - Root cause: adapter required roller (0), but configured devices are shutter (4). Removed the category gate; existing shared dispatcher handles categories.
+   - Production adapter regression failed on the actual shutter configuration before the fix and passes after it, including all device categories, individual/group dispatch and identity/STOP guards. 655 native passes plus one optional skip; renderer/runtime/capture/adapter harnesses and enabled UI build passed.
+   - Need: Sid must return the device; he explicitly said not to flash or use it because another agent is using it. No live controller access or actuation was performed during this fix.
+   - Next: notify Sid the build is ready. Upon return, capture fresh backup/state and revalidate current layout/firmware before any authorized installation. Do not rely on stale preflight/counters from the previous update. Offline artifact pointer: `~/.local/state/espsomfy-lilygo/LATEST_UI_COMMAND_FIX_BUILD`.
 
 ## Reproduction and limits
 
