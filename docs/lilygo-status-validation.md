@@ -40,7 +40,7 @@ This workstation used the existing `rocm-7.2.3` container for native C++ checks 
 
 ## Acceptance status
 
-Wiring/reference review, optional module/build configuration, offline transition/failure tests, command-path isolation and both build variants are implemented. The firmware-only A/B installation and runtime observations are recorded below. Physical LCD readability, dim/wake behavior and failure recovery still need direct confirmation; on-air radio responsiveness has not been tested. Issue #15 remains open for those acceptance items.
+Wiring/reference review, optional module/build configuration, offline transition/failure tests, command-path isolation and both build variants are implemented. The firmware-only A/B installation and runtime observations are recorded below. Sid’s photo confirms physical LCD readability and landscape orientation. Dim/wake behavior and failure recovery still need direct confirmation; on-air radio responsiveness has not been tested. Issue #15 remains open for those acceptance items.
 
 
 ## Installed hardware observations — November 6, 2026
@@ -56,6 +56,6 @@ Sid authorized installation/status checks with no shutter movements and allowed 
 - Twenty LCD diagnostic samples recorded free internal SRAM at 161,660 bytes and minimum free PSRAM at 8,373,496 bytes. Maximum measured row rendering was 7,364 µs and maximum SPI-lock duration 7,011 µs, below the 10 ms target; no row transfer was skipped for a busy bus. This is the observed workload without commanded RF traffic, not an RF responsiveness benchmark.
 - HA had no configured automations to suspend. Its logs showed disconnect/reconnect, and authenticated read-only state checks confirmed all three cover entities available and idle afterward. No HA service was called. HomeKit control and physical motion were not exercised.
 
-Physical screen readability/orientation, dim/off/wake behavior and hardware display-failure recovery remain unconfirmed. The user has been asked to inspect the page and wake it with a brief encoder press if dark. Electrical CS/clock tracing and on-air responsiveness also remain untested. These limitations keep issue #15 open; no upstream publication occurred.
+Sid subsequently supplied a photo confirming readable, correctly oriented landscape text with all nine rows visible: RUN with 1h09m uptime, unavailable power telemetry, connected Wi-Fi, the current IP/HTTP URL, HTTP listening, radio ready at 433.42 MHz, and the expected Plus LCD build line. The photograph was not copied into Git. It does not independently establish dim/off/wake behavior or hardware display-failure recovery; those remain unconfirmed. Electrical CS/clock tracing and on-air responsiveness also remain untested. These limitations keep issue #15 open; no upstream publication occurred.
 
 Private configuration, USB logs, scripts, state comparisons, artifact hashes and the installation result are retained under the user-local `espsomfy-lilygo` state directory, selected by `LATEST_LCD_INSTALL`. No credentials, raw flash or shade identities are committed.

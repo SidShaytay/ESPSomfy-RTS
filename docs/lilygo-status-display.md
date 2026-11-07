@@ -45,7 +45,7 @@ Snapshots are sampled once per second after setup. Only changed text rows transf
 
 The renderer uses a 720-byte monochrome row canvas and a 640-byte static pixel scanline, not a 108,800-byte full-screen framebuffer. It requests no PSRAM or DMA buffers. Allocation/PWM/SPI initialization/initialization timeout failures leave the backlight off and let controller startup continue. The LCD is write-only: command completion cannot detect a disconnected or damaged panel; a dark panel must not be interpreted as controller failure.
 
-Every 30 seconds USB diagnostics report free internal SRAM, free PSRAM, maximum complete row rendering time (`maxRowUs`), maximum SPI-lock duration (`maxBusUs`), and skipped row transfers. These measurements contain no configuration or shade data. Measured row rendering and bus-lock times are in the validation report. Physical display brightness/legibility and on-air radio responsiveness still need direct confirmation.
+Every 30 seconds USB diagnostics report free internal SRAM, free PSRAM, maximum complete row rendering time (`maxRowUs`), maximum SPI-lock duration (`maxBusUs`), and skipped row transfers. These measurements contain no configuration or shade data. Measured row rendering and bus-lock times are in the validation report. Sid’s photo confirms readable, correctly oriented text. Dim/off/wake behavior and on-air radio responsiveness still need direct confirmation.
 
 ## Offline verification
 
