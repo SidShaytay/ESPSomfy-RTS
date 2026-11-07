@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+constexpr uint32_t ESPSOMFY_BOOTLOADER_ADDRESS = 0x2000;
 constexpr size_t ESPSOMFY_BOOTLOADER_BYTES = 1025;
 // Test hash provider sums bytes, so 1025 one-bytes produce 0x401.
 // Real firmware uses the SDK's SHA256 and generator tests verify its digest.

@@ -22,6 +22,7 @@ class ProfileTests(unittest.TestCase):
         self.assertNotEqual(plus['board'], standard['board'])
         self.assertEqual(plus['app0_address'], standard['app0_address'])
         self.assertEqual(standard['psram_bytes'], 0x800000)
+        self.assertEqual(standard['bootloader_address'], 0)
 
     def test_p4_profiles_preserve_existing_small_layout(self):
         for env, flash in (('esp32p4', 0x1000000), ('esp32p4es', 0x400000)):
@@ -35,6 +36,7 @@ class ProfileTests(unittest.TestCase):
     def test_c5_psram_profile_does_not_change_legacy_target(self):
         profile = p.load_profile(SOURCE, 'esp32c5-psram')
         self.assertEqual(profile['chip_id'], 23)
+        self.assertEqual(profile['bootloader_address'], 0x2000)
         self.assertEqual(profile['flash_bytes'], 0x800000)
         self.assertEqual(profile['psram_bytes'], 0x800000)
         self.assertEqual(profile['app_bytes'], 0x330000)
@@ -46,7 +48,7 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(defines['ESPSOMFY_UPDATE_PROFILE'], 'esp32p4')
         self.assertEqual(defines['ESPSOMFY_UPDATE_APP0_ADDRESS'], 0x10000)
         self.assertEqual(defines['ESPSOMFY_UPDATE_CHIP_ID'], 18)
-        self.assertEqual(defines['ESPSOMFY_UPDATE_BOOTLOADER_ADDRESS'], 0)
+        self.assertEqual(defines['ESPSOMFY_UPDATE_BOOTLOADER_ADDRESS'], 0x2000)
 
     def test_invalid_overlapping_regions_and_ram_are_rejected(self):
         profile = p.load_profile(SOURCE, 'esp32p4')
