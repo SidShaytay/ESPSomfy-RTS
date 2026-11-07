@@ -31,7 +31,11 @@ StatusDisplay::Snapshot snapshot(bool running) {
   somfy.transceiver.displayStatus(ready, frequency);
   s.frequency = frequency;
   s.radio = !running ? Radio::initializing : ready ? Radio::ready : Radio::unavailable;
+#ifdef ESPSOMFY_LOCAL_UI
+  snprintf(s.build, sizeof(s.build), "Plus UI #15 %s", FW_VERSION);
+#else
   snprintf(s.build, sizeof(s.build), "Plus LCD #15 %s", FW_VERSION);
+#endif
   return s;
 }
 }
