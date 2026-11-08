@@ -30,3 +30,25 @@ full_version_str = f'\\"v{version}\\"'
 env.Append(CPPDEFINES=[
     ("FW_VERSION", full_version_str)
 ])
+# Pure update compatibility identity only; no network/installation feature flag.
+if env.get("PIOENV") == "lilygo-t-embed-cc1101":
+    import json
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, os.path.join(project_dir, "tools"))
+    from update_profiles import load_profile
+    from update_identity import identity, tags_at_head
+    from update_assets import verify_manifest
+    from lilygo_manifest import source_record
+    env.Append(LINKFLAGS=["-Wl,--undefined=espsomfyUpdateIdentity"])
+    source = source_record(Path(project_dir))
+    record = identity(source, verify_manifest(Path(project_dir) / "data"),
+                      tags_at_head(project_dir), load_profile(project_dir, env.get("PIOENV")))
+    for name, value in (("ESPSOMFY_SOURCE_SHA", record["source_sha"]),
+                        ("ESPSOMFY_RELEASE_TAG", record["version"]),
+                        ("ESPSOMFY_APP_COMPAT", record["app_compat"])):
+        env.Append(CPPDEFINES=[(name, '\\\"' + value + '\\\"')])
+    build_dir = Path(env.subst("$BUILD_DIR"))
+    build_dir.mkdir(parents=True, exist_ok=True)
+    (build_dir / "update-source.json").write_text(json.dumps(
+        {"source": source, "identity": record}, sort_keys=True, indent=2) + "\n")
