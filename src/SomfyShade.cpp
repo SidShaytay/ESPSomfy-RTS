@@ -115,9 +115,6 @@ bool SomfyShade::moveToTiltTarget(float target) { return this->behaviour.moveToT
 bool SomfyShade::setMyPosition(int8_t pos, int8_t tilt) { return this->behaviour.setMyPosition(pos, tilt, millis()); }
 bool SomfyShade::moveToMyPosition() { return this->behaviour.moveToMyPosition(millis()); }
 void SomfyShade::setPosition(float pos, float tilt) { this->behaviour.setPosition(pos, tilt); }
-send_result_t SomfyShade::send(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority) {
-  return SomfyRemote::sendCommandAfter(cmd, repeat, stepSize, delayMs, priority, true);
-}
 void SomfyShade::onSaveWanted() { somfy.isDirty = true; }
 void SomfyShade::onSensorFlags() { somfy.updateGroupFlags(); }
 bool SomfyShade::save() {
