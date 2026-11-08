@@ -4396,11 +4396,15 @@ class Firmware {
             }
             if (service === '/updateApplication') {
                 let desc = 'Application upload response unavailable.';
-                try { desc = JSON.parse(xhr.responseText).desc || desc; } catch (e) { }
+                let started;
+                try { const response = JSON.parse(xhr.responseText); desc = response.desc || desc; started = response.started; } catch (e) { }
                 const instructions = el.querySelector('div[id="divInstText"]');
                 if (instructions) instructions.textContent = desc;
                 if (xhr.status < 200 || xhr.status >= 300) {
-                    showModelSaveWarning({ durable: false, modelSaveState: 1, desc: desc }, true);
+                    if (started === false) {
+                        const error = ui.errorMessage('Application upload did not start.');
+                        error.querySelector('.inner-error').textContent = desc;
+                    } else showModelSaveWarning({ durable: false, modelSaveState: 1, desc: desc }, true);
                     return;
                 }
             }
