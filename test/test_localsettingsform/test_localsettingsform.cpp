@@ -787,8 +787,28 @@ static void empty_save_closes_without_storage_or_allocating_a_request() {
     TEST_ASSERT_EQUAL(0,memory.allocations);
   }
 }
+static void actual_form_partial_does_not_hide_secret_retention_warning() {
+  Memory mem;Fake backend;Form form(backend,mem);
+  form.openSection(settings_section_t::security,0);form.activate(1);form.turn(1,1);chooseNumericApply(form);
+  turnTo(form,4);form.activate(1);form.turn(1,1);backend.outcome=settings_save_state_t::partial;form.activate(1);
+  TEST_ASSERT_EQUAL(Notice::partial,form.view().notice);
+  TEST_ASSERT_EQUAL_STRING("May be partly stored; running unchanged. Retry before restart.",form.view().hint);
+  form.turn(-1,1);form.turn(-1,1);form.activate(1);
+  TEST_ASSERT_EQUAL(Mode::secret,form.view().mode);
+  TEST_ASSERT_EQUAL_STRING("Blank retains saved secret; identity changes can clear it.",form.view().hint);
+}
+static void actual_form_partial_does_not_hide_retry_consequence_warning() {
+  Memory mem;Fake backend;Form form(backend,mem);
+  form.openSection(settings_section_t::security,0);form.activate(1);form.turn(1,1);chooseNumericApply(form);
+  turnTo(form,4);form.activate(1);form.turn(1,1);backend.outcome=settings_save_state_t::partial;form.activate(1);
+  TEST_ASSERT_EQUAL(Notice::partial,form.view().notice);form.activate(1);
+  TEST_ASSERT_EQUAL(Mode::confirm,form.view().mode);
+  TEST_ASSERT_EQUAL_STRING("Changes authentication; may close sessions.",form.view().hint);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(actual_form_partial_does_not_hide_secret_retention_warning);
+  RUN_TEST(actual_form_partial_does_not_hide_retry_consequence_warning);
   RUN_TEST(wifi_only_connection_repairs_only_explicitly_to_wifi);
   RUN_TEST(replacement_confirmation_is_discarded_on_timeout_auth_or_revision_change);
   RUN_TEST(explicit_replacement_apply_and_save_are_separate_boundaries);
