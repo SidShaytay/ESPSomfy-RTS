@@ -21,7 +21,8 @@ inline uint8_t commandMask(radio_proto proto, shade_types type, somfy_commands c
   }
   if(proto==radio_proto::GP_Relay) {
     if(type==shade_types::drycontact)
-      return cmd==somfy_commands::My||cmd==somfy_commands::Toggle ? down : 0;
+      return cmd==somfy_commands::My||cmd==somfy_commands::Toggle||
+             cmd==somfy_commands::Up||cmd==somfy_commands::Down ? down : 0;
     // The existing two-contact relay maps closed to Up, open to Down.
     if(two) return cmd==somfy_commands::Up ? down : cmd==somfy_commands::Down ? up : 0;
     switch(cmd) {
