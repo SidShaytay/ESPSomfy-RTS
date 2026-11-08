@@ -1,3 +1,4 @@
+#include "LilygoBuild.h"
 #include "esp_log.h"
 #include <WiFi.h>
 #include <LittleFS.h>
