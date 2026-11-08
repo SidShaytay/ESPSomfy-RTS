@@ -173,7 +173,8 @@ static void replyOk(AsyncWebSocketClient *client, uint32_t id) {
 // A command op that becomes a shade request: loop() runs it and replies.
 static void queueShadeOp(AsyncWebSocketClient *client, const proto_message_t &req, JsonObjectConst d) {
   loop_item_t item;
-  const char *bad = parseShadeOp(req.type, d, item.request);
+  proto_error_buffer_t error;
+  const char *bad = parseShadeOp(req.type, d, item.request, error);
   if(bad) { replyError(client, req.id, proto_error_t::badRequest, bad); return; }
   // Nothing goes on air during a frequency scan, so say so now rather than
   // once it reaches the radio.
@@ -189,7 +190,8 @@ static void queueShadeOp(AsyncWebSocketClient *client, const proto_message_t &re
 static void sendRemoteCommand(AsyncWebSocketClient *client, const proto_message_t &req, JsonObjectConst d) {
   somfy_frame_t frame;
   uint8_t repeats;
-  const char *bad = parseRemoteCommandOp(d, frame, repeats);
+  proto_error_buffer_t error;
+  const char *bad = parseRemoteCommandOp(d, frame, repeats, error);
   if(bad) { replyError(client, req.id, proto_error_t::badRequest, bad); return; }
   if(!somfy.sendFrame(frame, repeats)) {
     replyError(client, req.id, proto_error_t::radioUnavailable, PROTO_RADIO_REFUSED);
@@ -206,7 +208,8 @@ static void queueEditOp(AsyncWebSocketClient *client, const proto_message_t &msg
     else replyError(client, msg.id, proto_error_t::internal, "Out of memory");
     return;
   }
-  const char *bad = expandEditPayload(type, d, edit->doc);
+  proto_error_buffer_t error;
+  const char *bad = expandEditPayload(type, d, edit->doc, error);
   if(bad) {
     cancelModelEdit(edit);
     replyError(client, msg.id, proto_error_t::badRequest, bad);
@@ -245,7 +248,8 @@ static void queueDeviceOp(AsyncWebSocketClient *client, const proto_message_t &m
       else replyError(client, msg.id, proto_error_t::internal, "Out of memory");
       return;
     }
-    const char *bad = expandSettingsPayload(d, HAS_ETHERNET, save->section, save->request);
+    proto_error_buffer_t error;
+    const char *bad = expandSettingsPayload(d, HAS_ETHERNET, save->section, save->request, error);
     if(bad) {
       freeSettingsSave(save);
       replyError(client, msg.id, proto_error_t::badRequest, bad);

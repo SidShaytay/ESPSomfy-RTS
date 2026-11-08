@@ -121,11 +121,8 @@ static bool isAddress(const char *s) {
   return *s == '\0';
 }
 
-// What the reply's desc points at; every parse runs on async_tcp, one at a
-// time.
-static char why[64];
 // A value already of its field's kind: nullptr when it is in range.
-static const char *checkValue(const settings_field_t &s, const proto_field_info_t &f, JsonVariant value) {
+static const char *checkValue(const settings_field_t &s, const proto_field_info_t &f, JsonVariant value, proto_error_buffer_t &why) {
   if(f.kind == 'i') {
     const bool inRange = value.is<int64_t>() && value.as<int64_t>() >= s.lo && value.as<int64_t>() <= s.hi;
     if(s.field == proto_field_t::bitLength) {
@@ -167,7 +164,8 @@ static const char *checkValue(const settings_field_t &s, const proto_field_info_
   return nullptr;
 }
 
-const char *expandSettingsPayload(JsonObjectConst d, bool hasEthernet, settings_section_t &section, JsonDocument &doc) {
+const char *expandSettingsPayload(JsonObjectConst d, bool hasEthernet, settings_section_t &section, JsonDocument &doc, proto_error_buffer_t &why) {
+  why[0] = '\0';
   doc.clear();
   const char *bad = parseSettingsSection(d, section);
   if(bad) return bad;
@@ -191,7 +189,7 @@ const char *expandSettingsPayload(JsonObjectConst d, bool hasEthernet, settings_
       snprintf(why, sizeof(why), "%s is not a %s", f.name, protoKindName(f.kind));
       return why;
     }
-    bad = checkValue(*s, f, value);
+    bad = checkValue(*s, f, value, why);
     if(bad) return bad;
   }
   if(obj.size() == 0) return "Nothing to save";

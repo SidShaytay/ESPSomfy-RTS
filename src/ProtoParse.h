@@ -12,6 +12,12 @@
 // The largest frame a client may send; a longer one is refused unread.
 #define PROTO_MAX_CLIENT_FRAME 4096
 
+// Caller-owned error storage for typed operation parsers. A returned message
+// is either immutable text or points into this buffer; it remains valid until
+// the caller reuses the buffer. Separate callers must use separate buffers and
+// input/output documents when parsing on different tasks.
+using proto_error_buffer_t = char[64];
+
 struct proto_message_t {
   uint8_t type = 0;
   uint32_t id = 0;  // 0 when the frame had none

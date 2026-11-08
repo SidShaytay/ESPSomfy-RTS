@@ -11,11 +11,12 @@ void tearDown() {}
 
 static JsonDocument payload;
 static JsonDocument doc;
+static proto_error_buffer_t error;
 
 static const char *expand(model_edit_type_t type, const char *json) {
   payload.clear();
   TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(payload, json).code());
-  return expandEditPayload(type, payload.as<JsonObjectConst>(), doc);
+  return expandEditPayload(type, payload.as<JsonObjectConst>(), doc, error);
 }
 static std::string written() {
   std::string out;
@@ -154,10 +155,22 @@ static void test_shade_and_group_edits_require_supported_bit_lengths() {
   }
 }
 
+static void test_independent_edit_errors_survive_interleaved_parses() {
+  JsonDocument firstPayload, secondPayload, firstOut, secondOut;
+  proto_error_buffer_t firstBuffer, secondBuffer;
+  deserializeJson(firstPayload, R"({"unknown":1})");
+  deserializeJson(secondPayload, R"({"n":true})");
+  const char *firstError = expandEditPayload(model_edit_type_t::add_room, firstPayload.as<JsonObjectConst>(), firstOut, firstBuffer);
+  const char *secondError = expandEditPayload(model_edit_type_t::add_room, secondPayload.as<JsonObjectConst>(), secondOut, secondBuffer);
+  TEST_ASSERT_EQUAL_STRING("Unknown field unknown", firstError);
+  TEST_ASSERT_EQUAL_STRING("name is not a string", secondError);
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_independent_edit_errors_survive_interleaved_parses);
   RUN_TEST(test_every_edit_op_is_an_edit);
   RUN_TEST(test_other_types_are_not_edits);
   RUN_TEST(test_the_edit_ops_are_the_schemas_edit_ops);
