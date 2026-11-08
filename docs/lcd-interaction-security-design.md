@@ -13,6 +13,8 @@ pairing, calibration, limits or HA operations. All development verification uses
 request sinks and synthetic model data. Hardware acceptance remains a separate stage.
 See the [capability matrix](lcd-web-capability-matrix.md) for operation coverage.
 
+Sid's revised build decision is one full-feature `lilygo-t-embed-cc1101` image for CC1101 and Plus, using their same project-relevant hardware. Keep the supported hardware list exact; the unused nRF24 does not create another firmware variant. Historical two-build evidence remains history and does not define the current product.
+
 ## Existing contracts and gaps
 
 - `LocalUi.h`, `LocalUi.cpp` and `LocalUiAdapter.cpp` contain three fixed slots,
@@ -241,7 +243,7 @@ and counter-recovery requirements of [flashing](flashing.md) and issue #9; this 
 stage does not authorize restoring any production file or changing current counters.
 
 Functions that can be fully standalone on LCD remain local. Firmware checking/install
-uses only the reviewed issue #12 service, with exact physical-board identity, authenticated
+uses only the reviewed issue #12 service, with explicit shared CC1101/Plus hardware compatibility, authenticated
 metadata, feature/partition/web compatibility, staging admission, quiescence and rollback.
 The LCD is its client, not another installer. Until that service is reviewed/integrated,
 show unavailable honestly; do not present browser manual upload as standalone GitHub update.
@@ -290,7 +292,7 @@ Until then record runtime heap/latency acceptance as pending, not passed by a bu
   masked credentials, confirmation defaults, error/queued/partial state and dim/wake.
   Text mockups above alone do not meet the preview acceptance criterion.
 - Existing native, JS, board-profile, status-panel, adapter/runtime/capture/renderer and
-  tooling suites; both canonical firmware builds; generic-board build isolation and
+  tooling suites; the single canonical shared CC1101/Plus firmware build; generic-board build isolation and
   negative compiler/package contracts. Record ELF/slot size; hardware memory and
   latency evidence stays explicitly pending. Independent review must challenge auth,
   capture races and STOP/MY with fake sinks before feature integration into main.

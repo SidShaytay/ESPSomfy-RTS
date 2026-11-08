@@ -1,6 +1,6 @@
 # LILYGO status fallback
 
-Both canonical CC1101 and Plus builds include the interactive [local UI](lilygo-local-ui.md). This page describes its simple status fallback when PSRAM is unavailable. It is not a separate status-only production image. Dated physical results belong to the [historical validation record](lilygo-status-validation.md).
+The shared CC1101/Plus build includes the interactive [local UI](lilygo-local-ui.md). This page describes its simple status fallback when PSRAM is unavailable. It is not a separate status-only production image. Dated physical results belong to the [historical validation record](lilygo-status-validation.md).
 
 ## Build for your physical board
 
@@ -8,10 +8,9 @@ Use pinned pioarduino Core 6.2.0:
 
 ```bash
 ~/.cache/espsomfy-lilygo/pio-python/bin/pio run -e lilygo-t-embed-cc1101
-~/.cache/espsomfy-lilygo/pio-python/bin/pio run -e lilygo-t-embed-cc1101-plus
 ```
 
-Both require display/UI/commands and pinned GFX 1.12.1 / BusIO 1.17.4; generic targets get no display dependencies. Keep the matching ELF. Build commands do not access a device. The packager in [LILYGO.md](../LILYGO.md) validates the exact physical board and full feature set; suffix release names are retired.
+It requires display/UI/commands and pinned GFX 1.12.1 / BusIO 1.17.4; generic targets get no display dependencies. Keep the matching ELF. Build commands do not access a device. The packager in [LILYGO.md](../LILYGO.md) validates the exact supported CC1101/Plus hardware list and full feature set; Plus-only/suffix release names are retired.
 
 ## Read and wake the screen
 
@@ -38,7 +37,7 @@ Manufacturer references, checked November 6, 2026:
 
 The manufacturer's TFT_eSPI HSPI recommendation addresses that library's direct register implementation. This module instead uses Arduino's shared `SPI` object with explicit transactions and the existing radio pins. It does not instantiate TFT_eSPI, remap pins, call `SPI.end()`, change SPI pin modes, or mask interrupts.
 
-Each LCD transfer tries the existing recursive radio mutex with zero wait. A busy radio skips the transfer. CS41 is raised before transaction end; other slave selects stay deselected. The radio driver selects 4 MHz/mode0/MSB-first on every access so it cannot inherit the LCD's 20 MHz setting. The selected 4 MHz clock is below the limits in [TI’s SPI timing specification](https://www.ti.com/lit/ds/symlink/cc1101.pdf), including burst transfers without inserted delays. Reset ends its transaction before register helpers open theirs. Existing radio preflight may still end/reinitialize the bus under that same mutex; the display reopens it with the exact existing pins on its next transfer. GPIO16/DC and GPIO0/wake are reserved against saved/imported relay assignments in both physical-board profiles.
+Each LCD transfer tries the existing recursive radio mutex with zero wait. A busy radio skips the transfer. CS41 is raised before transaction end; other slave selects stay deselected. The radio driver selects 4 MHz/mode0/MSB-first on every access so it cannot inherit the LCD's 20 MHz setting. The selected 4 MHz clock is below the limits in [TI’s SPI timing specification](https://www.ti.com/lit/ds/symlink/cc1101.pdf), including burst transfers without inserted delays. Reset ends its transaction before register helpers open theirs. Existing radio preflight may still end/reinitialize the bus under that same mutex; the display reopens it with the exact existing pins on its next transfer. GPIO16/DC and GPIO0/wake are reserved against saved/imported relay assignments in the shared CC1101/Plus profile.
 
 Snapshots are sampled once per second after setup. Only changed text rows transfer, at most one row per 20 ms. A row transfers 11,520 pixel bytes plus 11 command/address bytes; initialization clears two scanlines per pass. At 20 MHz the pixel wire time per text row is 4.608 ms, before CPU/driver overhead. This is a calculated bound on wire volume, not a hardware latency measurement. The first BOOT page has a bounded 1.2-second setup window; initialization has a five-second elapsed-time failure limit and never waits for the radio lock.
 

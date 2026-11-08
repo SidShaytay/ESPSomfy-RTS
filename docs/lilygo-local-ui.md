@@ -1,6 +1,6 @@
 # Local shutter UI
 
-Use [the standard flashing procedure](flashing.md) for backup and firmware-only A/B updates. Select the exact standard or Plus physical-board environment; both include display, UI and commands.
+Use [the standard flashing procedure](flashing.md) for backup and firmware-only A/B updates. Build `lilygo-t-embed-cc1101` for either CC1101 or Plus; the shared image includes display, UI and commands.
 
 The 320×170 UI adds status, room selection, controls, details and saved display settings to the LILYGO CC1101/Plus display. It follows the approved dark/teal mockup using the real Adafruit fonts and vector drawing; the generated previews use the same renderer as the board.
 
@@ -38,14 +38,14 @@ The graphics allocation never silently falls back to internal SRAM. If PSRAM is 
 
 Rendering happens only when visible state changes. Frame contents live in PSRAM; changed four-line bands are copied/byte-swapped into the internal transfer buffer before trying the existing radio mutex. One band is attempted per two milliseconds, with zero lock wait; the last band contains two lines. The LCD path never remaps radio pins, changes SPI pin modes, masks interrupts or ends the shared bus. Hashes skip unchanged bands. No full-screen animation or double buffering is used.
 
-Commands require the currently selected page/target/action to have been presented. Position/uptime repainting does not disable an already presented STOP selection. Fresh model validation checks the exact existing RF identity and group member identities before dispatch; there are no new rolling-code identities. GPIO4/5/6 are reserved against relay output assignments in both physical-board builds.
+Commands require the currently selected page/target/action to have been presented. Position/uptime repainting does not disable an already presented STOP selection. Fresh model validation checks the exact existing RF identity and group member identities before dispatch; there are no new rolling-code identities. GPIO4/5/6 are reserved against relay output assignments in the shared CC1101/Plus build.
 
-The enabled build reuses `ShadeRequests` on the model-owning loop. Group UP/DOWN use the existing group identity. When both members are estimated moving, group STOP uses the same shared identity as UP/DOWN. If only one member is estimated moving, STOP addresses that member individually, rechecking immediately before submission, to avoid broadcasting MY to idle members. RTS has no motor position acknowledgement: estimates can be wrong, and a shared STOP/MY radio command cannot provide an absolute physical no-favourite guarantee. Actual RF/STOP semantics require separate approved testing. Both canonical physical-board environments define `ESPSOMFY_LOCAL_COMMANDS`; reduced-feature release configurations are retired.
+The enabled build reuses `ShadeRequests` on the model-owning loop. Group UP/DOWN use the existing group identity. When both members are estimated moving, group STOP uses the same shared identity as UP/DOWN. If only one member is estimated moving, STOP addresses that member individually, rechecking immediately before submission, to avoid broadcasting MY to idle members. RTS has no motor position acknowledgement: estimates can be wrong, and a shared STOP/MY radio command cannot provide an absolute physical no-favourite guarantee. Actual RF/STOP semantics require separate approved testing. The shared canonical environment defines `ESPSOMFY_LOCAL_COMMANDS`; reduced-feature release configurations are retired.
 
 ## Build and inspect offline
 
 ```bash
-~/.cache/espsomfy-lilygo/pio-python/bin/pio run -e lilygo-t-embed-cc1101-plus
+~/.cache/espsomfy-lilygo/pio-python/bin/pio run -e lilygo-t-embed-cc1101
 ~/.cache/espsomfy-lilygo/pio-python/bin/pio test -e native
 bash tools/preview-local-ui.sh
 bash tools/test-status-panel.sh
@@ -53,13 +53,13 @@ bash tools/test-board-profile.sh
 python3 -m unittest discover -s tools -p test_lcd_image.py
 ```
 
-The preview tool compiles the production renderer with the actual pinned GFX library/fonts, produces PNGs at exactly 320×170 in `build/ui-preview/`, and runs runtime/capture harnesses. Set `GFX_DIR` if library dependencies are outside the default `.pio/libdeps/lilygo-t-embed-cc1101-plus/Adafruit GFX Library` directory. Only Arduino/network/heap boundaries are stubbed; the rendering, navigation, frame-copy and capture logic are production code.
+The preview tool compiles the production renderer with the actual pinned GFX library/fonts, produces PNGs at exactly 320×170 in `build/ui-preview/`, and runs runtime/capture harnesses. Set `GFX_DIR` if library dependencies are outside the default `.pio/libdeps/lilygo-t-embed-cc1101/Adafruit GFX Library` directory. Only Arduino/network/heap boundaries are stubbed; the rendering, navigation, frame-copy and capture logic are production code.
 
-On this workstation, native checks use the existing `rocm-7.2.3` container. Host firmware builds set `PLATFORMIO_BUILD_DIR=build/pio` and `PLATFORMIO_LIBDEPS_DIR=build/libdeps` to keep their artifacts separate from container-created native folders. The packager validates full-feature standard and Plus images. Simple status remains an allocation-failure fallback, rather than a separate release image.
+On this workstation, native checks use the existing `rocm-7.2.3` container. Host firmware builds set `PLATFORMIO_BUILD_DIR=build/pio` and `PLATFORMIO_LIBDEPS_DIR=build/libdeps` to keep their artifacts separate from container-created native folders. The packager validates the shared full-feature CC1101/Plus image. Simple status remains an allocation-failure fallback, rather than a separate release image.
 
 ## Capture the hardware framebuffer
 
-After installing the UI build, the read-only endpoint is `GET /lcd/screenshot`. The existing HTTP authentication middleware applies: supply the existing `apikey` header when security is enabled. No token is put in the URL. Both canonical builds register this route; allocation fallback has no full framebuffer and returns 503.
+After installing the UI build, the read-only endpoint is `GET /lcd/screenshot`. The existing HTTP authentication middleware applies: supply the existing `apikey` header when security is enabled. No token is put in the URL. The shared build registers this route; allocation fallback has no full framebuffer and returns 503.
 
 ```bash
 python3 tools/capture-local-ui.py --host <controller-address>
