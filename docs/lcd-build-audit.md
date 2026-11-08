@@ -95,3 +95,12 @@ Offline checks for this slice:
 - Production renderer generated eight 320×170 screens; runtime, capture and preserved shared-group STOP fake-sink harnesses passed. Previews remain local generated artifacts under `build/ui-preview`; no screen capture or live device was accessed.
 
 This is build/host evidence, not standard-board physical qualification, runtime combined-load memory/latency measurements or full web/LCD parity. No controller, HA, RF, motor, flash or firmware installation action was performed.
+
+Final compile/package sizes for code revision `3cc6317` (canonical build change plus caller-owned parser errors):
+
+| Board | Firmware binary bytes | ELF file bytes | Linker static RAM bytes | Linker flash bytes | App-slot headroom bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| CC1101 | 1,407,344 | 28,887,064 | 108,060 | 1,362,502 | 1,934,992 |
+| CC1101 Plus | 1,407,376 | 28,890,080 | 108,060 | 1,362,534 | 1,934,960 |
+
+Both use 3,342,336-byte slots. Packages record revision `3cc6317` and `dirty: true` because current documentation edits were pending during packaging; they are local build evidence, not published release artifacts. A clean final release must be rebuilt/revalidated from its final integrated revision. The generic `esp32dev` full firmware build also passed in separate `.pio/build-generic`, confirming no LILYGO display dependency/feature is required there.
