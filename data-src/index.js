@@ -399,21 +399,59 @@ function editTarget(kind, idOf) {
 // An edit, with the spinner up until it is done.  Its events follow the
 // reply: with a target, cb gets the item once its event is in; without, the
 // lists redraw from the events anyway.
+var modelSaveWarning = null;
+// The edit already changed the running model. Offer only COMMIT of the current
+// model; retrying the original add/delete/link could repeat its effects.
+function showModelSaveWarning(reply, force = false) {
+    if (reply.durable === true) {
+        if (modelSaveWarning) modelSaveWarning.remove();
+        modelSaveWarning = null;
+        if (reply.desc && !reply.rebooting) {
+            const info = ui.infoMessage('Model file saved.');
+            info.querySelector('.info-text').textContent = reply.desc;
+        }
+        return;
+    }
+    if (!force && modelSaveWarning && modelSaveWarning.getAttribute('data-save-state') === String(reply.modelSaveState)) return;
+    if (modelSaveWarning) modelSaveWarning.remove();
+    const warning = ui.errorMessage('Model file is not saved.');
+    warning.querySelector('.inner-error').textContent = reply.desc || 'Model file is not saved. Retry Commit before restarting.';
+    warning.setAttribute('data-save-state', String(reply.modelSaveState));
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.textContent = 'Retry Commit';
+    retry.addEventListener('click', () => {
+        retry.disabled = true;
+        runOp('commitModel', {}, true).then((saved) => showModelSaveWarning(saved), (err) => {
+            retry.disabled = false;
+            if (err.data) showModelSaveWarning(err.data, true);
+            else ui.serviceError(err);
+        });
+    });
+    warning.appendChild(retry);
+    modelSaveWarning = warning;
+}
 function sendEdit(name, fields, target, cb) {
     let overlay = ui.waitMessage(document.getElementById('divContainer'));
     let finish = (err, item) => {
         overlay.remove();
         if (typeof cb === 'function') cb(err, item);
     };
-    runOp(name, fields, true).then((reply) => {
-        if (!target) {
-            finish(null, reply);
-            return;
-        }
+    let applied = (reply, unsaved) => {
+        let adopted = (item) => {
+            // Update the add's assigned ID or close the delete workflow BEFORE
+            // showing the separate persistence warning.
+            try { finish(null, item); }
+            finally { if (unsaved) showModelSaveWarning(reply, true); }
+        };
+        if (!target) { adopted(reply); return; }
         let id = target.idOf(reply);
-        // Without the event the reply is all there is, an add's new id in it.
-        proto.waitFor(target.event, (d) => target.match(d, id), 3000).then(() => finish(null, target.read(id) || reply));
-    }, (err) => finish(err, null));
+        proto.waitFor(target.event, (d) => target.match(d, id), 3000).then(() => adopted(target.read(id) || reply));
+    };
+    runOp(name, fields, true).then((reply) => applied(reply, false), (err) => {
+        if (err.data && err.data.applied === true) applied(err.data, true);
+        else finish(err, null);
+    });
 }
 // A command's repeat count, when the caller gave one.
 function repeatOf(repeat) { return typeof repeat === 'number' ? repeat : undefined; }
@@ -539,6 +577,7 @@ function startSocket() {
             case 'radio': somfy.loadRadio(); break;
         }
     });
+    proto.on('modelPersistence', (result) => showModelSaveWarning(result));
     proto.on('error', (err) => console.log(err));
     showSocketWait();
     proto.connect();
@@ -4354,6 +4393,16 @@ class Firmware {
                 el.remove();
                 security.tokenRefused();
                 return;
+            }
+            if (service === '/updateApplication') {
+                let desc = 'Application upload response unavailable.';
+                try { desc = JSON.parse(xhr.responseText).desc || desc; } catch (e) { }
+                const instructions = el.querySelector('div[id="divInstText"]');
+                if (instructions) instructions.textContent = desc;
+                if (xhr.status < 200 || xhr.status >= 300) {
+                    showModelSaveWarning({ durable: false, modelSaveState: 1, desc: desc }, true);
+                    return;
+                }
             }
             if (xhr.status < 200 || xhr.status >= 300) {
                 // The device's reason, when it sent one.

@@ -61,6 +61,11 @@ class ProtoViews {
     static opError(name, err) {
         const e = { htmlError: err.code, service: name, desc: err.desc };
         if (err.data && typeof err.data.validation === 'number' && err.data.validation !== 0) e.code = err.data.validation;
+        if (err.data && (err.data.applied === true || typeof err.data.modelSaveState === 'number')) {
+            e.data = { desc: err.desc };
+            for (const field of ['applied', 'durable']) if (typeof err.data[field] === 'boolean') e.data[field] = err.data[field];
+            for (const field of ['modelSaveState', 'roomId', 'shadeId', 'groupId']) if (Number.isInteger(err.data[field])) e.data[field] = err.data[field];
+        }
         return e;
     }
 }
