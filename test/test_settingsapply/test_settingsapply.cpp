@@ -235,6 +235,60 @@ static void test_successful_noop_security_save_invalidates_history_but_failure_d
   TEST_ASSERT_FALSE(apply(settings,settings_section_t::security,R"({"type":0})",effects).saved());
   TEST_ASSERT_EQUAL_UINT64(initial+2,effects.revisions.get(settings_section_t::security));
 }
+static void test_enabling_pin_requires_four_effective_bytes_before_any_storage() {
+  ConfigSettings settings;
+  Effects effects;
+  auto refused=apply(settings,settings_section_t::security,R"({"type":1})",effects);
+  TEST_ASSERT_EQUAL(settings_apply_refusal_t::invalidPin,refused.refusal);
+  TEST_ASSERT_FALSE(refused.saved());
+  TEST_ASSERT_EQUAL(0,FakeNvs::opens);
+  TEST_ASSERT_EQUAL(0,effects.completions);
+  TEST_ASSERT_EQUAL(security_types::None,settings.Security.type);
+  TEST_ASSERT_NOT_NULL(strstr(settingsApplyFailureDescription(refused),"nothing was saved"));
+  refused=apply(settings,settings_section_t::security,R"({"type":1,"pin":"123"})",effects);
+  TEST_ASSERT_EQUAL(settings_apply_refusal_t::invalidPin,refused.refusal);
+  TEST_ASSERT_EQUAL(0,FakeNvs::opens);
+  TEST_ASSERT_TRUE(apply(settings,settings_section_t::security,R"({"type":1,"pin":"A B!"})",effects).saved());
+  TEST_ASSERT_EQUAL_STRING("A B!",settings.Security.pin); // no numeric-only or trim policy
+  TEST_ASSERT_TRUE(apply(settings,settings_section_t::security,R"({"pin":""})",effects).saved());
+  TEST_ASSERT_EQUAL_STRING("A B!",settings.Security.pin);
+}
+static void test_password_security_requires_effective_username_and_password_without_trimming() {
+  ConfigSettings settings;
+  Effects effects;
+  auto refused=apply(settings,settings_section_t::security,R"({"type":2})",effects);
+  TEST_ASSERT_EQUAL(settings_apply_refusal_t::usernameRequired,refused.refusal);
+  TEST_ASSERT_EQUAL(0,FakeNvs::opens);
+  refused=apply(settings,settings_section_t::security,R"({"type":2,"username":"user"})",effects);
+  TEST_ASSERT_EQUAL(settings_apply_refusal_t::passwordRequired,refused.refusal);
+  TEST_ASSERT_EQUAL(0,FakeNvs::opens);
+  TEST_ASSERT_EQUAL(0,effects.completions);
+  TEST_ASSERT_TRUE(apply(settings,settings_section_t::security,R"({"type":2,"username":" ","password":" "})",effects).saved());
+  TEST_ASSERT_EQUAL_STRING(" ",settings.Security.username);
+  TEST_ASSERT_EQUAL_STRING(" ",settings.Security.password);
+  refused=apply(settings,settings_section_t::security,R"({"username":""})",effects);
+  TEST_ASSERT_EQUAL(settings_apply_refusal_t::usernameRequired,refused.refusal);
+  TEST_ASSERT_EQUAL_STRING(" ",settings.Security.username);
+}
+static void test_unchanged_legacy_credentials_are_preserved_but_new_active_changes_must_be_valid() {
+  ConfigSettings settings;
+  Effects effects;
+  settings.Security.type=security_types::PinEntry;
+  strcpy(settings.Security.pin,"old");
+  TEST_ASSERT_TRUE(apply(settings,settings_section_t::security,R"({"type":1,"pin":""})",effects).saved());
+  TEST_ASSERT_EQUAL_STRING("old",settings.Security.pin);
+  auto refused=apply(settings,settings_section_t::security,R"({"pin":"xy"})",effects);
+  TEST_ASSERT_EQUAL(settings_apply_refusal_t::invalidPin,refused.refusal);
+  TEST_ASSERT_EQUAL_STRING("old",settings.Security.pin);
+  TEST_ASSERT_TRUE(apply(settings,settings_section_t::security,R"({"pin":"1234"})",effects).saved());
+  settings.Security.type=security_types::Password;
+  settings.Security.username[0]=0;
+  settings.Security.password[0]=0;
+  TEST_ASSERT_TRUE(apply(settings,settings_section_t::security,R"({"type":2})",effects).saved());
+  refused=apply(settings,settings_section_t::security,R"({"password":"changed"})",effects);
+  TEST_ASSERT_EQUAL(settings_apply_refusal_t::usernameRequired,refused.refusal);
+  TEST_ASSERT_TRUE(apply(settings,settings_section_t::security,R"({"username":"fixed","password":"fixed"})",effects).saved());
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_connection_change_reboots_only_after_verified_save);
@@ -253,5 +307,8 @@ int main() {
   RUN_TEST(test_failed_and_partial_saves_never_complete);
   RUN_TEST(test_radio_completion_uses_the_same_success_gate);
   RUN_TEST(test_successful_noop_security_save_invalidates_history_but_failure_does_not);
+  RUN_TEST(test_enabling_pin_requires_four_effective_bytes_before_any_storage);
+  RUN_TEST(test_password_security_requires_effective_username_and_password_without_trimming);
+  RUN_TEST(test_unchanged_legacy_credentials_are_preserved_but_new_active_changes_must_be_valid);
   return UNITY_END();
 }

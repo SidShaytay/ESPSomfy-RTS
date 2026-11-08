@@ -95,8 +95,11 @@ static void runSave(const proto_reply_to_t &to, settings_save_t *save) {
   const auto result = applyDeviceSettings(section,save->request.as<JsonObject>(),to.client);
   freeSettingsSave(save);
   if(!result.saved()) {
-    protoSocket.replyRefused(to,proto_error_t::internal,settingsSaveFailureDescription(result.persistence.state));
-    ESP_LOGE(TAG,"Socket [%lu] %s settings save failed%s",(unsigned long)to.client,settingsSectionName(section),
+    const auto code = result.refusal == settings_apply_refusal_t::unauthorized ? proto_error_t::unauthorized :
+      result.refusal == settings_apply_refusal_t::stale ? proto_error_t::busy :
+      result.refusal != settings_apply_refusal_t::none ? proto_error_t::badRequest : proto_error_t::internal;
+    protoSocket.replyRefused(to,code,settingsApplyFailureDescription(result));
+    ESP_LOGE(TAG,"Socket [%lu] %s settings save refused or failed%s",(unsigned long)to.client,settingsSectionName(section),
       result.persistence.state == settings_save_state_t::partial ? "; durable state may be partial" : "");
     return;
   }
