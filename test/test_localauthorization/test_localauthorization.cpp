@@ -1,6 +1,7 @@
 #include <unity.h>
 #include "LocalAuthorization.h"
 #include "LocalCredentialEditor.h"
+#include "LocalStopLease.h"
 #include <string.h>
 using namespace LocalUi;
 void setUp() {}
@@ -150,6 +151,47 @@ static void editor_backspace_clears_tail_and_excludes_nul() {
   for(size_t i=1;i<sizeof(out.secret);i++) TEST_ASSERT_EQUAL(0, out.secret[i]);
   out.clear();
 }
+static void stop_lease_freezes_only_continuing_authorized_motion() {
+  StopLease lease;
+  StopContext c;
+  c.id=9; c.identity=123; c.members=2; c.memberIds[0]=2; c.memberIds[1]=7;
+  c.memberIdentities[0]=22; c.memberIdentities[1]=77;
+  lease.observe(c, 1, true, false);
+  lease.observe(c, 3, false, true); // member two began after last authorized sample
+  TEST_ASSERT_EQUAL(1, lease.allowed(c));
+  lease.observe(c, 0, false, true);
+  TEST_ASSERT_EQUAL(0, lease.allowed(c));
+  lease.observe(c, 3, false, true); // idle then new movement cannot reacquire
+  TEST_ASSERT_EQUAL(0, lease.allowed(c));
+  lease.observe(c, 3, true, false);
+  lease.observe(c, 3, false, true);
+  TEST_ASSERT_EQUAL(3, lease.allowed(c));
+  auto changed=c; changed.memberIdentities[1]++;
+  lease.observe(changed,3,false,true);
+  TEST_ASSERT_EQUAL(0,lease.allowed(c));
+  lease.observe(c,3,false,true);
+  TEST_ASSERT_EQUAL(0,lease.allowed(c));
+  lease.observe(c,3,true,false);
+  lease.observe(c,3,false,false); // explicit lock, not expiry, has no lease
+  TEST_ASSERT_EQUAL(0,lease.allowed(c));
+}
+static void stop_lease_rejects_config_target_and_security_changes() {
+  StopContext c; c.id=1; c.identity=20; c.members=1; c.memberIds[0]=1;
+  c.memberIdentities[0]=20;
+  for(unsigned which=0;which<5;which++) {
+    StopLease lease; lease.observe(c,1,true,false); lease.observe(c,1,false,true);
+    auto other=c;
+    switch(which) {
+    case 0: other.id++; break;
+    case 1: other.identity++; break;
+    case 2: other.configuration++; break;
+    case 3: other.securityGeneration++; break;
+    case 4: other.group=true; break;
+    }
+    lease.observe(other,1,false,true);
+    TEST_ASSERT_EQUAL(0,lease.allowed(c));
+  }
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(configured_mode_and_exact_credentials);
@@ -160,5 +202,7 @@ int main() {
   RUN_TEST(secret_buffers_can_be_explicitly_wiped);
   RUN_TEST(editor_bounds_byte_entry_and_wipe);
   RUN_TEST(editor_backspace_clears_tail_and_excludes_nul);
+  RUN_TEST(stop_lease_freezes_only_continuing_authorized_motion);
+  RUN_TEST(stop_lease_rejects_config_target_and_security_changes);
   return UNITY_END();
 }

@@ -15,14 +15,15 @@ inline void wipe(void *memory, size_t bytes) {
 struct Credentials {
   char username[33] = {}, secret[33] = {};
   void clear() { wipe(this, sizeof(*this)); }
+  ~Credentials() { clear(); }
 };
 class Authorization {
   AuthMode mode = AuthMode::unavailable;
   Credentials expected;
   LoginThrottle attempts;
-  bool active = false;
+  bool active = false, timedOut = false;
   uint64_t lastActivity = 0;
-  uint32_t revision = 0;
+  uint32_t revision = 0, configurationRevision = 0;
   static bool copy(char *out, const char *value, size_t maximum) {
     if(!value) return false;
     size_t n = 0;
@@ -61,16 +62,22 @@ public:
       expected.clear();
       expected = next;
       mode = nextMode;
+      ++configurationRevision;
       lock();
     }
     next.clear();
   }
   AuthMode configuredMode() const { return mode; }
   uint32_t generation() const { return revision; }
-  void lock() { active = false; lastActivity = 0; ++revision; }
+  uint32_t configurationGeneration() const { return configurationRevision; }
+  bool expired() const { return timedOut; }
+  void lock() { active = timedOut = false; lastActivity = 0; ++revision; }
   bool allowed(uint64_t now) {
     if(mode == AuthMode::none) return true;
-    if(active && (now < lastActivity || now - lastActivity >= inactivityMs)) lock();
+    if(active && (now < lastActivity || now - lastActivity >= inactivityMs)) {
+      lock();
+      timedOut = true;
+    }
     return active;
   }
   void activity(uint64_t now) {
@@ -80,6 +87,7 @@ public:
   AuthResult unlock(const Credentials &given, uint64_t now) {
     if(mode == AuthMode::unavailable) return AuthResult::unavailable;
     if(retryAfter(now)) return AuthResult::locked;
+    const bool wasExpired = timedOut;
     lock();
     if(mode == AuthMode::none || same(expected, given)) {
       attempts.succeeded(0);
@@ -87,6 +95,7 @@ public:
       lastActivity = now;
       return AuthResult::unlocked;
     }
+    timedOut = wasExpired;
     attempts.failed(0, now);
     return AuthResult::wrong;
   }
