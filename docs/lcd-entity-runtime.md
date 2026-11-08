@@ -19,7 +19,10 @@ malformed UTF-8 names. A missing name terminator causes a bounded read failure;
 it is distinct from terminated malformed text, which the Form can explicitly
 replace. New drafts offer the current radio's frame size, a free primary remote
 identity and unassigned GPIOs. Save materializes the displayed applicable defaults
-into the existing expanded request using its injected wiping allocator. Existing
+into the existing expanded request using its injected wiping allocator. If the
+hidden device/group sort order would exceed its signed byte, Add refuses with a
+Reorder message before any mutation; it never wraps or normalizes existing
+orders. Existing
 entities keep omitted fields unchanged. Inactive GPIO drafts are refused, rather
 than discarded or silently ignored.
 

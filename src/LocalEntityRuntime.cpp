@@ -115,6 +115,14 @@ class RuntimeBackend final : public Backend {
     const auto *form = editForm(type);
     if (!form)
       return {{}, Admission::stale};
+    // Device/group sort order is assigned by Add rather than an editable
+    // scalar field. Refuse an unrepresentable hidden default, never wrap it.
+    if (!sourceId && preparedKind == Kind::shade &&
+        static_cast<int>(somfy.getMaxShadeOrder()) + 1 > INT8_MAX)
+      return invalid(proto_field_t::count, "Reorder devices before adding");
+    if (!sourceId && preparedKind == Kind::group &&
+        static_cast<int>(somfy.getMaxGroupOrder()) + 1 > INT8_MAX)
+      return invalid(proto_field_t::count, "Reorder groups before adding");
     // New entities receive exactly the defaults displayed to the operator.
     // Existing entities remain changed-only, preserving omitted legacy values.
     if (!sourceId) {
