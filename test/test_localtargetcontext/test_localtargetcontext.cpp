@@ -38,7 +38,7 @@ static void zero_max_sparse_and_duplicate_member_bounds() {
 }
 static void stop_context_uses_stable_keys_and_context_token() {
   const auto c=context();
-  const auto stop=c.stopContext(41,12);
+  const auto stop=c.stopContext(41,12,8);
   TEST_ASSERT_TRUE(stop.group); TEST_ASSERT_EQUAL(9,stop.id); TEST_ASSERT_EQUAL(500,stop.identity);
   TEST_ASSERT_EQUAL(2,stop.members); TEST_ASSERT_EQUAL(2,stop.memberIds[0]);
   TEST_ASSERT_EQUAL(800,stop.memberIdentities[1]);

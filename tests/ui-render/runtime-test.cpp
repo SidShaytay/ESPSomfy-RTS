@@ -28,7 +28,7 @@ LocalUi::Model LocalUi::snapshotModel(bool running,const View &view){lastQuery=v
 void LocalUi::markControlPresented(EntityRef ref,uint64_t token,bool allowed,uint32_t generation){++presentations;adapterMarkControlPresented(ref,token,allowed,generation);}
 LocalUi::SecuritySnapshot LocalUi::pollAuthorization(){
   const bool allowed=authorization.allowed(testNow);
-  return {authorization.configuredMode(),allowed,authorization.stopGraceAllowed(),authorization.generation(),authorization.configurationGeneration(),authorization.retryAfter(testNow)};
+  return {authorization.configuredMode(),allowed,authorization.stopGraceAllowed(),authorization.generation(),authorization.configurationGeneration(),authorization.retryAfter(testNow),authorization.expiredSessionGeneration()};
 }
 void LocalUi::authorizationActivity(){authorization.activity(testNow);}
 void LocalUi::lockAuthorization(){++locks;authorization.lock();}

@@ -146,7 +146,8 @@ void observeLease(const View &view,const SecuritySnapshot &security) {
   const bool authorized=selected && view.authorizedSelection && security.allowed &&
     view.selectionAuthGeneration==security.generation && presentedToken==focusedToken &&
     presentedRef==view.entity;
-  const auto context=focusedContext.stopContext(focusedToken,security.configurationGeneration);
+  const auto context=focusedContext.stopContext(focusedToken,security.configurationGeneration,
+    security.allowed?security.generation:security.expiredSessionGeneration);
   stopLease.observe(context,focusedMoving,authorized,selected && security.stopGrace);
   leasedMoving=stopLease.allowed(context);
 }
@@ -177,6 +178,7 @@ Model snapshotModel(bool running,const View &view) {
   const auto security=pollAuthorization();
   m.authMode=security.mode; m.authorized=security.allowed; m.authGeneration=security.generation;
   m.authConfigurationGeneration=security.configurationGeneration; m.retryAfterMs=security.retryAfterMs;
+  m.expiredSessionGeneration=security.expiredSessionGeneration;
   m.modelRevision=somfy.configurationRevision; m.restoreRevision=somfy.restoreRevision;
   m.catalogue=view.catalogue; m.room=view.room;
   for(auto &shade:somfy.shades) if(shade.getShadeId()!=255 && !shade.isIdle()) m.anyMoving=true;
@@ -229,7 +231,8 @@ DispatchResult dispatch(const Command &cmd) {
   View view; view.entity=cmd.ref; view.openedToken=cmd.token;
   view.authorizedSelection=session; view.selectionAuthGeneration=cmd.authGeneration;
   focusedMoving=moving; observeLease(view,security);
-  if(!session && !(cmd.action==Action::stop && leasedMoving)) return DispatchResult::denied;
+  if(!session && !(cmd.action==Action::stop && leasedMoving && cmd.authGeneration &&
+     cmd.authGeneration==security.expiredSessionGeneration)) return DispatchResult::denied;
   if(rf(target.descriptor.proto) && (!somfy.transceiver.available() || somfy.transceiver.txSuspended()))
     return DispatchResult::refused;
   if(!(target.capabilities & controlActionBit(cmd.action))) return DispatchResult::refused;
