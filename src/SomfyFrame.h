@@ -38,7 +38,7 @@ somfy_commands translateSomfyCommand(const String& string);
 // The command with up and down swapped, for motors wired the other way round.
 somfy_commands flipCommand(somfy_commands cmd);
 // The command that turns the sun flag on (SunFlag) or off (Flag).
-somfy_commands sunFlagCommand(bool on);
+inline somfy_commands sunFlagCommand(bool on) { return on ? somfy_commands::SunFlag : somfy_commands::Flag; }
 // Whether cmd can set a shade moving.
 bool startsMovement(somfy_commands cmd);
 
