@@ -11,16 +11,7 @@ void copy(char *to, size_t size, const char *text) {
 const char *title(Kind kind) {
   return kind == Kind::room ? "Room" : kind == Kind::shade ? "Shade" : "Group";
 }
-const char *label(proto_field_t field) {
-  switch (field) {
-  case proto_field_t::name:
-    return "Name";
-  case proto_field_t::sortOrder:
-    return "Sort order";
-  default:
-    return protoField(field).name;
-  }
-}
+const char *label(proto_field_t field) { return entityFieldLabel(field); }
 bool validStored(const entity_field_t &f, const Value &value) {
   if (value.kind != f.schema().kind)
     return false;
@@ -34,7 +25,7 @@ bool validStored(const entity_field_t &f, const Value &value) {
   if (!f.choiceCount)
     return true;
   for (uint8_t i = 0; i < f.choiceCount; i++)
-    if (f.choices[i] == value.integer)
+    if (f.choices[i].value == value.integer)
       return true;
   return false;
 }
@@ -53,17 +44,25 @@ Notice admissionNotice(Admission a) {
          : a == Admission::stale ? Notice::changed
                                  : Notice::busy;
 }
+const entity_field_t *choiceField(Kind kind,uint8_t source,proto_field_t field) {
+  switch(kind) {
+  case Kind::room:return entityField(source?model_edit_type_t::save_room:model_edit_type_t::add_room,field);
+  case Kind::shade:return entityField(source?model_edit_type_t::save_shade:model_edit_type_t::add_shade,field);
+  case Kind::group:return entityField(source?model_edit_type_t::save_group:model_edit_type_t::add_group,field);
+  }
+  return nullptr;
+}
 } // namespace
-uint8_t Backend::choiceCount(Kind, uint8_t, proto_field_t field) {
-  const auto *f = entityField(field);
+uint8_t Backend::choiceCount(Kind kind, uint8_t source, proto_field_t field) {
+  const auto *f = choiceField(kind,source,field);
   return f ? f->choiceCount : 0;
 }
-bool Backend::choiceAt(Kind, uint8_t, proto_field_t field, uint8_t index, Choice &out) {
+bool Backend::choiceAt(Kind kind, uint8_t source, proto_field_t field, uint8_t index, Choice &out) {
   out = {};
-  const auto *f = entityField(field);
+  const auto *f = choiceField(kind,source,field);
   if (!f || index >= f->choiceCount) return false;
-  out.value = f->choices[index];
-  snprintf(out.label, sizeof(out.label), "%lld", (long long)out.value);
+  out.value = f->choices[index].value;
+  snprintf(out.label, sizeof(out.label), "%s", f->choices[index].label);
   return true;
 }
 bool Form::choice(const entity_field_t &f, uint8_t index, Choice &out) {
@@ -166,7 +165,7 @@ bool Form::open(Kind k, uint8_t existingId, uint64_t now) {
     return false;
   }
   for (uint8_t i = 0; i < fields->count; i++)
-    if (!entityField(fields->fields[i])) {
+    if (!entityField(type(),fields->fields[i])) {
       close(Notice::invalid);
       return false;
     }
@@ -233,7 +232,7 @@ void Form::render() {
       auto &row = frame.rows[frame.rowCount++];
       row.selected = i == selected;
       if (i < fields->count) {
-        const auto &f = *entityField(fields->fields[i]);
+        const auto &f = *entityField(type(),fields->fields[i]);
         Value v;
         copy(row.label, sizeof(row.label), label(f.field));
         if (!read(f, v)) {
@@ -250,7 +249,7 @@ void Form::render() {
                                       : "Delete");
     }
   } else if (mode == Mode::adjust || mode == Mode::text) {
-    const auto &f = *entityField(fields->fields[editing]);
+    const auto &f = *entityField(type(),fields->fields[editing]);
     frame.rowCount = 3;
     copy(frame.rows[0].label, sizeof(frame.rows[0].label), label(f.field));
     editor.previewTail(frame.rows[0].value, sizeof(frame.rows[0].value));
@@ -300,7 +299,7 @@ void Form::render() {
              (long long)step);
     copy(frame.hint, sizeof(frame.hint), "Apply changes only the draft.");
   } else if (mode == Mode::replace) {
-    const auto &f = *entityField(fields->fields[editing]);
+    const auto &f = *entityField(type(),fields->fields[editing]);
     snprintf(frame.title, sizeof(frame.title), "%s %u: %s", title(kind), id,
              label(f.field));
     frame.rowCount = frame.total = 2;
@@ -341,7 +340,7 @@ void Form::beginField(uint64_t now, bool replaceInvalid) {
   if (!replaceInvalid)
     editing = selected;
   stepPower = 0;
-  const auto &f = *entityField(metadata()->fields[editing]);
+  const auto &f = *entityField(type(),metadata()->fields[editing]);
   Value v;
   if (!read(f, v)) {
     close(Notice::changed);
@@ -394,7 +393,7 @@ void Form::beginField(uint64_t now, bool replaceInvalid) {
   render();
 }
 void Form::applyField(uint64_t) {
-  const auto &f = *entityField(metadata()->fields[editing]);
+  const auto &f = *entityField(type(),metadata()->fields[editing]);
   const char *key = f.schema().key;
   bool ok = false;
   if (f.schema().kind == 's') {
@@ -439,7 +438,7 @@ void Form::save(uint64_t now) {
     // An offered default can be invalid (e.g. next sort order after 127).
     // Never let an omitted field silently wrap in the domain's add default.
     for (uint8_t i = 0; i < metadata()->count; i++) {
-      const auto &f = *entityField(metadata()->fields[i]);
+      const auto &f = *entityField(type(),metadata()->fields[i]);
       Value value;
       if (!read(f, value)) {
         close(Notice::changed);
@@ -581,7 +580,7 @@ void Form::activate(uint64_t now) {
       frame.mode = Mode::fields;
       selected = editing;
     } else if (selected == 2) {
-      const auto &f = *entityField(metadata()->fields[editing]);
+      const auto &f = *entityField(type(),metadata()->fields[editing]);
       int64_t step = 1;
       for (uint8_t i = 0; i < stepPower; i++)
         step *= 10;
