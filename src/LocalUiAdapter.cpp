@@ -199,6 +199,12 @@ DispatchResult validateControl(Target &target,uint32_t &moving) {
 }
 } // namespace
 bool localControlsFrozen() { return controlsFrozen; }
+void invalidateControlPresentation() {
+  presentedRef={};presentedToken=0;
+  focusedContext={};focusedToken=0;hasFocus=false;
+  focusedMoving=leasedMoving=0;stopLease={};
+  // tokenSerial and intentSerial remain monotonic across graphics recovery.
+}
 void setLocalControlsFrozen(bool value) {
   if(value && !controlsFrozen) {
     controlsFrozen=true;lockAuthorization();cancelUnsubmittedLocalControl();
