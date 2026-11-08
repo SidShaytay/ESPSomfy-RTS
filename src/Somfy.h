@@ -2,6 +2,7 @@
 #define SOMFY_H
 #include <Preferences.h>
 #include "ConfigSettings.h"
+#include "ModelCommitResult.h"
 
 #include "SomfyFrame.h"
 #include "TxBuffer.h"
@@ -29,7 +30,7 @@ class SomfyRoom {
     char name[21] = "";
     int8_t sortOrder = 0;
     void clear();
-    bool save();
+    ModelCommitResult save();
     bool fromJSON(JsonObject &obj);
     void publish();
     void unpublish();
@@ -107,7 +108,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     uint8_t getFlags() override;
     // Sets the setting and state bits from a saved or sent flags byte.
     void setFlags(uint8_t flags);
-    bool save();
+    ModelCommitResult save();
     bool isInGroup();
     void checkMovement();
     void processFrame(somfy_frame_t &frame, bool internal = false);
@@ -129,6 +130,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     void restore(float pos, float tiltPos, float myPos, float myTiltPos) { this->behaviour.restore(pos, tiltPos, myPos, myTiltPos); }
     // Forgets the tilt of a shade that has none.
     void clearTilt() { this->behaviour.clearTilt(); }
+    // Link helpers change metadata/counters; the shared edit service commits.
     bool linkRemote(uint32_t remoteAddress, uint16_t rollingCode = 0);
     bool unlinkRemote(uint32_t remoteAddress);
     // Marks the shade as changed; the change fan-out sends shadeState once per
@@ -150,7 +152,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     void publishState();
     // Publishes the MQTT topics of the SHADE_CHANGED_* bits in changed.
     void publishTopics(uint16_t changed);
-    void commit();
+    ModelCommitResult commit();
     void clear();
     int8_t transformPosition(float fpos);
     void setGPIOs();
@@ -192,7 +194,7 @@ class SomfyGroup : public SomfyRemote {
     uint8_t linkedShades[SOMFY_MAX_GROUPED_SHADES];
     void setGroupId(uint8_t id) { groupId = id; }
     uint8_t getGroupId() { return groupId; }
-    bool save();
+    ModelCommitResult save();
     void clear();
     bool fromJSON(JsonObject &obj);
     bool linkShade(uint8_t shadeId);
@@ -227,6 +229,7 @@ class SomfyShadeController {
     uint32_t lastCommit = 0;
   public:
     bool isDirty = false;
+    ModelCommitResult lastModelCommit;
     // Loop-owned configuration history. Reusing an ID/address after an edit
     // must invalidate older client intentions; ordinary motion does not.
     uint64_t configurationRevision = 1;
@@ -246,9 +249,9 @@ class SomfyShadeController {
     SomfyRoom *addRoom();
     SomfyShade *addShade();
     SomfyGroup *addGroup();
-    bool deleteRoom(uint8_t roomId);
-    bool deleteShade(uint8_t shadeId);
-    bool deleteGroup(uint8_t groupId);
+    ModelCommitResult deleteRoom(uint8_t roomId);
+    ModelCommitResult deleteShade(uint8_t shadeId);
+    ModelCommitResult deleteGroup(uint8_t groupId);
     bool begin();
     void loop();
     void end();
@@ -279,7 +282,7 @@ class SomfyShadeController {
     void sendChanges();
     void publish();
     void processWaitingFrame();
-    void commit();
+    ModelCommitResult commit();
     void writeBackup();
     String backupData;
 };

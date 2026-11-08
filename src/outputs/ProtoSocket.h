@@ -31,6 +31,8 @@ class ProtoSocket {
     void replyRequest(const proto_reply_to_t &to, const shade_request_t &req, shade_request_result_t result);
     // The reply to an edit op once loop() has applied it.
     void replyEdit(const proto_reply_to_t &to, model_edit_type_t type, const edit_result_t &result);
+    void replyModelCommit(const proto_reply_to_t &to,ModelCommitReport report);
+    void modelPersistence(ModelCommitReport report,uint32_t exceptClient=0);
     // The reply to a read op, from the shade model.  loop() only.
     void replyRead(const proto_reply_to_t &to, uint8_t op, uint8_t groupId);
     // Any other reply formatted on loop(): ok, and the fields written between

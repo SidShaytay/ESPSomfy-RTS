@@ -48,7 +48,7 @@ static void onUploadDisconnect() {
 // The token check (requireToken in Web.cpp) runs once the body is in, after
 // every chunk was handled, so an upload checks the token on its first chunk
 // and drops every chunk of a refused one.
-static bool uploadAllowed(AsyncWebServerRequest *request, size_t index) {
+bool uploadAllowed(AsyncWebServerRequest *request, size_t index) {
   if(index == 0) request->setAttribute("uploadAllowed", webServer.isAuthenticated(request));
   return request->getAttribute("uploadAllowed", false);
 }
@@ -209,49 +209,7 @@ void registerHttpRoutes(AsyncWebServer &server) {
       resetTaskWdt();
     });
 
-  // updateApplication - file upload
-  server.on(AsyncURIMatcher::exact("/updateApplication"), HTTP_POST,
-    [](AsyncWebServerRequest *request) {
-      if(Update.hasError())
-        request->send(500, _encoding_json, String("{\"status\":\"ERROR\",\"desc\":\"Error updating application: ") + Update.errorString() + "\"}");
-      else
-        request->send(200, _encoding_json, "{\"status\":\"SUCCESS\",\"desc\":\"Successfully updated application\"}");
-      rebootDelay.reboot = true;
-      rebootDelay.rebootTime = millis() + 500;
-    },
-    [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
-      if(!uploadAllowed(request, index)) return;
-      if(index == 0) {
-        webServer.uploadSuccess = false;
-        ESP_LOGI(TAG, "Update: %s", filename.c_str());
-        if(!Update.begin(UPDATE_SIZE_UNKNOWN, U_SPIFFS)) {
-          ESP_LOGE(TAG, "Update begin failed");
-        }
-        else {
-          somfy.transceiver.end();
-          mqtt.end();
-          request->onDisconnect(onUploadDisconnect);
-        }
-      }
-      if(len > 0) {
-        if(Update.write(data, len) != len) {
-          ESP_LOGE(TAG, "Upload of %s aborted invalid size %d", filename.c_str(), len);
-          Update.abort();
-        }
-      }
-      if(final) {
-        if(Update.end(true)) {
-          webServer.uploadSuccess = true;
-          ESP_LOGI(TAG, "Update Success: %u Rebooting...", index + len);
-          somfy.commit();
-        }
-        else {
-          somfy.commit();
-          ESP_LOGE(TAG, "Update end failed");
-        }
-      }
-      resetTaskWdt();
-    });
+  registerApplicationUploadRoute(server);
 
   server.onNotFound([](AsyncWebServerRequest *r) { webServer.handleNotFound(r); });
 
