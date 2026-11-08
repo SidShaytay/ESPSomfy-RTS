@@ -30,7 +30,6 @@ LocalUi::DispatchResult LocalUi::dispatch(const Command &cmd) {
   loopQueue.drain();DispatchResult completed;assert(takeLocalControlResult(completed));return completed;
 }
 #include "../../src/SomfyShadeOps.cpp"
-#include "../../src/ShadeGpioCommands.cpp"
 using namespace LocalUi;
 static SomfyShade &device(uint8_t slot,uint8_t id,uint32_t address){
   auto &s=somfy.shades[slot];s.id=id;s.address=address;s.shadeType=shade_types::shutter;s.bitLength=56;

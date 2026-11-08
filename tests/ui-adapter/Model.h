@@ -57,3 +57,6 @@ struct SomfyShadeController {
   uint8_t getNextRoomId(){for(uint8_t id=1;id<=16;id++)if(!getRoomById(id))return id;return 0;}
   int8_t getMaxRoomOrder(){int8_t value=-1;for(const auto &r:rooms)if(r.roomId&&r.sortOrder>value)value=r.sortOrder;return value;}
 };
+
+// Exercise the production GPIO query against this bounded fake model.
+#include "../../src/ShadeGpioCommands.cpp"
