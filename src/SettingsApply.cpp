@@ -21,7 +21,9 @@ struct SettingsDraft {
   }
   ~SettingsDraft() {
     wipeSecret(value.WIFI.passphrase);
+    wipeSecret(value.MQTT.username);
     wipeSecret(value.MQTT.password);
+    wipeSecret(value.Security.username);
     wipeSecret(value.Security.password);
     wipeSecret(value.Security.pin);
   }

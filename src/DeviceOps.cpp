@@ -130,12 +130,15 @@ public:
     return somfy.transceiver.setConfig(next);
   }
 };
+settings_apply_result_t applyDeviceSettings(settings_section_t section, JsonObject request) {
+  RuntimeSettingsEffects effects;
+  return applySettings(settings,section,request,effects);
+}
 static void runSave(const proto_reply_to_t &to, settings_save_t *save) {
   const settings_section_t section = save->section;
   const security_types securityBefore = settings.Security.type;
   const uint32_t ip = save->ip;
-  RuntimeSettingsEffects effects;
-  const auto result = applySettings(settings,section,save->request.as<JsonObject>(),effects);
+  const auto result = applyDeviceSettings(section,save->request.as<JsonObject>());
   freeSettingsSave(save);
   if(!result.saved()) {
     protoSocket.replyRefused(to,proto_error_t::internal,settingsSaveFailureDescription(result.persistence.state));

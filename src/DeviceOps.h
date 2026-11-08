@@ -4,6 +4,7 @@
 #include <ArduinoJson.h>
 #include "LoopQueue.h"
 #include "ProtoSettings.h"
+#include "SettingsApply.h"
 
 // Socket protocol 2's settings ops and the WiFi scan, run on loop()
 // (docs/PROTOCOL.md).  loop() also reads the settings while it runs the
@@ -23,6 +24,10 @@ struct settings_save_t {
 settings_save_t *newSettingsSave(bool &busy);
 // Frees a save, run or refused, so another may follow.
 void freeSettingsSave(settings_save_t *save);
+// loop() only: applies a request already validated/expanded by
+// expandSettingsPayload. Shared by socket and local administration callers;
+// owns the runtime hostname/time/MQTT/radio effects, with no loopback HTTP.
+settings_apply_result_t applyDeviceSettings(settings_section_t section, JsonObject request);
 // loop(): runs a proto_device item and replies.
 void runDeviceOp(const loop_item_t &item);
 #endif
