@@ -116,6 +116,7 @@ void Form::close(Notice n) {
   admittedRevision = activityAt = observedAt = 0;
   sourceId = id = selected = editing = stepPower = 0;
   deleting = false;
+  memset(validationReason, 0, sizeof(validationReason));
   frame = {};
   frame.notice = n;
 }
@@ -208,6 +209,27 @@ bool Form::read(const entity_field_t &f, Value &v) {
   return v.kind == f.schema().kind &&
          (v.kind != 's' || memchr(v.text, 0, sizeof(v.text)));
 }
+bool Form::fieldActive(const entity_field_t &f) {
+  if (kind != Kind::shade ||
+      (f.field != proto_field_t::gpioUp && f.field != proto_field_t::gpioDown &&
+       f.field != proto_field_t::gpioMy && f.field != proto_field_t::gpioLLTrigger))
+    return true;
+  const auto *protocol = entityField(type(), proto_field_t::proto);
+  Value value;
+  if (!protocol || !read(*protocol, value)) { close(Notice::changed); return false; }
+  // Reject invalid legacy enum values before narrowing to radio_proto.
+  return validStored(*protocol, value) && entityFieldActive(f, radio_proto(value.integer));
+}
+void Form::refuse(proto_field_t field, const char *reason) {
+  editing = 0;
+  for (uint8_t i = 0; i < metadata()->count; i++)
+    if (metadata()->fields[i] == field) editing = i;
+  copy(validationReason, sizeof(validationReason), reason);
+  frame.mode = Mode::validation;
+  frame.notice = Notice::invalid;
+  selected = 0;
+  render();
+}
 void Form::render() {
   const auto mode = frame.mode;
   const auto notice = frame.notice;
@@ -227,14 +249,16 @@ void Form::render() {
     frame.selected = selected;
     frame.offset = selected / 3 * 3;
     copy(frame.hint, sizeof(frame.hint),
-         "Apply fields to draft, then Save. Back discards.");
+         "Apply draft; Save. Back discards.");
     for (uint8_t i = frame.offset; i < frame.total && frame.rowCount < 3; i++) {
       auto &row = frame.rows[frame.rowCount++];
       row.selected = i == selected;
       if (i < fields->count) {
         const auto &f = *entityField(type(),fields->fields[i]);
         Value v;
-        copy(row.label, sizeof(row.label), label(f.field));
+        const bool activeField = fieldActive(f);
+        if (closed()) return;
+        snprintf(row.label, sizeof(row.label), "%s%s", activeField ? "" : "Inactive: ", label(f.field));
         if (!read(f, v)) {
           close(Notice::changed);
           return;
@@ -310,6 +334,25 @@ void Form::render() {
     frame.rows[selected ? 1 : 0].selected = true;
     copy(frame.hint, sizeof(frame.hint),
          "Original kept until Apply; Save persists replacement.");
+  } else if (mode == Mode::draft || mode == Mode::validation) {
+    const auto &f = *entityField(type(), fields->fields[editing]);
+    snprintf(frame.title, sizeof(frame.title), "%s %u: %s", title(kind), id, label(f.field));
+    frame.selected = selected;
+    if (mode == Mode::validation) {
+      frame.rowCount = frame.total = 2;
+      copy(frame.rows[0].label, sizeof(frame.rows[0].label), "Revise field");
+      copy(frame.rows[1].label, sizeof(frame.rows[1].label), "Cancel form");
+      copy(frame.hint, sizeof(frame.hint), validationReason);
+    } else {
+      const bool activeField = fieldActive(f);
+      if (closed()) return;
+      frame.rowCount = frame.total = activeField ? 3 : 2;
+      copy(frame.rows[0].label, sizeof(frame.rows[0].label), "Cancel");
+      if (activeField) copy(frame.rows[1].label, sizeof(frame.rows[1].label), "Edit draft");
+      copy(frame.rows[frame.total - 1].label, sizeof(frame.rows[0].label), "Revert field draft");
+      copy(frame.hint, sizeof(frame.hint), activeField ? "Revert keeps other drafts." : "Inactive; Revert or change protocol.");
+    }
+    frame.rows[selected].selected = true;
   } else if (mode == Mode::confirm) {
     frame.rowCount = frame.total = 2;
     frame.selected = selected;
@@ -317,8 +360,14 @@ void Form::render() {
     copy(frame.rows[1].label, sizeof(frame.rows[1].label),
          deleting ? "Delete" : "Save");
     frame.rows[selected ? 1 : 0].selected = true;
-    snprintf(frame.hint, sizeof(frame.hint), "%s %s %u? Confirm this exact ID.",
-             deleting ? "Delete" : "Save", title(kind), id);
+    snprintf(frame.title, sizeof(frame.title), "%s %s %u", deleting ? "Delete" : "Save", title(kind), id);
+    if (!deleting && kind != Kind::room)
+      copy(frame.hint, sizeof(frame.hint), kind == Kind::shade
+        ? "May change live GPIO, motor timing and RF identity."
+        : "Changes group identity and future commands; not motor pairing.");
+    else
+      snprintf(frame.hint, sizeof(frame.hint), "%s %s %u? %s", deleting ? "Delete" : "Save", title(kind), id,
+        kind == Kind::room ? "Children become Unassigned." : "Motor pairing may remain.");
   } else if (mode == Mode::result) {
     snprintf(frame.title, sizeof(frame.title), "%s %u file result", title(kind),
              id);
@@ -336,9 +385,9 @@ void Form::render() {
              id);
   }
 }
-void Form::beginField(uint64_t now, bool replaceInvalid) {
-  if (!replaceInvalid)
-    editing = selected;
+void Form::beginField(uint64_t now, FieldStart start) {
+  const bool replaceInvalid = start == FieldStart::replaceInvalid;
+  if (start == FieldStart::selected) editing = selected;
   stepPower = 0;
   const auto &f = *entityField(type(),metadata()->fields[editing]);
   Value v;
@@ -434,6 +483,21 @@ void Form::applyField(uint64_t) {
 void Form::save(uint64_t now) {
   if (!guard(now))
     return;
+  if (!deleting)
+    for (uint8_t i = 0; i < metadata()->count; i++) {
+      const auto &f = *entityField(type(), metadata()->fields[i]);
+      if (changes[f.schema().key].isNull()) continue;
+      if (!fieldActive(f)) {
+        if (!closed()) refuse(f.field, "Revert inactive GPIO draft or select GPIO protocol.");
+        return;
+      }
+      Value value;
+      if (!read(f, value)) { close(Notice::changed); return; }
+      if (!validOriginal(f, value)) {
+        if (!closed()) refuse(f.field, "Value is no longer available; revise this field.");
+        return;
+      }
+    }
   if (!sourceId && !deleting) {
     // An offered default can be invalid (e.g. next sort order after 127).
     // Never let an omitted field silently wrap in the domain's add default.
@@ -484,12 +548,12 @@ void Form::save(uint64_t now) {
   const auto outcome =
       backend.apply(editType, expanded, admitted, admittedRevision);
   if (outcome.admission != Admission::accepted) {
-    if (outcome.admission == Admission::busy || outcome.admission == Admission::invalid) {
+    if (outcome.admission == Admission::invalid) {
+      if (!memchr(outcome.reason, 0, sizeof(outcome.reason))) { close(Notice::changed); return; }
+      refuse(outcome.field, outcome.reason[0] ? outcome.reason : "Review selected field; changes were not applied.");
+    } else if (outcome.admission == Admission::busy) {
       frame.mode = Mode::fields;
-      frame.notice = outcome.admission == Admission::busy ? Notice::busy : Notice::invalid;
-      if (outcome.admission == Admission::invalid)
-        for (uint8_t i = 0; i < metadata()->count; i++)
-          if (metadata()->fields[i] == outcome.field) selected = i;
+      frame.notice = Notice::busy;
       render();
     } else if (outcome.admission == Admission::noMemory)
       close(Notice::noMemory);
@@ -537,7 +601,13 @@ void Form::activate(uint64_t now) {
   switch (frame.mode) {
   case Mode::fields:
     if (selected < metadata()->count) {
-      beginField(now);
+      const auto &f = *entityField(type(), metadata()->fields[selected]);
+      editing = selected;
+      if (!changes[f.schema().key].isNull()) {
+        frame.mode = Mode::draft; frame.notice = Notice::none; selected = 0; render();
+      } else if (!fieldActive(f)) {
+        if (!closed()) refuse(proto_field_t::proto, "Select GPIO protocol before editing this field.");
+      } else beginField(now);
       return;
     }
     if (selected == metadata()->count + 1) {
@@ -551,6 +621,9 @@ void Form::activate(uint64_t now) {
     } else if (!changes.size() && sourceId) {
       close(Notice::unchanged);
       return;
+    } else if (kind != Kind::room) {
+      frame.mode = Mode::confirm;
+      selected = 0;
     } else {
       save(now);
       return;
@@ -599,9 +672,28 @@ void Form::activate(uint64_t now) {
       return;
     }
     break;
+  case Mode::draft: {
+    const auto &f = *entityField(type(), metadata()->fields[editing]);
+    if (!selected) {
+      frame.mode = Mode::fields; selected = editing;
+    } else if (selected == 1 && fieldActive(f)) {
+      beginField(now, FieldStart::existing); return;
+    } else {
+      if (closed()) return;
+      changes.remove(f.schema().key);
+      frame.mode = Mode::fields; selected = editing;
+    }
+    frame.notice = Notice::none;
+    break;
+  }
+  case Mode::validation:
+    if (selected) { discard(); return; }
+    frame.mode = Mode::fields; selected = editing; frame.notice = Notice::none;
+    memset(validationReason, 0, sizeof(validationReason));
+    break;
   case Mode::replace:
     if (selected) {
-      beginField(now, true);
+      beginField(now, FieldStart::replaceInvalid);
       return;
     }
     frame.mode = Mode::fields;
@@ -613,7 +705,7 @@ void Form::activate(uint64_t now) {
       return;
     }
     frame.mode = Mode::fields;
-    selected = metadata()->count + 2;
+    selected = metadata()->count + (deleting ? 2 : 0);
     deleting = false;
     break;
   case Mode::result:
@@ -647,16 +739,19 @@ void Form::back(uint64_t now) {
     return;
   touch(now);
   if (frame.mode == Mode::text || frame.mode == Mode::adjust ||
-      frame.mode == Mode::actions) {
+      frame.mode == Mode::actions || frame.mode == Mode::draft ||
+      frame.mode == Mode::validation) {
     editor.cancel();
     frame.mode = Mode::fields;
     selected = editing;
+    frame.notice = Notice::none;
+    memset(validationReason, 0, sizeof(validationReason));
   } else if (frame.mode == Mode::replace) {
     frame.mode = Mode::fields;
     selected = editing;
   } else if (frame.mode == Mode::confirm) {
     frame.mode = Mode::fields;
-    selected = metadata()->count + 2;
+    selected = metadata()->count + (deleting ? 2 : 0);
     deleting = false;
   } else {
     discard();

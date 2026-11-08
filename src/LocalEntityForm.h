@@ -64,6 +64,7 @@ class Form {
   Kind kind = Kind::room;
   uint8_t sourceId = 0, id = 0, selected = 0, editing = 0, stepPower = 0;
   bool deleting = false;
+  char validationReason[64] = {};
   model_edit_type_t type(bool remove = false) const;
   const edit_form_t *metadata() const;
   bool guard(uint64_t now);
@@ -74,7 +75,10 @@ class Form {
   void formatValue(const entity_field_t &, const Value &, char *, size_t);
   void close(Notice);
   void touch(uint64_t now);
-  void beginField(uint64_t now, bool replaceInvalid = false);
+  enum class FieldStart : uint8_t { selected, existing, replaceInvalid };
+  void beginField(uint64_t now, FieldStart start = FieldStart::selected);
+  bool fieldActive(const entity_field_t &);
+  void refuse(proto_field_t field, const char *reason);
   void applyField(uint64_t now);
   void save(uint64_t now);
 

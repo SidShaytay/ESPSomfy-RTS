@@ -146,7 +146,7 @@ void Canvas::paintEntity(const EntityAdmin::FormView &view) {
       if (r.dirty)
         fillCircle(304, top + 13, 2, warning);
     }
-  if (view.mode == Mode::confirm || view.mode == Mode::replace) {
+  if (view.mode == Mode::confirm || view.mode == Mode::replace || view.mode == Mode::validation) {
     char first[48], second[48];
     lines(*this, view.hint, first, second);
     text(12, 126, first, false, warning, 296);

@@ -11,7 +11,9 @@ enum class Mode : uint8_t {
   actions,
   confirm,
   result,
-  replace
+  replace,
+  draft,
+  validation
 };
 enum class Notice : uint8_t {
   none,
