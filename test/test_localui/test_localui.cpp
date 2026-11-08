@@ -216,7 +216,8 @@ static void step_bounds_and_tilt_stop_never_borrow_stop_grace() {
   TEST_ASSERT_EQUAL(127,d.c.view().draftValue);d.click();d.tick(-1);d.click();
   Command out;TEST_ASSERT_TRUE(d.c.take(out));TEST_ASSERT_EQUAL(127,out.step);TEST_ASSERT_EQUAL(-1,out.value);
   Drive tilt;openMore(tilt);tilt.tick(1);tilt.tick(1);
-  tilt.f.base.target.tiltMoving=true;tilt.f.base.authorized=false;tilt.f.base.target.stopLease=true;
+  tilt.f.base.target.tiltMoving=true;tilt.f.base.expiredSessionGeneration=tilt.f.base.authGeneration;
+  tilt.f.base.authorized=false;tilt.f.base.target.stopLease=true;
   tilt.click();TEST_ASSERT_FALSE(tilt.c.take(out));TEST_ASSERT_EQUAL(int(Screen::unlock),int(tilt.c.view().screen));
   Drive unknown;openMore(unknown);unknown.f.base.target.position=-1;unknown.click();
   TEST_ASSERT_EQUAL(int(Screen::actions),int(unknown.c.view().screen));
