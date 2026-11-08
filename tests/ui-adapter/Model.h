@@ -1,0 +1,51 @@
+#pragma once
+#define SOMFY_H
+#include "ShadeSettings.h"
+#include "ShadeRequests.h"
+#include <string.h>
+struct SomfyShade : ShadeSettings,RemoteSettings {
+  uint8_t id=255,roomId=0,gpioUp=0,gpioDown=0,gpioMy=0,gpioFlags=0;
+  int8_t sortOrder=0;
+  char name[21]="Device";
+  bool paired=true,idle=true,light=false;
+  radio_proto proto=radio_proto::RTS;
+  uint32_t address=100;
+  uint16_t lastRollingCode=1;
+  uint64_t configurationRevision=1;
+  struct Remote { uint32_t address=0; uint32_t getRemoteAddress() const{return address;} } linkedRemotes[7];
+  struct State { float currentPos=35,currentTiltPos=20,myPos=-1,myTiltPos=-1; int8_t tiltDirection=0; } value;
+  uint8_t getShadeId() const{return id;} uint32_t getRemoteAddress() const{return address;}
+  const State &state() const{return value;} bool isIdle() const{return idle;}
+  bool moveToTarget(float){idle=false;return true;} bool moveToTiltTarget(float){idle=false;return true;}
+  bool sendCommand(somfy_commands,uint8_t,uint8_t){++lastRollingCode;return true;}
+  bool sendTiltCommand(somfy_commands){return true;} bool isLastCommand(somfy_commands){return false;}
+  bool repeatFrame(uint8_t){return true;} bool sendSensorCommand(int8_t,int8_t,uint8_t){return true;}
+  bool setMyPosition(int8_t pos,int8_t tilt){value.myPos=pos;value.myTiltPos=tilt;return true;}
+  void setPosition(float pos,float tilt){if(pos>=0)value.currentPos=pos;if(tilt>=0)value.currentTiltPos=tilt;}
+  void emitState(){} bool save(){return true;} void configChanged(){++configurationRevision;}
+  uint16_t setRollingCode(uint16_t code){auto old=lastRollingCode;lastRollingCode=code;return old;}
+};
+struct SomfyGroup : RemoteSettings {
+  uint8_t id=255,roomId=0; int8_t sortOrder=0,direction=0;
+  char name[21]="Group"; uint8_t linkedShades[32]={};
+  radio_proto proto=radio_proto::RTS; uint32_t address=500;
+  uint64_t configurationRevision=1;
+  uint8_t getGroupId() const{return id;} uint32_t getRemoteAddress() const{return address;}
+  bool sendCommand(somfy_commands,uint8_t,uint8_t){return true;}
+  bool isLastCommand(somfy_commands){return false;} bool repeatFrame(uint8_t){return true;}
+  bool sendSensorCommand(int8_t,int8_t,uint8_t){return true;} void emitState(){}
+};
+struct SomfyRoom {uint8_t roomId=0; int8_t sortOrder=0; char name[21]="Room";};
+struct SomfyShadeController {
+  uint64_t configurationRevision=1,restoreRevision=1;
+  SomfyShade shades[32]; SomfyGroup groups[16]; SomfyRoom rooms[16];
+  struct Radio {
+    uint64_t configurationRevision=1;
+    struct Config {uint8_t type=56;} config;
+    bool ready=true,suspended=false,room=true;
+    bool available() const{return ready;} bool txSuspended() const{return suspended;} bool txHasRoom() const{return room;}
+  } transceiver;
+  SomfyShade *getShadeById(uint8_t id){for(auto &s:shades)if(s.id==id)return &s;return nullptr;}
+  SomfyGroup *getGroupById(uint8_t id){for(auto &g:groups)if(g.id==id)return &g;return nullptr;}
+  SomfyRoom *getRoomById(uint8_t id){for(auto &r:rooms)if(r.roomId==id)return &r;return nullptr;}
+};
