@@ -549,6 +549,8 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
     if(opened) this->end();
     return false;
   }
+  ++s->configurationRevision;
+  ++s->restoreRevision;
   if(opts.shades) {
     ESP_LOGI(TAG, "Restoring the rooms, shades and groups");
     this->readModel(s);
