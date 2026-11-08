@@ -137,8 +137,28 @@ static void boolean_and_choice_values_require_apply() {
   TEST_ASSERT_TRUE(e.beginChoice(2,3,0)); e.rotate(-1,1); e.apply(2); e.takeChoice(out);
   TEST_ASSERT_EQUAL(1,out);
 }
+static void precision_change_never_applies_and_saturates_extreme_values() {
+  ValueEditor e;int64_t out=0;
+  TEST_ASSERT_FALSE(e.setStep(2,0));
+  TEST_ASSERT_TRUE(e.beginInteger(1,INT64_MIN,INT64_MAX,1,0));
+  TEST_ASSERT_FALSE(e.setStep(0,1));TEST_ASSERT_FALSE(e.setStep(-1,1));
+  TEST_ASSERT_TRUE(e.setStep(INT64_MAX,1));TEST_ASSERT_FALSE(e.takeNumber(out));
+  e.rotate(1,2);e.apply(3);TEST_ASSERT_TRUE(e.takeNumber(out));TEST_ASSERT_EQUAL_INT64(INT64_MAX,out);
+  e.beginBoolean(false,4);TEST_ASSERT_FALSE(e.setStep(10,5));
+}
+static void long_text_preview_keeps_tail_and_masks_secrets() {
+  ValueEditor e;char out[12];
+  TEST_ASSERT_TRUE(e.beginText("0123456789TAIL",64,TextEncoding::bytes,false,0));
+  e.previewTail(out,sizeof(out));TEST_ASSERT_EQUAL_STRING("...6789TAIL",out);
+  TEST_ASSERT_TRUE(e.beginText("0123456789TAIL",64,TextEncoding::bytes,true,0));
+  e.previewTail(out,sizeof(out));TEST_ASSERT_EQUAL_STRING("...********",out);TEST_ASSERT_EQUAL(14,e.length());
+  TEST_ASSERT_TRUE(e.beginText("abcdef\xc3\xa9\xc3\xa9\xc3\xa9",64,TextEncoding::utf8,false,0));
+  char small[9];e.previewTail(small,sizeof(small));TEST_ASSERT_EQUAL_STRING("...\xc3\xa9\xc3\xa9",small);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(long_text_preview_keeps_tail_and_masks_secrets);
+  RUN_TEST(precision_change_never_applies_and_saturates_extreme_values);
   RUN_TEST(original_text_and_cancel_never_mutate_caller);
   RUN_TEST(exact_byte_input_validates_utf8_without_substitution);
   RUN_TEST(text_bounds_and_explicit_apply_are_enforced);
