@@ -535,12 +535,6 @@ void ProtoSocket::replyModelCommit(const proto_reply_to_t &to,ModelCommitReport 
   writeModelCommitReport(writer,report);endFrame(json);
   sendReply(to,json,buffer,sizeof(buffer));
 }
-void ProtoSocket::modelPersistence(ModelCommitReport report,uint32_t exceptClient) {
-  if(!this->sending())return;
-  ProtoWriter writer(beginEvent(proto_type_t::modelPersistence));writeModelCommitReport(writer,report);
-  if(!finishEvent())return;
-  for(proto_slot_t &slot:slots){const uint32_t id=slot.clientId.load();if(id && id!=exceptClient)ws.text(id,frameBuffer,eventJson.length());}
-}
 // The reads an edit form needs: what a new room, shade or group would get,
 // and the shades a group could take.
 void ProtoSocket::replyRead(const proto_reply_to_t &to, uint8_t op, uint8_t groupId) {
@@ -757,6 +751,12 @@ void ProtoSocket::settingsChanged(uint32_t savedBy, const char *section) {
     const uint32_t id = s.clientId.load();
     if(id && id != savedBy) ws.text(id, frameBuffer, eventJson.length());
   }
+}
+void ProtoSocket::modelPersistence(ModelCommitReport report,uint32_t exceptClient) {
+  if(!this->sending())return;
+  ProtoWriter writer(beginEvent(proto_type_t::modelPersistence));writeModelCommitReport(writer,report);
+  if(!finishEvent())return;
+  for(proto_slot_t &slot:slots){const uint32_t id=slot.clientId.load();if(id && id!=exceptClient)ws.text(id,frameBuffer,eventJson.length());}
 }
 // The client that saved the security settings, closed once its reply has
 // gone: a close frame goes ahead of the messages waiting to be sent.

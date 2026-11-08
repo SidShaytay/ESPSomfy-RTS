@@ -82,6 +82,33 @@ saved_file_report_truthfully_distinguishes_restart_scheduled_or_deferred() {
                                   "restart not scheduled"));
   }
 }
+static void model_persistence_event_frames_keep_failure_and_uncertainty_visible() {
+  for (const auto state : {ModelCommitState::saved, ModelCommitState::failed,
+                           ModelCommitState::uncertain}) {
+    char text[256];
+    BufferedJsonFormatter json;
+    json.setBuffer(text, sizeof(text));
+    beginFrame(json, proto_type_t::modelPersistence);
+    ProtoWriter writer(json);
+    writeModelCommitReport(writer, {{state, ModelCommitStage::verifyRead}});
+    endFrame(json);
+    TEST_ASSERT_FALSE(json.overflowed());
+    JsonDocument doc;
+    TEST_ASSERT_FALSE(deserializeJson(doc, text));
+    TEST_ASSERT_EQUAL(2, doc["v"].as<int>());
+    TEST_ASSERT_EQUAL(static_cast<int>(proto_type_t::modelPersistence),
+                      doc["t"].as<int>());
+    TEST_ASSERT_FALSE(doc["id"].is<int>());
+    const auto payload = doc["d"].as<JsonObject>();
+    TEST_ASSERT_EQUAL(state == ModelCommitState::saved,
+                      protoBool(payload, proto_field_t::durable));
+    TEST_ASSERT_EQUAL(static_cast<int>(state),
+                      protoInt(payload, proto_field_t::modelSaveState));
+    TEST_ASSERT_FALSE(protoBool(payload, proto_field_t::rebooting));
+    if (state != ModelCommitState::saved)
+      TEST_ASSERT_NOT_NULL(protoString(payload, proto_field_t::desc));
+  }
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(applied_failure_retains_id_and_actual_change_fanout);
@@ -90,5 +117,6 @@ int main() {
   RUN_TEST(commit_retry_payload_is_empty_and_schema_dispatch_is_device_only);
   RUN_TEST(
       saved_file_report_truthfully_distinguishes_restart_scheduled_or_deferred);
+  RUN_TEST(model_persistence_event_frames_keep_failure_and_uncertainty_visible);
   return UNITY_END();
 }
