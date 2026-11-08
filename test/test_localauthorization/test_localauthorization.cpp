@@ -192,6 +192,54 @@ static void stop_lease_rejects_config_target_and_security_changes() {
     TEST_ASSERT_EQUAL(0,lease.allowed(c));
   }
 }
+static void stop_grace_ends_thirty_seconds_after_original_expiry() {
+  Authorization auth;
+  auth.configure(AuthMode::pin,"","1234");
+  const uint64_t start=UINT64_C(0x100000000);
+  auth.unlock(input("","1234"),start);
+  TEST_ASSERT_TRUE(auth.allowed(start+119999));
+  TEST_ASSERT_FALSE(auth.allowed(start+120000));
+  TEST_ASSERT_TRUE(auth.stopGraceAllowed());
+  auth.activity(start+140000); // wheel/wake must not extend an expired session
+  TEST_ASSERT_EQUAL(int(AuthResult::wrong),int(auth.unlock(input("","bad"),start+149999)));
+  TEST_ASSERT_TRUE(auth.stopGraceAllowed());
+  TEST_ASSERT_FALSE(auth.allowed(start+150000));
+  TEST_ASSERT_FALSE(auth.stopGraceAllowed());
+  auth.unlock(input("","bad"),start+150001);
+  TEST_ASSERT_FALSE(auth.stopGraceAllowed());
+  TEST_ASSERT_EQUAL(int(AuthResult::unlocked),int(auth.unlock(input("","1234"),start+150002)));
+  TEST_ASSERT_TRUE(auth.allowed(start+150003));
+  TEST_ASSERT_FALSE(auth.stopGraceAllowed());
+}
+static void delayed_poll_and_backward_clock_cannot_start_or_extend_stop_grace() {
+  Authorization auth;
+  auth.configure(AuthMode::pin,"","1234");
+  auth.unlock(input("","1234"),1000);
+  TEST_ASSERT_FALSE(auth.allowed(151000)); // first poll is already past the cap
+  TEST_ASSERT_FALSE(auth.stopGraceAllowed());
+  auth.unlock(input("","1234"),200000);
+  TEST_ASSERT_FALSE(auth.allowed(199999));
+  TEST_ASSERT_FALSE(auth.stopGraceAllowed());
+}
+static void clock_rollback_inside_session_or_grace_cannot_unlock_or_reset_throttle() {
+  Authorization auth;
+  auth.configure(AuthMode::pin,"","1234");
+  auth.unlock(input("","1234"),0);
+  TEST_ASSERT_TRUE(auth.allowed(60000));
+  TEST_ASSERT_FALSE(auth.allowed(50000));
+  TEST_ASSERT_EQUAL(int(AuthResult::locked),int(auth.unlock(input("","1234"),59999)));
+  TEST_ASSERT_EQUAL(int(AuthResult::unlocked),int(auth.unlock(input("","1234"),60000)));
+  TEST_ASSERT_FALSE(auth.allowed(200000));
+  TEST_ASSERT_TRUE(auth.stopGraceAllowed());
+  TEST_ASSERT_FALSE(auth.allowed(190000));
+  TEST_ASSERT_FALSE(auth.stopGraceAllowed());
+  TEST_ASSERT_EQUAL(int(AuthResult::locked),int(auth.unlock(input("","1234"),199999)));
+  for(unsigned i=0;i<5;i++) auth.unlock(input("","bad"),200000+i);
+  TEST_ASSERT_EQUAL(30000,auth.retryAfter(200004));
+  TEST_ASSERT_GREATER_OR_EQUAL(30001,auth.retryAfter(200003));
+  TEST_ASSERT_EQUAL(int(AuthResult::locked),int(auth.unlock(input("","1234"),200003)));
+  TEST_ASSERT_EQUAL(30000,auth.retryAfter(200004));
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(configured_mode_and_exact_credentials);
@@ -204,5 +252,8 @@ int main() {
   RUN_TEST(editor_backspace_clears_tail_and_excludes_nul);
   RUN_TEST(stop_lease_freezes_only_continuing_authorized_motion);
   RUN_TEST(stop_lease_rejects_config_target_and_security_changes);
+  RUN_TEST(stop_grace_ends_thirty_seconds_after_original_expiry);
+  RUN_TEST(delayed_poll_and_backward_clock_cannot_start_or_extend_stop_grace);
+  RUN_TEST(clock_rollback_inside_session_or_grace_cannot_unlock_or_reset_throttle);
   return UNITY_END();
 }

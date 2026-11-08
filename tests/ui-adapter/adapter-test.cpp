@@ -131,7 +131,7 @@ int main() {
   security.allowed=true; security.generation=2;
   somfy.shades[0].idle=somfy.shades[1].idle=false;
   const auto authorized=command(2,Action::stop);
-  security.allowed=false; security.expired=true; security.generation=3;
+  security.allowed=false; security.stopGrace=true; security.generation=3;
   const auto expired=submitted.size();
   snapshotModel(true); // timeout itself emits nothing
   assert(submitted.size()==expired);
@@ -146,31 +146,31 @@ int main() {
   somfy.shades[1].idle=true; snapshotModel(true);
   somfy.shades[1].idle=false;
   assert(!dispatch(command(2,Action::stop)));
-  security.allowed=true; security.expired=false; security.generation=4;
+  security.allowed=true; security.stopGrace=false; security.generation=4;
   snapshotModel(true);
   assert(!dispatch(authorized)); // changed ordinary session generation
-  security.allowed=false; security.expired=true; security.generation=5;
+  security.allowed=false; security.stopGrace=true; security.generation=5;
   snapshotModel(true);
   ++somfy.shades[0].upTime; // same RF identity, changed configuration
   assert(!dispatch(command(2,Action::stop)));
-  security.allowed=true; security.expired=false; security.generation=6;
+  security.allowed=true; security.stopGrace=false; security.generation=6;
   snapshotModel(true);
-  security.allowed=false; security.expired=true; security.generation=7;
+  security.allowed=false; security.stopGrace=true; security.generation=7;
   ++security.configurationGeneration;
   assert(!dispatch(command(0,Action::stop)));
-  security.allowed=true; security.expired=false; security.generation=8;
+  security.allowed=true; security.stopGrace=false; security.generation=8;
   focusAuthorizationTarget(0); snapshotModel(true);
-  security.allowed=false; security.expired=true; security.generation=9;
+  security.allowed=false; security.stopGrace=true; security.generation=9;
   const auto focusExpiry=submitted.size();
   const auto focused=snapshotModel(true);
   assert(focused.targets[0].stopLease && !focused.targets[1].stopLease && !focused.targets[2].stopLease);
   assert(submitted.size()==focusExpiry); // expiry does not send STOP itself
   assert(!dispatch(command(1,Action::stop))); // another moving, never-focused target is not authorized
   assert(submitted.size()==focusExpiry);
-  security.allowed=true; security.expired=false; security.generation=10;
+  security.allowed=true; security.stopGrace=false; security.generation=10;
   focusAuthorizationTarget(0); snapshotModel(true);
   focusAuthorizationTarget(255); snapshotModel(true); // ordinary menu is not another target
-  security.allowed=false; security.expired=true; security.generation=11;
+  security.allowed=false; security.stopGrace=true; security.generation=11;
   const auto menuExpiry=submitted.size();
   const auto inMenu=snapshotModel(true);
   assert(inMenu.targets[0].stopLease && !inMenu.targets[1].stopLease);

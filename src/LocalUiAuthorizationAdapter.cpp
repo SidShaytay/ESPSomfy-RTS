@@ -42,7 +42,7 @@ SecuritySnapshot pollAuthorization() {
   sync();
   const uint64_t time = now();
   const bool allowed = authorization.allowed(time);
-  return {authorization.configuredMode(), allowed, authorization.expired(), authorization.generation(),
+  return {authorization.configuredMode(), allowed, authorization.stopGraceAllowed(), authorization.generation(),
           authorization.configurationGeneration(), authorization.retryAfter(time)};
 }
 AuthResult unlockAuthorization(Credentials &given) {

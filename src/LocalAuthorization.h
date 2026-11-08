@@ -22,7 +22,8 @@ class Authorization {
   Credentials expected;
   LoginThrottle attempts;
   bool active = false, timedOut = false;
-  uint64_t lastActivity = 0;
+  uint64_t lastActivity = 0, expiredAt = 0, observedAt = 0;
+  bool observedClock = false;
   uint32_t revision = 0, configurationRevision = 0;
   static bool copy(char *out, const char *value, size_t maximum) {
     if(!value) return false;
@@ -40,8 +41,18 @@ class Authorization {
     }
     return diff == 0;
   }
+  bool observeClock(uint64_t now) {
+    if(observedClock && now < observedAt) {
+      if(active || timedOut) lock();
+      return false;
+    }
+    observedAt = now;
+    observedClock = true;
+    return true;
+  }
 public:
   static constexpr uint64_t inactivityMs = 120000;
+  static constexpr uint64_t stopGraceMs = 30000;
   Authorization() = default;
   Authorization(const Authorization &) = delete;
   Authorization &operator=(const Authorization &) = delete;
@@ -70,24 +81,43 @@ public:
   AuthMode configuredMode() const { return mode; }
   uint32_t generation() const { return revision; }
   uint32_t configurationGeneration() const { return configurationRevision; }
-  bool expired() const { return timedOut; }
-  void lock() { active = timedOut = false; lastActivity = 0; ++revision; }
+  bool stopGraceAllowed() const { return timedOut; }
+  void lock() { active = timedOut = false; lastActivity = expiredAt = 0; ++revision; }
   bool allowed(uint64_t now) {
+    if(!observeClock(now)) return false;
     if(mode == AuthMode::none) return true;
-    if(active && (now < lastActivity || now - lastActivity >= inactivityMs)) {
+    if(active && now < lastActivity) {
       lock();
+    } else if(active && now - lastActivity >= inactivityMs) {
+      const uint64_t deadline = lastActivity + inactivityMs;
+      lock();
+      expiredAt = deadline;
       timedOut = true;
     }
+    // A delayed loop must not start a fresh grace period when it first notices
+    // expiry. Activity and wrong credentials cannot extend the original deadline.
+    if(timedOut && (now < expiredAt || now - expiredAt >= stopGraceMs)) timedOut = false;
     return active;
   }
   void activity(uint64_t now) {
     if(allowed(now) && mode != AuthMode::none) lastActivity = now;
   }
-  uint32_t retryAfter(uint64_t now) const { return attempts.retryAfter(0, now); }
+  uint32_t retryAfter(uint64_t now) {
+    if(!observeClock(now)) {
+      const uint64_t catchup = observedAt - now;
+      if(catchup > UINT32_MAX) return UINT32_MAX;
+      const uint64_t wait = catchup + attempts.retryAfter(0, observedAt);
+      return wait > UINT32_MAX ? UINT32_MAX : uint32_t(wait);
+    }
+    return attempts.retryAfter(0, now);
+  }
   AuthResult unlock(const Credentials &given, uint64_t now) {
     if(mode == AuthMode::unavailable) return AuthResult::unavailable;
+    allowed(now);
+    if(now < observedAt) return AuthResult::locked;
     if(retryAfter(now)) return AuthResult::locked;
     const bool wasExpired = timedOut;
+    const uint64_t wasExpiredAt = expiredAt;
     lock();
     if(mode == AuthMode::none || same(expected, given)) {
       attempts.succeeded(0);
@@ -96,6 +126,7 @@ public:
       return AuthResult::unlocked;
     }
     timedOut = wasExpired;
+    expiredAt = wasExpiredAt;
     attempts.failed(0, now);
     return AuthResult::wrong;
   }

@@ -81,7 +81,7 @@ void authorizeModel(Model &m) {
     }
     m.targets[selected].configuration=context.configuration;
     if(selected==leaseTarget) {
-      stopLease.observe(context,moving,security.allowed,security.expired);
+      stopLease.observe(context,moving,security.allowed,security.stopGrace);
       stopMasks[selected]=stopLease.allowed(context);
     } else stopMasks[selected]=0;
     m.targets[selected].stopLease=stopMasks[selected]!=0;

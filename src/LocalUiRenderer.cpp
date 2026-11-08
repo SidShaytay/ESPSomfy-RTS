@@ -100,7 +100,8 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
                     v.credentialChoice==97?(v.credentialUser?"Next: password":"Unlock"):"Cancel");
     fillRoundRect(10,90,300,30,5,selected);
     text(20,112,label,false,teal);
-    if(v.retryAfterMs) snprintf(label,sizeof(label),"Wait %lus (device-wide limit)",(unsigned long)((v.retryAfterMs+999)/1000));
+    if(v.retryAfterMs) snprintf(label,sizeof(label),"Wait %lus (device-wide limit)",
+      (unsigned long)(v.retryAfterMs/1000+(v.retryAfterMs%1000!=0)));
     else snprintf(label,sizeof(label),"%s",v.notice==Notice::unlockWrong?"Invalid credentials":
                   v.notice==Notice::unlockUnavailable?"Local unlock unavailable":"Turn selects; press adds/applies");
     text(12,142,label,false,amber);

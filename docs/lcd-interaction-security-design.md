@@ -4,7 +4,8 @@ Status: design for review plus an authorization implementation slice. Only the
 implementation record below describes implemented behavior; other flows remain proposals. Sid approved
 reuse of the configured web credential for both local controls and administration,
 with 120-second inactivity expiry and a device-wide attempt limit. Sid later superseded the initial STOP decision: narrowly scoped STOP remains available
-after expiry for already-authorized continuing movement, as described below. The existing
+for at most 30 seconds after expiry for already-authorized continuing movement, ending
+sooner when that movement ends, as described below. The existing
 web throttle schedule uses
 volatile local state (including the documented reboot-reset limitation). Other decisions
 remain pending as marked below. This document is
@@ -178,11 +179,12 @@ STOP is a distinct intent from favourite/MY despite sharing the on-air command:
 4. All idle: no RF. Favourite is a separately labelled intentional action, with shared
    idle/tilt/type restrictions. `set_favorite` is administration with confirmation.
 
-At authorization expiry, retain a STOP lease only for matching movement observed both
+At authorization expiry, retain a STOP lease for at most 30 seconds, only for matching movement observed both
 while the session was authorized and at expiry. Freeze the eligible moving member set;
 a group member that starts moving later cannot acquire a lease. Revalidate exact target,
 RF identities, membership, capabilities and security configuration before every request.
-Observed idle irreversibly removes the target/member from the lease; idle then new motion
+The deadline is the original session-expiry time plus 30 seconds; a late poll, activity,
+or failed unlock cannot extend it. Observed idle irreversibly removes the target/member from the lease; idle then new motion
 does not revive it. Any relevant configuration or security change revokes the lease.
 A shared group MY requires every current member to retain a matching continuing-motion
 lease; otherwise stop only leased moving members individually. No lease permits an idle
@@ -319,7 +321,7 @@ Web token generation and web login behavior are unchanged.
 A single generic 32-member `StopLease` follows the last actual authorized target.
 Ordinary menu navigation keeps observing that target; selecting another actual target
 changes or revokes scope rather than granting a catalog-wide exception.
-Expiry freezes continuing observed member motion. Another moving, never-focused target
+Expiry freezes continuing observed member motion for at most 30 seconds. Another moving, never-focused target
 gets no lease. Observed idle removes eligibility permanently until a new authorized
 session; member/target/RF/security/relevant configuration changes revoke it. All other
 commands require the current session generation. Ordinary dispatch and page activation
@@ -334,7 +336,8 @@ no-store where a response can be allocated; allocation failure returns 503 witho
 Graphical allocation failure admits no invisible commands. Actual sleep revokes once per
 transition; an explicit Lock menu item remains for the later administration navigation
 slice rather than being claimed available here. Wrong unlock cannot grant or expand an
-existing timed-out STOP lease.
+existing timed-out STOP lease. Any backwards clock observation revokes the session and
+lease, and validation remains blocked until the clock catches up without resetting throttling.
 
 Offline evidence: 27 focused native auth/editor/controller tests passed; production
 adapter fake-sink, credential-adapter, runtime, capture and real GFX renderer harnesses

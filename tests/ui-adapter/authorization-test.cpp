@@ -18,33 +18,37 @@ int main() {
   strcpy(given.secret,"aB!9");
   assert(unlockAuthorization(given)==AuthResult::unlocked && !given.secret[0]);
   const auto first=pollAuthorization();
-  assert(first.allowed && !first.expired);
+  assert(first.allowed && !first.stopGrace);
   authTestNow=119999; assert(pollAuthorization().allowed);
   authTestNow=120000; auto expired=pollAuthorization();
-  assert(!expired.allowed && expired.expired);
+  assert(!expired.allowed && expired.stopGrace);
   assert(first.generation!=expired.generation);
   assert(first.configurationGeneration==expired.configurationGeneration);
   authorizationActivity(); assert(!pollAuthorization().allowed); // input cannot revive timeout
   for(unsigned i=0;i<5;i++) assert(unlockAuthorization(given)==AuthResult::wrong);
-  assert(pollAuthorization().retryAfterMs==30000 && pollAuthorization().expired);
+  assert(pollAuthorization().retryAfterMs==30000 && pollAuthorization().stopGrace);
   strcpy(given.secret,"aB!9");
   assert(unlockAuthorization(given)==AuthResult::locked && !given.secret[0]);
+  authTestNow=149999;
+  assert(pollAuthorization().stopGrace); // last millisecond of the 30 s grace
+  authTestNow=150000;
+  assert(!pollAuthorization().allowed && !pollAuthorization().stopGrace);
   authTestNow+=30000; strcpy(given.secret,"aB!9");
   assert(unlockAuthorization(given)==AuthResult::unlocked);
   strcpy(settings.Security.pin,"new!");
-  assert(!pollAuthorization().allowed && !pollAuthorization().expired);
+  assert(!pollAuthorization().allowed && !pollAuthorization().stopGrace);
   assert(first.configurationGeneration!=pollAuthorization().configurationGeneration);
   strcpy(given.secret,"new!"); assert(unlockAuthorization(given)==AuthResult::unlocked);
   const auto beforeInactive=pollAuthorization();
   strcpy(settings.Security.password,"inactive-password"); // PIN mode still active
   const auto afterInactive=pollAuthorization();
-  assert(!afterInactive.allowed && !afterInactive.expired);
+  assert(!afterInactive.allowed && !afterInactive.stopGrace);
   assert(afterInactive.configurationGeneration!=beforeInactive.configurationGeneration);
   strcpy(given.secret,"new!"); assert(unlockAuthorization(given)==AuthResult::unlocked);
   strcpy(settings.Security.username,"inactive-user");
   assert(!pollAuthorization().allowed);
   strcpy(given.secret,"new!"); assert(unlockAuthorization(given)==AuthResult::unlocked);
-  lockAuthorization(); assert(!pollAuthorization().allowed && !pollAuthorization().expired);
+  lockAuthorization(); assert(!pollAuthorization().allowed && !pollAuthorization().stopGrace);
   settings.Security.type=security_types::None;
   assert(pollAuthorization().allowed);
   settings.Security.type=security_types::Password;
