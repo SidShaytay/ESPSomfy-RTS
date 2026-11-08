@@ -130,6 +130,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     void restore(float pos, float tiltPos, float myPos, float myTiltPos) { this->behaviour.restore(pos, tiltPos, myPos, myTiltPos); }
     // Forgets the tilt of a shade that has none.
     void clearTilt() { this->behaviour.clearTilt(); }
+    // Link helpers change metadata/counters; the shared edit service commits.
     bool linkRemote(uint32_t remoteAddress, uint16_t rollingCode = 0);
     bool unlinkRemote(uint32_t remoteAddress);
     // Marks the shade as changed; the change fan-out sends shadeState once per

@@ -24,6 +24,7 @@ enum class loop_item_type_t : uint8_t {
   shade_request,   // run by ShadeRequests
   restore_shades,  // restore from /shades.tmp, then reboot
   model_edit,      // apply an edit with ModelEditor
+  model_commit,    // persist current model only; no repeated edit/RF operation
   proto_read,      // answer a protocol 2 read op from the shade model
   proto_device     // run a protocol 2 settings op or the WiFi scan (DeviceOps)
 };
@@ -32,6 +33,7 @@ struct settings_save_t;
 struct loop_item_t {
   loop_item_type_t type = loop_item_type_t::shade_request;
   shade_request_t request;        // shade_request
+  bool restartAfterCommit = false; // model_commit: only after verified save
   uint8_t restoreParts = 0;       // restore_shades: RESTORE_* bits
   model_edit_t *edit = nullptr;   // model_edit: loop() runs and frees it
   // shade_request, proto_read and proto_device from a protocol 2 client:
@@ -68,6 +70,8 @@ class LoopQueue {
     // ahead of everything waiting: an item that ends a frequency scan, which
     // an unpair at the head waits for (holdLoopItem).
     bool submit(const loop_item_t &item, bool first = false);
+    // Task-safe observed pending count; the currently popped item is excluded.
+    uint32_t pending() const;
     // Runs the waiting items in order.  Only from loop().
     void drain();
   private:

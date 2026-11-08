@@ -13,6 +13,8 @@
 #include "ProtoEdits.h"
 #include "ProtoAssembly.h"
 #include "ProtoSettings.h"
+#include "ProtoModelResults.h"
+#include "ModelCommitService.h"
 #include "DeviceOps.h"
 #include "SomfyEditor.h"
 #include "LoopQueue.h"
@@ -234,6 +236,12 @@ static void queueDeviceOp(AsyncWebSocketClient *client, const proto_message_t &m
   item.type = loop_item_type_t::proto_device;
   item.op = msg.type;
   item.replyTo = {client->id(), msg.id};
+  if(msg.type == static_cast<uint8_t>(proto_type_t::commitModel)) {
+    const char *bad=parseModelCommitPayload(d);
+    if(bad){replyError(client,msg.id,proto_error_t::badRequest,bad);return;}
+    if(!submitModelCommit(item.replyTo))replyError(client,msg.id,proto_error_t::busy,"Command queue full");
+    return;
+  }
   if(msg.type == static_cast<uint8_t>(proto_type_t::getSettings)) {
     settings_section_t section;
     const char *bad = parseSettingsSection(d, section);
@@ -516,17 +524,22 @@ void ProtoSocket::replyEdit(const proto_reply_to_t &to, model_edit_type_t type, 
   json.setBuffer(buf, sizeof(buf));
   beginFrame(json, proto_type_t::reply, id);
   ProtoWriter w(json);
-  w.add(proto_field_t::ok, result.ok);
-  if(!result.ok) {
-    w.add(proto_field_t::code, static_cast<uint8_t>(result.notFound ? proto_error_t::notFound : proto_error_t::badRequest));
-    w.add(proto_field_t::desc, result.desc);
-    w.add(proto_field_t::validation, result.code);
-  }
-  else if(type == model_edit_type_t::add_room) w.add(proto_field_t::roomId, result.id);
-  else if(type == model_edit_type_t::add_shade) w.add(proto_field_t::shadeId, result.id);
-  else if(type == model_edit_type_t::add_group) w.add(proto_field_t::groupId, result.id);
+  writeModelEditResult(w,type,result);
   endFrame(json);
   sendReply(to, json, buf, sizeof(buf));
+}
+void ProtoSocket::replyModelCommit(const proto_reply_to_t &to,ModelCommitReport report) {
+  if(!onLoopTask() || to.id==0)return;
+  char buffer[256];BufferedJsonFormatter json;json.setBuffer(buffer,sizeof(buffer));
+  beginFrame(json,proto_type_t::reply,to.id);ProtoWriter writer(json);
+  writeModelCommitReport(writer,report);endFrame(json);
+  sendReply(to,json,buffer,sizeof(buffer));
+}
+void ProtoSocket::modelPersistence(ModelCommitReport report,uint32_t exceptClient) {
+  if(!this->sending())return;
+  ProtoWriter writer(beginEvent(proto_type_t::modelPersistence));writeModelCommitReport(writer,report);
+  if(!finishEvent())return;
+  for(proto_slot_t &slot:slots){const uint32_t id=slot.clientId.load();if(id && id!=exceptClient)ws.text(id,frameBuffer,eventJson.length());}
 }
 // The reads an edit form needs: what a new room, shade or group would get,
 // and the shades a group could take.

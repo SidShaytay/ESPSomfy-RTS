@@ -6,6 +6,7 @@
 #include "ConfigFile.h"
 #include "ModelEditor.h"
 #include "ShadeChanges.h"
+#include "outputs/ProtoSocket.h"
 
 static const char *TAG = "Somfy";
 
@@ -337,6 +338,6 @@ void SomfyShadeController::loop() {
   }
   // Only commit the file once per second.
   if(this->isDirty && millis() - this->lastCommit > 1000) {
-    this->commit();
+    protoSocket.modelPersistence({this->commit()});
   }
 }
