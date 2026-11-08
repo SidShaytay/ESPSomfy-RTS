@@ -43,6 +43,23 @@ const char *notice(EntityAdmin::Notice n) {
   }
   return "Entity unavailable";
 }
+// Use the body font selected by the preceding text call. Pixel width, not
+// byte count, decides whether a prefix must be removed. lcdLabel emits ASCII.
+void tail(Adafruit_GFX &canvas, const char *input, char (&out)[48],
+          unsigned limit) {
+  char clean[48];
+  lcdLabel(input, clean, sizeof(clean));
+  for (const char *start = clean;; ++start) {
+    if (start != clean && strlen(start) > sizeof(out) - 4)
+      continue;
+    snprintf(out, sizeof(out), "%s%s", start == clean ? "" : "...", start);
+    int16_t x, y;
+    uint16_t width, height;
+    canvas.getTextBounds(out, 0, 0, &x, &y, &width, &height);
+    if (width <= limit || !*start)
+      return;
+  }
+}
 void lines(Adafruit_GFX &canvas, const char *source, char (&first)[48],
            char (&second)[48]) {
   char clean[64];
@@ -109,7 +126,12 @@ void Canvas::paintEntity(const EntityAdmin::FormView &view) {
   const bool editor = view.mode == Mode::text || view.mode == Mode::adjust;
   if (editor) {
     text(12, 55, view.rows[0].label, false, muted, 296);
-    text(12, 84, view.rows[0].value, false, foreground, 296);
+    char visible[48];
+    if (view.mode == Mode::text)
+      tail(*this, view.rows[0].value, visible, 296);
+    else
+      snprintf(visible, sizeof(visible), "%s", view.rows[0].value);
+    text(12, 84, visible, false, foreground, 296);
     text(12, 115, view.rows[1].label, false, muted, 128);
     text(146, 115, view.rows[1].value, false, accent, 160);
     text(12, 137, view.rows[2].label, false, muted, 296);
