@@ -212,7 +212,7 @@ def build_evidence(out):
 def artifact_manifest(out):
     """Derive sizes/hashes from bytes, rejecting incompatible artifacts first."""
     allowed = {name for name, _, _ in SEGMENTS} | {
-        'firmware.elf', 'resolved-config.json', 'compiler-metadata.json', 'flash-manifest.json'}
+        'update-source.json', 'firmware.elf', 'resolved-config.json', 'compiler-metadata.json', 'flash-manifest.json'}
     for path in out.iterdir():
         if path.name not in allowed or not path.is_file() or path.is_symlink():
             raise ValueError(f'unexpected artifact package entry: {path.name}')
@@ -273,7 +273,7 @@ def source_record(source):
         return subprocess.check_output(['git', '-C', str(source), *args], text=True).strip()
     subprocess.run(['git', '-C', str(source), 'merge-base', '--is-ancestor',
                     BASELINE['revision'], 'HEAD'], check=True)
-    inputs = [*source.glob('*.py'), source / 'platformio.ini']
+    inputs = [*source.glob('*.py'), source / 'platformio.ini', source / 'update-profiles.json']
     for directory in ('src', 'lib', 'data-src', 'tools'):
         inputs.extend(p for p in (source / directory).rglob('*')
                       if p.is_file() and '__pycache__' not in p.parts)

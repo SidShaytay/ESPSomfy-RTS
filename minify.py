@@ -66,6 +66,10 @@ BUNDLES = {
 # ──────────────────────────────────────────────
 
 
+def _verified_updates():
+    return env.get("PIOENV") == "lilygo-t-embed-cc1101"
+
+
 def _project_dir():
     return env.subst("$PROJECT_DIR")
 
@@ -203,7 +207,7 @@ def process_file(src_path: str, dst_path: str) -> dict:
     # ── Text assets: minify + gzip ──────────
     if ext in MINIFY_AND_GZIP:
         # Try terser for JS first
-        if ext == ".js" and _try_terser(src_path, dst_path + ".tmp"):
+        if ext == ".js" and not _verified_updates() and _try_terser(src_path, dst_path + ".tmp"):
             with open(dst_path + ".tmp", "rb") as f:
                 minified = f.read()
             os.remove(dst_path + ".tmp")
@@ -223,8 +227,15 @@ def process_file(src_path: str, dst_path: str) -> dict:
 
         # Write gzipped version
         gz_path = dst_path + ".gz"
-        with gzip.open(gz_path, "wb", compresslevel=9) as gz:
-            gz.write(minified)
+        if _verified_updates():
+            # Suppress timestamp and source filename, preserving the tested
+            # existing UTF-8 fallback without optional host minifiers.
+            with open(gz_path, "wb") as output:
+                with gzip.GzipFile(filename="", mode="wb", fileobj=output, compresslevel=9, mtime=0) as gz:
+                    gz.write(minified)
+        else:
+            with gzip.open(gz_path, "wb", compresslevel=9) as gz:
+                gz.write(minified)
 
         stats["final"] = os.path.getsize(gz_path)
         return stats
@@ -232,9 +243,10 @@ def process_file(src_path: str, dst_path: str) -> dict:
     # ── PNG: copy + optional optipng ────────
     if ext in PNG_EXTENSIONS:
         shutil.copy2(src_path, dst_path)
-        _try_optipng(dst_path)
+        if not _verified_updates():
+            _try_optipng(dst_path)
         stats["final"] = os.path.getsize(dst_path)
-        stats["action"] = "optipng" if _has_command("optipng") else "copy"
+        stats["action"] = "optipng" if not _verified_updates() and _has_command("optipng") else "copy"
         return stats
 
     # ── Everything else: plain copy ─────────
@@ -308,6 +320,11 @@ def minify_all():
             dst_path = os.path.join(dst_dir, rel_path)
 
             report(rel_path, process_file(src_path, dst_path))
+
+    if _verified_updates():
+        sys.path.insert(0, os.path.join(_project_dir(), "tools"))
+        from update_assets import write_manifest
+        print(f"[minify] Exact web compatibility: {write_manifest(dst_dir)}")
 
     print(f"[minify] {file_count} files processed")
     print(
