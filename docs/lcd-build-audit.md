@@ -28,7 +28,33 @@ Other worktrees were read without modification. At audit time `issue-12-updater`
 
 ## Physical-board source and qualification requirement
 
-The existing Plus GPIO implementation cites manufacturer commit `c36826e0f91311cb591c4545fccf91e254fc55dc` in `BoardProfile.cpp:21`; `StatusPanel.cpp` cites manufacturer display setup 214 in a comment. That is evidence for the existing implementation, not a completed audit of both current physical revisions. The issue links the manufacturer's T-Embed CC1101 repository and requests an explicit standard-board audit. Record exact source paths and pinned revisions for the standard and Plus schematics/utilities/display/gauge definitions before declaring the standard supported. Do not infer interchangeability from the product name or N16R8 memory alone.
+Manufacturer source audit completed on 2026-11-08 using public sources only. Both the [standard product page](https://lilygo.cc/products/t-embed-cc1101) and [Plus product page](https://lilygo.cc/products/t-embed-cc1101-plus) link to `Xinyuan-LilyGO/T-Embed-CC1101` as their product information. The Plus page describes it as the standard CC1101 board with an added nRF24L01 module. Both list ESP32-S3, 16 MB flash, 8 MB PSRAM and a 170×320 ST7789-family LCD. This supports shared core hardware code while retaining separate physical-board identities; it does not establish that every shipped revision matches those definitions.
+
+The official repository's current `master` resolved through the GitHub API to **`c36826e0f91311cb591c4545fccf91e254fc55dc`**, matching the existing Plus pin reference. The following immutable sources were read:
+
+- [README and pin/product tables](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/c36826e0f91311cb591c4545fccf91e254fc55dc/README.md).
+- [Shared examples/utilities.h](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/c36826e0f91311cb591c4545fccf91e254fc55dc/examples/utilities.h), especially lines 5–8, 28–58 and 66–93.
+- [Display setup 214](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/c36826e0f91311cb591c4545fccf91e254fc55dc/lib/TFT_eSPI/User_Setups/Setup214_LilyGo_T_Embed_PN532.h): ST7789, portrait 170×320, inversion on, reset `-1`, and the same display pins. Its HSPI recommendation concerns TFT_eSPI direct-register handling; retain this project's existing shared Arduino SPI transactions rather than introducing a second library/bus owner.
+- [CC1101 initialization example](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/c36826e0f91311cb591c4545fccf91e254fc55dc/examples/cc1101_recv_irq/cc1101_recv_irq.ino): deselect shared peripherals before enabling the power rail; SW1/SW0 high selects the 434 MHz path. Do not run this RF-capable manufacturer example.
+- [BQ27220 register/address definitions](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/c36826e0f91311cb591c4545fccf91e254fc55dc/examples/bq27xxx_test/bq27220_def.h): address `0x55`; Voltage `0x08`, BatteryStatus `0x0a`, Current `0x0c`, SOC `0x2c`, OperationStatus `0x3a`, matching the existing read-only monitor. Manufacturer battery examples also contain charger/gauge configuration operations; those must not be copied into this monitor.
+- [Base-board schematic, T-Embed-CC1101 V1.0 24-07-29.pdf](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/c36826e0f91311cb591c4545fccf91e254fc55dc/hardware/T-Embed-CC1101%20V1.0%2024-07-29.pdf): downloaded and visually inspected pages 1, 2 and 4. Page 1 shows BQ27220YZFR and BQ25896 with I2C SDA8/SCL18, and GPIO15 rail enable. Page 2 shows the N16R8 module, encoder A4/B5, Back6, and the shared SPI bus. Page 4 shows the encoder switch to IO0 and the display circuit. No distinct Plus base-board schematic was found in the pinned source tree; the manufacturer's added-nRF24 description and shared utility definitions are the evidence for the Plus extension.
+
+| Function | Standard CC1101 source | Plus source relationship | Current implementation consequence |
+|---|---|---|---|
+| LCD | ST7789 170×320; CS41/DC16/BL21; SCK11/MOSI9/MISO10; software reset in setup 214 | Same base board, added nRF24 | Share panel implementation and 320×170 landscape renderer, preserve write-only detection caveat. |
+| Encoder and Back | INA4, INB5, key0; user key6 | Same base board | Same input pins and debounce/held-at-boot suppression; reserve these pins on both profiles. |
+| Radio and SPI | SCK11/MOSI9/MISO10; CS12; IO0/TX3, IO2/RX38; SW1=47, SW0=48 | Same CC1101 hardware | Preserve existing lock/scheduler/SPI and 433 MHz admission. |
+| Peripheral power and unused slaves | Power15; SD CS13 | nRF24 CS44/CE43, same SPI pins in utility definitions and README expansion table | Deselect all shared slaves before power. Keep nRF24 disabled; no nRF24 driver or RF test is needed. |
+| Power monitor | SDA8/SCL18; BQ27220 at 0x55, charger BQ25896 at 0x6b | Same base board | Keep read-only BQ27220 polling and explicit unavailable/invalid states. |
+
+Source inconsistencies require an honest qualification boundary:
+
+- README says hardware **v1.0-241103**, while `utilities.h:5` says **v1.0-240729** and the schematic filename is **V1.0 24-07-29**. The sources do not provide an explicit revision migration table. Bind compile support to these pinned definitions, record the discrepancy, and identify actual board/revision before an authorized hardware acceptance stage.
+- `utilities.h:48–49` and the schematic agree on SDA8/SCL18, but legacy aliases at lines 52–53 reverse those names. Use the canonical `BOARD_I2C_*` mapping, which matches this project's existing power bus; do not copy the legacy aliases.
+- Both store pages list battery-voltage detection on IO04, while the pinned code/schematic place encoder INA on GPIO4 and the gauge on I2C. Keep the gauge path; do not repurpose the encoder pin as an ADC.
+- The old schematic page-4 legend labels LCD reset IO40, while its circuit shows an RC reset network and the maintained setup explicitly sets reset to `-1`; page 2 also assigns IO40 to audio. Preserve software reset and avoid driving IO40 based on the legend.
+
+The current repository `AGENTS.md` build paragraph still says `tools/build-lilygo.sh` packages headless Plus and requires manual selection of LCD variants. After canonical consolidation, revise that current paragraph to name both full-feature physical-board environments and their required features; retain the existing pinned pioarduino, state-preserving flashing, test and physical-authorization instructions. Editing this instruction file requires the `agents-md` skill. Do not overwrite the unrelated uncommitted `issue-12-radio-guard/AGENTS.md` draft.
 
 ## Proposed transition and implementation slices
 
