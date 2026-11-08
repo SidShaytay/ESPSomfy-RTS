@@ -6,8 +6,8 @@
 #include <vector>
 using esp_err_t = int;
 using nvs_handle_t = uint32_t;
-constexpr esp_err_t ESP_OK = 0, ESP_FAIL = -1, ESP_ERR_NVS_NOT_FOUND = 1;
-constexpr int NVS_READWRITE = 1;
+constexpr esp_err_t ESP_OK = 0, ESP_FAIL = -1, ESP_ERR_NVS_NOT_FOUND = 1, ESP_ERR_NVS_TYPE_MISMATCH = 2;
+constexpr int NVS_READWRITE = 1, NVS_READONLY = 0;
 namespace FakeNvs {
 enum class Type { i8, u8, i16, text, blob };
 struct Value { Type type; std::vector<uint8_t> bytes; };
@@ -29,7 +29,8 @@ inline esp_err_t set(nvs_handle_t h,const char *key,Type type,const void *data,s
 inline esp_err_t get(nvs_handle_t h,const char *key,Type type,void *data,size_t *size) {
   if(++reads == failRead || !handles.count(h)) return ESP_FAIL;
   auto it=values.find(handles[h]+"/"+key);
-  if(it==values.end() || it->second.type!=type) return ESP_ERR_NVS_NOT_FOUND;
+  if(it==values.end()) return ESP_ERR_NVS_NOT_FOUND;
+  if(it->second.type!=type) return ESP_ERR_NVS_TYPE_MISMATCH;
   size_t len=it->second.bytes.size();
   if(data && *size<len) return ESP_FAIL;
   if(data) {

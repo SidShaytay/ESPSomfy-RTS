@@ -6,6 +6,7 @@
 #include "ProtoSettings.h"
 #include "SettingsApply.h"
 #include "SettingsRead.h"
+#include "SettingsReconcile.h"
 #include "SettingsRevisions.h"
 
 // Socket protocol 2's settings ops and the WiFi scan, run on loop()
@@ -34,6 +35,9 @@ bool readDeviceSettings(settings_section_t section, SettingsSnapshotSink &sink);
 // restart scheduling. Zero origin means LCD; a socket origin queues its reply
 // before returning to ProtoSocket::loop(), which drains it before closure.
 settings_apply_result_t applyDeviceSettings(settings_section_t section, JsonObject request, uint32_t originSocketClient = 0);
+// loop() after fresh administrator admission. Explicitly saves CURRENT RUNNING
+// settings; never replays a form/restore or requests a restart. No route yet.
+settings_reconcile_result_t reconcileRunningDeviceSettings(uint32_t originSocketClient = 0);
 // loop(): runs a proto_device item and replies.
 void runDeviceOp(const loop_item_t &item);
 #endif

@@ -128,23 +128,42 @@ settings_save_result_t EthernetSettings::save() {
   return out.result();
 }
 #endif
+static settings_save_result_t saveRadioSettings(const transceiver_config_t &cfg,bool marker) {
+  SettingsWriter out(SettingsNamespace::radio,"CC1101");
+  out.u8("type", cfg.type);
+  out.u8("TXPin", cfg.TXPin);
+  out.u8("RXPin", cfg.RXPin);
+  out.u8("SCKPin", cfg.SCKPin);
+  out.u8("MOSIPin", cfg.MOSIPin);
+  out.u8("MISOPin", cfg.MISOPin);
+  out.u8("CSNPin", cfg.CSNPin);
+  out.real("frequency", cfg.frequency);
+  out.real("deviation", cfg.deviation);
+  out.real("rxBandwidth", cfg.rxBandwidth);
+  out.flag("enabled", cfg.enabled);
+  out.flag("radioInit", marker);
+  out.i8("txPower", cfg.txPower);
+  out.i8("proto", static_cast<uint8_t>(cfg.proto));
+  out.flag("noiseDetect", cfg.noiseDetection);
+  return out.result();
+}
+
 settings_save_result_t transceiver_config_t::save() {
   applyBoardPins();
-  SettingsWriter out(SettingsNamespace::radio,"CC1101");
-  out.u8("type", type);
-  out.u8("TXPin", TXPin);
-  out.u8("RXPin", RXPin);
-  out.u8("SCKPin", SCKPin);
-  out.u8("MOSIPin", MOSIPin);
-  out.u8("MISOPin", MISOPin);
-  out.u8("CSNPin", CSNPin);
-  out.real("frequency", frequency);
-  out.real("deviation", deviation);
-  out.real("rxBandwidth", rxBandwidth);
-  out.flag("enabled", enabled);
-  out.flag("radioInit", true);
-  out.i8("txPower", txPower);
-  out.i8("proto", static_cast<uint8_t>(proto));
-  out.flag("noiseDetect", noiseDetection);
-  return out.result();
+  return saveRadioSettings(*this,true);
+}
+settings_save_result_t transceiver_config_t::savePreservingInit() {
+  nvs_handle_t handle;
+  if(nvs_open("CC1101",NVS_READONLY,&handle)!=ESP_OK)
+    return {settings_save_state_t::failed,"CC1101"};
+  uint8_t marker=1;
+  const auto read=nvs_get_u8(handle,"radioInit",&marker);
+  nvs_close(handle);
+  // Missing key has always meant true to Preferences::getBool. Other read
+  // failures and malformed stored values cannot silently reset the guard.
+  if((read!=ESP_OK && read!=ESP_ERR_NVS_NOT_FOUND) || marker>1)
+    return {settings_save_state_t::failed,"radioInit"};
+  if(read==ESP_ERR_NVS_NOT_FOUND) marker=1;
+  applyBoardPins();
+  return saveRadioSettings(*this,marker!=0);
 }

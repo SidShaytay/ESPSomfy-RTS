@@ -90,6 +90,10 @@ settings_apply_result_t applyDeviceSettings(settings_section_t section, JsonObje
   RuntimeSettingsEffects effects(originSocketClient);
   return applySettings(settings,section,request,effects);
 }
+settings_reconcile_result_t reconcileRunningDeviceSettings(uint32_t originSocketClient) {
+  RuntimeSettingsEffects effects(originSocketClient);
+  return reconcileRunningSettings(settings,somfy.transceiver.config,effects);
+}
 static void runSave(const proto_reply_to_t &to, settings_save_t *save) {
   const settings_section_t section = save->section;
   const uint32_t ip = save->ip;
