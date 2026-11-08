@@ -107,5 +107,39 @@ int main(){
   setLocalControlsFrozen(false);
   assert(dispatch(beforeFreeze)==DispatchResult::denied); // complete freeze period invalidates old intent
   assert(submitted.size()==beforeGroup);
+  // Everyday actions preserve typed domain operations and their exact arguments.
+  one.bitLength=80;one.tiltType=tilt_types::tiltmotor;one.sunSensor=true;one.value.tiltDirection=1;
+  ++one.configurationRevision;++somfy.configurationRevision;open(view,{EntityKind::device,7});
+  for(unsigned i=0;i<unsigned(Action::count);i++) {
+    const auto action=Action(i);if(action==Action::toggle) continue;
+    auto request=command(view,action);
+    if(action==Action::position || action==Action::tiltPosition) request.value=42;
+    if(action==Action::stepUp || action==Action::stepDown) request.step=7;
+    const auto count=submitted.size();assert(dispatch(request)==DispatchResult::done && submitted.size()==count+1);
+    const auto &sent=submitted.back();assert(sent.id==7);
+    if(action==Action::position) assert(sent.type==shade_request_type_t::shade_command && sent.target==42);
+    if(action==Action::tiltPosition) assert(sent.type==shade_request_type_t::tilt_command && sent.target==42);
+    if(action==Action::tiltUp || action==Action::tiltStop || action==Action::tiltDown) assert(sent.type==shade_request_type_t::tilt_command);
+    if(action==Action::my) assert(sent.command==somfy_commands::My);
+    if(action==Action::favourite) assert(sent.command==somfy_commands::Favorite);
+    if(action==Action::stepUp || action==Action::stepDown) assert(sent.stepSize==7);
+    if(action==Action::sunOn) assert(sent.command==sunFlagCommand(true));
+    if(action==Action::sunOff) assert(sent.command==sunFlagCommand(false));
+  }
+  auto invalid=command(view,Action::position);invalid.value=101;beforeGroup=submitted.size();
+  assert(dispatch(invalid)==DispatchResult::refused && submitted.size()==beforeGroup);
+  assert(dispatch(command(view,Action::count))==DispatchResult::refused && submitted.size()==beforeGroup);
+  one.proto=radio_proto::GP_Relay;++one.configurationRevision;++somfy.configurationRevision;
+  model=open(view,{EntityKind::device,7});assert(model.target.pendingRelayTilt);
+  assert(model.target.capabilities&controlActionBit(Action::up));
+  assert(!(model.target.capabilities&controlActionBit(Action::tiltPosition)));
+  assert(dispatch(command(view,Action::up))==DispatchResult::done);
+  assert(dispatch(command(view,Action::tiltUp))==DispatchResult::refused);
+  one.proto=radio_proto::GP_Remote;++one.configurationRevision;++somfy.configurationRevision;
+  model=open(view,{EntityKind::device,7});assert(model.target.capabilities&controlActionBit(Action::tiltPosition));
+  auto tilt=command(view,Action::tiltPosition);tilt.value=63;assert(dispatch(tilt)==DispatchResult::done);
+  one.shadeType=shade_types::garage1;++one.configurationRevision;++somfy.configurationRevision;
+  model=open(view,{EntityKind::device,7});assert(model.target.capabilities==controlActionBit(Action::toggle));
+  assert(dispatch(command(view,Action::toggle))==DispatchResult::done && submitted.back().command==somfy_commands::Toggle);
   puts("Dynamic adapter: stable sparse IDs, exact revisions/membership, presented target, mutation wrappers and scoped STOP passed.");
 }

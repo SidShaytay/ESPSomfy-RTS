@@ -4,12 +4,14 @@
 #include "LocalCatalogue.h"
 #include "LocalTargetContext.h"
 #include "LocalControlPolicy.h"
+#include "LocalControlMenu.h"
+#include "LocalValueEditor.h"
 namespace LocalUi {
 constexpr uint8_t detailsRowCount=10, detailsVisibleRows=6, homeRows=6;
 enum class Screen : uint8_t { status, home, catalogue, roomKinds, control, actions, value, details, brightness, unlock, settings };
 using Action=ControlAction;
 enum class Notice : uint8_t { none, preview, queued, refused, idle, changed, wait, saved, saveFailed,
-  unlockRequired, unlockWrong, unlockWait, unlockUnavailable, unlocked, done, partial, busy, cancelled };
+  unlockRequired, unlockWrong, unlockWait, unlockUnavailable, unlocked, done, partial, busy, cancelled, valueUnavailable };
 enum class DispatchResult : uint8_t { queued, done, partial, refused, stale, busy, denied, idle, cancelled };
 struct Target {
   EntityRef ref;
@@ -53,6 +55,8 @@ struct View {
   uint8_t level=32, setting=0, detailsOffset=0;
   uint16_t dimSeconds=10, offSeconds=20;
   Action action=Action::stop;
+  int16_t draftValue=0;
+  uint8_t valueChoice=0;
   Notice notice=Notice::none;
   uint16_t credentialChoice=0;
   uint8_t credentialLength=0, credentialMaximum=0;
@@ -71,6 +75,8 @@ class Controller {
   View state;
   Command pending;
   CredentialEditor editor;
+  ValueEditor valueEditor;
+  uint32_t valueAuthorizationGeneration=0, valueConfigurationGeneration=0;
   AuthMode editorMode=AuthMode::none;
   Screen afterUnlock=Screen::control;
   DisplayPreferences brightnessBefore;
@@ -80,6 +86,10 @@ class Controller {
   bool bindTarget=false, authorizeAfterUnlock=false, authActivity=false;
   SettingsInput settingsInput;
   void editorView();
+  void valueView();
+  void cancelValue();
+  void beginUnlock(uint32_t,const Model &,Screen);
+  void submitControl(uint32_t,const Model &,bool,Action,int8_t value=-1,uint8_t step=0);
   bool hasCommand=false, started=false, raw=false, stable=false;
   bool consumed=false, held=false, asleep=false, dimmed=false, savePending=false;
   bool backRaw=false, backStable=false, backConsumed=false;

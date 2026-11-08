@@ -48,3 +48,25 @@ Validation uses synthetic catalogues and the production controller, renderer,
 runtime and adapter with fake request sinks. No controller, RF, motors or Home
 Assistant were accessed. Generated previews are reproducible with
 `tools/preview-local-ui.sh` and are not committed.
+
+## Capability menus checkpoint
+
+The next reviewed increment adds primary capability buttons and a three-row More
+menu. It covers supported position/tilt targets, tilt direction/STOP, explicit MY,
+80-bit Favorite and step commands, Toggle and sun flags through the existing typed
+request policy. No light opcode or GPIO relay tilt remapping is introduced.
+
+Numeric movement drafts use the shared bounded ValueEditor. Push enters a review
+with Cancel selected; Apply must itself finish reaching the LCD before it can
+submit the chosen number. Back, Cancel, timeout, target change and authorization
+replacement discard without a request. Unknown estimates do not acquire a silent
+zero/default target. Ordinary same-target STOP remains one Back away; tilt STOP
+never inherits the authorization-expiry grace exception.
+
+Offline evidence: 781 native cases passed with one optional private-fixture skip;
+production renderer/runtime/capture and adapter/auth harnesses passed. Removing the
+numeric presented-value/choice guard reproduces an unintended submission with SPI
+blocked, and the regression fails; restoring it passes. The shared CC1101 firmware
+build uses 110,684 bytes static RAM and 1,386,362 bytes flash. The separate pending
+intent/LoopQueue integration still follows this checkpoint before full everyday
+control completion is claimed. No hardware or HA acceptance is implied.
