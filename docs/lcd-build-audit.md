@@ -80,3 +80,18 @@ The panel transfers at most four graphics rows per band; its initial clear uses 
 - No firmware build or hardware measurement was performed for this documentation audit.
 
 Required implementation verification: native tests; web protocol tests; release-script tests; both board GPIO/SPI fake harnesses; status panel/radio SPI harness; UI adapter/runtime/capture/production-renderer harness and generated previews; legacy/#12 package tooling tests with negative macro/profile cases; both full canonical firmware builds with separate build directories and ELF/bin/slot-size reports; generic compile/regression checks. Add mutation checks to prove command/security regression tests fail when their guards are inverted. Runtime internal-heap/PSRAM/loop/SPI measurements and physical standard/Plus qualification remain separate pending acceptance evidence.
+
+## Canonical build implementation — offline evidence
+
+The initial gap table above records fetched-main findings. The implementation now provides exactly `lilygo-t-embed-cc1101` and `lilygo-t-embed-cc1101-plus`, full-feature dependencies/flags and distinct board labels. Production firmware compilation rejects missing, noncanonical numeric values and conflicting board/feature macros. The existing simple status renderer remains available for memory failure; it is not a separate release environment.
+
+The legacy packager validates both physical identities, actual resolved and final compiler flags, required pinned display dependencies, image/partition sizes and exact metadata. Unknown/retired profile IDs fail without touching an existing package. Relative `PLATFORMIO_BUILD_DIR` is resolved against the source project before compilation/copying. CI now builds/packages each physical board independently. #12 updater code, profile registry and installation flows have not been imported: its earlier incompatible registry requires a separately reviewed integration with matching trust/admission/rollback and retired-profile transition policy.
+
+Offline checks for this slice:
+
+- Both canonical full firmware and filesystem builds completed with pinned pioarduino Core 6.2.0, using `.pio/build-canonical-standard` and `.pio/build-canonical-plus`. Both real packages passed create and independent validate commands. The caller-owned parser error prerequisite is included for these final integration compiles.
+- 32 manifest/config/build-script tests passed. New red cases first demonstrated the old validator accepting removed/conflicting UI flags and opposite-board definitions. Mutating raw `ESPSOMFY_LOCAL_COMMANDS` validation caused four meaningful failures (C, C++, split resolved undefine and conflicting value); restoring the guard returned the suite to green.
+- Board tests passed for standard, Plus and generic, including actual production build-label formatting in LCD/UI modes, reserved pins, initialization ordering, and negative compilation for missing features, feature values 0/2, wrong MCU, board value 0 and dual-board selection. Both board panel harnesses and the actual radio SPI harness passed.
+- Production renderer generated eight 320×170 screens; runtime, capture and preserved shared-group STOP fake-sink harnesses passed. Previews remain local generated artifacts under `build/ui-preview`; no screen capture or live device was accessed.
+
+This is build/host evidence, not standard-board physical qualification, runtime combined-load memory/latency measurements or full web/LCD parity. No controller, HA, RF, motor, flash or firmware installation action was performed.

@@ -2,9 +2,9 @@
 
 ## Code and builds
 
-This branch uses pinned cjkas v4.0.2 as its baseline. Firmware lives in `src/`, the vendored CC1101 driver in `lib/`, web sources in `data-src/`, and PlatformIO environments in `platformio.ini`. Preserve the newer driver, scheduler and radio locking when changing the opt-in Plus profile. See `LILYGO.md` and `docs/adr/0008-lilygo-maintained-baseline.md` for the migration decision.
+This branch uses pinned cjkas v4.0.2 as its baseline. Firmware lives in `src/`, the vendored CC1101 driver in `lib/`, web sources in `data-src/`, and PlatformIO environments in `platformio.ini`. Preserve the newer driver, scheduler and radio locking when changing either LILYGO board profile. See `LILYGO.md` and `docs/adr/0008-lilygo-maintained-baseline.md` for the migration decision.
 
-Firmware builds need pioarduino Core 6.2.0; stock PlatformIO refuses the pinned platform. `bash tools/setup-lilygo.sh` installs user-owned tools. `bash tools/build-lilygo.sh` packages the headless Plus build; it does not package the LCD UI. Build the required environment from `platformio.ini`, preserving the installed display and control features. Generic environments are built with `pio run -e <environment>`. Do not commit generated binaries or private backup/configuration data.
+Firmware builds need pioarduino Core 6.2.0; stock PlatformIO refuses the pinned platform. `bash tools/setup-lilygo.sh` installs user-owned tools. `bash tools/build-lilygo.sh` packages the full-feature Plus build by default; its third argument selects `lilygo-t-embed-cc1101` for the standard board. These are the only two LILYGO firmware environments, and both require display, interactive UI and local commands. Select the exact physical board from `platformio.ini`; retired suffix profiles are not aliases. Generic environments are built with `pio run -e <environment>`. Do not commit generated binaries or private backup/configuration data.
 
 ## Backups and flashing
 
