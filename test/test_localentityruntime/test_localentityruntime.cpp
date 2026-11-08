@@ -7,10 +7,12 @@
 #include "ModelCommitService.h"
 #include "ShadeSettings.h"
 #include "SomfyEditor.h"
+#include "Utils.h"
 #include <map>
 #include <stdlib.h>
 #include <string.h>
 #include <unity.h>
+rebootDelay_t rebootDelay;
 namespace LocalUi {
 static SecuritySnapshot security{AuthMode::none, true, false, 1, 1};
 static bool frozen = false;
@@ -33,12 +35,14 @@ struct Shade : RemoteSettings, ShadeSettings {
   uint8_t getShadeId() { return id; }
   int8_t gpioError = 0;
   bool idle = true;
-  bool expireDuringValidation = false;
+  bool expireDuringValidation = false, restartDuringValidation = false;
   uint32_t gpioRelease = 0;
   bool isIdle() { return idle; }
   int8_t validateGPIOs(radio_proto, uint8_t, uint8_t, uint8_t) {
     if (expireDuringValidation)
       ++LocalUi::security.generation;
+    if (restartDuringValidation)
+      rebootDelay.reboot = true;
     return gpioError;
   }
   bool isInGroup() { return false; }
@@ -93,8 +97,6 @@ struct SomfyShadeController {
   int getMaxGroupOrder() { return maxGroupOrder; }
 } somfy;
 LoopQueue loopQueue;
-static bool restartScheduled = false;
-bool restartPending() { return restartScheduled; }
 static unsigned pendingCount = 0, applies = 0, commits = 0;
 uint32_t LoopQueue::pending() const { return pendingCount; }
 static ArduinoJson::Allocator *expectedAllocator = nullptr;
@@ -182,7 +184,7 @@ void setUp() {
   LocalUi::security = {LocalUi::AuthMode::none, true, false, 1, 1};
   LocalUi::frozen = false;
   pendingCount = applies = commits = 0;
-  restartScheduled = false;
+  rebootDelay = {};
   somfy.configurationRevision = 1;
   somfy.restoreRevision = 1;
   somfy.shade = {};
@@ -471,7 +473,7 @@ static void correctable_tilt_gpio_errors_and_final_expiry_preserve_draft() {
 }
 static void restart_pending_blocks_mutation_and_commit() {
   auto &b = runtimeBackend();
-  restartScheduled = true;
+  rebootDelay.reboot = true;
   Memory memory;
   JsonDocument doc(&memory);
   doc["roomId"] = 4;
@@ -549,8 +551,29 @@ static void hidden_new_sort_order_cannot_wrap_on_device_or_group_add() {
     TEST_ASSERT_EQUAL_STRING("Offered", doc["name"].as<const char *>());
   }
 }
+static void authoritative_restart_mirror_is_checked_again_after_preflight() {
+  auto &b = runtimeBackend();
+  for (const bool duringValidation : {false, true}) {
+    rebootDelay = {};
+    uint8_t id;
+    TEST_ASSERT_TRUE(b.prepare(Kind::shade, 7, id));
+    somfy.shade.restartDuringValidation = duringValidation;
+    rebootDelay.reboot = !duringValidation;
+    Memory memory;
+    JsonDocument doc(&memory);
+    doc["shadeId"] = 7;
+    doc["name"] = "Pending";
+    const auto result =
+        b.apply(model_edit_type_t::save_shade, doc, {true, 1, 1}, 1);
+    TEST_ASSERT_EQUAL(Admission::busy, result.admission);
+    TEST_ASSERT_EQUAL(0, applies);
+    TEST_ASSERT_EQUAL(1, somfy.configurationRevision);
+    TEST_ASSERT_EQUAL_STRING("Pending", doc["name"].as<const char *>());
+  }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(authoritative_restart_mirror_is_checked_again_after_preflight);
   RUN_TEST(hidden_new_sort_order_cannot_wrap_on_device_or_group_add);
   RUN_TEST(applied_delete_failure_adopts_tombstone_for_file_only_retry);
   RUN_TEST(allocation_failure_in_materialized_defaults_has_no_effects);

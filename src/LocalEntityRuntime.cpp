@@ -5,13 +5,14 @@
 #include "LocalUiAuthorizationAdapter.h"
 #include "LoopQueue.h"
 #include "ModelCommitService.h"
-#include "SafeRestart.h"
+#include "Utils.h"
 #include "Somfy.h"
 #include "SomfyEditor.h"
 #include <stdio.h>
 #include <string.h>
 extern SomfyShadeController somfy;
 extern LoopQueue loopQueue;
+extern rebootDelay_t rebootDelay;
 namespace LocalUi {
 namespace EntityAdmin {
 namespace {
@@ -276,7 +277,7 @@ class RuntimeBackend final : public Backend {
       return Admission::stale;
     if (!currentContext())
       return Admission::stale;
-    if (loopQueue.pending() || restartPending())
+    if (loopQueue.pending() || rebootDelay.reboot)
       return Admission::busy;
     return Admission::accepted;
   }
