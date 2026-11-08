@@ -10,8 +10,6 @@
 #include <map>
 #include "DeviceOps.h"
 #include "LoopQueue.h"
-LoopQueue loopQueue;
-uint32_t LoopQueue::pending() const { return 0; }
 bool hasPsram=true,allocateOK=true;
 void *allocated=nullptr;
 bool settingsAllocateOK=true;
@@ -45,6 +43,7 @@ static std::vector<shade_request_t> submitted;
 static unsigned bands=0,presentations=0,locks=0;
 static bool busBusy=false,captureProtected=true;
 struct RecordingRequests {shade_request_result_t run(const shade_request_t &r){submitted.push_back(r);return shade_request_result_t::done;}} shadeRequests;
+#include "../ui-adapter/LoopHarness.h"
 #define ShadeRequests RecordingRequests
 #define snapshotModel adapterSnapshotModel
 #define markControlPresented adapterMarkControlPresented
@@ -83,7 +82,7 @@ static void saveFrame(const char *directory,const char *name) {
 int main(int argc,char **argv){
   const char *preview=argc>1?argv[1]:nullptr;
   using namespace LocalUi;
-  authorization.configure(AuthMode::none,"","");
+  authorization.configure(AuthMode::none,"","");loopQueue.begin();
   auto &one=somfy.shades[13];one.id=7;one.address=700;one.shadeType=shade_types::shutter;one.bitLength=56;one.idle=false;strcpy(one.name,"Bedroom");
   auto &two=somfy.shades[31];two.id=22;two.address=2200;two.shadeType=shade_types::shutter;two.bitLength=56;two.idle=false;strcpy(two.name,"Bathroom");
   testPins[4]=testPins[5]=testPins[6]=1;
@@ -92,14 +91,14 @@ int main(int argc,char **argv){
   Runtime ui;ui.begin();assert(ui.failure()==GraphicsFailure::none && allocated);
   Runtime *active=&ui;
   int ab=3;
-  auto tick=[&](bool pressed=false,unsigned dt=50){testNow+=dt;authTestNow=testNow;active->tick(testNow,status,pressed,send,light);};
+  auto tick=[&](bool pressed=false,unsigned dt=50){testNow+=dt;authTestNow=testNow;loopQueue.drain();active->tick(testNow,status,pressed,send,light);};
   auto idle=[&](unsigned duration=140){for(unsigned t=0;t<duration;t+=2)tick(false,2);};
   auto rotate=[&](int direction){
     const int middle=direction>0?(ab==3?1:2):(ab==3?2:1);
     testPins[4]=middle>>1;testPins[5]=middle&1;tick();
     ab=ab==3?0:3;testPins[4]=ab>>1;testPins[5]=ab&1;tick();
   };
-  auto click=[&]{tick(true);tick(true);tick(false);tick(false);};
+  auto click=[&]{tick(true);tick(true);tick(false);tick(false);tick(false,2);};
   auto back=[&]{testPins[6]=0;tick();tick();testPins[6]=1;tick();tick();};
   busBusy=true;idle(20);assert(bands==0 && captureProtected);
   busBusy=false;idle();assert(bands==43 && !captureProtected);
@@ -150,6 +149,16 @@ int main(int argc,char **argv){
   busBusy=true;rotate(-1);click();assert(submitted.size()==beforeDraft);
   busBusy=false;idle();click();assert(submitted.size()==beforeDraft+1);
   assert(submitted.back().target==expected && submitted.back().type==shade_request_type_t::shade_command);
+  // Back retracts an unsubmitted intent; no request or MY is generated.
+  const auto beforePending=submitted.size();somfy.transceiver.room=false;
+  idle();rotate(-1);idle();click();assert(localControlPending() && submitted.size()==beforePending);
+  back();assert(!localControlPending() && submitted.size()==beforePending);
+  somfy.transceiver.room=true;idle();click();idle();assert(lastQuery.screen==Screen::control);
+  // STOP also retracts an idle target's queued UP, with zero idle MY.
+  one.idle=true;idle();somfy.transceiver.room=false;rotate(-1);idle();click();
+  assert(localControlPending() && submitted.size()==beforePending);idle();click();
+  assert(!localControlPending() && submitted.size()==beforePending);
+  somfy.transceiver.room=true;idle();click();assert(!localControlPending() && submitted.size()==beforePending);
   one.idle=two.idle=true; // Settings teardown case tests idle sleep.
   free(allocated);allocated=nullptr;
   authorization.configure(AuthMode::none,"","");

@@ -69,6 +69,14 @@ static void test_unpair_waits_out_a_suspend() {
   TEST_ASSERT_TRUE(holdLoopItem(request(shade_request_type_t::unpair), true, true));
 }
 
+static void test_local_markers_are_small_and_use_the_exact_protocol_flag() {
+  static_assert(sizeof(loop_item_t)<=80,"No target context in 32 queue items");
+  auto local=item(loop_item_type_t::local_control);local.localToken=9;local.localRadio=true;
+  TEST_ASSERT_TRUE(holdLoopItem(local,false,false));TEST_ASSERT_FALSE(holdLoopItem(local,false,true));
+  TEST_ASSERT_FALSE(holdLoopItem(local,true,false));
+  local.localRadio=false;TEST_ASSERT_FALSE(loopItemUsesRadio(local));TEST_ASSERT_FALSE(holdLoopItem(local,false,false));
+  local.localRadio=true;local.localToken=0;TEST_ASSERT_FALSE(loopItemUsesRadio(local));
+}
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
@@ -78,5 +86,6 @@ int main(int argc, char **argv) {
   RUN_TEST(test_radio_request_waits_for_room);
   RUN_TEST(test_requests_are_not_held_while_suspended);
   RUN_TEST(test_unpair_waits_out_a_suspend);
+  RUN_TEST(test_local_markers_are_small_and_use_the_exact_protocol_flag);
   return UNITY_END();
 }

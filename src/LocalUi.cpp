@@ -45,6 +45,7 @@ void Controller::unlockResult(uint32_t now, AuthResult result) {
   editorView();
 }
 void Controller::goBack() {
+  cancelPending=true;
   hasCommand=false; state.notice=Notice::none; state.action=Action::stop;
   if(state.screen==Screen::unlock) { editor.cancel(); editorView(); state.screen=afterUnlock; }
   else if(state.screen==Screen::brightness) { setPreferences(brightnessBefore); savePending=false; state.screen=Screen::home; state.selected=4; }
@@ -86,7 +87,7 @@ void Controller::submitControl(uint32_t now,const Model &m,bool visible,Action a
   else if(!m.authorized && !(action==Action::stop && t.stopLease && m.expiredSessionGeneration)) beginUnlock(now,m,Screen::control);
   else if(!visible) state.notice=Notice::wait;
   else if(!(t.capabilities & controlActionBit(action))) state.notice=Notice::refused;
-  else if((action==Action::stop && !t.moving) || (action==Action::tiltStop && !t.tiltMoving)) state.notice=Notice::idle;
+  else if((action==Action::stop && !t.moving && !m.controlPending) || (action==Action::tiltStop && !t.tiltMoving)) state.notice=Notice::idle;
   else if(!m.controlsEnabled) state.notice=Notice::preview;
   else if(!m.ready) state.notice=Notice::refused;
   else {
@@ -406,6 +407,8 @@ void Controller::result(uint32_t now,DispatchResult result) {
   case DispatchResult::denied: state.notice=Notice::unlockRequired; break;
   case DispatchResult::idle: state.notice=Notice::idle; break;
   case DispatchResult::cancelled: state.notice=Notice::cancelled; break;
+  case DispatchResult::expired: state.notice=Notice::expired; break;
+  case DispatchResult::cancelledBusy: state.notice=Notice::stopNotQueued; break;
   default: state.notice=Notice::refused; break;
   }
   noticeSince = now;

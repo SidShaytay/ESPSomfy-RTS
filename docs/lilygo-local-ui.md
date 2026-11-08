@@ -18,6 +18,10 @@ The offline implementation now browses configured rooms, devices and groups; it 
 - Brightness levels are 2, 4, 8, 16, 32, 64, 128 and 255 out of 255 (default 32). Dim/sleep choices are disabled, 5, 10, 15, 20, 30, 60, 120 and 300 seconds. **No dim** disables dimming; **No sleep** keeps the display on. Defaults are dim after 10 seconds and sleep after 20 seconds, measured independently from the last input.
 - While any configured shade is estimated moving, the UI stays awake so STOP remains reachable. Wake/rotation/holding/Back alone creates no shutter request. With No sleep selected, idle navigation returns to Status after 30 seconds while leaving the display on.
 
+An accepted button press first enters the shared model-loop queue. While it is still pending, the display says **Queued - Back cancels**. Back or hold retracts that unsubmitted local action; an unsubmitted action expires after five seconds and never retries automatically. Changed configuration, authorization, restore history or a backward clock also refuses the old intent.
+
+A fresh STOP for the same unchanged target retracts its queued UP/DOWN/other action. If the target is already idle, this only cancels the queued start and sends no MY. If moving, STOP joins the end of the shared queue. **Cancelled; STOP not queued** means the old start was removed but the queue had no room for the replacement; press again when ready. Other targets' pending actions require explicit Back cancellation. Back cannot undo a command already accepted by the existing request service.
+
 The current font displays ASCII. Unsupported UTF-8 code points and control characters appear as `?`, while stored names remain unchanged. Stable IDs distinguish labels that render identically. Separate/Euro GPIO relay tilt is unavailable pending an explicit actuator design; ordinary lift and existing GPIO remote tilt remain available where supported.
 
 Configured web credentials also unlock local controls and administration. After two minutes without input, new actions require unlock. Only an already authorized, continuing movement retains ordinary STOP, for at most 30 seconds after the original expiry. Idle, changed configuration, explicit lock or sleep ends that exception; later movement does not regain it. Tilt STOP, MY, Toggle and every other action require unlock after expiry. Numeric drafts discard on timeout, authorization replacement or target changes. See the [interaction and security policy](lcd-interaction-security-design.md) for attempt limits and screenshot protection.
@@ -39,6 +43,8 @@ This shared settings service is groundwork for issue #25's local administration 
 | Full 320×170 RGB565 framebuffer | Explicit `MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT` | 108,800 bytes | UI lifetime |
 | Optional immutable screenshot | Same explicit PSRAM allocation | 108,866 bytes | One HTTP response; freed on completion/disconnect |
 | Four-scanline SPI bounce buffer | Internal static RAM | 2,560 bytes | UI lifetime |
+| Single pending local command with exact guard | Internal static RAM | At most 704 bytes | Model-loop lifetime |
+| Shared 32-item queue payload (all entry points) | Internal RTOS heap | At most 2,560 bytes plus RTOS bookkeeping | Application lifetime |
 | Simple fallback text canvas | Small heap allocation | 720 bytes | Display lifetime |
 | Fallback/clear pixel scanline | Internal static RAM | 640 bytes | Display lifetime |
 

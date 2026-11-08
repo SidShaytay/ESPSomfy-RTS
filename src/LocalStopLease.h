@@ -46,6 +46,12 @@ public:
       frozen = true;
     }
   }
+  // Another loop-owned consumer may observe idle between UI samples. Retain
+  // only that exact session/context's continuing members; never seed, widen,
+  // freeze or renew a lease here.
+  void retainMoving(const StopContext &current,uint32_t moving) {
+    if(sampled && context.same(current)) eligible &= moving;
+  }
   uint32_t allowed(const StopContext &current) const {
     return frozen && sampled && context.same(current) ? eligible : 0;
   }

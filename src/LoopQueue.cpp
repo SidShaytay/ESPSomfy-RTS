@@ -9,6 +9,9 @@
 #include "Utils.h"
 #include "outputs/ProtoSocket.h"
 #include "DeviceOps.h"
+#ifdef ESPSOMFY_LOCAL_UI
+#include "LocalControlQueue.h"
+#endif
 #include "ModelCommitService.h"
 
 static const char *TAG = "LoopQueue";
@@ -48,13 +51,32 @@ uint32_t LoopQueue::pending() const {
 void LoopQueue::drain() {
   if(!this->queue) return;
   QueueHandle_t q = static_cast<QueueHandle_t>(this->queue);
+#ifdef ESPSOMFY_LOCAL_UI
+  // Observe the single slot even behind a held head: idle/new motion must not
+  // reacquire STOP eligibility while other clients wait for the radio.
+  LocalUi::refreshLocalControl();
+#endif
   loop_item_t item;
   // Items run in order, so only the one at the head can be held back.
   while(xQueuePeek(q, &item, 0) == pdTRUE) {
+#ifdef ESPSOMFY_LOCAL_UI
+    if(item.type == loop_item_type_t::local_control) {
+      if(LocalUi::localControlTokenActive(item.localToken)) LocalUi::refreshLocalControl();
+      if(!LocalUi::localControlTokenActive(item.localToken)) {
+        xQueueReceive(q, &item, 0); // cancelled/expired markers never hold FIFO
+        continue;
+      }
+    }
+#endif
     if(holdLoopItem(item, somfy.transceiver.txSuspended(), somfy.transceiver.txHasRoom())) break;
     // loop() is the only consumer so this is the item we peeked.
     xQueueReceive(q, &item, 0);
     switch(item.type) {
+      case loop_item_type_t::local_control:
+#ifdef ESPSOMFY_LOCAL_UI
+        LocalUi::runLocalControl(item.localToken);
+#endif
+        break;
       case loop_item_type_t::shade_request: {
         const shade_request_result_t result = shadeRequests.run(item.request);
         if(result == shade_request_result_t::radio_refused)
