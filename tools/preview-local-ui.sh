@@ -21,7 +21,7 @@ trap 'rm -rf -- "$scratch"' EXIT
   -DARDUINOJSON_ENABLE_ARDUINO_PRINT=0 -DARDUINOJSON_ENABLE_PROGMEM=0 -DARDUINOJSON_POOL_CAPACITY=64 \
   -I"$repo/tests/ui-render" -I"$json" -I"$repo/tests/ui-adapter" -I"$repo/test/stubs" -I"$repo/src" -I"$gfx" \
   "$repo/tests/ui-render/runtime-test.cpp" "$repo/src/LocalUiRuntime.cpp" "$repo/src/LocalUiRenderer.cpp" \
-  "$repo/src/LocalUi.cpp" "$repo/src/LocalControlPolicy.cpp" "$repo/src/ShadeRequests.cpp" "$repo/src/ShadeMotion.cpp" "$repo/src/StatusDisplay.cpp" \
+  "$repo/src/LocalUi.cpp" "$repo/src/LocalControlPolicy.cpp" "$repo/src/ShadeRequests.cpp" "$repo/src/ShadeMotion.cpp" "$repo/src/SomfyFrame.cpp" "$repo/src/StatusDisplay.cpp" \
   "$repo/src/LocalSettingsForm.cpp" "$repo/src/LocalSettingsRuntime.cpp" "$repo/src/LocalSettingsMemory.cpp" "$repo/src/LocalSettingsRenderer.cpp" \
   "$repo/src/LocalAdministration.cpp" "$repo/src/LocalEntityForm.cpp" "$repo/src/LocalEntityRenderer.cpp" "$repo/src/EntityFields.cpp" "$repo/src/ProtoEdits.cpp" \
   "$repo/src/ProtoSettings.cpp" "$repo/src/ProtoParse.cpp" "$repo/src/ProtoSchema.cpp" "$repo/src/JsonFormatter.cpp" "$gfx/Adafruit_GFX.cpp" \

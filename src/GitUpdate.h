@@ -13,7 +13,7 @@ enum class GitUpdateReason : uint8_t {
   timeout, candidateChanged, invalidCandidate, settingsUncertain, certificateTime, freshness
 };
 enum class GitUpdateRequest : uint8_t { accepted, busy, unavailable, invalidCandidate };
-enum class GitUpdateExternalOwner : uint8_t { manual, restore };
+enum class GitUpdateExternalOwner : uint8_t { manual, restore, counter };
 struct GitUpdateOwnerToken {
   uint64_t generation=0;
   GitUpdateExternalOwner kind=GitUpdateExternalOwner::manual;
@@ -40,6 +40,8 @@ struct GitUpdateReadAdmission {
 };
 const char *gitUpdateReason(GitUpdateReason reason);
 const char *gitUpdatePhase(GitUpdatePhase phase);
+enum class ManualUpdateKind : uint8_t;
+struct ManualUpdateCleanup;
 class GitUpdateClass {
 public:
   // loop() alone invokes admission. The worker never owns model/settings data.
@@ -52,6 +54,19 @@ public:
   bool requestCancel();
   bool acquireExternal(GitUpdateExternalOwner kind,GitUpdateOwnerToken &token);
   bool releaseExternal(const GitUpdateOwnerToken &token);
+  bool ownsExternal(const GitUpdateOwnerToken &token) const;
+  // Short lifecycle claims beneath the same external owner. Callers perform
+  // SDK/file I/O after these methods release the service lock.
+  bool beginTransfer(const GitUpdateOwnerToken &,ManualUpdateKind,uint64_t now);
+  bool claimTransfer(const GitUpdateOwnerToken &,uint64_t now,bool queuedRestore=false);
+  bool transferContinuing(const GitUpdateOwnerToken &) const;
+  bool transferResource(const GitUpdateOwnerToken &,bool opened);
+  bool queueTransfer(const GitUpdateOwnerToken &);
+  bool holdTransferRestart(const GitUpdateOwnerToken &);
+  bool finishTransfer(const GitUpdateOwnerToken &,uint64_t now,bool progress);
+  bool retireTransfer(const GitUpdateOwnerToken &);
+  ManualUpdateCleanup claimTransferCleanup(uint64_t now);
+  bool closeTransfer(const GitUpdateOwnerToken &);
   bool busy() const;
   GitUpdateSnapshot snapshot() const;
   void status(JsonObject destination) const;

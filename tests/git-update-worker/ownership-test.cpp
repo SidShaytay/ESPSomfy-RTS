@@ -1,4 +1,5 @@
 #include "GitUpdate.h"
+#include "ManualUpdateLifecycle.h"
 #include <cassert>
 #include <atomic>
 #include <thread>
@@ -21,8 +22,53 @@ int main() {
   assert(!gitUpdate.releaseExternal(wrong));
   assert(gitUpdate.releaseExternal(second));
   assert(!gitUpdate.busy());
+  GitUpdateOwnerToken counter;
+  assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::counter,counter));
+  assert(gitUpdate.ownsExternal(counter));
+  assert(!gitUpdate.ownsExternal(first));
+  assert(!gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,first));
+  assert(!gitUpdate.acquireExternal(GitUpdateExternalOwner::restore,second));
+  auto forged=counter;forged.kind=GitUpdateExternalOwner::manual;
+  assert(!gitUpdate.ownsExternal(forged) && !gitUpdate.releaseExternal(forged));
+  assert(gitUpdate.releaseExternal(counter));
+  assert(!gitUpdate.ownsExternal(counter));
   assert(gitUpdate.requestCheck()==GitUpdateRequest::unavailable);
   assert(!gitUpdate.requestCancel());
+  GitUpdateOwnerToken upload;
+  assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,upload));
+  assert(gitUpdate.beginTransfer(upload,ManualUpdateKind::firmware,0));
+  assert(!gitUpdate.releaseExternal(upload));
+  assert(!gitUpdate.acquireExternal(GitUpdateExternalOwner::counter,counter));
+  assert(gitUpdate.claimTransfer(upload,1));
+  assert(gitUpdate.transferResource(upload,true));
+  assert(!gitUpdate.claimTransferCleanup(30001).token.generation);
+  assert(!gitUpdate.transferContinuing(upload));
+  assert(gitUpdate.finishTransfer(upload,30002,true));
+  auto cleanup=gitUpdate.claimTransferCleanup(30002);
+  assert(cleanup.token.generation==upload.generation && cleanup.resourceOpen);
+  assert(!gitUpdate.closeTransfer(upload));
+  assert(gitUpdate.transferResource(upload,false));
+  assert(gitUpdate.closeTransfer(upload));
+  assert(gitUpdate.releaseExternal(upload));
+  assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::counter,counter));
+  assert(!gitUpdate.retireTransfer(upload));
+  assert(!gitUpdate.closeTransfer(upload));
+  assert(!gitUpdate.releaseExternal(upload));
+  assert(gitUpdate.ownsExternal(counter));
+  assert(gitUpdate.releaseExternal(counter));
+  assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,upload));
+  assert(gitUpdate.beginTransfer(upload,ManualUpdateKind::application,0));
+  assert(gitUpdate.claimTransfer(upload,1));
+  assert(gitUpdate.transferResource(upload,true));
+  assert(gitUpdate.transferResource(upload,false));
+  assert(gitUpdate.holdTransferRestart(upload));
+  assert(gitUpdate.finishTransfer(upload,1,true));
+  assert(!gitUpdate.retireTransfer(upload));
+  assert(!gitUpdate.releaseExternal(upload));
+  assert(!gitUpdate.acquireExternal(GitUpdateExternalOwner::counter,counter));
+  cleanup=gitUpdate.claimTransferCleanup(30001);
+  assert(cleanup.token.generation==upload.generation && !cleanup.resourceOpen);
+  assert(gitUpdate.closeTransfer(upload));assert(gitUpdate.releaseExternal(upload));
   std::atomic<unsigned> inside{0},completed{0};std::vector<std::thread> threads;
   for(unsigned n=0;n<4;n++) threads.emplace_back([&] {
     for(unsigned i=0;i<1000;i++) {
