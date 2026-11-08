@@ -28,6 +28,9 @@ model_edit_t *newModelEdit(model_edit_type_t type, bool &busy);
 bool submitModelEdit(model_edit_t *edit);
 // Applies the edit, saves it, replies and frees it.  loop() only.
 void runModelEdit(model_edit_t *edit);
-// Applies the edit to the shade model and saves it.  loop() only.
+// Loop-owned complete apply: mutate once, attempt checked persistence, reply
+// to optional replyTo, then fan out actual applied model changes once. A local
+// caller uses empty replyTo. Failed persistence preserves IDs/applied state;
+// retry the controller COMMIT rather than invoking this edit again.
 edit_result_t applyModelEdit(model_edit_t &edit);
 #endif

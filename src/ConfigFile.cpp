@@ -9,6 +9,8 @@
 #include "ConfigValidation.h"
 #include "RollingCode.h"
 #include "BoardProfile.h"
+#include "ModelPersistence.h"
+#include "ModelRecords.h"
 
 static const char *TAG = "ConfigFile";
 
@@ -24,41 +26,60 @@ static_assert(CFG_POSIX_ZONE_LEN == sizeof(NTPSettings::posixZone), "time zone s
 static_assert(CFG_MQTT_PROTOCOL_LEN == sizeof(MQTTSettings::protocol), "MQTT protocol size");
 static_assert(CFG_MQTT_HOSTNAME_LEN == sizeof(MQTTSettings::hostname), "MQTT hostname size");
 static_assert(CFG_MQTT_TOPIC_LEN == sizeof(MQTTSettings::rootTopic), "MQTT root topic size");
-static_assert(CFG_MQTT_TOPIC_LEN == sizeof(MQTTSettings::discoTopic), "MQTT discovery topic size");
+static_assert(CFG_MQTT_TOPIC_LEN == sizeof(MQTTSettings::discoTopic),
+              "MQTT discovery topic size");
 
-bool ConfigFile::begin(const char* filename, bool readOnly) {
+bool ConfigFile::begin(const char *filename, bool readOnly) {
+  this->end();
+  this->readOnly = readOnly;
+  this->_writeFailed = false;
   this->file = LittleFS.open(filename, readOnly ? "r" : "w");
-  this->_opened = true;
-  return true;
+  this->_opened = bool(this->file) && !this->file.isDirectory();
+  if (!this->_opened)
+    this->file.close();
+  return this->_opened;
 }
 bool ConfigFile::beginRAM(String *buf) {
+  this->end();
+  readOnly = false;
+  _writeFailed = false;
   _ramBuf = buf;
-  _opened = true;
-  return true;
+  _opened = buf != nullptr;
+  return _opened;
 }
 void ConfigFile::end() {
-  if(this->isOpen()) {
-    if(_ramBuf) { _ramBuf = nullptr; }
-    else { if(!this->readOnly) this->file.flush(); this->file.close(); }
+  if (this->isOpen()) {
+    if (_ramBuf) {
+      _ramBuf = nullptr;
+    } else {
+      if (!this->readOnly)
+        this->file.flush();
+      this->file.close();
+    }
   }
   this->_opened = false;
 }
 bool ConfigFile::isOpen() { return this->_opened; }
 bool ConfigFile::readByte(uint8_t &val) {
-  if(!this->file) return false;
+  if (!this->file)
+    return false;
   return this->file.read(&val, 1) == 1;
 }
 uint32_t ConfigFile::position() { return this->file.position(); }
 bool ConfigFile::writeBytes(const uint8_t *buf, size_t len) {
-  if(!this->isOpen()) return false;
-  if(_ramBuf) {
-    for(size_t i = 0; i < len; i++) _ramBuf->concat(static_cast<char>(buf[i]));
+  if (!this->isOpen() || this->readOnly || this->_writeFailed)
+    return false;
+  if (!len)
     return true;
-  }
-  return this->file.write(buf, len) == len;
+  const bool ok =
+      _ramBuf ? _ramBuf->concat(reinterpret_cast<const char *>(buf), len)
+              : this->file.write(buf, len) == len;
+  this->_writeFailed = !ok;
+  return ok;
 }
 bool ConfigFile::writeHeader() {
-  if(!this->isOpen()) return false;
+  if (!this->isOpen())
+    return false;
   return writeConfigHeader(*this, this->header);
 }
 bool ConfigFile::readHeader() {
@@ -343,7 +364,8 @@ void ShadeConfigFile::readModel(SomfyShadeController *s) {
 bool ShadeConfigFile::begin(bool readOnly) { return this->begin("/shades.cfg", readOnly); }
 bool ShadeConfigFile::begin(const char *filename, bool readOnly) { return ConfigFile::begin(filename, readOnly); }
 void ShadeConfigFile::end() { ConfigFile::end(); }
-bool ShadeConfigFile::writeModel(SomfyShadeController *s) {
+bool ShadeConfigFile::writeModel(SomfyShadeController *s,
+                                 ConfigWriter &writer) {
   this->header.version = SHADE_HDR_VER;
   this->header.length = SHADE_HDR_SIZE;
   this->header.roomRecordSize = ROOM_REC_SIZE;
@@ -354,34 +376,60 @@ bool ShadeConfigFile::writeModel(SomfyShadeController *s) {
   this->header.groupRecords = s->groupCount();
   this->header.repeaterRecords = 1;
   this->header.repeaterRecordSize = REPEATER_REC_SIZE;
-  strlcpy(this->header.serverId, settings.serverId, sizeof(this->header.serverId));
-  this->writeHeader();
-  for(uint8_t i = 0; i < SOMFY_MAX_ROOMS; i++) {
-    SomfyRoom *room = &s->rooms[i];
-    if(room->roomId != 0) writeRoomRecord(*this, roomRecord(room));
-  }
-  for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
-    SomfyShade *shade = &s->shades[i];
-    if(shade->getShadeId() == 255) continue;
-    // Only a blind tilts: the others forget any tilt they were given.
-    if(shade->tiltType == tilt_types::none || shade->shadeType != shade_types::blind) {
-      shade->clearTilt();
-      shade->tiltType = tilt_types::none;
+  strlcpy(this->header.serverId, settings.serverId,
+          sizeof(this->header.serverId));
+  class Records : public ModelRecordSource {
+    SomfyShadeController *model;
+
+  public:
+    explicit Records(SomfyShadeController *s) : model(s) {}
+    bool room(uint8_t slot, room_record_t &out) override {
+      auto &item = model->rooms[slot];
+      if (!item.roomId)
+        return false;
+      out = roomRecord(&item);
+      return true;
     }
-    writeShadeRecord(*this, shadeRecord(shade));
-  }
-  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
-    SomfyGroup *group = &s->groups[i];
-    if(group->getGroupId() != 255) writeGroupRecord(*this, groupRecord(group));
-  }
-  writeRepeaterRecord(*this, s->repeaters);
-  return true;
+    bool shade(uint8_t slot, shade_record_t &out) override {
+      auto &item = model->shades[slot];
+      if (item.getShadeId() == 255)
+        return false;
+      out = shadeRecord(&item);
+      return true;
+    }
+    bool group(uint8_t slot, group_record_t &out) override {
+      auto &item = model->groups[slot];
+      if (item.getGroupId() == 255)
+        return false;
+      out = groupRecord(&item);
+      return true;
+    }
+    void repeaters(uint32_t (&out)[SOMFY_MAX_REPEATERS]) override {
+      memcpy(out, model->repeaters, sizeof(out));
+    }
+  } records(s);
+  return writeModelRecords(writer, this->header, records);
 }
+ModelCommitResult ShadeConfigFile::commitModel(SomfyShadeController *model) {
+  class Serializer : public ShadeConfigFile, public ModelSerializer {
+    SomfyShadeController *model;
+
+  public:
+    explicit Serializer(SomfyShadeController *s) : model(s) {}
+    bool write(ConfigWriter &writer) override {
+      header.settingsRecordSize = header.netRecordSize =
+          header.transRecordSize = 0;
+      return writeModel(model, writer);
+    }
+  } source(model);
+  return commitModelFile(LittleFS.mountpoint(), source);
+}
+
 bool ShadeConfigFile::save(SomfyShadeController *s) {
   this->header.settingsRecordSize = 0;
   this->header.netRecordSize = 0;
   this->header.transRecordSize = 0;
-  return this->writeModel(s);
+  return this->writeModel(s, *this);
 }
 bool ShadeConfigFile::backup(SomfyShadeController *s) {
   const settings_record_t settingsRec = settingsRecord();
@@ -394,11 +442,10 @@ bool ShadeConfigFile::backup(SomfyShadeController *s) {
   this->header.settingsRecordSize = settingsBytes.bytes;
   this->header.netRecordSize = netBytes.bytes;
   this->header.transRecordSize = TRANS_REC_SIZE;
-  this->writeModel(s);
-  writeSettingsRecord(*this, settingsRec);
-  writeNetRecord(*this, netRec, HAS_ETHERNET);
-  writeTransRecord(*this, transRec);
-  return true;
+  return this->writeModel(s, *this) &&
+         writeSettingsRecord(*this, settingsRec) &&
+         writeNetRecord(*this, netRec, HAS_ETHERNET) &&
+         writeTransRecord(*this, transRec) && !this->_writeFailed;
 }
 bool ShadeConfigFile::validate() {
   this->readHeader();

@@ -52,19 +52,16 @@ bool SomfyShade::linkRemote(uint32_t address, uint16_t rollingCode) {
     if(this->linkedRemotes[i].getRemoteAddress() == 0) {
       this->linkedRemotes[i].setRemoteAddress(address);
       this->linkedRemotes[i].setRollingCode(rollingCode);
-      this->commit();
       return true;
     }
   }
   return false;
 }
-void SomfyShade::commit() { somfy.commit(); }
 bool SomfyShade::unlinkRemote(uint32_t address) {
   Preferences pref;
   for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
     if(this->linkedRemotes[i].getRemoteAddress() == address) {
       this->linkedRemotes[i].setRemoteAddress(0);
-      this->commit();
       return true;
     }
   }
@@ -126,9 +123,3 @@ bool SomfyShade::moveToMyPosition() { return this->behaviour.moveToMyPosition(mi
 void SomfyShade::setPosition(float pos, float tilt) { this->behaviour.setPosition(pos, tilt); }
 void SomfyShade::onSaveWanted() { somfy.isDirty = true; }
 void SomfyShade::onSensorFlags() { somfy.updateGroupFlags(); }
-bool SomfyShade::save() {
-  Preferences pref;
-  this->commit();
-  this->publish();
-  return true;
-}

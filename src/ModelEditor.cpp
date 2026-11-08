@@ -1,7 +1,21 @@
 #include "ModelEditor.h"
 
+edit_result_t edit_result_t::completed(uint8_t id,
+                                       ModelCommitResult persistence) {
+  edit_result_t result;
+  result.id = id;
+  result.applied = true;
+  result.persistence = persistence;
+  result.ok = persistence.saved();
+  if (!result.ok)
+    result.desc = modelCommitFailureDescription(persistence.state);
+  return result;
+}
+
+
 edit_changes_t editChanges(model_edit_type_t type, const edit_result_t &result) {
   edit_changes_t c;
+  if(!result.applied)return c;
   switch(type) {
     case model_edit_type_t::add_shade:
     case model_edit_type_t::save_shade:

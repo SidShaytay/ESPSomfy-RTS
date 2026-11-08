@@ -1,12 +1,13 @@
+#ifndef configfile_h
+#define configfile_h
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include "Somfy.h"
 #include "ConfigSettings.h"
 #include "ConfigHeader.h"
 #include "ConfigRecords.h"
+#include "ModelCommitResult.h"
 
-#ifndef configfile_h
-#define configfile_h
 
 // Opens shades.cfg or a backup and writes or reads its values
 // (ConfigRecords.h), from the file or into a String in RAM.
@@ -17,6 +18,7 @@ class ConfigFile : public ConfigReader, public ConfigWriter {
     bool readOnly = false;
     bool begin(const char *filename, bool readOnly = false);
     bool _opened = false;
+    bool _writeFailed = false;
   public:
     config_header_t header;
     bool beginRAM(String *buf);
@@ -30,7 +32,7 @@ class ConfigFile : public ConfigReader, public ConfigWriter {
 };
 class ShadeConfigFile : public ConfigFile {
   protected:
-    bool writeModel(SomfyShadeController *s);
+    bool writeModel(SomfyShadeController *s,ConfigWriter &writer);
     // Loading or restoring keeps the higher file/NVS rolling code for each address.
     void readModel(SomfyShadeController *s);
     void readRoom(SomfyRoom *room);
@@ -38,6 +40,8 @@ class ShadeConfigFile : public ConfigFile {
     void readGroup(SomfyGroup *group);
     void readRepeaters(SomfyShadeController *s);
   public:
+    // Loop-owned checked persistence; does not apply edits or rolling-code NVS.
+    static ModelCommitResult commitModel(SomfyShadeController *s);
     static bool exists();
     static bool load(SomfyShadeController *somfy, const char *filename = "/shades.cfg");
     static bool restore(SomfyShadeController *somfy, const char *filename, restore_options_t &opts);
