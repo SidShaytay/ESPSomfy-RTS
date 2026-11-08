@@ -4,7 +4,7 @@ Objective: implement full LCD control/administration and one shared full-feature
 
 Workspace: `/var/mnt/data/projects/personal/ESPSomfy-RTS/issue-25-design`, branch `codex/25-lcd-design`. Started at latest SSH-fetched remote main `fc5a2947928fdf855185f77ecaae69c00b677156`, then fast-forwarded the existing reviewed local main STOP fix `a493d50`. Preserve all existing worktrees, including dirty #12 updater and radio-guard work. No live controller access, flashing/reboot, RF/motor operations, pairing/calibration/limits, HA changes, upstream posting or releases authorized.
 
-Current local main is `801b080` (parser/shared build/checked settings integrated). Root integration contains independently approved auth source through `0242213`, plus uncommitted approved 30-second STOP-cap/high-water/renderer corrections. Do not overwrite those pending edits. Local commits use per-command `-c commit.gpgsign=false`; no global Git configuration changed.
+Current integration is `8bfc8ac`; authorization and 30-second STOP-cap/high-water/renderer changes are committed and independently approved. Final native700 passed/one optional skip; shared and generic firmware, production runtime/capture/renderer/domain/auth-adapter checks passed. Main integration follows this checkpoint. Local commits use per-command `-c commit.gpgsign=false`; no global Git configuration changed.
 
 GitHub connector is suspended; authorized human CLI account `SidShaytay` verified active. SSH fetch works with `GIT_CONFIG_COUNT=0` and `GIT_SSH_COMMAND='ssh -i /var/home/sid/.ssh/id_ed25519_2026_vega -o IdentitiesOnly=yes -o BatchMode=yes'`. Do not print key material. Issue has no comments as read 2026-11-08.
 

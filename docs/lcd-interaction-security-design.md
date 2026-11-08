@@ -302,6 +302,14 @@ Until then record runtime heap/latency acceptance as pending, not passed by a bu
 
 ## Authorization slice implementation record
 
+Final shared CC1101/Plus integration, including the approved 30-second cap: 700 native
+tests passed with one optional private-fixture skip; JS69, Python36, release script and
+production renderer/runtime/capture/domain/credential-adapter harnesses passed. Shared
+and generic ESP32 firmware compiled. The shared image reports 108,924 static RAM bytes
+and 1,371,230 linker program bytes. A parallel firmware invocation exposed the existing
+shared `data/` minifier race; sequential firmware builds passed without a source change.
+These are offline checks, not physical stopping or hardware latency evidence.
+
 The isolated authorization slice implements configured None/PIN/password checks for
 local commands and display-setting persistence, a 120-second monotonic inactivity
 session independent of estimated movement, device-wide volatile web-schedule throttling,
