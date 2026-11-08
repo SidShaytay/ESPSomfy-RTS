@@ -40,10 +40,10 @@ struct TargetContext {
          members[i].revision!=other.members[i].revision) return false;
     return true;
   }
-  StopContext stopContext(uint64_t token,uint32_t securityGeneration) const {
+  StopContext stopContext(uint64_t token,uint32_t securityGeneration,uint32_t sessionGeneration) const {
     StopContext out;
     out.id=ref.id; out.group=ref.kind==EntityKind::group; out.identity=identity;
-    out.configuration=token; out.securityGeneration=securityGeneration; out.members=memberCount;
+    out.configuration=token; out.securityGeneration=securityGeneration; out.sessionGeneration=sessionGeneration; out.members=memberCount;
     for(uint8_t i=0;i<memberCount && i<32;i++) {
       out.memberIds[i]=members[i].id; out.memberIdentities[i]=members[i].identity;
     }

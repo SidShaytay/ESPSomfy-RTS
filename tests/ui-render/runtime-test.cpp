@@ -53,7 +53,7 @@ LocalUi::Model LocalUi::snapshotModel(bool running,const View &view){lastQuery=v
 void LocalUi::markControlPresented(EntityRef ref,uint64_t token,bool allowed,uint32_t generation){++presentations;adapterMarkControlPresented(ref,token,allowed,generation);}
 LocalUi::SecuritySnapshot LocalUi::pollAuthorization(){
   const bool allowed=authorization.allowed(testNow);
-  return {authorization.configuredMode(),allowed,authorization.stopGraceAllowed(),authorization.generation(),authorization.configurationGeneration(),authorization.retryAfter(testNow)};
+  return {authorization.configuredMode(),allowed,authorization.stopGraceAllowed(),authorization.generation(),authorization.configurationGeneration(),authorization.retryAfter(testNow),authorization.expiredSessionGeneration()};
 }
 void LocalUi::authorizationActivity(){authorization.activity(testNow);}
 void LocalUi::lockAuthorization(){++locks;authorization.lock();}
@@ -135,6 +135,19 @@ int main(int argc,char **argv){
   back();one.idle=two.idle=true;idle();const auto beforeSleep=locks;
   testNow+=21000;ui.tick(testNow,status,false,send,light);assert(locks==beforeSleep+1);
   testNow+=100;ui.tick(testNow,status,false,send,light);assert(locks==beforeSleep+1);
+  // Numeric movement requires the exact Apply choice to finish reaching LCD.
+  authorization.configure(AuthMode::none,"","");one.idle=false;idle();
+  rotate(1);idle();rotate(1);idle();click();idle();click();idle();
+  assert(lastQuery.screen==Screen::control && lastQuery.entity.id==7);
+  rotate(1);idle();rotate(1);idle();click();idle();
+  assert(lastQuery.screen==Screen::actions);click();idle();
+  assert(lastQuery.screen==Screen::value);const int expected=lastQuery.draftValue+1;
+  rotate(1);idle();assert(lastQuery.draftValue==expected);
+  const auto beforeDraft=submitted.size();click();idle();assert(lastQuery.valueChoice==2);
+  busBusy=true;rotate(-1);click();assert(submitted.size()==beforeDraft);
+  busBusy=false;idle();click();assert(submitted.size()==beforeDraft+1);
+  assert(submitted.back().target==expected && submitted.back().type==shade_request_type_t::shade_command);
+  one.idle=two.idle=true; // Settings teardown case tests idle sleep.
   free(allocated);allocated=nullptr;
   authorization.configure(AuthMode::none,"","");
   Runtime settingsUi;active=&settingsUi;settingsUi.begin();ab=3;testPins[4]=testPins[5]=1;idle();

@@ -24,7 +24,7 @@ class Authorization {
   bool active = false, timedOut = false;
   uint64_t lastActivity = 0, expiredAt = 0, observedAt = 0;
   bool observedClock = false;
-  uint32_t revision = 0, configurationRevision = 0;
+  uint32_t revision = 0, configurationRevision = 0, expiredSessionRevision = 0;
   static bool copy(char *out, const char *value, size_t maximum) {
     if(!value) return false;
     size_t n = 0;
@@ -82,7 +82,8 @@ public:
   uint32_t generation() const { return revision; }
   uint32_t configurationGeneration() const { return configurationRevision; }
   bool stopGraceAllowed() const { return timedOut; }
-  void lock() { active = timedOut = false; lastActivity = expiredAt = 0; ++revision; }
+  uint32_t expiredSessionGeneration() const { return timedOut ? expiredSessionRevision : 0; }
+  void lock() { active = timedOut = false; lastActivity = expiredAt = 0; expiredSessionRevision = 0; ++revision; }
   bool allowed(uint64_t now) {
     if(!observeClock(now)) return false;
     if(mode == AuthMode::none) return true;
@@ -90,13 +91,17 @@ public:
       lock();
     } else if(active && now - lastActivity >= inactivityMs) {
       const uint64_t deadline = lastActivity + inactivityMs;
+      const uint32_t source = revision;
       lock();
+      expiredSessionRevision = source;
       expiredAt = deadline;
       timedOut = true;
     }
     // A delayed loop must not start a fresh grace period when it first notices
     // expiry. Activity and wrong credentials cannot extend the original deadline.
-    if(timedOut && (now < expiredAt || now - expiredAt >= stopGraceMs)) timedOut = false;
+    if(timedOut && (now < expiredAt || now - expiredAt >= stopGraceMs)) {
+      timedOut = false; expiredSessionRevision = 0;
+    }
     return active;
   }
   void activity(uint64_t now) {
@@ -118,6 +123,7 @@ public:
     if(retryAfter(now)) return AuthResult::locked;
     const bool wasExpired = timedOut;
     const uint64_t wasExpiredAt = expiredAt;
+    const uint32_t wasExpiredSession = expiredSessionRevision;
     lock();
     if(mode == AuthMode::none || same(expected, given)) {
       attempts.succeeded(0);
@@ -127,6 +133,7 @@ public:
     }
     timedOut = wasExpired;
     expiredAt = wasExpiredAt;
+    expiredSessionRevision = wasExpiredSession;
     attempts.failed(0, now);
     return AuthResult::wrong;
   }

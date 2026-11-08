@@ -15,7 +15,7 @@ uint32_t hash(const void *p,size_t n,uint32_t h=2166136261u) {
 uint32_t sceneHash(const Model &m,const View &v,const StatusDisplay::Snapshot &s) {
   const uint32_t values[]={uint32_t(v.screen),v.selected,v.cursor,uint32_t(v.catalogue),v.room,
     uint32_t(v.entity.kind),v.entity.id,uint32_t(v.openedToken),uint32_t(v.openedToken>>32),uint32_t(v.action),
-    uint32_t(v.notice),v.level,v.setting,v.detailsOffset,v.dimSeconds,v.offSeconds,
+    v.valueChoice,uint32_t(v.draftValue),uint32_t(v.notice),v.level,v.setting,v.detailsOffset,v.dimSeconds,v.offSeconds,
     v.credentialChoice,v.credentialLength,v.credentialMaximum,v.credentialUser,v.credentialByte,v.retryAfterMs/1000,
     m.authorized,m.authGeneration,m.authConfigurationGeneration,uint32_t(m.authMode),m.ready,m.controlsEnabled,
     uint32_t(m.pageToken),uint32_t(m.pageToken>>32),m.page.total,m.page.cursor,m.target.exists,m.target.valid,
@@ -59,8 +59,12 @@ bool sameSettings(const Settings::FormView &a,const Settings::FormView &b) {
 bool sameMeaning(const View &a,const View &b,uint64_t page,uint64_t framePage,uint64_t target,uint64_t frameTarget) {
   if(a.screen!=b.screen || a.notice!=b.notice) return false;
   if(a.screen==Screen::catalogue) return page==framePage && a.catalogue==b.catalogue && a.room==b.room && a.cursor==b.cursor;
-  if(a.screen==Screen::control || a.screen==Screen::actions || a.screen==Screen::value)
-    return a.entity==b.entity && a.openedToken==b.openedToken && target==frameTarget && a.action==b.action;
+  if(a.screen==Screen::control || a.screen==Screen::actions || a.screen==Screen::value) {
+    const bool sameTarget=a.entity==b.entity && a.openedToken==b.openedToken && target==frameTarget && a.action==b.action;
+    if(a.screen==Screen::actions) return sameTarget && a.selected==b.selected;
+    if(a.screen==Screen::value) return sameTarget && a.valueChoice==b.valueChoice && a.draftValue==b.draftValue;
+    return sameTarget;
+  }
   if(a.screen==Screen::unlock) return a.credentialChoice==b.credentialChoice && a.credentialLength==b.credentialLength &&
     a.credentialMaximum==b.credentialMaximum && a.credentialUser==b.credentialUser && a.credentialByte==b.credentialByte;
   if(a.screen==Screen::brightness) return a.level==b.level && a.dimSeconds==b.dimSeconds && a.offSeconds==b.offSeconds && a.setting==b.setting;
@@ -92,7 +96,14 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
   else if(before.screen==Screen::control) {
     const bool same=model.target.ref==before.entity && before.openedToken && model.target.token==before.openedToken;
     if(before.action==Action::stop) visible=same && stopPresentedRef==before.entity && stopPresentedToken==before.openedToken;
-    else visible &= same && presentedView.entity==before.entity && presentedView.openedToken==before.openedToken && presentedTargetToken==before.openedToken && presentedView.action==before.action;
+    else visible &= same && presentedView.entity==before.entity && presentedView.openedToken==before.openedToken &&
+      presentedTargetToken==before.openedToken && presentedView.action==before.action;
+  } else if(before.screen==Screen::actions || before.screen==Screen::value) {
+    visible &= model.target.ref==before.entity && before.openedToken && model.target.token==before.openedToken &&
+      presentedView.entity==before.entity && presentedView.openedToken==before.openedToken &&
+      presentedTargetToken==before.openedToken && presentedView.action==before.action;
+    if(before.screen==Screen::actions) visible &= presentedView.selected==before.selected;
+    else visible &= presentedView.valueChoice==before.valueChoice && presentedView.draftValue==before.draftValue;
   } else if(before.screen==Screen::settings)
     visible &= settingsActive && presentedSettingsValid && sameSettings(settingsForm.view(),presentedSettings);
   else if(before.screen==Screen::brightness)
