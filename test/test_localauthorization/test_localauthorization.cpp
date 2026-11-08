@@ -1,5 +1,6 @@
 #include <unity.h>
 #include "LocalAuthorization.h"
+#include "LocalCredentialEditor.h"
 #include <string.h>
 using namespace LocalUi;
 void setUp() {}
@@ -96,6 +97,59 @@ static void secret_buffers_can_be_explicitly_wiped() {
   const unsigned char *p=reinterpret_cast<const unsigned char *>(&c);
   for(unsigned i=0;i<sizeof(c);i++) TEST_ASSERT_EQUAL(0, p[i]);
 }
+static void editor_bounds_byte_entry_and_wipe() {
+  CredentialEditor e;
+  e.begin(AuthMode::pin);
+  e.select(33); // printable A (space is index zero)
+  TEST_ASSERT_EQUAL(int(EditorResult::editing), int(e.press()));
+  TEST_ASSERT_EQUAL(1, e.length());
+  e.select(CredentialEditor::byteChoice);
+  e.press();
+  TEST_ASSERT_TRUE(e.byteMode());
+  e.select(195); e.press();
+  e.select(CredentialEditor::byteChoice); e.press();
+  e.select(169); e.press();
+  e.select(1); e.press();
+  TEST_ASSERT_EQUAL(4, e.length());
+  e.select(2); e.press(); // full: no append
+  TEST_ASSERT_EQUAL(4, e.length());
+  e.select(CredentialEditor::doneChoice);
+  TEST_ASSERT_EQUAL(int(EditorResult::submitted), int(e.press()));
+  Credentials out;
+  TEST_ASSERT_TRUE(e.take(out));
+  TEST_ASSERT_EQUAL_STRING("A\xc3\xa9!", out.secret);
+  TEST_ASSERT_EQUAL(0, e.length());
+  TEST_ASSERT_FALSE(e.take(out));
+  out.clear();
+  e.begin(AuthMode::password);
+  e.select(85); e.press(); // u
+  e.select(CredentialEditor::doneChoice); e.press();
+  TEST_ASSERT_FALSE(e.usernameField());
+  e.select(80); e.press(); // p
+  e.cancel();
+  TEST_ASSERT_EQUAL(0, e.length());
+  TEST_ASSERT_FALSE(e.take(out));
+}
+static void editor_backspace_clears_tail_and_excludes_nul() {
+  CredentialEditor e;
+  e.begin(AuthMode::pin);
+  e.select(33); e.press();
+  e.select(CredentialEditor::eraseChoice); e.press();
+  TEST_ASSERT_EQUAL(0, e.length());
+  e.select(CredentialEditor::byteChoice); e.press();
+  e.select(0);
+  TEST_ASSERT_EQUAL(1, e.selected());
+  e.select(300);
+  TEST_ASSERT_EQUAL(255, e.selected());
+  e.press();
+  e.select(CredentialEditor::doneChoice); e.press();
+  Credentials out;
+  TEST_ASSERT_TRUE(e.take(out));
+  TEST_ASSERT_EQUAL(255, uint8_t(out.secret[0]));
+  TEST_ASSERT_EQUAL(0, out.secret[1]);
+  for(size_t i=1;i<sizeof(out.secret);i++) TEST_ASSERT_EQUAL(0, out.secret[i]);
+  out.clear();
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(configured_mode_and_exact_credentials);
@@ -104,5 +158,7 @@ int main() {
   RUN_TEST(local_attempts_are_device_wide_and_use_web_schedule);
   RUN_TEST(invalid_modes_bounds_and_large_clock_fail_closed);
   RUN_TEST(secret_buffers_can_be_explicitly_wiped);
+  RUN_TEST(editor_bounds_byte_entry_and_wipe);
+  RUN_TEST(editor_backspace_clears_tail_and_excludes_nul);
   return UNITY_END();
 }
