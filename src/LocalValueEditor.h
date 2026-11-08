@@ -105,6 +105,12 @@ public:
     tick(now); if(!editing || type!=ValueKind::text) return;
     picker.select(choice); activity=now; state=EditOutcome::editing;
   }
+  // Changing precision only changes future rotation, never applies the draft.
+  bool setStep(int64_t step,uint64_t now) {
+    tick(now);
+    if(!editing || (type!=ValueKind::integer && type!=ValueKind::fixed2) || step<=0) return false;
+    increment=step; activity=now; return true;
+  }
   void rotate(int direction,uint64_t now) {
     tick(now); if(!editing || !direction) return;
     activity=now; state=EditOutcome::editing;
@@ -158,6 +164,21 @@ public:
                (unsigned long long)(magnitude%100));
     } else if(type==ValueKind::boolean) snprintf(out,capacity,"%s",number?"On":"Off");
     else if(type!=ValueKind::none) snprintf(out,capacity,"%lld",(long long)number);
+  }
+  // Keep newly entered bytes visible. Ellipsis signals a clipped prefix;
+  // secrets expose only masks. Valid UTF-8 tails never begin mid-codepoint.
+  void previewTail(char *out,size_t capacity) const {
+    if(type!=ValueKind::text || length()<capacity || capacity<=4) {
+      preview(out,capacity); return;
+    }
+    if(!out) return;
+    const size_t count=length(); size_t start=count-(capacity-4);
+    if(!secret && utf8(draft))
+      while(start<count && (uint8_t(draft[start])&0xc0)==0x80) ++start;
+    memcpy(out,"...",3);
+    if(secret) memset(out+3,'*',count-start);
+    else memcpy(out+3,draft+start,count-start);
+    out[3+count-start]=0;
   }
   bool takeText(char *out,size_t capacity) {
     if(state!=EditOutcome::applied || type!=ValueKind::text || !out || capacity<=length()) return false;
