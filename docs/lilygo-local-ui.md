@@ -9,7 +9,7 @@ The offline implementation now browses configured rooms, devices and groups; it 
 ## Use the encoder
 
 - First input after dim/off wakes only. A button held during boot is ignored until released.
-- From Status, turn or press to open Home. Hold for Details; turn there to scroll all ten diagnostic rows. Details distinguishes compiled Firmware from installed web-file Application version. Press or Back returns to Status.
+- From Status, turn or press to open Home. Hold for Details; turn there to scroll all fourteen diagnostic rows. Details distinguishes compiled Firmware from installed web-file Application version. Press or Back returns to Status.
 - On Home, turn to Rooms, Devices, Groups, Settings, Display or Status, then press. Rooms includes All rooms and Unassigned filters. Catalogues show three rows at a time, keep the selected device ID when entries reorder, and handle every configured device/group. Names can repeat; the visible stable ID identifies each target.
 - On a control page, turn to the available UP/STOP/DOWN or Toggle action and press. More opens additional supported actions: position, tilt, MY position, 80-bit Favorite, steps and sun flags. The menu reflects the actual device capabilities; it adds no separate light opcode. Group actions require compatible configured RF members.
 - Numeric position/tilt drafts range from 0 to 100; steps range from 1 to 127. Turn to adjust, press to review, then turn from the default **Cancel** to **Apply** and press. Turns and Cancel send nothing. An unavailable position estimate prevents opening a position draft rather than choosing a target silently. Back cancels a draft and returns directly to the main control page with STOP selected when supported.
@@ -35,6 +35,10 @@ The Wi-Fi glyph indicates connection, not measured signal strength. The installe
 A settings save error leaves the running settings unchanged and does not automatically reconnect or restart the controller. If the error says settings may be partly persisted, retry the complete intended settings before restarting: some stored values may already have changed, and a restart can load those values. Reading settings shows the running values, so it cannot prove that storage rolled back.
 
 This shared settings service is groundwork for issue #25's local administration screens; it does not mean those menus are already implemented. Backup/restore and manual firmware/web-file transfers remain browser-owned. The existing restore workflow has separate completion and partial-write limitations; this change does not make restores transactional.
+
+## Health in Details
+
+Hold on Status, then turn to the bottom four Details rows. They show free internal memory and its boot low-water mark, the largest available internal block, free PSRAM, and the last published loop rate and maximum pass time. Memory uses KiB; timing uses milliseconds, with seconds for long passes. Very high rates use `k/s` (thousands per second). Details refreshes once per second; loop statistics use the existing published window, normally every 30 seconds. `Loop: awaiting sample` means no window has been published yet. Missing PSRAM is labeled separately from a present device with zero free memory. These are read-only diagnostics.
 
 ## Memory and rendering
 
@@ -65,6 +69,7 @@ The enabled build reuses `ShadeRequests` on the model-owning loop. Group UP/DOWN
 ~/.cache/espsomfy-lilygo/pio-python/bin/pio test -e native
 bash tools/preview-local-ui.sh
 bash tools/test-status-panel.sh
+bash tools/test-status-health.sh
 bash tools/test-board-profile.sh
 python3 -m unittest discover -s tools -p test_lcd_image.py
 ```
