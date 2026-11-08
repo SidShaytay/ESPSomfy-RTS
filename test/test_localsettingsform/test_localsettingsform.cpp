@@ -572,8 +572,23 @@ out_of_band_discard_wipes_secret_draft_and_active_editor_even_when_locked() {
   TEST_ASSERT_EQUAL(0, mem.active);
   TEST_ASSERT_EQUAL(0, backend.saves);
 }
+static void empty_save_closes_without_storage_or_allocating_a_request() {
+  for(uint8_t i=0;i<5;i++) {
+    Memory memory;Fake backend;Form form(backend,memory);
+    const auto section=settings_section_t(i);
+    TEST_ASSERT_TRUE(form.openSection(section,1));
+    turnTo(form,settingsFieldCount(section,false));
+    form.activate(1);
+    TEST_ASSERT_TRUE(form.closed());
+    TEST_ASSERT_EQUAL(Notice::unchanged,form.view().notice);
+    TEST_ASSERT_EQUAL(0,backend.saves);
+    TEST_ASSERT_EQUAL(0,memory.active);
+    TEST_ASSERT_EQUAL(0,memory.allocations);
+  }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(empty_save_closes_without_storage_or_allocating_a_request);
   RUN_TEST(rotation_and_field_apply_do_not_persist_until_explicit_save);
   RUN_TEST(cancel_auth_revision_and_timeout_close_and_release_drafts);
   RUN_TEST(risky_save_defaults_to_cancel_and_partial_retains_explicit_retry);
