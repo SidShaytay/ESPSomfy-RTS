@@ -9,10 +9,11 @@ struct FakeUpdate {
   unsigned begins = 0, writes = 0, ends = 0, aborts = 0;
   bool begin(size_t, int) {
     ++begins;
-    running = beginOk;
+    // A failed begin can mean another request already owns the SDK object.
     if (!beginOk)
-      error = true;
-    return beginOk;
+      return false;
+    running = true;
+    return true;
   }
   size_t write(uint8_t *, size_t count) {
     ++writes;

@@ -53,7 +53,7 @@ int main() {
   denied.allowed = false;
   server.upload(&denied, String("x.bin"), 0, &byte, 1, true);
   server.complete(&denied);
-  assert(Update.begins == 0 && restarts.empty() && denied.status == 500);
+  assert(Update.begins == 0 && restarts.empty() && denied.status == 503);
   reset();
   AsyncWebServerRequest success;
   server.upload(&success, String("x.bin"), 0, &byte, 1, true);
@@ -73,17 +73,36 @@ int main() {
   assert(restarts.size() == 1);
   reset();
   Update.beginOk = false;
+  Update.running = true;
+  webServer.uploadSuccess = true;
   AsyncWebServerRequest beginFailed;
   server.upload(&beginFailed, String("x.bin"), 0, &byte, 1, true);
   server.complete(&beginFailed);
-  assert(beginFailed.status == 500 && restarts == std::vector<bool>{false});
+  assert(beginFailed.status == 503 && restarts.empty());
+  assert(Update.begins == 1 && Update.writes == 0 && Update.ends == 0 &&
+         Update.aborts == 0);
+  assert(Update.running && webServer.uploadSuccess &&
+         !beginFailed.disconnected);
   assert(somfy.transceiver.stops == 0 && mqtt.stops == 0);
+  Update.beginOk = true;
+  server.upload(&beginFailed, String("x.bin"), 1, &byte, 1, true);
+  server.upload(&beginFailed, String("x.bin"), 0, &byte, 1, true);
+  assert(Update.begins == 1 && Update.writes == 0 && Update.ends == 0 &&
+         Update.aborts == 0 && restarts.empty());
   reset();
   Update.endOk = false;
   AsyncWebServerRequest endFailed;
   server.upload(&endFailed, String("x.bin"), 0, &byte, 1, true);
   server.complete(&endFailed);
   assert(endFailed.status == 500 && restarts == std::vector<bool>{false});
+  const auto failedWrites = Update.writes;
+  Update.running = true;
+  Update.error = false;
+  server.upload(&endFailed, String("x.bin"), 1, &byte, 1, true);
+  endFailed.disconnected();
+  assert(Update.writes == failedWrites && Update.ends == 1 &&
+         Update.aborts == 0 && Update.running);
+  assert(restarts == std::vector<bool>{false});
   reset();
   Update.shortWrite = true;
   Update.endOk = false;
@@ -93,6 +112,21 @@ int main() {
   assert(failed.status == 500 && restarts == std::vector<bool>{false});
   failed.disconnected();
   assert(restarts.size() == 1 && Update.aborts == 1);
+  assert(Update.writes == 1 && Update.ends == 0);
+  // A foreign transfer can own Update after our abort. Remaining chunks,
+  // including a repeated index-zero callback, must not touch that transfer.
+  Update.running = true;
+  Update.error = false;
+  Update.shortWrite = false;
+  webServer.uploadSuccess = true;
+  server.upload(&failed, String("x.bin"), 1, &byte, 1, false);
+  server.upload(&failed, String("x.bin"), 2, &byte, 1, true);
+  server.upload(&failed, String("x.bin"), 0, &byte, 1, true);
+  failed.disconnected();
+  assert(Update.begins == 1 && Update.writes == 1 && Update.ends == 0 &&
+         Update.aborts == 1);
+  assert(Update.running && webServer.uploadSuccess &&
+         restarts == std::vector<bool>{false});
   reset();
   Update.error = true;
   AsyncWebServerRequest inconsistent;

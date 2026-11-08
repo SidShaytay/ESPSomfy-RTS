@@ -86,3 +86,17 @@ test('verified model file with deferred restart clears failure and explains queu
     assert.match(h.boxes.at(-1).inner.textContent, /Model file saved; restart not scheduled/);
     assert.equal(h.calls.length, 0);
 });
+
+test('application upload that never started does not offer a model Commit retry', () => {
+    const start = source.indexOf('xhr.onload = function () {', source.indexOf('async uploadFile('));
+    const code = source.slice(start, source.indexOf('\n        xhr.send(formData);', start));
+    const errors = [], warnings = [], instructions = {};
+    const context = { xhr: { status: 503, responseText: JSON.stringify({ started: false, desc: '<busy transfer>' }) },
+        service: '/updateApplication', btnCancel: {}, el: { querySelector() { return instructions; } }, console: { log() {} },
+        ui: { errorMessage() { const inner = {}; errors.push(inner); return { querySelector() { return inner; } }; } },
+        showModelSaveWarning(reply) { warnings.push(reply); } };
+    vm.runInNewContext(code, context);context.xhr.onload();
+    assert.equal(warnings.length, 0);assert.equal(errors.length, 1);assert.equal(errors[0].textContent, '<busy transfer>');
+    context.xhr.responseText = JSON.stringify({ desc: 'Own transfer failed; model save queued.' });context.xhr.status = 500;
+    context.xhr.onload();assert.equal(warnings.length, 1);
+});
