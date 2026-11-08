@@ -223,6 +223,16 @@ static void step_bounds_and_tilt_stop_never_borrow_stop_grace() {
   TEST_ASSERT_EQUAL(int(Screen::actions),int(unknown.c.view().screen));
   TEST_ASSERT_EQUAL(int(Notice::valueUnavailable),int(unknown.c.view().notice));TEST_ASSERT_FALSE(unknown.c.take(out));
 }
+static void pending_idle_stop_and_back_hold_cancellation_are_explicit() {
+  Drive d;d.devices();d.f.base.target.moving=false;Command out;
+  d.click();TEST_ASSERT_FALSE(d.c.take(out));TEST_ASSERT_EQUAL(int(Notice::idle),int(d.c.view().notice));
+  d.f.base.controlPending=true;d.click();TEST_ASSERT_TRUE(d.c.take(out));TEST_ASSERT_EQUAL(int(Action::stop),int(out.action));
+  d.back();TEST_ASSERT_TRUE(d.c.takeCancellation());TEST_ASSERT_FALSE(d.c.takeCancellation());TEST_ASSERT_FALSE(d.c.take(out));
+  Drive held;held.devices();held.tick(0,true);held.tick(0,true);held.tick(0,true,true,false,850);held.tick();held.tick();
+  TEST_ASSERT_TRUE(held.c.takeCancellation());TEST_ASSERT_FALSE(held.c.take(out));
+  d.c.result(d.now,DispatchResult::expired);TEST_ASSERT_EQUAL(int(Notice::expired),int(d.c.view().notice));
+  d.c.result(d.now,DispatchResult::cancelledBusy);TEST_ASSERT_EQUAL(int(Notice::stopNotQueued),int(d.c.view().notice));
+}
 int main() {
   UNITY_BEGIN();RUN_TEST(stable_catalogue_selection_binds_id_not_slot);
   RUN_TEST(never_presented_catalogue_or_stop_emits_no_intent);
@@ -241,5 +251,6 @@ int main() {
   RUN_TEST(numeric_control_drafts_discard_on_context_authorization_and_timeout);
   RUN_TEST(toggle_and_capability_menus_have_no_invisible_fallback);
   RUN_TEST(step_bounds_and_tilt_stop_never_borrow_stop_grace);
+  RUN_TEST(pending_idle_stop_and_back_hold_cancellation_are_explicit);
   return UNITY_END();
 }

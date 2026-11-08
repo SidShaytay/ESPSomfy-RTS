@@ -272,6 +272,17 @@ static void old_stop_context_cannot_borrow_an_unobserved_replacement_session() {
   c.sessionGeneration=0;lease.observe(c,1,true,false);lease.observe(c,1,false,true);
   TEST_ASSERT_EQUAL(0,lease.allowed(c)); // absent old aggregate source fails closed
 }
+static void external_idle_evidence_only_intersects_an_exact_sample_without_freezing() {
+  StopContext c;c.id=9;c.identity=90;c.members=2;c.memberIds[0]=1;c.memberIds[1]=2;
+  c.memberIdentities[0]=10;c.memberIdentities[1]=20;c.sessionGeneration=4;c.securityGeneration=2;c.configuration=7;
+  StopLease lease;lease.retainMoving(c,3);lease.observe(c,3,false,true);TEST_ASSERT_EQUAL(0,lease.allowed(c));
+  lease.observe(c,3,true,false);lease.retainMoving(c,1);TEST_ASSERT_EQUAL(0,lease.allowed(c)); // does not freeze early
+  lease.observe(c,3,false,true);TEST_ASSERT_EQUAL(1,lease.allowed(c));
+  auto unrelated=c;++unrelated.sessionGeneration;lease.retainMoving(unrelated,0);TEST_ASSERT_EQUAL(1,lease.allowed(c));
+  unrelated=c;++unrelated.configuration;lease.retainMoving(unrelated,0);TEST_ASSERT_EQUAL(1,lease.allowed(c));
+  lease.retainMoving(c,3);TEST_ASSERT_EQUAL(1,lease.allowed(c)); // never broadens or reseeds
+  lease.retainMoving(c,0);lease.observe(c,3,false,true);TEST_ASSERT_EQUAL(0,lease.allowed(c));
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(configured_mode_and_exact_credentials);
@@ -289,5 +300,6 @@ int main() {
   RUN_TEST(clock_rollback_inside_session_or_grace_cannot_unlock_or_reset_throttle);
   RUN_TEST(grace_source_is_original_session_and_wrong_unlock_cannot_replace_it);
   RUN_TEST(old_stop_context_cannot_borrow_an_unobserved_replacement_session);
+  RUN_TEST(external_idle_evidence_only_intersects_an_exact_sample_without_freezing);
   return UNITY_END();
 }

@@ -4,11 +4,16 @@
 #include "LocalStopLease.h"
 #include "Somfy.h"
 #include "ShadeRequests.h"
+#include "LoopQueue.h"
+#include "Utils.h"
+#include <esp_timer.h>
 #include <Preferences.h>
 #include <math.h>
 #include <string.h>
 extern SomfyShadeController somfy;
 extern ShadeRequests shadeRequests;
+extern LoopQueue loopQueue;
+extern rebootDelay_t rebootDelay;
 namespace LocalUi {
 namespace {
 TargetContext focusedContext;
@@ -22,6 +27,22 @@ CatalogueKind previousKind=CatalogueKind::devices;
 uint8_t previousRoom=allRooms;
 uint64_t previousModelRevision=0, previousRestore=0, pageToken=0;
 bool pageCached=false, controlsFrozen=false;
+struct PendingControl {
+  TargetContext guard;
+  Command command;
+  uint64_t token=0, admittedAt=0, observedAt=0;
+  uint32_t eligible=0, securityGeneration=0;
+  bool active=false, executing=false, cancelled=false;
+} pendingControl;
+static_assert(sizeof(PendingControl)<=704,"One local intent owns one bounded exact context");
+uint64_t intentSerial=0;
+bool resultReady=false;
+DispatchResult lastResult=DispatchResult::cancelled;
+uint64_t controlNow() {return uint64_t(esp_timer_get_time())/1000;}
+void finishControl(DispatchResult result) {
+  pendingControl={};lastResult=result;resultReady=true;
+}
+
 uint64_t nextToken() { return tokenSerial==UINT64_MAX?0:++tokenSerial; }
 bool rf(radio_proto proto) {
   return proto==radio_proto::RTS || proto==radio_proto::RTW || proto==radio_proto::RTV;
@@ -151,11 +172,63 @@ void observeLease(const View &view,const SecuritySnapshot &security) {
   stopLease.observe(context,focusedMoving,authorized,selected && security.stopGrace);
   leasedMoving=stopLease.allowed(context);
 }
+// Return queued only while every admission property still permits execution.
+DispatchResult validateControl(Target &target,uint32_t &moving) {
+  if(!pendingControl.active || pendingControl.cancelled) return DispatchResult::cancelled;
+  const uint64_t now=controlNow();
+  if(now<pendingControl.admittedAt || now<pendingControl.observedAt ||
+     now-pendingControl.admittedAt>=controlQueueMaxAgeMs) return DispatchResult::expired;
+  pendingControl.observedAt=now;
+  if(controlsFrozen || rebootDelay.reboot) return DispatchResult::refused;
+  TargetContext current;
+  if(!readTarget(pendingControl.command.ref,target,current,moving) || !current.same(pendingControl.guard))
+    return DispatchResult::stale;
+  // Any matching target read is authoritative idle evidence, including a
+  // queued non-STOP action. Do not let a later UI sample revive an old run.
+  stopLease.retainMoving(pendingControl.guard.stopContext(pendingControl.command.token,
+    pendingControl.securityGeneration,pendingControl.command.authGeneration),moving);
+  const auto security=pollAuthorization();
+  const auto &cmd=pendingControl.command;
+  const bool session=security.allowed && cmd.authGeneration && cmd.authGeneration==security.generation;
+  const bool grace=!security.allowed && cmd.action==Action::stop && security.stopGrace && cmd.authGeneration &&
+    cmd.authGeneration==security.expiredSessionGeneration;
+  if(security.configurationGeneration!=pendingControl.securityGeneration || (!session && !grace)) return DispatchResult::denied;
+  if(!(target.capabilities&controlActionBit(cmd.action))) return DispatchResult::refused;
+  if(rf(target.descriptor.proto) && (!somfy.transceiver.available() || somfy.transceiver.txSuspended())) return DispatchResult::refused;
+  if(cmd.action==Action::stop) {
+    pendingControl.eligible &= moving;
+    if(!pendingControl.eligible) return DispatchResult::idle;
+  } else {
+    shade_request_t request;
+    const auto prepared=prepareControlRequest(cmd.action,target.descriptor,cmd.ref.id,cmd.value,cmd.step,request);
+    if(prepared!=ControlResult::done) return prepared==ControlResult::idle?DispatchResult::idle:DispatchResult::refused;
+  }
+  return DispatchResult::queued;
+}
 } // namespace
 bool localControlsFrozen() { return controlsFrozen; }
 void setLocalControlsFrozen(bool value) {
-  if(value && !controlsFrozen) lockAuthorization();
-  controlsFrozen=value;
+  if(value && !controlsFrozen) {
+    controlsFrozen=true;lockAuthorization();cancelUnsubmittedLocalControl();
+  } else controlsFrozen=value;
+}
+bool localControlPending() {return pendingControl.active;}
+bool localControlTokenActive(uint64_t token) {return token && pendingControl.active && !pendingControl.executing && !pendingControl.cancelled && token==pendingControl.token;}
+bool takeLocalControlResult(DispatchResult &result) {
+  if(!resultReady) return false;
+  result=lastResult;resultReady=false;return true;
+}
+bool cancelUnsubmittedLocalControl() {
+  if(!pendingControl.active) return false;
+  if(pendingControl.executing) pendingControl.cancelled=true;
+  else finishControl(DispatchResult::cancelled);
+  return true;
+}
+void refreshLocalControl() {
+  if(!pendingControl.active) return;
+  Target target;uint32_t moving=0;
+  const auto result=validateControl(target,moving);
+  if(result!=DispatchResult::queued && !pendingControl.executing) finishControl(result);
 }
 DisplayPreferences loadPreferences() {
   DisplayPreferences out; Preferences prefs;
@@ -175,6 +248,7 @@ Model snapshotModel(bool running,const View &view) {
 #ifdef ESPSOMFY_LOCAL_COMMANDS
   m.controlsEnabled=true;
 #endif
+  refreshLocalControl();m.controlPending=localControlPending();
   const auto security=pollAuthorization();
   m.authMode=security.mode; m.authorized=security.allowed; m.authGeneration=security.generation;
   m.authConfigurationGeneration=security.configurationGeneration; m.retryAfterMs=security.retryAfterMs;
@@ -204,7 +278,7 @@ Model snapshotModel(bool running,const View &view) {
   focusedMoving=moving; m.target.token=hasFocus?focusedToken:0;
   observeLease(view,security);
   m.target.stopLease=leasedMoving!=0 && m.target.valid;
-  m.ready=!controlsFrozen && (!rf(m.target.descriptor.proto) ||
+  m.ready=!controlsFrozen && !rebootDelay.reboot && (!rf(m.target.descriptor.proto) ||
     (somfy.transceiver.available() && !somfy.transceiver.txSuspended()));
   return m;
 }
@@ -221,13 +295,14 @@ DispatchResult dispatch(const Command &cmd) {
 #ifndef ESPSOMFY_LOCAL_COMMANDS
   (void)cmd; return DispatchResult::refused;
 #else
-  if(controlsFrozen) return DispatchResult::refused;
+  refreshLocalControl();resultReady=false; // new explicit input supersedes an old completion
+  if(controlsFrozen || rebootDelay.reboot) return DispatchResult::refused;
   if(!hasFocus || !cmd.ref.valid() || cmd.ref!=focusedContext.ref || !cmd.token || cmd.token!=focusedToken ||
      presentedRef!=cmd.ref || presentedToken!=cmd.token) return DispatchResult::stale;
   Target target; TargetContext current; uint32_t moving=0;
   if(!readTarget(cmd.ref,target,current,moving) || !current.same(focusedContext)) return DispatchResult::stale;
   const auto security=pollAuthorization();
-  const bool session=security.allowed && cmd.authGeneration==security.generation;
+  const bool session=security.allowed && cmd.authGeneration && cmd.authGeneration==security.generation;
   View view; view.entity=cmd.ref; view.openedToken=cmd.token;
   view.authorizedSelection=session; view.selectionAuthGeneration=cmd.authGeneration;
   focusedMoving=moving; observeLease(view,security);
@@ -236,30 +311,73 @@ DispatchResult dispatch(const Command &cmd) {
   if(rf(target.descriptor.proto) && (!somfy.transceiver.available() || somfy.transceiver.txSuspended()))
     return DispatchResult::refused;
   if(!(target.capabilities & controlActionBit(cmd.action))) return DispatchResult::refused;
-  shade_request_t request;
+  uint32_t eligible=0;
   if(cmd.action==Action::stop) {
-    const uint32_t all=current.memberCount==32?UINT32_MAX:(uint32_t(1)<<current.memberCount)-1;
-    const uint32_t eligible=session?moving:moving&leasedMoving;
-    if(!eligible) return DispatchResult::idle;
-    if(cmd.ref.kind==EntityKind::group && moving==all && (session || leasedMoving==all)) {
-      request.type=shade_request_type_t::group_command; request.id=cmd.ref.id; request.command=somfy_commands::My;
-      return shadeRequests.run(request)==shade_request_result_t::done?DispatchResult::done:DispatchResult::refused;
-    }
-    bool sent=false;
-    for(uint8_t i=0;i<current.memberCount;i++) {
-      if(!(eligible&(uint32_t(1)<<i))) continue;
-      auto *shade=somfy.getShadeById(current.members[i].id);
-      if(!shade || shade->isIdle()) continue;
-      request.id=current.members[i].id; request.command=somfy_commands::My;
-      if(shadeRequests.run(request)!=shade_request_result_t::done) return sent?DispatchResult::partial:DispatchResult::refused;
-      sent=true;
-    }
-    return sent?DispatchResult::done:DispatchResult::idle;
+    eligible=session?moving:moving&leasedMoving;
+  } else {
+    shade_request_t request;
+    const auto prepared=prepareControlRequest(cmd.action,target.descriptor,cmd.ref.id,cmd.value,cmd.step,request);
+    if(prepared!=ControlResult::done) return prepared==ControlResult::idle?DispatchResult::idle:DispatchResult::refused;
   }
-  const auto prepared=prepareControlRequest(cmd.action,target.descriptor,cmd.ref.id,cmd.value,cmd.step,request);
-  if(prepared!=ControlResult::done) return prepared==ControlResult::idle?DispatchResult::idle:DispatchResult::refused;
-  return shadeRequests.run(request)==shade_request_result_t::done?DispatchResult::done:DispatchResult::refused;
+  bool superseded=false;
+  if(pendingControl.active) {
+    // A fresh, presented STOP retracts only this unchanged target's local
+    // unsubmitted start. The replacement always joins the GLOBAL FIFO tail.
+    if(cmd.action!=Action::stop || pendingControl.command.action==Action::stop || pendingControl.executing ||
+       !pendingControl.guard.same(current)) return DispatchResult::busy;
+    finishControl(DispatchResult::cancelled);resultReady=false;superseded=true;
+  }
+  if(cmd.action==Action::stop && !eligible) return superseded?DispatchResult::cancelled:DispatchResult::idle;
+  if(intentSerial==UINT64_MAX) return superseded?DispatchResult::cancelledBusy:DispatchResult::refused;
+  const uint64_t now=controlNow(), token=++intentSerial;
+  pendingControl.guard=current;pendingControl.command=cmd;
+  pendingControl.token=token;pendingControl.admittedAt=pendingControl.observedAt=now;
+  pendingControl.eligible=eligible;pendingControl.securityGeneration=security.configurationGeneration;
+  pendingControl.active=true;
+  loop_item_t item;item.type=loop_item_type_t::local_control;item.localToken=token;item.localRadio=rf(target.descriptor.proto);
+  if(!loopQueue.submit(item)) {pendingControl={};return superseded?DispatchResult::cancelledBusy:DispatchResult::busy;}
+  return DispatchResult::queued;
 #endif
 }
+void runLocalControl(uint64_t token) {
+  if(!localControlTokenActive(token)) return;
+  Target target;uint32_t moving=0;
+  const auto initial=validateControl(target,moving);
+  if(initial!=DispatchResult::queued) {finishControl(initial);return;}
+  pendingControl.executing=true;
+  const auto cmd=pendingControl.command;
+  shade_request_t request;
+  if(cmd.action!=Action::stop) {
+    if(prepareControlRequest(cmd.action,target.descriptor,cmd.ref.id,cmd.value,cmd.step,request)!=ControlResult::done)
+      {finishControl(DispatchResult::refused);return;}
+    const auto result=shadeRequests.run(request);
+    finishControl(result==shade_request_result_t::done?DispatchResult::done:DispatchResult::refused);return;
+  }
+  const uint8_t members=pendingControl.guard.memberCount;
+  const uint32_t all=members==32?UINT32_MAX:(uint32_t(1)<<members)-1;
+  if(cmd.ref.kind==EntityKind::group && moving==all && pendingControl.eligible==all) {
+    request.type=shade_request_type_t::group_command;request.id=cmd.ref.id;request.command=somfy_commands::My;
+    finishControl(shadeRequests.run(request)==shade_request_result_t::done?DispatchResult::done:DispatchResult::refused);return;
+  }
+  bool sent=false;uint32_t remaining=pendingControl.eligible;
+  for(uint8_t i=0;i<members;i++) {
+    const uint32_t bit=uint32_t(1)<<i;
+    if(!(remaining&bit)) continue;
+    const auto checked=validateControl(target,moving); // cap/age/context fresh for EACH member
+    if(checked!=DispatchResult::queued) {
+      finishControl(sent?(checked==DispatchResult::idle?DispatchResult::done:DispatchResult::partial):checked);return;
+    }
+    remaining &= pendingControl.eligible;
+    if(!(remaining&bit)) continue;
+    request.id=pendingControl.guard.members[i].id;request.command=somfy_commands::My;
+    if(shadeRequests.run(request)!=shade_request_result_t::done) {
+      finishControl(sent?DispatchResult::partial:DispatchResult::refused);return;
+    }
+    sent=true;remaining &= ~bit;
+    if(!remaining) {finishControl(DispatchResult::done);return;}
+  }
+  finishControl(sent?DispatchResult::done:DispatchResult::idle);
+}
+
 } // namespace LocalUi
 #endif

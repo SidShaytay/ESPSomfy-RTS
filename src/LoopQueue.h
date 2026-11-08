@@ -25,7 +25,8 @@ enum class loop_item_type_t : uint8_t {
   restore_shades,  // restore from /shades.tmp, then reboot
   model_edit,      // apply an edit with ModelEditor
   proto_read,      // answer a protocol 2 read op from the shade model
-  proto_device     // run a protocol 2 settings op or the WiFi scan (DeviceOps)
+  proto_device,    // run a protocol 2 settings op or the WiFi scan (DeviceOps)
+  local_control    // loop-owned LCD intent token, freshly revalidated on drain
 };
 struct model_edit_t;
 struct settings_save_t;
@@ -41,10 +42,14 @@ struct loop_item_t {
   uint8_t groupId = 0;            // proto_read: groupOptions' group
   uint8_t section = 0;            // proto_device: getSettings' settings_section_t
   settings_save_t *save = nullptr; // proto_device: saveSettings' save, which loop() frees
+  uint64_t localToken = 0;        // local_control: bounded adapter-owned slot
+  bool localRadio = false;       // exact admitted protocol, never inferred from row/request type
 };
+static_assert(sizeof(loop_item_t)<=80,"Keep model contexts out of the 32 queue markers");
 
 // Whether the item sends anything on air.
 inline bool loopItemUsesRadio(const loop_item_t &item) {
+  if(item.type == loop_item_type_t::local_control) return item.localToken && item.localRadio;
   return item.type == loop_item_type_t::shade_request && shadeRequestUsesRadio(item.request.type);
 }
 // Whether the item at the head of the queue waits for the radio.  An HTTP or
