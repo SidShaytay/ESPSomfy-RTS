@@ -113,8 +113,10 @@ int main() {
   // pulse a single-button device, and RF/relay commands never use this driver.
   shade.shadeType = shade_types::roller;
   shade.gpioFlags = 0;
+  const unsigned int beforeMy = writes;
   shade.send(somfy_commands::My, 1, 0, 0, false);
-  assert(transported == somfy_commands::My && levels[42] == HIGH);
+  assert(transported == somfy_commands::My && writes == beforeMy + 3);
+  assert(levels[17] == LOW && levels[40] == LOW && levels[42] == HIGH);
   shade.shadeType = shade_types::garage1;
   unsigned int unchanged = writes;
   shade.send(somfy_commands::Up, 1, 0, 0, false);
