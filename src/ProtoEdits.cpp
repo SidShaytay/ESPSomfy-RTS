@@ -98,10 +98,8 @@ static const char *routeName(model_edit_type_t type, proto_field_t f) {
   if(type == model_edit_type_t::link_remote && f == proto_field_t::lastRollingCode) return "rollingCode";
   return protoField(f).name;
 }
-// What the reply's desc points at; every parse runs on async_tcp, one at a
-// time.
-static char why[64];
-const char *expandEditPayload(model_edit_type_t type, JsonObjectConst d, JsonDocument &doc) {
+const char *expandEditPayload(model_edit_type_t type, JsonObjectConst d, JsonDocument &doc, proto_error_buffer_t &why) {
+  why[0] = '\0';
   doc.clear();
   switch(type) {
     case model_edit_type_t::room_order:

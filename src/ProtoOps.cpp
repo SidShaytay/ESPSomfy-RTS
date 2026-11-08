@@ -7,7 +7,7 @@
 // leave a shade's tilt or its sun flag as they are.
 class OpReader {
   public:
-    explicit OpReader(JsonObjectConst d) : d(d) {}
+    OpReader(JsonObjectConst d, proto_error_buffer_t &buffer) : d(d), why(buffer) { why[0] = '\0'; }
     bool has(proto_field_t field) const { return !this->d[protoField(field).key].isNull(); }
     // The field when it was sent, as an integer in lo..hi.  False when it
     // wasn't; error is set when it was but isn't one.
@@ -58,21 +58,12 @@ class OpReader {
     const char *error = nullptr;
   private:
     JsonObjectConst d;
-    char why[64];
+    proto_error_buffer_t &why;
     const char *protoString(proto_field_t field) const {
       JsonVariantConst v = this->d[protoField(field).key];
       return v.is<const char *>() ? v.as<const char *>() : nullptr;
     }
 };
-// The reader's problem, kept once the reader has gone so the reply can send
-// it.  One buffer for every parse: they all run on async_tcp, one at a time.
-static char lastError[64];
-static const char *errorOf(OpReader &r) {
-  if(!r.error) return nullptr;
-  snprintf(lastError, sizeof(lastError), "%s", r.error);
-  return lastError;
-}
-
 struct command_name_t {
   const char *name;
   somfy_commands cmd;
@@ -144,9 +135,9 @@ static void readOneOrBoth(OpReader &r, proto_field_t a, proto_field_t b, int32_t
   if(r.get(b, lo, hi, n)) bOut = static_cast<int8_t>(n);
 }
 
-const char *parseShadeOp(uint8_t type, JsonObjectConst d, shade_request_t &req) {
+const char *parseShadeOp(uint8_t type, JsonObjectConst d, shade_request_t &req, proto_error_buffer_t &error) {
   req = shade_request_t();
-  OpReader r(d);
+  OpReader r(d, error);
   int32_t n;
   switch(static_cast<proto_type_t>(type)) {
     case proto_type_t::shadeCommand:
@@ -202,13 +193,13 @@ const char *parseShadeOp(uint8_t type, JsonObjectConst d, shade_request_t &req) 
       r.fail("Not a shade op");
       break;
   }
-  return errorOf(r);
+  return r.error;
 }
 
-const char *parseRemoteCommandOp(JsonObjectConst d, somfy_frame_t &frame, uint8_t &repeats) {
+const char *parseRemoteCommandOp(JsonObjectConst d, somfy_frame_t &frame, uint8_t &repeats, proto_error_buffer_t &error) {
   frame = somfy_frame_t();
   repeats = 0;
-  OpReader r(d);
+  OpReader r(d, error);
   int32_t n;
   // A remote address is 24 bits, and 0 is no remote.
   if(r.need(proto_field_t::remoteAddress, 1, 0xFFFFFF, n)) frame.remoteAddress = static_cast<uint32_t>(n);
@@ -216,7 +207,7 @@ const char *parseRemoteCommandOp(JsonObjectConst d, somfy_frame_t &frame, uint8_
   if(r.need(proto_field_t::lastRollingCode, 1, UINT16_MAX, n)) frame.rollingCode = static_cast<uint16_t>(n);
   if(r.get(proto_field_t::encKey, 0, UINT8_MAX, n)) frame.encKey = static_cast<uint8_t>(n);
   if(r.get(proto_field_t::repeats, 0, UINT8_MAX, n)) repeats = static_cast<uint8_t>(n);
-  return errorOf(r);
+  return r.error;
 }
 
 proto_error_t protoRequestError(shade_request_result_t result) {
