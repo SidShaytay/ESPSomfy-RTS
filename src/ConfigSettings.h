@@ -202,6 +202,8 @@ class ConfigSettings: BaseSettings {
 
     bool begin();
     settings_save_result_t save();
+    // Persist legacy running CFG before removing obsolete WIFI source keys.
+    settings_migration_result_t saveLegacyMigration();
     bool load();
     void print();
     bool getAppVersion();

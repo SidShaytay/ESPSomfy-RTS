@@ -9,6 +9,7 @@ struct settings_apply_result_t {
   settings_save_result_t persistence;
   uint16_t persistedParts = 0;
   bool reboot = false;
+  bool restartBlocked = false;
   settings_apply_refusal_t refusal = settings_apply_refusal_t::none;
   bool saved() const { return refusal == settings_apply_refusal_t::none && persistence.saved(); }
   static settings_apply_result_t refused(settings_apply_refusal_t reason) {
