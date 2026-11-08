@@ -141,6 +141,17 @@ int main(int argc,char **argv){
   busBusy=true;idle(20);assert(bands==0 && captureProtected);
   busBusy=false;idle();assert(bands==43 && !captureProtected);
   const auto unchanged=bands;idle();assert(bands==unchanged);
+  // Health is reachable through the actual held Status input, not a test-only page.
+  status.health={true,true,true,65536,32768,16384,6u*1024*1024,400,12345};
+  ++status.uptimeSeconds;idle();assert(bands==unchanged); // other pages retain minute cadence
+  tick(true);tick(true);tick(true,850);tick(false);tick(false);idle();
+  assert(lastQuery.screen==Screen::details);
+  for(unsigned i=0;i<detailsRowCount;i++){rotate(1);idle();}
+  assert(RuntimeTestAccess::view(ui).detailsOffset==detailsRowCount-detailsVisibleRows);
+  saveFrame(preview,"runtime-health");const auto healthBands=bands;
+  status.health.internalFreeBytes+=1024;++status.uptimeSeconds;idle();
+  assert(bands>healthBands && submitted.empty());
+  saveFrame(preview,"runtime-health-updated");back();idle();assert(lastQuery.screen==Screen::status);
   rotate(1);idle();rotate(1);idle();click();idle(); // Home -> Devices
   assert(lastQuery.screen==Screen::catalogue);
   busBusy=true;click();idle(10);assert(lastQuery.screen==Screen::control);

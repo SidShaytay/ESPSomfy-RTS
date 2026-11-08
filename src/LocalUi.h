@@ -7,7 +7,7 @@
 #include "LocalControlMenu.h"
 #include "LocalValueEditor.h"
 namespace LocalUi {
-constexpr uint8_t detailsRowCount=10, detailsVisibleRows=6;
+constexpr uint8_t detailsRowCount=14, detailsVisibleRows=6;
 constexpr uint8_t homeRows=7, administrationHomeIndex=6;
 enum class Screen : uint8_t { status, home, catalogue, roomKinds, control, actions, value, details, brightness, unlock, settings, administration };
 using Action=ControlAction;

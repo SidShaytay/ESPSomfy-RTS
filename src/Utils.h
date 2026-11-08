@@ -100,12 +100,14 @@ class LoopStats {
   uint32_t _startMs = 0;
   std::atomic<uint32_t> _publishedRate{0};
   std::atomic<uint32_t> _publishedMaxUs{0};
+  std::atomic<bool> _hasPublished{false};
   public:
     void record(uint32_t passUs);
     // Passes per second since the window started, 0 for an empty window.
     uint32_t rate(uint32_t nowMs) const;
     uint32_t maxUs() const { return _maxUs; }
     void publish(uint32_t nowMs);
+    bool hasPublished() const { return _hasPublished.load(std::memory_order_acquire); }
     uint32_t publishedRate() const { return _publishedRate.load(std::memory_order_relaxed); }
     uint32_t publishedMaxUs() const { return _publishedMaxUs.load(std::memory_order_relaxed); }
 };
