@@ -10,7 +10,7 @@ trap 'rm -rf -- "$scratch"' EXIT
 "$scratch/test"
 printf 'Updater certificate date/context checks passed\n'
 # Version pins and private-field types are part of this adapter's contract.
-for changed in idf mbed callback configuration; do
+for changed in idf mbed callback configuration padding; do
   cp -r -- "$repo/tests/update-certificate" "$scratch/$changed"
   python3 - "$scratch/$changed" "$changed" <<'PYCASE'
 from pathlib import Path
@@ -20,6 +20,8 @@ if changed=='idf':
     p=root/'esp_idf_version.h';p.write_text(p.read_text().replace('ESP_IDF_VERSION_VAL(5,5,5)','ESP_IDF_VERSION_VAL(5,5,4)'))
 elif changed=='mbed':
     p=root/'mbedtls/build_info.h';p.write_text(p.read_text().replace('0x03060600','0x03060500'))
+elif changed=='padding':
+    p=root/'mbedtls/ssl.h';p.write_text(p.read_text().replace('struct mbedtls_ssl_config {','struct mbedtls_ssl_config { int leading;'))
 elif changed=='configuration':
     p=root/'mbedtls/build_info.h';p.write_text(p.read_text().replace('mbedtls/esp_config.h','mbedtls/mbedtls_config.h'))
 else:
