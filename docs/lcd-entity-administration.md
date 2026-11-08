@@ -1,16 +1,27 @@
 # Local entity administration
 
-The room administration component implements Add, Edit and Delete without a
-browser. Parent navigation and presentation gating are not wired yet, so the
-component is not reachable from the device menu. Integration must protect its
-screens and require a complete matching display frame before acting. Shade and
-group forms are not implemented by this room slice.
+Open **Home → Administration → Rooms** and unlock when required. Select
+**Add room**, or select an existing room by its stable ID to edit or delete it.
+Duplicate names are allowed; the ID identifies the room. This flow works on the
+LCD without a browser. Device and group administration are still being added.
+
+Every activation requires the exact selection and current configuration to have
+finished reaching the display. If the display is busy, wait and press again.
+Changing the list never turns an old press into a different room or a new Add.
+The selected ID stays anchored through sorting or renaming; deletion returns
+selection to Add and requires a new press.
 
 Turning changes only the field editor. Apply copies a field into the bounded
 local draft. Save submits the draft through the same loop-owned model edit
 service as the browser. Cancel, leaving the screen, authorization changes,
 configuration changes, timeout or allocation failure discard the local draft.
 Delete names the exact room ID and starts with Cancel selected.
+
+Back from a field cancels that edit. Back from the field list discards all its
+drafts and returns to Rooms; Back from Rooms returns to Administration, then
+Home. Result screens stay protected until acknowledged and replaced by a full
+non-administration frame. Sleep, graphics loss and authorization changes discard
+drafts. An applied edit remains applied when its result screen is closed.
 
 The component reads current values rather than copying the model into a JSON
 form. A changed-only document and temporary expanded request use the injected
@@ -45,5 +56,8 @@ component.
 Host verification uses the native suites `test_localentityform`,
 `test_localentityruntime`, `test_protoedits` and `test_modelcommitservice`, plus
 `bash tools/preview-local-entity.sh` with the pinned cached Adafruit GFX library.
+`bash tools/preview-local-ui.sh` also drives the real encoder/Controller/Runtime
+through room Add, Edit, default-Cancel and confirmed Delete, file-save failure,
+commit-only retry, protected capture and unseen-selection refusal.
 No controller access, firmware upload, RF transmission or HA operation is part
 of these tests.

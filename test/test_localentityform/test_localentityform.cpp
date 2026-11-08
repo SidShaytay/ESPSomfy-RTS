@@ -336,8 +336,73 @@ unrelated_edit_preserves_malformed_legacy_name_without_replacement() {
   TEST_ASSERT_EQUAL_UINT8(255,
                           static_cast<unsigned char>(backend.originalName[0]));
 }
+struct ChoiceBackend : Fake {
+  bool missingChoice = false;
+  Admission preflight = Admission::accepted;
+  uint8_t choiceCount(Kind, uint8_t, proto_field_t field) override {
+    return field == proto_field_t::sortOrder ? 2 : 0;
+  }
+  bool choiceAt(Kind, uint8_t, proto_field_t field, uint8_t index, Choice &out) override {
+    if (field != proto_field_t::sortOrder || index > 1 || missingChoice) return false;
+    out = {}; out.value = index ? 7 : 0;
+    strcpy(out.label, index ? "Office #7" : "Unassigned");
+    return true;
+  }
+  ApplyResult apply(model_edit_type_t t, JsonDocument &d, Authorization a, uint64_t r) override {
+    if (preflight != Admission::accepted)
+      return {{}, preflight, proto_field_t::sortOrder};
+    return Fake::apply(t, d, a, r);
+  }
+};
+static void typed_choice_displays_label_and_saves_value_instead_of_index() {
+  Memory memory; ChoiceBackend backend; Form form(backend, memory);
+  TEST_ASSERT_TRUE(form.open(Kind::room, 4, 0));
+  TEST_ASSERT_EQUAL_STRING("Unassigned", form.view().rows[1].value);
+  form.turn(1, 1); form.activate(1); form.turn(1, 1);
+  TEST_ASSERT_EQUAL_STRING("Office #7", form.view().rows[0].value);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(2, form.view().total); // Choices have no numeric Change step.
+  TEST_ASSERT_EQUAL(1, form.view().selected); // Cancel by default.
+  form.turn(-1, 1); form.activate(1);
+  TEST_ASSERT_EQUAL_STRING("Office #7", form.view().rows[1].value);
+  TEST_ASSERT_EQUAL(0, backend.applies);
+  form.turn(1, 1); form.activate(1);
+  TEST_ASSERT_EQUAL(1, backend.applies);
+  TEST_ASSERT_EQUAL(7, backend.received["sortOrder"].as<int>());
+}
+static void missing_choice_and_invalid_preflight_never_drop_or_apply_drafts() {
+  Memory memory; ChoiceBackend backend; Form form(backend, memory);
+  form.open(Kind::room, 4, 0); editOrder(form);
+  backend.preflight = Admission::invalid;
+  form.turn(1, 1); form.activate(1);
+  TEST_ASSERT_EQUAL(Mode::fields, form.view().mode);
+  TEST_ASSERT_EQUAL(Notice::invalid, form.view().notice);
+  TEST_ASSERT_EQUAL(1, form.view().selected);
+  TEST_ASSERT_TRUE(form.view().dirty);
+  TEST_ASSERT_EQUAL(0, backend.applies);
+  backend.preflight = Admission::accepted;
+  backend.missingChoice = true;
+  form.activate(1);
+  TEST_ASSERT_TRUE(form.closed());
+  TEST_ASSERT_EQUAL(Notice::changed, form.view().notice);
+  TEST_ASSERT_EQUAL(0, memory.active);
+  TEST_ASSERT_EQUAL(0, backend.applies);
+}
+static void no_memory_preflight_wipes_draft_without_edit() {
+  Memory memory; ChoiceBackend backend; Form form(backend, memory);
+  form.open(Kind::room, 4, 0); editOrder(form);
+  backend.preflight = Admission::noMemory;
+  form.turn(1, 1); form.activate(1);
+  TEST_ASSERT_TRUE(form.closed());
+  TEST_ASSERT_EQUAL(Notice::noMemory, form.view().notice);
+  TEST_ASSERT_EQUAL(0, memory.active);
+  TEST_ASSERT_EQUAL(0, backend.applies);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(typed_choice_displays_label_and_saves_value_instead_of_index);
+  RUN_TEST(missing_choice_and_invalid_preflight_never_drop_or_apply_drafts);
+  RUN_TEST(no_memory_preflight_wipes_draft_without_edit);
   RUN_TEST(unrelated_edit_preserves_malformed_legacy_name_without_replacement);
   RUN_TEST(
       add_order_128_requires_explicit_replacement_without_losing_name_draft);

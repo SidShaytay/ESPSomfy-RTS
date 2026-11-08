@@ -61,6 +61,20 @@ int main(int argc,char **argv) {
   view.mode=Settings::Mode::secret;strcpy(view.hint,"Blank retains saved secret; identity changes can clear it.");
   canvas.paintSettings(view);const auto secret=pixels;
   view.notice=Settings::Notice::invalid;canvas.paintSettings(view);assert(pixels==secret);
+  view.mode=Settings::Mode::replace;view.notice=Settings::Notice::invalid;
+  view.total=2;view.selected=0;view.rows[0].dirty=false;
+  strcpy(view.title,"Frequency (MHz)");
+  strcpy(view.rows[1].label,"Replace invalid value");
+  strcpy(view.hint,"Original kept until Apply; Save persists replacement.");
+  warningLines(canvas,view.hint,warningFirst,warningSecond);
+  assert(std::string(warningFirst)+" "+warningSecond==view.hint);
+  canvas.getTextBounds(warningFirst,0,0,&x,&y,&w,&h);assert(w<=296);
+  canvas.getTextBounds(warningSecond,0,0,&x,&y,&w,&h);assert(w<=296);
+  canvas.paintSettings(view);const auto replacement=pixels;
+  save(std::string(argv[1])+"/settings-replace.ppm",pixels);
+  for(auto stale:{Settings::Notice::none,Settings::Notice::partial,Settings::Notice::failed,Settings::Notice::kept}) {
+    view.notice=stale;canvas.paintSettings(view);assert(pixels==replacement);
+  }
   view.notice=Settings::Notice::none;
   view.mode=Settings::Mode::text;view.rowCount=3;
   strcpy(view.rows[0].label,"WiFi network");strcpy(view.rows[0].value,full);

@@ -27,7 +27,7 @@ void Controller::discardTransient() {
   // a reported persistence failure still leaves those live values applied.
   const auto keep=state.screen==Screen::brightness || savePending?brightnessBefore:preferences();
   editor.cancel();valueEditor.cancel();
-  state=View{};pending=Command{};settingsInput={};
+  state=View{};pending=Command{};formInput={};
   editorMode=AuthMode::none;afterUnlock=Screen::control;
   valueAuthorizationGeneration=valueConfigurationGeneration=0;
   brightnessConfigurationGeneration=editorActivity=editorConfigurationGeneration=0;
@@ -70,7 +70,7 @@ void Controller::goBack() {
     if(state.catalogue!=CatalogueKind::rooms && state.room!=allRooms) { state.screen=Screen::roomKinds; state.selected=0; }
     else { state.screen=Screen::home; state.selected=state.catalogue==CatalogueKind::rooms?0:state.catalogue==CatalogueKind::devices?1:2; }
   } else if(state.screen==Screen::roomKinds) openCatalogue(CatalogueKind::rooms,allRooms);
-  else if(state.screen==Screen::settings) settingsInput.back=true;
+  else if(state.screen==Screen::settings || state.screen==Screen::administration) formInput.back=true;
   else if(state.screen==Screen::actions || state.screen==Screen::value) {cancelValue();state.screen=Screen::control;}
   else state.screen=Screen::status;
 }
@@ -125,13 +125,17 @@ void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
       openCatalogue(state.selected==0?CatalogueKind::rooms:state.selected==1?CatalogueKind::devices:CatalogueKind::groups,allRooms);
     } else if(state.selected==3) {
       if(!m.authorized) beginUnlock(now,m,Screen::home);
-      else { state.screen=Screen::settings; settingsInput={}; }
+      else { state.screen=Screen::settings; formInput={}; }
     } else if(state.selected==4) {
       if(!m.authorized) beginUnlock(now,m,Screen::home);
       else {
         brightnessBefore=preferences(); brightnessConfigurationGeneration=m.authConfigurationGeneration;
         state.screen=Screen::brightness; state.setting=0;
       }
+    } else if(state.selected==administrationHomeIndex) {
+      if(!visible) state.notice=Notice::wait;
+      else if(!m.authorized) beginUnlock(now,m,Screen::home);
+      else {state.screen=Screen::administration;formInput={};}
     } else state.screen=Screen::status;
     break;
   case Screen::catalogue: {
@@ -156,7 +160,8 @@ void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
   case Screen::roomKinds:
     openCatalogue(state.selected?CatalogueKind::groups:CatalogueKind::devices,state.room); break;
   case Screen::settings:
-    if(visible) settingsInput.activate=true; else state.notice=Notice::wait;
+  case Screen::administration:
+    if(visible) formInput.activate=true; else state.notice=Notice::wait;
     break;
   case Screen::brightness:
     if(state.setting<2) ++state.setting;
@@ -367,7 +372,7 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
       const unsigned row=state.cursor>=m.page.offset?state.cursor-m.page.offset:catalogueRows;
       state.anchored=row<m.page.count;
       if(state.anchored) state.anchorId=m.page.rows[row].id;
-    } else if(state.screen==Screen::settings) settingsInput.turn=turn>0?1:-1;
+    } else if(state.screen==Screen::settings || state.screen==Screen::administration) formInput.turn=turn>0?1:-1;
     else if(state.screen == Screen::brightness) {
       if(state.setting == 0) {
         int index = 0;

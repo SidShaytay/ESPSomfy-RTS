@@ -28,6 +28,10 @@ static settings_section_t sectionOf(settings_part_t part) {
 // radioInit are only ever sent.
 static const int16_t BIT_LENGTHS[] = {56,80};
 static const int16_t RADIO_PROTOCOLS[] = {0,1,2,8,9};
+static const int16_t WIFI_CONNECTIONS[] = {1};
+static const settings_field_t WIFI_CONNECTION = {
+  settings_part_t::conn, proto_field_t::connMode, "connType", 1, 1, WIFI_CONNECTIONS, 1
+};
 static const settings_field_t FIELDS[] = {
   {settings_part_t::general, proto_field_t::hostname, nullptr, 0, 31},
   {settings_part_t::general, proto_field_t::ssdpBroadcast, nullptr, 0, 0},
@@ -85,6 +89,9 @@ static const settings_field_t FIELDS[] = {
   {settings_part_t::radio, proto_field_t::txPower, nullptr, -30, 12},
   {settings_part_t::radio, proto_field_t::noiseDetection, nullptr, 0, 0}
 };
+static const settings_field_t *forHardware(const settings_field_t &field, bool hasEthernet) {
+  return !hasEthernet && field.field == proto_field_t::connMode ? &WIFI_CONNECTION : &field;
+}
 static bool included(const settings_field_t &field, settings_section_t section, bool hasEthernet) {
   return sectionOf(field.part) == section && (hasEthernet || !field.ethernetOnly());
 }
@@ -95,12 +102,12 @@ uint8_t settingsFieldCount(settings_section_t section, bool hasEthernet) {
 }
 const settings_field_t *settingsFieldAt(settings_section_t section, uint8_t index, bool hasEthernet) {
   for(const auto &field : FIELDS)
-    if(included(field,section,hasEthernet) && index-- == 0) return &field;
+    if(included(field,section,hasEthernet) && index-- == 0) return forHardware(field,hasEthernet);
   return nullptr;
 }
-static const settings_field_t *saved(settings_section_t section, proto_field_t field) {
+static const settings_field_t *saved(settings_section_t section, proto_field_t field, bool hasEthernet) {
   for(const settings_field_t &s : FIELDS)
-    if(s.field == field && sectionOf(s.part) == section) return &s;
+    if(s.field == field && sectionOf(s.part) == section) return forHardware(s,hasEthernet);
   return nullptr;
 }
 
@@ -187,7 +194,7 @@ const char *expandSettingsPayload(JsonObjectConst d, bool hasEthernet, settings_
     }
     if(field == proto_field_t::section) continue;
     const proto_field_info_t &f = protoField(field);
-    const settings_field_t *s = saved(section, field);
+    const settings_field_t *s = saved(section, field, hasEthernet);
     if(!s) {
       snprintf(why, sizeof(why), "%s can't be saved in %s", f.name, settingsSectionName(section));
       return why;
