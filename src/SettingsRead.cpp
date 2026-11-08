@@ -4,6 +4,7 @@
 #include "Secrets.h"
 #include <stdio.h>
 #include <string.h>
+#include <type_traits>
 
 namespace {
 class SnapshotWriter {
@@ -13,8 +14,10 @@ public:
   void add(proto_field_t field, bool input) {
     settings_value_t value; value.kind='b'; value.boolean=input; sink.field(field,value);
   }
-  void add(proto_field_t field, int32_t input) {
-    settings_value_t value; value.kind='i'; value.integer=input; sink.field(field,value);
+  template<class T, typename std::enable_if<std::is_integral<T>::value &&
+      !std::is_same<T,bool>::value,int>::type = 0>
+  void add(proto_field_t field, T input) {
+    settings_value_t value; value.kind='i'; value.integer=static_cast<int32_t>(input); sink.field(field,value);
   }
   void add(proto_field_t field, float input) {
     settings_value_t value; value.kind='n'; value.number=input; sink.field(field,value);
