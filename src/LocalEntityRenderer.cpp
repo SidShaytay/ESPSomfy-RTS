@@ -96,8 +96,14 @@ void Canvas::paintEntity(const EntityAdmin::FormView &view) {
   using EntityAdmin::Mode;
   using EntityAdmin::Notice;
   fillScreen(background);
+  const bool numbered = view.mode == Mode::fields && view.total > 3;
   text(12, 24, view.title[0] ? view.title : "Entity administration", true,
-       accent, 296);
+       accent, numbered ? 230 : 296);
+  if (numbered) {
+    char progress[12];
+    snprintf(progress, sizeof(progress), "%u/%u", unsigned(view.selected) + 1, unsigned(view.total));
+    text(256, 24, progress, false, muted, 52);
+  }
   drawFastHLine(12, 33, 296, divider);
   if (view.mode == Mode::closed) {
     char first[48], second[48];
@@ -146,7 +152,7 @@ void Canvas::paintEntity(const EntityAdmin::FormView &view) {
       if (r.dirty)
         fillCircle(304, top + 13, 2, warning);
     }
-  if (view.mode == Mode::confirm || view.mode == Mode::replace) {
+  if (view.mode == Mode::confirm || view.mode == Mode::replace || view.mode == Mode::validation) {
     char first[48], second[48];
     lines(*this, view.hint, first, second);
     text(12, 126, first, false, warning, 296);

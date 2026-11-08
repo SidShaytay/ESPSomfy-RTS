@@ -76,6 +76,9 @@ class SomfyRemote : public RemoteSettings {
     bool repeatFrame(uint8_t repeat);
     virtual uint16_t p_lastRollingCode(uint16_t code);
     somfy_commands transformCommand(somfy_commands cmd);
+    // GPIO admission precedes counter reads and frame/model mutation. Base
+    // remotes/groups have no GPIO actuator; RF dispatch is unaffected.
+    virtual bool gpioCommandAllowed(somfy_commands wireCommand) { (void)wireCommand; return false; }
     virtual void triggerGPIOs(somfy_frame_t &frame);
    
 };
@@ -98,6 +101,10 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     uint64_t configurationRevision = 1;
     // Read-only admission; shared by projected edits and all live GPIO paths.
     int8_t validateGPIOs(radio_proto protocol,uint8_t upPin,uint8_t downPin,uint8_t myPin);
+    bool gpioCommandAllowed(somfy_commands wireCommand) override;
+    bool canGpioCommand(somfy_commands logicalCommand);
+    bool canGpioSeek(bool tilt = false);
+    bool canGpioTilt(somfy_commands logicalCommand);
     int8_t validateJSON(JsonObject &obj);
     int8_t fromJSON(JsonObject &obj);
     

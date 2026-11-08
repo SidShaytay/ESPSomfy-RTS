@@ -7,9 +7,11 @@ var hst = '192.168.178.20';
 var _rooms = [{ roomId: 0, name: 'Home' }];
 
 var errors = [
-    { code: -10, desc: "Pin setting in use for Transceiver.  Output pins cannot be re-used." },
+    { code: -10, desc: "GPIO is reserved by the board or radio. Output pins cannot be re-used." },
     { code: -11, desc: "Pin setting in use for Ethernet Adapter.  Output pins cannot be re-used." },
     { code: -12, desc: "Pin setting in use on another motor.  Output pins cannot be re-used." },
+    { code: -13, desc: "GPIO outputs must use distinct pads. None may be selected more than once." },
+    { code: -14, desc: "Choose a valid output GPIO or None." },
     { code: -21, desc: "Git Update: Flash write failed." },
     { code: -22, desc: "Git Update: Flash erase failed." },
     { code: -23, desc: "Git Update: Flash read failed." },
@@ -2004,9 +2006,7 @@ class Somfy {
             transceiver: { config: { proto: 0, SCKPin: 18, CSNPin: 5, MOSIPin: 23, MISOPin: 19, TXPin: 13, RXPin: 35, frequency: 433.42, rxBandwidth: 97.96, type: 56, deviation: 11.43, txPower: 10, enabled: false, noiseDetection: false } }
         });
         this.checkBootPins();
-        this.loadPins('out', document.getElementById('selShadeGPIOUp'));
-        this.loadPins('out', document.getElementById('selShadeGPIODown'));
-        this.loadPins('out', document.getElementById('selShadeGPIOMy'));
+        this.loadShadePins();
     }
     // The shade model from the sync, and the radio's settings.
     loadSomfy() {
@@ -2820,6 +2820,19 @@ class Somfy {
             sel.options[sel.options.length] = new Option(`GPIO-${i > 9 ? i.toString() : '0' + i.toString()}`, i, typeof opt !== 'undefined' && opt === i);
         }
     }
+    loadShadePins(shade = {}) {
+        // Keep legacy assignments selectable even if this chip's normal pin
+        // list excludes them, so opening the form cannot retarget an output.
+        for (const [key, id] of [['gpioUp', 'selShadeGPIOUp'], ['gpioDown', 'selShadeGPIODown'], ['gpioMy', 'selShadeGPIOMy']]) {
+            const sel = document.getElementById(id);
+            const stored = Number.isInteger(shade[key]) ? shade[key] : 255;
+            this.loadPins('out', sel, stored);
+            sel.options[sel.options.length] = new Option('None', 255);
+            if (!Array.from(sel.options).some(opt => opt.value === stored.toString()))
+                sel.options[sel.options.length] = new Option(`GPIO-${stored} (unavailable)`, stored);
+            sel.value = stored.toString();
+        }
+    }
     procGroupState(state) {
         console.log(state);
         let flags = document.querySelectorAll(`.button-sunflag[data-groupid="${state.groupId}"]`);
@@ -2997,6 +3010,7 @@ class Somfy {
                 if (!st.sun) document.getElementById('cbHasSunsensor').checked = false;
             }
         }
+        this.onShadeProtoChanged(document.getElementById('selShadeProto'));
     }
     onShadeBitLengthChanged(el) {
         document.getElementById('somfyShade').setAttribute('data-bitlength', el.value);
@@ -3004,6 +3018,14 @@ class Somfy {
     }
     onShadeProtoChanged(el) {
         document.getElementById('somfyShade').setAttribute('data-proto', el.value);
+        const protocol = parseInt(el.value, 10);
+        const gpio = protocol === 8 || protocol === 9;
+        // Setup and deassertion touch these pads regardless of the motor's
+        // logical command category. Inline visibility overrides legacy CSS.
+        document.getElementById('divGPIOControl').style.display = gpio ? 'inline-block' : 'none';
+        document.getElementById('divGPIOUp').style.display = gpio ? 'inline-block' : 'none';
+        document.getElementById('divGPIODown').style.display = gpio ? 'inline-block' : 'none';
+        document.getElementById('divGPIOMy').style.display = protocol === 9 ? 'inline-block' : 'none';
     }
     openEditRoom(roomId) {
         
@@ -3060,7 +3082,10 @@ class Somfy {
                     shade.tiltTime = 7000;
                     shade.bitLength = 56;
                     shade.flipCommands = shade.flipPosition = false;
+                    shade.gpioUp = shade.gpioDown = shade.gpioMy = 255;
+                    this.loadShadePins(shade);
                     ui.toElement(elShade, shade);
+                    this.onShadeProtoChanged(document.getElementById('selShadeProto'));
                     this.showEditShade(true);
                     elShade.setAttribute('data-bitlength', shade.bitLength);
                 }
@@ -3081,6 +3106,7 @@ class Somfy {
                 }
                 else {
                     console.log(shade);
+                    this.loadShadePins(shade);
                     ui.toElement(document.getElementById('somfyShade'), shade);
                     this.showEditShade(true);
                     document.getElementById('btnSaveShade').style.display = 'inline-block';
@@ -3261,29 +3287,12 @@ class Somfy {
             valid = false;
         }
         if (obj.proto === 8 || obj.proto === 9) {
-            switch (obj.shadeType) {
-                case 5: // Garage 1-button
-                case 14: // Gate left 1-button
-                case 15: // Gate center 1-button
-                case 16: // Gate right 1-button
-                case 10: // Two button dry contact
-                    if (obj.proto !== 9 && obj.gpioUp === obj.gpioDown) {
-                        ui.errorMessage(document.getElementById('divSomfySettings'), 'For GPIO controlled motors the up and down GPIO selections must be unique.');
-                        valid = false;
-                    }
-                    break;
-                case 9: // Dry contact.
-                    break;
-                default:
-                    if (obj.gpioUp === obj.gpioDown) {
-                        ui.errorMessage(document.getElementById('divSomfySettings'), 'For GPIO controlled motors the up and down GPIO selections must be unique.');
-                        valid = false;
-                    }
-                    else if (obj.proto === 9 && (obj.gpioMy === obj.gpioUp || obj.gpioMy === obj.gpioDown)) {
-                        ui.errorMessage(document.getElementById('divSomfySettings'), 'For GPIO controlled motors the up and down and my GPIO selections must be unique.');
-                        valid = false;
-                    }
-                    break;
+            const pins = [obj.gpioUp, obj.gpioDown];
+            if (obj.proto === 9) pins.push(obj.gpioMy);
+            const assigned = pins.filter(pin => pin !== 255);
+            if (new Set(assigned).size !== assigned.length) {
+                ui.errorMessage(document.getElementById('divSomfySettings'), 'For GPIO controlled motors all assigned physical GPIO selections must be unique.');
+                valid = false;
             }
         }
         if (valid) {
