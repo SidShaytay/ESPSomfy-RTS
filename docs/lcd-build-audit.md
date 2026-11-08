@@ -1,0 +1,56 @@
+# Issue 25: build and baseline audit
+
+Design-stage audit, 2026-11-08. This document describes gaps and proposed work; it does not certify feature parity or hardware operation. No controller, serial device, RF, motor or Home Assistant access was performed.
+
+## Baseline and preserved work
+
+The isolated audit worktree starts at fetched remote main `fc5a2947928fdf855185f77ecaae69c00b677156`. Local main is `a493d50`, one commit ahead. The complete difference is the reviewed shared-group STOP fix in `src/LocalUiAdapter.cpp`, its fake-sink regression cases in `tests/ui-adapter/adapter-test.cpp`, and the corresponding paragraph in `docs/lilygo-local-ui.md` (37 added lines, four removed lines across three files).
+
+Preserve that commit explicitly before replacing the fixed model: when every relevant member is estimated moving, STOP uses the same shared group identity as UP/DOWN. Mixed groups stop only the moving members individually; idle groups send nothing. A refused shared command must not trigger a second individual fallback. Position is an estimate and the RTS MY/STOP ambiguity remains. Dynamic membership requires fresh complete membership/RF-identity validation; the two hard-coded members are not a reusable arbitrary-group algorithm.
+
+Other worktrees were read without modification. At audit time `issue-12-updater` (`baf0147`) had uncommitted changes to `platformio.ini` and `tools/preview-local-ui.sh`; `issue-12-release` (`8972709`) was clean. These are historical evidence, not an integration baseline. The updater dirty diff enables full display/UI/commands on both canonical environments and removes the suffix environments, but depends on standard-board/updater infrastructure absent from fetched main. Blindly copying it would silently import assumptions from unfinished work.
+
+## Current build contract and gaps
+
+| Area | Evidence at fetched main | Required change and verification |
+|---|---|---|
+| Plus environment | `platformio.ini:104` defines a headless Plus environment; `:199`, `:210`, `:218` add display, interactive and command-locked preview identities. | Exactly canonical Plus and standard physical-board environments, both full featured. No released suffix environment or alias. Inspect resolved PIO configuration and final compiler defines. |
+| Standard board | No canonical standard environment exists on fetched main. `src/BoardProfile.h:5` and `.cpp:3,8` recognize only Plus. | Audit and pin standard manufacturer revision/pins/display setup/BQ27220 before sharing implementation. Add exact, mutually exclusive board macros and S3 checks. Compile and test both identities. Shared definitions are not hardware qualification. |
+| Display | `src/StatusPanel.cpp:3` explicitly rejects anything except Plus. ST7789 initialization is in `:81`; shared SPI transactions are in `:34`. | Accept only the two supported physical boards, preserve pin discipline and short shared-SPI ownership. Negative compile tests reject no-board, conflicting-board and unsupported targets. |
+| Status identity | `src/StatusAdapter.cpp:68` always reports `Plus UI #15` or `Plus LCD #15`. | Report actual physical-board identity and firmware/features consistently; host-test both. |
+| Battery/I2C | `StatusAdapter.cpp:17-39` starts secondary I2C at board-defined pins, sets a 2 ms timeout and calls the bounded BQ27220 monitor. `BatteryGauge.cpp` samples one word per tick and no configuration data is written. | Preserve read-only monitor semantics and failure states. Independently verify standard/Plus gauge and bus pins/revisions; test missing/short/invalid reads and bound polling. |
+| Pin reservation | `BoardProfile.cpp:62` reserves USB, flash/PSRAM, radio, display and input GPIOs only when the Plus macro is active. | Apply each board's audited reservation set even while radio is disabled. Test GPIO reservation and initialization ordering per board and generic no-op behavior. |
+| Dependencies | GFX 1.12.1 / BusIO 1.17.4 are pinned only in the Plus display suffix environment. | Pin them on both canonical boards; generic environments must not inherit them or LILYGO feature macros. |
+| Legacy package | `tools/build-lilygo.sh:31` hardcodes canonical Plus. `tools/lilygo_manifest.py:16-32` hardcodes Plus identity and `headless: True`. `build_configuration()` checks required macros but does not prohibit extra display/UI/command or opposite-board defines. | Make metadata and validation agree with the full-feature contract. Reject missing, undefined, duplicate/conflicting features and wrong physical board in resolved flags, structured compiler defines and raw C/C++ flags. Never label a UI image headless. |
+| Preview | `tools/preview-local-ui.sh:4` defaults to the retired Plus UI suffix library cache. | Default to canonical Plus; allow explicit pinned library path. Preview is a host operation, not another production firmware identity. |
+| Updater dependency | Fetched main has no `update-profiles.json`, `update_profiles.py`, or `update_package.py`. In the inspected #12 release branch, canonical Plus/standard entries forbid all three UI flags while suffix entries remain registered (`update-profiles.json:36-87,262-396`). | Coordinate with #12 through a separately reviewed integration. Do not add a second installer or silently merge its branch. Registry/library policy, packaging tests and runtime admission must change together when that integration is ready. |
+| Current guidance | `LILYGO.md`, display/UI/flashing guides and `AGENTS.md` describe headless/suffix variants. `docs/board-memory.md` is absent at fetched main. | Update current instructions with canonical identities and explicit staged verification. Preserve dated historical build/deployment evidence as history. |
+
+## Physical-board source and qualification requirement
+
+The existing Plus GPIO implementation cites manufacturer commit `c36826e0f91311cb591c4545fccf91e254fc55dc` in `BoardProfile.cpp:21`; `StatusPanel.cpp` cites manufacturer display setup 214 in a comment. That is evidence for the existing implementation, not a completed audit of both current physical revisions. The issue links the manufacturer's T-Embed CC1101 repository and requests an explicit standard-board audit. Record exact source paths and pinned revisions for the standard and Plus schematics/utilities/display/gauge definitions before declaring the standard supported. Do not infer interchangeability from the product name or N16R8 memory alone.
+
+## Proposed transition and implementation slices
+
+1. Preserve the reviewed local STOP commit in the integration branch. Independently review the capability matrix and interaction/security decisions before broad firmware work.
+2. Audit manufacturer board definitions, add standard/Plus exact identities and shared implementation only where supported by that evidence. Extend board/panel/radio fake harnesses and negative compilation checks before changing production macros.
+3. Consolidate the two canonical environments, dependencies, legacy package metadata and final-define validation as one reviewed build-contract change. Keep generic targets unchanged. Update production renderer preview paths. This slice alone must not be called complete LCD parity.
+4. Add dynamic everyday model/navigation/commands with fake request sinks and stale-model tests, preserving all safety semantics. Administration follows Sid's agreed unlock/credential/transfer design.
+5. Integrate updater-dependent profile/registry changes only against a separately reviewed #12 baseline. Retired suffix IDs must fail closed; they must never silently resolve to canonical Plus or standard. Canonical physical identities stay distinct even if their partition table is identical.
+6. Update documentation and perform independent review/tests before integration into main. Hardware acceptance stays pending until Sid authorizes the exact stage.
+
+For existing installations, stop on unknown profile/board/features/layout. An old suffix identity is not an authorization to migrate; expose a clear unsupported-profile result and document the separately authorized migration procedure. A changed profile, web compatibility contract or partition table must pass #12's exact identity/trust/admission/rollback rules. Preserve NVS/LittleFS, current counters, calibration and prior app. This design does not authorize provisioning, restore, reboot or RF tests.
+
+## Memory and responsiveness evidence
+
+`LocalUiMemory.h:5` fixes the RGB565 framebuffer at 108,800 PSRAM bytes. `LocalUiRuntime.cpp:51-58` requests SPIRAM/8BIT explicitly and keeps a separate fixed internal transfer band. `LocalUiCapture.cpp:54-68` allocates an immutable additional 108,866-byte BMP in PSRAM for at most one response at a time, copied by loop outside the radio lock. Failure returns an explicit 503; framebuffer failure uses the existing simple status fallback. Preserve these bounded allocations while introducing bounded page/label/edit state; never put a full configured model on a task stack.
+
+The panel transfers at most four graphics rows per band; its initial clear uses two rows per tick. I2C sampling is bounded and does not write gauge configuration. Existing diagnostics log internal/PSRAM free bytes and maximum paint/row/bus time (`StatusPanel.cpp:185-193`), but do not establish internal largest/minimum blocks, repeated-operation fragmentation or real loop latency. Combined TLS, full staging, reconnect, screenshot and long-idle workload measurements require additional instrumentation and a later explicitly authorized hardware stage. PSRAM flags and host harnesses cannot supply those numbers.
+
+## Offline verification record
+
+- `python3 -m unittest discover -s tools -p 'test_lilygo_manifest.py'`: 24 baseline tests passed. These test the current legacy contract, not the proposed canonical contract.
+- Bare-host C++ invocations initially stopped before test execution: `c++` is unavailable and Homebrew Clang lacks host development headers. The existing running `rocm-7.2.3` toolbox provides the compiler/headers without installing packages. `podman exec -w <audit-worktree> rocm-7.2.3 /bin/bash -c 'bash tools/test-board-profile.sh && bash tools/test-status-panel.sh && bash tools/test-local-ui-adapter.sh'` passed: Plus/generic initialization, reserved GPIOs and non-S3 rejection; panel ownership/selects/bounds/busy/failure states; radio SPI restoration; fixed-target adapter identity/STOP safeguards. This audit worktree tests fetched main's older STOP policy; the integration branch must also test the preserved `a493d50` policy.
+- No firmware build or hardware measurement was performed for this documentation audit.
+
+Required implementation verification: native tests; web protocol tests; release-script tests; both board GPIO/SPI fake harnesses; status panel/radio SPI harness; UI adapter/runtime/capture/production-renderer harness and generated previews; legacy/#12 package tooling tests with negative macro/profile cases; both full canonical firmware builds with separate build directories and ELF/bin/slot-size reports; generic compile/regression checks. Add mutation checks to prove command/security regression tests fail when their guards are inverted. Runtime internal-heap/PSRAM/loop/SPI measurements and physical standard/Plus qualification remain separate pending acceptance evidence.
