@@ -289,6 +289,50 @@ static void details_wheel_scrolls_without_leaving_or_sending() {
   click(c, 1400, m);
   TEST_ASSERT_EQUAL((int)Screen::status, (int)c.view().screen);
 }
+static void secured_controls_unlock_without_replaying_and_stop_lease_is_narrow() {
+  Controller c; auto m=model(); m.authorized=false; m.authMode=AuthMode::pin; m.authGeneration=4;
+  m.targets[0].moving=true;
+  c.tick(0,m,1,false,true); click(c,100,m); click(c,300,m);
+  TEST_ASSERT_EQUAL(int(Screen::unlock),int(c.view().screen));
+  Command command; TEST_ASSERT_FALSE(c.take(command));
+  c.tick(500,m,1,false,true); // choose !
+  uint32_t time=600;
+  for(int i=0;i<4;i++,time+=200) click(c,time,m);
+  for(int i=0;i<96;i++) c.tick(time++,m,1,false,true); // Done
+  click(c,time+100,m);
+  Credentials given; TEST_ASSERT_TRUE(c.takeCredentials(given));
+  TEST_ASSERT_EQUAL_STRING("!!!!",given.secret);
+  c.unlockResult(time+230,AuthResult::unlocked);
+  TEST_ASSERT_EQUAL(int(Screen::control),int(c.view().screen));
+  TEST_ASSERT_FALSE(c.take(command)); // unlocking does not replay previous action
+  m.targets[0].stopLease=true;
+  click(c,time+500,m);
+  TEST_ASSERT_TRUE(c.take(command));
+  TEST_ASSERT_EQUAL(int(Action::stop),int(command.action));
+  TEST_ASSERT_EQUAL(4,command.authGeneration);
+  c.tick(time+700,m,-1,false,true); // UP is not covered by the lease
+  click(c,time+800,m);
+  TEST_ASSERT_EQUAL(int(Screen::unlock),int(c.view().screen));
+  TEST_ASSERT_FALSE(c.take(command));
+  c.tick(time+1100,m,0,false,true,true); c.tick(time+1141,m,0,false,true,true);
+  TEST_ASSERT_EQUAL(int(Screen::control),int(c.view().screen));
+  TEST_ASSERT_FALSE(c.takeCredentials(given));
+}
+static void secret_entry_wipes_on_sleep_and_motion_independent_timeout() {
+  for(unsigned state=0;state<2;state++) {
+    const bool moving=state!=0;
+    Controller c; auto m=model(); m.authorized=false; m.authMode=AuthMode::pin;
+    m.targets[0].moving=moving;
+    c.tick(0,m,1,false,true); click(c,100,m); click(c,300,m);
+    c.tick(500,m,1,false,true); click(c,600,m);
+    TEST_ASSERT_EQUAL(1,c.view().credentialLength);
+    c.tick(moving?31000:21000,m,0,false,true);
+    TEST_ASSERT_NOT_EQUAL(int(Screen::unlock),int(c.view().screen));
+    TEST_ASSERT_EQUAL(0,c.view().credentialLength);
+    Credentials out; TEST_ASSERT_FALSE(c.takeCredentials(out));
+    Command command; TEST_ASSERT_FALSE(c.take(command));
+  }
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(details_wheel_scrolls_without_leaving_or_sending);
@@ -304,5 +348,7 @@ int main() {
   RUN_TEST(separate_back_button_and_disabled_timeouts);
   RUN_TEST(no_dim_no_sleep_are_selectable_and_saved);
   RUN_TEST(moving_stop_is_not_blocked_by_a_repaint);
+  RUN_TEST(secured_controls_unlock_without_replaying_and_stop_lease_is_narrow);
+  RUN_TEST(secret_entry_wipes_on_sleep_and_motion_independent_timeout);
   return UNITY_END();
 }

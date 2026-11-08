@@ -2,6 +2,7 @@
 #include "LocalUiRuntime.h"
 #include "LocalUiAdapter.h"
 #include "LocalUiCapture.h"
+#include "LocalUiAuthorizationAdapter.h"
 #include "BoardProfile.h"
 #include <esp_heap_caps.h>
 #include <string.h>
@@ -27,6 +28,9 @@ uint32_t sceneHash(const Model &m, const View &v, const StatusDisplay::Snapshot 
                              uint32_t(s.battery.state),
                              s.battery.percent,
                              s.battery.millivolts,
+                             v.credentialChoice, v.credentialLength, v.credentialMaximum,
+                             v.credentialUser, v.credentialByte, v.retryAfterMs/1000,
+                             m.authorized, m.authGeneration, uint32_t(m.authMode),
                              m.ready,
                              m.controlsEnabled,
                              s.running,
@@ -42,7 +46,7 @@ uint32_t sceneHash(const Model &m, const View &v, const StatusDisplay::Snapshot 
   h = hash(s.applicationVersion, strlen(s.applicationVersion), h);
   for(const auto &t : m.targets) {
     const uint32_t x[] = {t.identity, t.members[0],        t.members[1],       t.valid,
-                          t.moving,   uint32_t(t.open[0]), uint32_t(t.open[1])};
+                          t.moving, t.stopLease, uint32_t(t.open[0]), uint32_t(t.open[1])};
     h = hash(x, sizeof(x), h);
     h = hash(t.name, strlen(t.name), h);
   }
@@ -53,6 +57,7 @@ void *allocate(size_t size) { return heap_caps_malloc(size, MALLOC_CAP_SPIRAM | 
 uint16_t transfer[screenWidth * bandHeight];
 } // namespace
 void Runtime::begin() {
+  setCaptureProtected(true);
   controller.setPreferences(loadPreferences());
   pinMode(BoardProfile::backButton, INPUT_PULLUP);
   memory.begin(heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0, allocate);
@@ -65,9 +70,12 @@ void Runtime::begin() {
 bool Runtime::tick(uint32_t now, const StatusDisplay::Snapshot &s, bool pressed,
                    bool (*sendBand)(uint8_t, uint8_t, const uint8_t *, size_t), void (*light)(uint8_t)) {
   if(!memory.pixels) {
+    setCaptureProtected(false);
     capturePoll(nullptr, true, 0, 0);
     return false;
   }
+  const View &before=controller.view();
+  focusAuthorizationTarget(before.screen==Screen::control || before.screen==Screen::unlock ? before.selected : 255);
   const Model model = snapshotModel(s.running);
   const View &focus = controller.view();
   const uint32_t identity =
@@ -82,10 +90,18 @@ bool Runtime::tick(uint32_t now, const StatusDisplay::Snapshot &s, bool pressed,
   controller.tick(now, model, turn, pressed, visible, digitalRead(BoardProfile::backButton) == 0);
   DisplayPreferences preferences;
   if(controller.takePreferences(preferences))
-    controller.brightnessResult(now, savePreferences(preferences));
+    controller.brightnessResult(now, model.authorized && savePreferences(preferences));
+  if(controller.takeActivity()) authorizationActivity();
+  Credentials credentials;
+  if(controller.takeCredentials(credentials))
+    controller.unlockResult(now, unlockAuthorization(credentials));
+  credentials.clear();
+  if(controller.view().screen == Screen::unlock) setCaptureProtected(true);
   Command command;
   if(controller.take(command))
     controller.result(now, dispatch(command));
+  if(!controller.brightness() && !wasSleeping) lockAuthorization();
+  wasSleeping=!controller.brightness();
   light(controller.brightness());
   if(!controller.brightness()) {
     capturePoll(memory.pixels, bandIndex == 43, 0, revision);
@@ -130,6 +146,7 @@ bool Runtime::tick(uint32_t now, const StatusDisplay::Snapshot &s, bool pressed,
     presentedView = frameView;
     presentedIdentity = frameIdentity;
     hasPresented = true;
+    if(presentedView.screen != Screen::unlock) setCaptureProtected(false);
   }
   return true;
 }
