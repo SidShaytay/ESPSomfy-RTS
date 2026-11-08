@@ -12,13 +12,22 @@ std::mutex mutex;
 AsyncWebServerRequestPtr waiting;
 bool pending = false;
 uint32_t requested = 0;
-std::atomic<bool> busy{false};
+std::atomic<bool> busy{false}, protectedFrame{false};
+void failure(AsyncWebServerRequest *request,int code,const char *message) {
+  auto *response=request->beginResponse(code,"text/plain",message);
+  if(!response) { request->send(503,"text/plain","LCD response allocation failed"); return; }
+  response->addHeader("Cache-Control","no-store");
+  request->send(response);
+}
+void refuseProtected(AsyncWebServerRequest *request) { failure(request,423,"Protected LCD screen"); }
 } // namespace
+void setCaptureProtected(bool value) { protectedFrame.store(value); }
 void registerCapture(AsyncWebServer &server) {
   // Existing Web::requireToken middleware protects this exact non-public route.
   server.on(AsyncURIMatcher::exact("/lcd/screenshot"), HTTP_GET, [](AsyncWebServerRequest *r) {
+    if(protectedFrame.load()) { refuseProtected(r); return; }
     if(busy.exchange(true)) {
-      r->send(429, "text/plain", "LCD capture already in progress");
+      failure(r,429,"LCD capture already in progress");
       return;
     }
     std::lock_guard<std::mutex> lock(mutex);
@@ -33,7 +42,7 @@ void capturePoll(const uint16_t *pixels, bool fullyPresented, uint8_t brightness
     std::unique_lock<std::mutex> lock(mutex, std::try_to_lock);
     if(!lock.owns_lock() || !pending)
       return;
-    if(!waiting.expired() && pixels && !fullyPresented && uint32_t(millis() - requested) < 1500)
+    if(!protectedFrame.load() && !waiting.expired() && pixels && !fullyPresented && uint32_t(millis() - requested) < 1500)
       return;
     weak = waiting;
     waiting.reset();
@@ -44,8 +53,13 @@ void capturePoll(const uint16_t *pixels, bool fullyPresented, uint8_t brightness
     busy = false;
     return;
   }
+  if(protectedFrame.load()) {
+    busy=false;
+    refuseProtected(request.get());
+    return;
+  }
   if(!pixels || !fullyPresented) {
-    request->send(503, "text/plain",
+    failure(request.get(),503,
                   !pixels ? "No RGB framebuffer: simple status or disabled display"
                           : "LCD frame not yet fully transferred");
     busy = false;
@@ -54,7 +68,7 @@ void capturePoll(const uint16_t *pixels, bool fullyPresented, uint8_t brightness
   auto *buffer =
       static_cast<uint8_t *>(heap_caps_malloc(LcdBitmap::totalBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
   if(!buffer) {
-    request->send(503, "text/plain", "PSRAM screenshot allocation failed");
+    failure(request.get(),503, "PSRAM screenshot allocation failed");
     busy = false;
     return;
   }
@@ -75,7 +89,7 @@ void capturePoll(const uint16_t *pixels, bool fullyPresented, uint8_t brightness
                                             return n;
                                           });
   if(!response) {
-    request->send(503, "text/plain", "Screenshot response allocation failed");
+    failure(request.get(),503, "Screenshot response allocation failed");
     return;
   }
   response->addHeader("Cache-Control", "no-store");

@@ -17,6 +17,15 @@ int main() {
     server.handler(r.get());
     return r;
   };
+  LocalUi::setCaptureProtected(true);
+  auto blocked=request();
+  assert(blocked->status==423 && !allocated);
+  assert(blocked->response->headers["Cache-Control"]=="no-store");
+  failResponse=true;
+  auto lowMemory=request();
+  assert(lowMemory->status==503 && !allocated && !lowMemory->response);
+  failResponse=false;
+  LocalUi::setCaptureProtected(false);
   auto a = request();
   auto b = request();
   assert(b->status == 429);
@@ -25,6 +34,12 @@ int main() {
   a.reset();
   LocalUi::capturePoll(pixels.data(), false, 32, 7); // disconnected waiter is released
   a = request();
+  LocalUi::setCaptureProtected(true); // waiter predates secret entry
+  LocalUi::capturePoll(pixels.data(), true,32,7);
+  assert(a->status==423 && !allocated);
+  auto during=request(); assert(during->status==423 && !allocated);
+  LocalUi::setCaptureProtected(false); // runtime may do this only after sanitized full presentation
+  a=request();
   LocalUi::capturePoll(pixels.data(), true, 32, 7);
   assert(a->status == 200 && a->response->length == 108866 && allocated);
   assert(a->response->headers["Cache-Control"] == "no-store" && a->response->headers["X-LCD-Frame"] == "7");
