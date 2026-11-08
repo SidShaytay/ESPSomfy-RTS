@@ -36,6 +36,13 @@ int main(int argc,char **argv) {
   view.rows[0].selected=false;view.rows[1].selected=true;view.selected=1;view.rows[0].dirty=true;
   canvas.paintSettings(view);assert(pixels!=first);save(std::string(argv[1])+"/settings-secret.ppm",pixels);
   view.notice=Settings::Notice::partial;strcpy(view.hint,"May be partly stored; running unchanged. Retry before restart.");canvas.paintSettings(view);save(std::string(argv[1])+"/settings-partial.ppm",pixels);
+  view.notice=Settings::Notice::busy;canvas.paintSettings(view);save(std::string(argv[1])+"/settings-busy.ppm",pixels);
+  Settings::FormView blocked;blocked.notice=Settings::Notice::savedRestartBlocked;
+  warningLines(canvas,notice(blocked.notice),warningFirst,warningSecond);
+  assert(std::string(warningFirst)+" "+warningSecond==notice(blocked.notice));
+  canvas.getTextBounds(warningFirst,0,0,&x,&y,&w,&h);assert(w<=296);
+  canvas.getTextBounds(warningSecond,0,0,&x,&y,&w,&h);assert(w<=296);
+  canvas.paintSettings(blocked);save(std::string(argv[1])+"/settings-restart-blocked.ppm",pixels);
   assert(view.protectedFrame);
   view.notice=Settings::Notice::none;view.mode=Settings::Mode::confirm;view.rowCount=2;
   strcpy(view.hint,"Changes authentication; may close sessions.");
