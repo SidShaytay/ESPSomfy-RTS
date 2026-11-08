@@ -3,6 +3,7 @@
 #include <Preferences.h>
 #include "esp_log.h"
 #include "ConfigFile.h"
+#include "SettingsRevisions.h"
 #include "Utils.h"
 #include "ConfigSettings.h"
 #include "ConfigValidation.h"
@@ -549,6 +550,9 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
     if(opened) this->end();
     return false;
   }
+  invalidateDeviceSettingsRevisions();
+  ++s->configurationRevision;
+  ++s->restoreRevision;
   if(opts.shades) {
     ESP_LOGI(TAG, "Restoring the rooms, shades and groups");
     this->readModel(s);

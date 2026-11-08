@@ -293,6 +293,9 @@ static edit_result_t applyOrder(JsonDocument &doc, Find find) {
   return done();
 }
 edit_result_t applyModelEdit(model_edit_t &edit) {
+  // Conservatively invalidate pending intentions before an edit attempt: some
+  // model operations can fail after changing part of the in-memory model.
+  ++somfy.configurationRevision;
   JsonObject obj = edit.doc.as<JsonObject>();
   if(edit.type == model_edit_type_t::add_shade || edit.type == model_edit_type_t::save_shade ||
      edit.type == model_edit_type_t::add_group || edit.type == model_edit_type_t::save_group) {

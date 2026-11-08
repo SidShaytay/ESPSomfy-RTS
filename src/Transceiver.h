@@ -67,6 +67,7 @@ class Transceiver {
     // Sends a job taken off the queue and leaves a frame beat after it.
     void runJob(somfy_tx_job_t &job);
   public:
+    uint64_t configurationRevision = 1;
     transceiver_config_t config;
     // Nonblocking read-only LCD snapshot; outputs are unchanged if busy.
     bool displayStatus(bool &ready, float &frequency) const;
