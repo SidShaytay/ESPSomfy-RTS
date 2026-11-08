@@ -112,6 +112,21 @@ int main(int argc,char **argv) {
     write("/update-assets.txt",bad);assetTestCompatibility=compatibility(bad);
     assert(!gitUpdateAssetsMatch());
   }
+  std::string tooMany=header;
+  const std::string emptyHash=compatibility("").substr(7);
+  for(unsigned i=0;i<129;i++) {
+    char name[32];snprintf(name,sizeof(name),"/extra%03u.css",i);
+    write(name,"");
+    tooMany+=emptyHash+" 0 "+name+"\n";
+  }
+  write("/update-assets.txt",tooMany);assetTestCompatibility=compatibility(tooMany);
+  assert(gitUpdateAssetsStatus()==UpdateAttestation::bounds);
+  for(unsigned i=0;i<129;i++) {
+    char name[32];snprintf(name,sizeof(name),"/extra%03u.css",i);
+    std::remove((fixtureRoot+name).c_str());
+  }
+  write("/update-assets.txt",std::string(16385,'x'));
+  assert(gitUpdateAssetsStatus()==UpdateAttestation::bounds);
   assetTestCompatibility=INITIAL_COMPAT;
   write("/update-assets.txt",manifest);
   write("/update-assets.txt",manifest+"unexpected\n");
