@@ -26,7 +26,7 @@ public:
   RestartCoordinator &operator=(const RestartCoordinator &)=delete;
   RestartSnapshot snapshot() const { return policy.snapshot(); }
   bool requiresModelRecovery() const { return modelRecovery; }
-  void observe(uint64_t now,RestartObservation observation);
+  bool observe(uint64_t now,RestartObservation observation);
   RestartSubmission submit(uint32_t delayMs);
   RestartWork begin(uint32_t delayMs,uint64_t now,RestartObservation observation);
   RestartWork prepareQueued(uint64_t now,RestartObservation observation);

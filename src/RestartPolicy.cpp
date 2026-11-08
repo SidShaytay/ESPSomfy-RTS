@@ -23,11 +23,13 @@ bool RestartPolicy::clock(uint64_t now) {
   if(now<highWater) { cancel(RestartReason::clock);return false; }
   highWater=now;return true;
 }
-void RestartPolicy::observe(uint64_t now,const RestartObservation &o) {
-  if(!clock(now) || !value.pending()) return;
+bool RestartPolicy::observe(uint64_t now,const RestartObservation &o) {
+  if(!clock(now)) return false;
+  if(!value.pending()) return true;
   const auto reason=refusal(o);
   if(reason!=RestartReason::none) cancel(reason);
   else if(value.settingsEpoch!=o.settingsEpoch || value.modelEpoch!=o.modelEpoch) cancel(RestartReason::stale);
+  return true;
 }
 RestartSubmission RestartPolicy::submit(uint32_t delayMs,const RestartObservation &o) {
   if(value.pending()) return RestartSubmission::busy;

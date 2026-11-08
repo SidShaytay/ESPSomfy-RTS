@@ -4,8 +4,10 @@ RestartObservation RestartCoordinator::current(RestartObservation o) const {
   if(modelExhausted) o.refusal=RestartReason::exhausted;
   return o;
 }
-void RestartCoordinator::observe(uint64_t now,RestartObservation o) {
-  published=current(o);policy.observe(now,published);
+bool RestartCoordinator::observe(uint64_t now,RestartObservation o) {
+  published=current(o);
+  if(!policy.observe(now,published)) { published.refusal=RestartReason::clock;return false; }
+  return true;
 }
 RestartSubmission RestartCoordinator::submit(uint32_t delay) {
   if(policy.snapshot().pending()) return RestartSubmission::busy;
@@ -29,14 +31,14 @@ bool RestartCoordinator::owns(const RestartWork &w) const {
     w.storage.use==StorageUse::restart && storage.owns(w.storage);
 }
 RestartWork RestartCoordinator::begin(uint32_t delay,uint64_t now,RestartObservation o) {
-  observe(now,o);
+  if(!observe(now,o)) return {0,{},RestartReason::clock};
   const auto submitted=submit(delay);
   if(submitted!=RestartSubmission::queued) return {0,{},submitted==RestartSubmission::busy ? RestartReason::pending :
       (inFlight ? RestartReason::persistenceBusy : policy.snapshot().reason)};
   return reserve();
 }
 RestartWork RestartCoordinator::prepareQueued(uint64_t now,RestartObservation o) {
-  observe(now,o);
+  if(!observe(now,o)) return {0,{},RestartReason::clock};
   if(policy.snapshot().phase!=RestartPhase::queued) return {0,{},policy.snapshot().reason};
   return reserve();
 }
@@ -47,7 +49,7 @@ RestartResult RestartCoordinator::completeAdmission(const RestartWork &w,uint64_
   return {admitted,admitted ? RestartReason::none : policy.snapshot().reason};
 }
 RestartWork RestartCoordinator::prepareFinal(uint64_t now,RestartObservation o) {
-  observe(now,o);
+  if(!observe(now,o)) return {0,{},RestartReason::clock};
   if(!policy.due(now,published)) return {0,{},policy.snapshot().reason};
   return reserve();
 }

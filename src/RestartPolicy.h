@@ -16,7 +16,7 @@ public:
   RestartSnapshot snapshot() const { return value; }
   RestartSubmission submit(uint32_t delayMs,const RestartObservation &published);
   bool admitQueued(uint64_t now,const RestartObservation &observation,uint64_t expectedGeneration);
-  void observe(uint64_t now,const RestartObservation &observation);
+  bool observe(uint64_t now,const RestartObservation &observation);
   void cancel(RestartReason reason=RestartReason::cancelled);
   bool due(uint64_t now,const RestartObservation &observation);
   bool take(uint64_t now,const RestartObservation &observation);
