@@ -16,7 +16,7 @@ class ValueEditor {
   char original[65]={}, draft[65]={};
   CharacterPicker picker;
   int64_t number=0, before=0, minimum=0, maximum=0, increment=1;
-  uint64_t activity=0;
+  uint64_t activity=0, observed=0;
   ValueKind type=ValueKind::none;
   EditOutcome state=EditOutcome::idle;
   TextEncoding encoding=TextEncoding::utf8;
@@ -28,7 +28,7 @@ class ValueEditor {
   }
   void close(EditOutcome result) {
     wipe(original,sizeof(original)); wipe(draft,sizeof(draft)); picker.reset();
-    number=before=minimum=maximum=activity=limit=0; increment=1;
+    number=before=minimum=maximum=activity=observed=limit=0; increment=1;
     type=ValueKind::none; editing=secret=false; state=result;
   }
   static bool utf8(const char *text) {
@@ -53,7 +53,7 @@ class ValueEditor {
     close(EditOutcome::invalid);
     if(low>high || value<low || value>high || step<=0) return false;
     type=kind; number=before=value; minimum=low; maximum=high; increment=step;
-    activity=now; editing=true; state=EditOutcome::editing; return true;
+    activity=observed=now; editing=true; state=EditOutcome::editing; return true;
   }
 public:
   static constexpr uint64_t timeoutMs=30000;
@@ -76,7 +76,7 @@ public:
     size_t count=0; while(count<=maxBytes && value[count]) ++count;
     if(count>maxBytes) return false;
     memcpy(original,value,count); memcpy(draft,value,count);
-    limit=uint8_t(maxBytes); encoding=policy; secret=masked; activity=now;
+    limit=uint8_t(maxBytes); encoding=policy; secret=masked; activity=observed=now;
     type=ValueKind::text; editing=true; state=EditOutcome::editing; return true;
   }
   bool beginInteger(int64_t value,int64_t low,int64_t high,int64_t step,uint64_t now) {
@@ -97,7 +97,9 @@ public:
     return beginNumber(ValueKind::choice,index,0,count-1,1,now);
   }
   void tick(uint64_t now) {
-    if(type!=ValueKind::none && (now<activity || now-activity>=timeoutMs)) close(EditOutcome::expired);
+    if(type==ValueKind::none) return;
+    if(now<observed || now<activity || now-activity>=timeoutMs) close(EditOutcome::expired);
+    else observed=now;
   }
   void select(int choice,uint64_t now) {
     tick(now); if(!editing || type!=ValueKind::text) return;

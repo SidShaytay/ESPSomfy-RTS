@@ -92,6 +92,9 @@ static void secret_preview_and_all_exit_paths_wipe_owned_buffers() {
   char out[65]; TEST_ASSERT_FALSE(e.takeText(out,sizeof(out)));
   TEST_ASSERT_TRUE(e.beginText("rewind",64,TextEncoding::bytes,true,50000));
   e.tick(49999); TEST_ASSERT_EQUAL(int(EditOutcome::expired),int(e.outcome()));
+  TEST_ASSERT_TRUE(e.beginText("poll-rewind",64,TextEncoding::bytes,true,100000));
+  e.tick(110000); e.tick(109999);
+  TEST_ASSERT_EQUAL(int(EditOutcome::expired),int(e.outcome()));
 }
 static void integer_drafts_saturate_without_signed_overflow() {
   ValueEditor e; int64_t out;
