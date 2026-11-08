@@ -496,6 +496,7 @@ function startSocket() {
         somfy.loadSomfy();
         mqtt.loadMQTT();
         showStatus(proto.model.status);
+        firmware.refreshGitUpdate();
         if (first && ui.isConfigOpen()) subscribeConfigFeeds(true);
     });
     let lost = (refused) => {
@@ -4073,7 +4074,16 @@ class MQTT {
 var mqtt = new MQTT();
 class Firmware {
     initialized = false;
-    init() { this.initialized = true; }
+    init() {
+        this.initialized = true;
+        this.gitUpdate = new GitUpdateView({
+            document, fetch: (url, opts) => fetch(url, opts),
+            token: () => security.apiKey, confirm: (message) => window.confirm(message),
+            onUnauthorized: () => security.tokenRefused()
+        });
+        if (protoSynced) this.refreshGitUpdate();
+    }
+    refreshGitUpdate() { if (this.gitUpdate) this.gitUpdate.refresh(); }
     isMobile() {
         let agt = navigator.userAgent.toLowerCase();
         return /Android|iPhone|iPad|iPod|BlackBerry|BB|PlayBook|IEMobile|Windows Phone|Kindle|Silk|Opera Mini/i.test(navigator.userAgent);
@@ -4237,6 +4247,10 @@ class Firmware {
         if (this.isMobile()) document.getElementById('btnBackupCfg').style.display = 'inline-block';
     }
     updateApplication() {
+        if (this.gitUpdate && this.gitUpdate.snapshot && this.gitUpdate.snapshot.supported) {
+            ui.infoMessage('Filesystem changes require coherent provisioning during an approved service window. Web filesystem upload is disabled on this profile.');
+            return;
+        }
         let div = this.createFileUploader('/updateApplication');
         general.reloadApp = true;
         let inst = div.querySelector('div[id=divInstText]');

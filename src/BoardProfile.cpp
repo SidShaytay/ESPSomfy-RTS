@@ -1,11 +1,11 @@
 #include "BoardProfile.h"
 #include <SPI.h>
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS) || defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
 #include <driver/gpio.h>
 #endif
 
 namespace BoardProfile {
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS) || defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
 static bool initialized = false;
 
 static void output(uint8_t pin, uint8_t level) {
@@ -30,10 +30,14 @@ void begin() {
   output(power, HIGH);
   delay(10); // Conservative rail settling; no peripheral drivers are started.
   initialized = true;
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
   Serial.printf("Board: LILYGO T-Embed CC1101 Plus; flash=%u PSRAM=%u bytes\n",
+#else
+  Serial.printf("Board: LILYGO T-Embed CC1101; flash=%u PSRAM=%u bytes\n",
+#endif
     ESP.getFlashChipSize(), ESP.getPsramSize());
   Serial.println("Board power GPIO15=HIGH; RF SW1 GPIO47=HIGH SW0 GPIO48=HIGH (433 MHz path)");
-  Serial.println("Headless: display CS41/SD CS13/nRF24 CS44=HIGH; nRF24 CE43/backlight21=LOW");
+  Serial.println("Initial state: display CS41/SD CS13/nRF24 CS44=HIGH; nRF24 CE43/backlight21=LOW");
 }
 
 bool prepareRadio(float frequency) {
@@ -62,9 +66,9 @@ bool prepareRadio(float frequency) {
 bool usesPin(uint8_t pin) {
   // USB CDC and in-package flash/OPI PSRAM must never become relay outputs.
   return pin == 19 || pin == 20 || (pin >= 26 && pin <= 37) ||
-    pin == power || pin == sck || pin == mosi || pin == miso ||
+    pin == powerSDA || pin == powerSCL || pin == power || pin == sck || pin == mosi || pin == miso ||
     pin == cs || pin == tx || pin == rx || pin == sw1 || pin == sw0 ||
-    pin == displayCS || pin == sdCS || pin == nrfCS || pin == nrfCE || pin == backlight;
+    pin == backButton || pin == encoderA || pin == encoderB || pin == displayDC || pin == wakeButton || pin == displayCS || pin == sdCS || pin == nrfCS || pin == nrfCE || pin == backlight;
 }
 #else
 void begin() {}

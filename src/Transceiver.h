@@ -65,8 +65,11 @@ class Transceiver {
     bool transmitJob(somfy_tx_job_t &job);
     // Sends a job taken off the queue and leaves a frame beat after it.
     void runJob(somfy_tx_job_t &job);
+    bool updateResumeReceive = false;
   public:
     transceiver_config_t config;
+    // Nonblocking read-only LCD snapshot; outputs are unchanged if busy.
+    bool displayStatus(bool &ready, float &frequency) const;
     bool available() const { return _available.load(); }
     bool printBuffer = false;
     bool fromJSON(JsonObject& obj);
@@ -88,6 +91,10 @@ class Transceiver {
     void resumeTx(uint8_t reason);
     bool txSuspended();
     bool txHasRoom();
+    // loop() only: atomically stop RX admission with idle TX, no partial/queued
+    // RX and no repeater work. Failure leaves normal servicing untouched.
+    bool suspendForUpdateIfIdle();
+    void resumeAfterUpdatePreparation();
     void beginTransmit();
     void endTransmit();
     void emitFrame(somfy_frame_t *frame, somfy_rx_t *rx = nullptr);

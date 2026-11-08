@@ -12,9 +12,39 @@ SOURCE = Path(__file__).resolve().parent.parent
 class ProfileTests(unittest.TestCase):
     def test_only_psram_release_profiles_are_enabled(self):
         profiles = p.supported_profiles(SOURCE)
-        self.assertEqual(set(profiles), {'lilygo-t-embed-cc1101-plus', 'lilygo-t-embed-cc1101', 'esp32s3-psram', 'esp32p4-psram', 'esp32p4es-psram', 'esp32c5-psram'})
+        self.assertEqual(set(profiles), {'lilygo-t-embed-cc1101-plus', 'lilygo-t-embed-cc1101', 'esp32s3-psram', 'esp32p4-psram', 'esp32p4es-psram', 'esp32c5-psram', 'lilygo-t-embed-cc1101-plus-display', 'lilygo-t-embed-cc1101-plus-ui', 'lilygo-t-embed-cc1101-plus-ui-preview'})
         for env in ('esp32dev', 'esp32s3', 'esp32s3dbg', 'esp32c3', 'esp32c5', 'esp32c6', 'esp32p4', 'esp32p4es', 'native'):
             self.assertIsNone(p.load_profile(SOURCE, env))
+
+    def test_plus_variants_declare_distinct_display_and_command_capabilities(self):
+        expected = {
+            'lilygo-t-embed-cc1101-plus': (False, False, False),
+            'lilygo-t-embed-cc1101-plus-display': (True, False, False),
+            'lilygo-t-embed-cc1101-plus-ui': (True, True, True),
+            'lilygo-t-embed-cc1101-plus-ui-preview': (True, True, False),
+        }
+        switches = ('ESPSOMFY_STATUS_DISPLAY', 'ESPSOMFY_LOCAL_UI', 'ESPSOMFY_LOCAL_COMMANDS')
+        for environment, enabled in expected.items():
+            with self.subTest(environment=environment):
+                profile = p.load_profile(SOURCE, environment)
+                self.assertEqual(profile['board'], environment)
+                self.assertIn('ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS', profile['required_defines'])
+                for flag, active in zip(switches, enabled):
+                    self.assertIn(flag, profile['required_defines'] if active else profile['forbidden_defines'])
+                if enabled[0]:
+                    self.assertIn('adafruit/Adafruit GFX Library@1.12.1', profile['build_settings']['lib_deps'])
+                    self.assertIn('adafruit/Adafruit BusIO@1.17.4', profile['build_settings']['lib_deps'])
+
+    def test_capability_policy_must_be_complete_and_unambiguous(self):
+        profile = p.load_profile(SOURCE, 'lilygo-t-embed-cc1101-plus')
+        incomplete = copy.deepcopy(profile)
+        incomplete['forbidden_defines'] = []
+        with self.assertRaisesRegex(ValueError, 'feature'):
+            p.validate_profile(incomplete)
+        contradictory = copy.deepcopy(profile)
+        contradictory['required_defines']['ESPSOMFY_LOCAL_COMMANDS'] = ''
+        with self.assertRaisesRegex(ValueError, 'feature'):
+            p.validate_profile(contradictory)
 
     def test_standard_lilygo_and_plus_have_distinct_board_ids(self):
         plus = p.load_profile(SOURCE, 'lilygo-t-embed-cc1101-plus')
@@ -27,7 +57,7 @@ class ProfileTests(unittest.TestCase):
     def test_p4_release_profiles_are_explicit_layout_opt_ins(self):
         for env, flash, app_bytes, app1, fs_address in (
                 ('esp32p4-psram', 0x1000000, 0x330000, 0x340000, 0x670000),
-                ('esp32p4es-psram', 0x400000, 0x1b0000, 0x1c0000, 0x370000)):
+                ('esp32p4es-psram', 0x400000, 0x1c0000, 0x1d0000, 0x390000)):
             profile = p.load_profile(SOURCE, env)
             self.assertEqual(profile['flash_bytes'], flash)
             self.assertEqual(profile['app_bytes'], app_bytes)

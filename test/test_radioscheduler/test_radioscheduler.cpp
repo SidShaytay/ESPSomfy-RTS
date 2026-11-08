@@ -471,10 +471,27 @@ static void test_repeater_frame_doesnt_hold_back_a_stop() {
   discardEvents(s);
 }
 
+static void test_update_quiesce_waits_for_jobs_and_outcomes() {
+  RadioScheduler s;
+  TEST_ASSERT_TRUE(s.idle());
+  submit(s, REMOTE_A);
+  TEST_ASSERT_FALSE(s.idle());
+  somfy_tx_job_t job;
+  uint32_t wait;
+  TEST_ASSERT_TRUE(s.next(0, job, wait));
+  TEST_ASSERT_FALSE(s.idle());
+  TEST_ASSERT_TRUE(s.start(job.ticket, 0));
+  s.ended(job.ticket, true, 100);
+  TEST_ASSERT_FALSE(s.idle());
+  discardEvents(s);
+  TEST_ASSERT_TRUE(s.idle());
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_update_quiesce_waits_for_jobs_and_outcomes);
   RUN_TEST(test_jobs_go_out_in_the_order_they_came);
   RUN_TEST(test_tickets_are_distinct_and_set_in_the_job);
   RUN_TEST(test_nothing_waiting_sleeps_until_woken);

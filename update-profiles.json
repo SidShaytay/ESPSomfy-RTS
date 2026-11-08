@@ -25,8 +25,24 @@
         "board_build.f_flash": "80000000L",
         "board_build.arduino.memory_type": "qio_opi",
         "board_build.psram_type": "opi",
-        "board_upload.flash_size": "16MB"
-      }
+        "board_upload.flash_size": "16MB",
+        "lib_deps": [
+          "bblanchon/ArduinoJson@7.4.3",
+          "knolleary/PubSubClient@2.8",
+          "esp32async/ESPAsyncWebServer@3.12.1",
+          "esp32async/AsyncTCP@3.5.0"
+        ]
+      },
+      "required_defines": {
+        "ESPSOMFY_GITHUB_UPDATES": "",
+        "ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS": ""
+      },
+      "forbidden_defines": [
+        "ESPSOMFY_LILYGO_T_EMBED_CC1101",
+        "ESPSOMFY_STATUS_DISPLAY",
+        "ESPSOMFY_LOCAL_UI",
+        "ESPSOMFY_LOCAL_COMMANDS"
+      ]
     },
     "lilygo-t-embed-cc1101": {
       "board": "lilygo-t-embed-cc1101",
@@ -52,8 +68,24 @@
         "board_build.f_flash": "80000000L",
         "board_build.arduino.memory_type": "qio_opi",
         "board_build.psram_type": "opi",
-        "board_upload.flash_size": "16MB"
-      }
+        "board_upload.flash_size": "16MB",
+        "lib_deps": [
+          "bblanchon/ArduinoJson@7.4.3",
+          "knolleary/PubSubClient@2.8",
+          "esp32async/ESPAsyncWebServer@3.12.1",
+          "esp32async/AsyncTCP@3.5.0"
+        ]
+      },
+      "required_defines": {
+        "ESPSOMFY_GITHUB_UPDATES": "",
+        "ESPSOMFY_LILYGO_T_EMBED_CC1101": ""
+      },
+      "forbidden_defines": [
+        "ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS",
+        "ESPSOMFY_STATUS_DISPLAY",
+        "ESPSOMFY_LOCAL_UI",
+        "ESPSOMFY_LOCAL_COMMANDS"
+      ]
     },
     "esp32s3-psram": {
       "board": "esp32s3-psram",
@@ -79,8 +111,24 @@
         "board_build.f_flash": "80000000L",
         "board_build.arduino.memory_type": "qio_opi",
         "board_build.psram_type": "opi",
-        "board_upload.flash_size": "16MB"
-      }
+        "board_upload.flash_size": "16MB",
+        "lib_deps": [
+          "bblanchon/ArduinoJson@7.4.3",
+          "knolleary/PubSubClient@2.8",
+          "esp32async/ESPAsyncWebServer@3.12.1",
+          "esp32async/AsyncTCP@3.5.0"
+        ]
+      },
+      "required_defines": {
+        "ESPSOMFY_GITHUB_UPDATES": ""
+      },
+      "forbidden_defines": [
+        "ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS",
+        "ESPSOMFY_LILYGO_T_EMBED_CC1101",
+        "ESPSOMFY_STATUS_DISPLAY",
+        "ESPSOMFY_LOCAL_UI",
+        "ESPSOMFY_LOCAL_COMMANDS"
+      ]
     },
     "esp32c5-psram": {
       "board": "esp32c5-psram",
@@ -106,8 +154,24 @@
         "board_build.f_flash": "80000000L",
         "board_build.arduino.memory_type": "qio_qspi",
         "board_build.psram_type": "qspi",
-        "board_upload.flash_size": "8MB"
-      }
+        "board_upload.flash_size": "8MB",
+        "lib_deps": [
+          "bblanchon/ArduinoJson@7.4.3",
+          "knolleary/PubSubClient@2.8",
+          "esp32async/ESPAsyncWebServer@3.12.1",
+          "esp32async/AsyncTCP@3.5.0"
+        ]
+      },
+      "required_defines": {
+        "ESPSOMFY_GITHUB_UPDATES": ""
+      },
+      "forbidden_defines": [
+        "ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS",
+        "ESPSOMFY_LILYGO_T_EMBED_CC1101",
+        "ESPSOMFY_STATUS_DISPLAY",
+        "ESPSOMFY_LOCAL_UI",
+        "ESPSOMFY_LOCAL_COMMANDS"
+      ]
     },
     "esp32p4-psram": {
       "board": "esp32p4-psram",
@@ -133,8 +197,24 @@
         "board_build.f_flash": "80000000L",
         "board_build.arduino.memory_type": "qio_qspi",
         "board_build.psram_type": "qspi",
-        "board_upload.flash_size": "16MB"
-      }
+        "board_upload.flash_size": "16MB",
+        "lib_deps": [
+          "bblanchon/ArduinoJson@7.4.3",
+          "knolleary/PubSubClient@2.8",
+          "esp32async/ESPAsyncWebServer@3.12.1",
+          "esp32async/AsyncTCP@3.5.0"
+        ]
+      },
+      "required_defines": {
+        "ESPSOMFY_GITHUB_UPDATES": ""
+      },
+      "forbidden_defines": [
+        "ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS",
+        "ESPSOMFY_LILYGO_T_EMBED_CC1101",
+        "ESPSOMFY_STATUS_DISPLAY",
+        "ESPSOMFY_LOCAL_UI",
+        "ESPSOMFY_LOCAL_COMMANDS"
+      ]
     },
     "esp32p4es-psram": {
       "board": "esp32p4es-psram",
@@ -145,11 +225,11 @@
       "flash_bytes": 4194304,
       "psram_bytes": 8388608,
       "bootloader_address": 8192,
-      "app_bytes": 1769472,
+      "app_bytes": 1835008,
       "app0_address": 65536,
-      "app1_address": 1835008,
-      "fs_address": 3604480,
-      "fs_bytes": 524288,
+      "app1_address": 1900544,
+      "fs_address": 3735552,
+      "fs_bytes": 393216,
       "nvs_address": 36864,
       "nvs_bytes": 20480,
       "build_settings": {
@@ -160,8 +240,159 @@
         "board_build.f_flash": "80000000L",
         "board_build.arduino.memory_type": "qio_qspi",
         "board_build.psram_type": "qspi",
-        "board_upload.flash_size": "4MB"
-      }
+        "board_upload.flash_size": "4MB",
+        "lib_deps": [
+          "bblanchon/ArduinoJson@7.4.3",
+          "knolleary/PubSubClient@2.8",
+          "esp32async/ESPAsyncWebServer@3.12.1",
+          "esp32async/AsyncTCP@3.5.0"
+        ]
+      },
+      "required_defines": {
+        "ESPSOMFY_GITHUB_UPDATES": ""
+      },
+      "forbidden_defines": [
+        "ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS",
+        "ESPSOMFY_LILYGO_T_EMBED_CC1101",
+        "ESPSOMFY_STATUS_DISPLAY",
+        "ESPSOMFY_LOCAL_UI",
+        "ESPSOMFY_LOCAL_COMMANDS"
+      ]
+    },
+    "lilygo-t-embed-cc1101-plus-display": {
+      "board": "lilygo-t-embed-cc1101-plus-display",
+      "layout": "default_8MB",
+      "chip": "esp32s3",
+      "chip_id": 9,
+      "sdk_memory": "qio_opi",
+      "flash_bytes": 16777216,
+      "psram_bytes": 8388608,
+      "bootloader_address": 0,
+      "app_bytes": 3342336,
+      "app0_address": 65536,
+      "app1_address": 3407872,
+      "fs_address": 6750208,
+      "fs_bytes": 1572864,
+      "nvs_address": 36864,
+      "nvs_bytes": 20480,
+      "build_settings": {
+        "board": "esp32-s3-devkitc1-n16r8",
+        "build_type": "release",
+        "board_build.partitions": "default_8MB.csv",
+        "board_build.flash_mode": "qio",
+        "board_build.f_flash": "80000000L",
+        "board_build.arduino.memory_type": "qio_opi",
+        "board_build.psram_type": "opi",
+        "board_upload.flash_size": "16MB",
+        "lib_deps": [
+          "bblanchon/ArduinoJson@7.4.3",
+          "knolleary/PubSubClient@2.8",
+          "esp32async/ESPAsyncWebServer@3.12.1",
+          "esp32async/AsyncTCP@3.5.0",
+          "adafruit/Adafruit GFX Library@1.12.1",
+          "adafruit/Adafruit BusIO@1.17.4"
+        ]
+      },
+      "required_defines": {
+        "ESPSOMFY_GITHUB_UPDATES": "",
+        "ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS": "",
+        "ESPSOMFY_STATUS_DISPLAY": ""
+      },
+      "forbidden_defines": [
+        "ESPSOMFY_LILYGO_T_EMBED_CC1101",
+        "ESPSOMFY_LOCAL_UI",
+        "ESPSOMFY_LOCAL_COMMANDS"
+      ]
+    },
+    "lilygo-t-embed-cc1101-plus-ui": {
+      "board": "lilygo-t-embed-cc1101-plus-ui",
+      "layout": "default_8MB",
+      "chip": "esp32s3",
+      "chip_id": 9,
+      "sdk_memory": "qio_opi",
+      "flash_bytes": 16777216,
+      "psram_bytes": 8388608,
+      "bootloader_address": 0,
+      "app_bytes": 3342336,
+      "app0_address": 65536,
+      "app1_address": 3407872,
+      "fs_address": 6750208,
+      "fs_bytes": 1572864,
+      "nvs_address": 36864,
+      "nvs_bytes": 20480,
+      "build_settings": {
+        "board": "esp32-s3-devkitc1-n16r8",
+        "build_type": "release",
+        "board_build.partitions": "default_8MB.csv",
+        "board_build.flash_mode": "qio",
+        "board_build.f_flash": "80000000L",
+        "board_build.arduino.memory_type": "qio_opi",
+        "board_build.psram_type": "opi",
+        "board_upload.flash_size": "16MB",
+        "lib_deps": [
+          "bblanchon/ArduinoJson@7.4.3",
+          "knolleary/PubSubClient@2.8",
+          "esp32async/ESPAsyncWebServer@3.12.1",
+          "esp32async/AsyncTCP@3.5.0",
+          "adafruit/Adafruit GFX Library@1.12.1",
+          "adafruit/Adafruit BusIO@1.17.4"
+        ]
+      },
+      "required_defines": {
+        "ESPSOMFY_GITHUB_UPDATES": "",
+        "ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS": "",
+        "ESPSOMFY_STATUS_DISPLAY": "",
+        "ESPSOMFY_LOCAL_UI": "",
+        "ESPSOMFY_LOCAL_COMMANDS": ""
+      },
+      "forbidden_defines": [
+        "ESPSOMFY_LILYGO_T_EMBED_CC1101"
+      ]
+    },
+    "lilygo-t-embed-cc1101-plus-ui-preview": {
+      "board": "lilygo-t-embed-cc1101-plus-ui-preview",
+      "layout": "default_8MB",
+      "chip": "esp32s3",
+      "chip_id": 9,
+      "sdk_memory": "qio_opi",
+      "flash_bytes": 16777216,
+      "psram_bytes": 8388608,
+      "bootloader_address": 0,
+      "app_bytes": 3342336,
+      "app0_address": 65536,
+      "app1_address": 3407872,
+      "fs_address": 6750208,
+      "fs_bytes": 1572864,
+      "nvs_address": 36864,
+      "nvs_bytes": 20480,
+      "build_settings": {
+        "board": "esp32-s3-devkitc1-n16r8",
+        "build_type": "release",
+        "board_build.partitions": "default_8MB.csv",
+        "board_build.flash_mode": "qio",
+        "board_build.f_flash": "80000000L",
+        "board_build.arduino.memory_type": "qio_opi",
+        "board_build.psram_type": "opi",
+        "board_upload.flash_size": "16MB",
+        "lib_deps": [
+          "bblanchon/ArduinoJson@7.4.3",
+          "knolleary/PubSubClient@2.8",
+          "esp32async/ESPAsyncWebServer@3.12.1",
+          "esp32async/AsyncTCP@3.5.0",
+          "adafruit/Adafruit GFX Library@1.12.1",
+          "adafruit/Adafruit BusIO@1.17.4"
+        ]
+      },
+      "required_defines": {
+        "ESPSOMFY_GITHUB_UPDATES": "",
+        "ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS": "",
+        "ESPSOMFY_STATUS_DISPLAY": "",
+        "ESPSOMFY_LOCAL_UI": ""
+      },
+      "forbidden_defines": [
+        "ESPSOMFY_LILYGO_T_EMBED_CC1101",
+        "ESPSOMFY_LOCAL_COMMANDS"
+      ]
     }
   }
 }

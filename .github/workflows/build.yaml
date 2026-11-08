@@ -236,6 +236,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0 # PSRAM release identity verifies the pinned baseline
 
       # The release job commits the same change once all the builds pass.
       - name: Update version from release tag
