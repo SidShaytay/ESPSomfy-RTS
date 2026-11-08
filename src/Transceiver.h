@@ -45,6 +45,8 @@ struct transceiver_config_t {
     bool noiseDetection = false;      // Disable RX interrupt when RF noise is detected (>100 pulses/10s)
     void fromJSON(JsonObject& obj);
     settings_save_result_t save();
+    // Persistence-only reconciliation: preserve the stored init safety marker.
+    settings_save_result_t savePreservingInit();
     void load();
     void apply();
     void applyBoardPins();

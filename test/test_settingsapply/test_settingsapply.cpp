@@ -3,6 +3,7 @@
 #include <string>
 #include "SettingsApply.h"
 #include "SettingsRevisions.h"
+#include "SettingsDurability.h"
 
 class Effects : public SettingsEffects {
 public:
@@ -23,9 +24,9 @@ public:
   void hostnameChanged() override { hostnames++; }
   void timeChanged() override { times++; }
   void mqttChanged() override { mqtt++; }
-  settings_save_result_t saveRadio(JsonObject) override { radio++; return radioResult; }
+  settings_save_result_t saveRadio(JsonObject) override { radio++; settingsDurability().fullSave(SettingsNamespace::radio,radioResult);return radioResult; }
 };
-void setUp() { FakeNvs::reset(); }
+void setUp() { FakeNvs::reset();settingsDurability()=SettingsDurability{}; }
 void tearDown() { TEST_ASSERT_TRUE(FakeNvs::handles.empty()); }
 static settings_apply_result_t apply(ConfigSettings &settings, settings_section_t section, const char *fields, Effects &effects) {
   JsonDocument request;
@@ -289,8 +290,28 @@ static void test_unchanged_legacy_credentials_are_preserved_but_new_active_chang
   TEST_ASSERT_EQUAL(settings_apply_refusal_t::usernameRequired,refused.refusal);
   TEST_ASSERT_TRUE(apply(settings,settings_section_t::security,R"({"username":"fixed","password":"fixed"})",effects).saved());
 }
+static void test_composite_failure_remarks_earlier_full_draft_namespace() {
+  ConfigSettings current;Effects effects;
+  settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::cfg));
+  FakeNvs::failOpen=2;
+  const auto result=apply(current,settings_section_t::general,R"({"hostname":"staged","ntpServer":"new.clock"})",effects);
+  TEST_ASSERT_FALSE(result.saved());
+  TEST_ASSERT_EQUAL_UINT8(settingsNamespaceBit(SettingsNamespace::cfg),settingsDurability().status().uncertain);
+  TEST_ASSERT_EQUAL(0,effects.completions);
+}
+static void test_unrelated_success_reports_saved_but_restart_blocked_before_completion() {
+  ConfigSettings current;current.connType=conn_types_t::wifi;Effects effects;
+  settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::security));
+  const auto result=apply(current,settings_section_t::network,R"({"connType":2})",effects);
+  TEST_ASSERT_TRUE(result.saved());TEST_ASSERT_TRUE(result.restartBlocked);
+  TEST_ASSERT_FALSE(result.reboot);TEST_ASSERT_FALSE(effects.completedReboot);
+  TEST_ASSERT_EQUAL(1,effects.completions);
+  TEST_ASSERT_EQUAL_UINT8(settingsNamespaceBit(SettingsNamespace::security),settingsDurability().status().uncertain);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_composite_failure_remarks_earlier_full_draft_namespace);
+  RUN_TEST(test_unrelated_success_reports_saved_but_restart_blocked_before_completion);
   RUN_TEST(test_connection_change_reboots_only_after_verified_save);
   RUN_TEST(test_partial_multisection_save_does_not_apply_runtime_changes);
   RUN_TEST(test_success_applies_requested_sections_once_without_cross_section_aliases);

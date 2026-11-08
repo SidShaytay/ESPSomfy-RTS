@@ -1,8 +1,9 @@
 #include <unity.h>
 #include <nvs.h>
 #include "ConfigSettings.h"
+#include "SettingsDurability.h"
 #include "Transceiver.h"
-void setUp() { FakeNvs::reset(); }
+void setUp() { FakeNvs::reset();settingsDurability()=SettingsDurability{}; }
 void tearDown() { TEST_ASSERT_TRUE(FakeNvs::handles.empty()); }
 static void test_open_failure_is_not_saved() {
   FakeNvs::failOpen=1;
@@ -113,8 +114,21 @@ static void test_existing_key_types_are_preserved() {
   TEST_ASSERT_EQUAL(FakeNvs::Type::u8,FakeNvs::values.at("CC1101/type").type);
   TEST_ASSERT_EQUAL(FakeNvs::Type::blob,FakeNvs::values.at("CC1101/frequency").type);
 }
+static void test_partial_write_blocks_restart_until_that_full_namespace_is_verified() {
+  WifiSettings wifi;
+  FakeNvs::failCommit=1;
+  TEST_ASSERT_FALSE(wifi.save().saved());
+  TEST_ASSERT_FALSE(settingsDurability().status().restartAllowed());
+  TEST_ASSERT_EQUAL_UINT8(settingsNamespaceBit(SettingsNamespace::wifi),settingsDurability().status().uncertain);
+  FakeNvs::failCommit=0;
+  MQTTSettings mqtt;TEST_ASSERT_TRUE(mqtt.save().saved());
+  TEST_ASSERT_FALSE(settingsDurability().status().restartAllowed());
+  TEST_ASSERT_TRUE(wifi.save().saved());
+  TEST_ASSERT_TRUE(settingsDurability().status().restartAllowed());
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_partial_write_blocks_restart_until_that_full_namespace_is_verified);
   RUN_TEST(test_open_failure_is_not_saved);
   RUN_TEST(test_first_write_failure_is_not_saved);
   RUN_TEST(test_commit_failure_is_partial_even_for_empty_string);
