@@ -10,6 +10,16 @@
 #include <map>
 #include "DeviceOps.h"
 #include "LoopQueue.h"
+namespace LocalUi {
+struct RuntimeTestAccess {
+  static uint16_t *losePixels(Runtime &ui) {auto *pixels=ui.memory.pixels;ui.memory.pixels=nullptr;return pixels;}
+  static void restorePixels(Runtime &ui,uint16_t *pixels) {ui.memory.pixels=pixels;}
+  static const View &view(const Runtime &ui) {return ui.controller.view();}
+  static bool noPresentation(const Runtime &ui) {
+    return !ui.hasPresented && !ui.presentedSettingsValid && !ui.stopPresentedToken && !ui.validBands;
+  }
+};
+}
 bool hasPsram=true,allocateOK=true;
 void *allocated=nullptr;
 bool settingsAllocateOK=true;
@@ -181,6 +191,47 @@ int main(int argc,char **argv){
   testNow+=21000;authTestNow=testNow;settingsUi.tick(testNow,status,false,send,light);idle();
   assert(Settings::runtimeMemory().used()==0 && settingsAllocations.empty() && lastQuery.screen==Screen::status);
   assert(submitted.size()==rfBeforeSettings);
+  // Inject loss after an active draft, rather than only startup allocation failure.
+  click();idle();rotate(1);idle();for(unsigned i=0;i<3;i++){rotate(1);idle();}click();idle();
+  assert(lastQuery.screen==Screen::settings);click();idle();rotate(1);idle();click();idle();
+  rotate(1);idle();click();idle();rotate(1);idle();click();idle();
+  assert(Settings::runtimeMemory().used()>0);
+  auto *savedPixels=RuntimeTestAccess::losePixels(settingsUi);
+  const auto locksBeforeLoss=locks;
+  assert(!settingsUi.tick(testNow,status,true,send,light));
+  assert(locks==locksBeforeLoss+1 && Settings::runtimeMemory().used()==0 && settingsAllocations.empty());
+  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status && RuntimeTestAccess::noPresentation(settingsUi));
+  for(unsigned i=0;i<3;i++) assert(!settingsUi.tick(++testNow,status,true,send,light));
+  assert(locks==locksBeforeLoss+1); // No repeated authorization generation churn.
+  RuntimeTestAccess::restorePixels(settingsUi,savedPixels);busBusy=true;
+  assert(settingsUi.tick(testNow,status,true,send,light) && captureProtected);
+  testNow+=1000;authTestNow=testNow;settingsUi.tick(testNow,status,true,send,light);
+  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status);
+  assert(RuntimeTestAccess::noPresentation(settingsUi) && captureProtected);
+  busBusy=false;tick(false);idle();assert(!captureProtected);
+  // An old presented target and its queued start cannot survive resource loss.
+  rotate(1);idle();rotate(1);idle();click();idle();click();idle();
+  assert(lastQuery.screen==Screen::control && lastQuery.openedToken);
+  Command old{lastQuery.entity,lastQuery.openedToken,Action::up};
+  old.authGeneration=pollAuthorization().generation;
+  const auto beforeGraphicsCommand=submitted.size();
+  somfy.transceiver.room=false;rotate(-1);idle();click();assert(localControlPending());
+  const auto oldIntentToken=lastLocalToken;
+  savedPixels=RuntimeTestAccess::losePixels(settingsUi);
+  assert(!settingsUi.tick(testNow,status,false,send,light));
+  assert(!localControlPending() && submitted.size()==beforeGraphicsCommand);
+  old.authGeneration=pollAuthorization().generation;
+  assert(dispatch(old)==DispatchResult::stale);
+  RuntimeTestAccess::restorePixels(settingsUi,savedPixels);somfy.transceiver.room=true;
+  idle();assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status);
+  assert(RuntimeTestAccess::view(settingsUi).notice==Notice::none && !captureProtected);
+  rotate(1);idle();rotate(1);idle();click();idle();click();idle();
+  assert(lastQuery.openedToken>old.token);
+  old.authGeneration=pollAuthorization().generation;
+  assert(dispatch(old)==DispatchResult::stale && submitted.size()==beforeGraphicsCommand);
+  somfy.transceiver.room=false;rotate(-1);idle();click();
+  assert(localControlPending() && lastLocalToken>oldIntentToken);
+  back();somfy.transceiver.room=true;idle();assert(!localControlPending() && submitted.size()==beforeGraphicsCommand);
   free(allocated);allocated=nullptr;hasPsram=false;
   Runtime missing;missing.begin();assert(missing.failure()==GraphicsFailure::missing && !missing.tick(testNow,status,false,send,light));
   hasPsram=true;allocateOK=false;Runtime failed;failed.begin();assert(failed.failure()==GraphicsFailure::allocation && !failed.tick(testNow,status,false,send,light));
