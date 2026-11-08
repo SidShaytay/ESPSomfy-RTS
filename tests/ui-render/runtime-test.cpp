@@ -307,6 +307,24 @@ int main(int argc,char **argv){
   click();idle();assert(RuntimeTestAccess::administration(settingsUi).id==1);
   back();idle();back();idle();assert(lastQuery.screen==Screen::home);
   assert(Settings::runtimeMemory().used()==0 && submitted.size()==beforeGraphicsCommand);
+  rotate(-1);idle();click();idle();assert(lastQuery.screen==Screen::status);
+  auto openRoomDraft=[&] {
+    rotate(1);idle();for(unsigned i=0;i<administrationHomeIndex;i++){rotate(1);idle();}
+    click();idle();click();idle();rotate(1);idle();click();idle();
+    assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Edit Room 12"));
+    rotate(1);idle();click();idle();rotate(1);idle();click();idle();rotate(-1);idle();click();idle();
+    assert(Settings::runtimeMemory().used()>0 && entityEdits==3);
+  };
+  openRoomDraft();savedPixels=RuntimeTestAccess::losePixels(settingsUi);
+  assert(!settingsUi.tick(testNow,status,false,send,light));
+  assert(Settings::runtimeMemory().used()==0 && settingsAllocations.empty() && entityEdits==3);
+  RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();
+  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status && !captureProtected);
+  openRoomDraft();testNow+=21000;authTestNow=testNow;
+  settingsUi.tick(testNow,status,false,send,light);
+  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status);
+  assert(Settings::runtimeMemory().used()==0 && settingsAllocations.empty() && entityEdits==3);
+  assert(somfy.getRoomById(12)->sortOrder==1 && submitted.size()==beforeGraphicsCommand);
   free(allocated);allocated=nullptr;hasPsram=false;
   Runtime missing;missing.begin();assert(missing.failure()==GraphicsFailure::missing && !missing.tick(testNow,status,false,send,light));
   hasPsram=true;allocateOK=false;Runtime failed;failed.begin();assert(failed.failure()==GraphicsFailure::allocation && !failed.tick(testNow,status,false,send,light));
