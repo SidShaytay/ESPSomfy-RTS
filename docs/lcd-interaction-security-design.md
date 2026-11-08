@@ -46,6 +46,12 @@ See the [capability matrix](lcd-web-capability-matrix.md) for operation coverage
   Preserve that fix and its tests when integrating, rather than restoring the old
   per-member-only behavior from the fetched tree. Actual motor stopping has not
   been hardware-qualified by this design.
+- `DeviceOps.cpp` currently mutates settings and ignores multiple persistence return
+  values before replying success; `runDeviceOp` is socket orchestration, not a reusable
+  transactional save API. LCD administration needs a shared typed save result and
+  verified transaction/rollback semantics (or an explicit partial-failure outcome)
+  before it can claim that settings were saved. Add injected persistence-failure
+  tests; do not merely reuse the current success reply.
 - Main's firmware/application upload routes begin writing on the first allowed
   upload chunk; `/restore` stages `/shades.tmp` but applies after upload completion.
   There is no LCD stage/review/apply session yet. GitHub updating is absent on this
@@ -231,7 +237,8 @@ and replaced staging must clean up without applying. Fixed staging ownership pre
 another client from substituting a file between approval and commit. Cancellation stops
 only staging, and never claims to undo an update/restore that already committed.
 
-Backups expose credentials/identities/counters and need the same transfer authorization;
+Current backups omit password/PIN/Wi-Fi passphrase values but expose identifiers,
+configuration and rolling counters, and need the same transfer authorization;
 the companion downloads through the authenticated transport, not a public static path.
 Restoring old rolling codes is unsafe: apply the preservation/recovery rules in
 [flashing](flashing.md) and issue #9, validate compatibility and counter policy, and fail
