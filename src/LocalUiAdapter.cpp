@@ -49,7 +49,8 @@ void authorizeModel(Model &m) {
   m.authMode=security.mode; m.authorized=security.allowed;
   m.authGeneration=security.generation; m.authConfigurationGeneration=security.configurationGeneration;
   m.retryAfterMs=security.retryAfterMs;
-  if(security.allowed) leaseTarget=controlFocus;
+  // Leaving controls for an ordinary menu does not select a different RF target.
+  if(security.allowed && controlFocus<3) leaseTarget=controlFocus;
   else if(controlFocus<3 && controlFocus!=leaseTarget) leaseTarget=255;
   for(uint8_t selected=0;selected<3;selected++) {
     StopContext context;

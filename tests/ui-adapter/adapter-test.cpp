@@ -167,6 +167,19 @@ int main() {
   assert(submitted.size()==focusExpiry); // expiry does not send STOP itself
   assert(!dispatch(command(1,Action::stop))); // another moving, never-focused target is not authorized
   assert(submitted.size()==focusExpiry);
+  security.allowed=true; security.expired=false; security.generation=10;
+  focusAuthorizationTarget(0); snapshotModel(true);
+  focusAuthorizationTarget(255); snapshotModel(true); // ordinary menu is not another target
+  security.allowed=false; security.expired=true; security.generation=11;
+  const auto menuExpiry=submitted.size();
+  const auto inMenu=snapshotModel(true);
+  assert(inMenu.targets[0].stopLease && !inMenu.targets[1].stopLease);
+  assert(submitted.size()==menuExpiry);
+  assert(dispatch(command(0,Action::stop))); // return to same target keeps reachable STOP
+  somfy.shades[0].idle=true; focusAuthorizationTarget(255); snapshotModel(true);
+  somfy.shades[0].idle=false;
+  assert(!dispatch(command(0,Action::stop))); // idle in menu ends lease permanently
+  assert(!dispatch(command(1,Action::stop)));
   assert(submitted.size()>=expired);
   puts("Production UI adapter: shutter/all-category eligibility, dispatch and identity/STOP checks passed");
 }
