@@ -75,7 +75,7 @@ bool SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
       SomfyShade *shade = somfy.getShadeById(this->linkedShades[i]);
       if(shade) {
         ESP_LOGI(TAG, "[Group %u] processInternalCommand on shade %u cmd=%s", this->getGroupId(), shade->getShadeId(), translateSomfyCommand(cmd).c_str());
-        shade->processInternalCommand(cmd, repeat);
+        shade->processInternalCommand(cmd, repeat, stepSize);
         shade->emitCommand(cmd, "group", this->getRemoteAddress());
       }
     }

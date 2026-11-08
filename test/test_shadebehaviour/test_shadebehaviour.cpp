@@ -545,6 +545,25 @@ static void test_group_down_and_step() {
   s.b.onGroupCommand(somfy_commands::StepDown, 1, s.now);
   ASSERT_POS(51, s.st().target);
 }
+static void test_group_step_preserves_transmitted_size_for_member_estimates() {
+  for(auto cmd : {somfy_commands::StepUp, somfy_commands::StepDown}) {
+    for(uint8_t steps : {uint8_t(0), uint8_t(1), uint8_t(3), uint8_t(127)}) {
+      for(auto tilt : {tilt_types::none, tilt_types::integrated, tilt_types::tiltonly}) {
+        Rig group, member, individual;
+        group.remote.bitLength=member.remote.bitLength=individual.remote.bitLength=80;
+        member.settings.tiltType=individual.settings.tiltType=tilt;
+        member.b.restore(50,50,-1,-1); individual.b.restore(50,50,-1,-1);
+        TEST_ASSERT_TRUE(group.link.send(cmd,1,steps,0,false).sent);
+        TEST_ASSERT_EQUAL(steps,group.lastSent().stepSize);
+        individual.b.sendCommand(cmd,1,steps,individual.now);
+        member.b.onGroupCommand(group.lastFrame.cmd,group.lastFrame.repeats,member.now,group.lastFrame.stepSize);
+        ASSERT_POS(individual.st().target,member.st().target);
+        ASSERT_POS(individual.st().tiltTarget,member.st().tiltTarget);
+        TEST_ASSERT_EQUAL(0,member.link.sent.size()); // no second member RF frame
+      }
+    }
+  }
+}
 static void test_group_sun_flag_needs_a_sensor() {
   Rig r;
   r.b.onGroupCommand(somfy_commands::SunFlag, 1, r.now);
@@ -673,6 +692,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_today_integrated_tilt_turns_back_after_a_lift_target);
   RUN_TEST(test_tilt_only_lift_stays_down_whatever_the_source);
   RUN_TEST(test_group_down_and_step);
+  RUN_TEST(test_group_step_preserves_transmitted_size_for_member_estimates);
   RUN_TEST(test_group_sun_flag_needs_a_sensor);
   RUN_TEST(test_set_favorite_here_is_committed_when_all_on_air);
   RUN_TEST(test_set_favorite_dropped_keeps_the_old_one);
