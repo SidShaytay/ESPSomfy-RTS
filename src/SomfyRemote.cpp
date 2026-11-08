@@ -11,6 +11,7 @@ void SomfyRemote::setRemoteAddress(uint32_t address) { this->m_remoteAddress = a
 uint32_t SomfyRemote::getRemoteAddress() { return this->m_remoteAddress; }
 somfy_commands SomfyRemote::transformCommand(somfy_commands cmd) { return this->flipCommands ? flipCommand(cmd) : cmd; }
 bool SomfyRemote::sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repeat) {
+  if(this->proto==radio_proto::GP_Remote || this->proto==radio_proto::GP_Relay) return false;
   uint8_t flags = (this->getFlags() >> 4) & 0x0F;
   if(isWindy > 0) flags |= 0x01;
   if(isSunny > 0) flags |= 0x02;
@@ -38,6 +39,8 @@ bool SomfyRemote::sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repe
 bool SomfyRemote::sendCommand(somfy_commands cmd) { return this->sendCommand(cmd, this->repeats); }
 bool SomfyRemote::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) { return this->sendCommandAfter(cmd, repeat, stepSize, 0).sent; }
 send_result_t SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority, bool hearsItself) {
+  if((this->proto==radio_proto::GP_Remote || this->proto==radio_proto::GP_Relay) &&
+     !this->gpioCommandAllowed(this->transformCommand(cmd))) return {};
   // Build the frame aside and only take the rolling code once the frame is
   // queued so a dropped command leaves the remote untouched.
   somfy_frame_t frame = this->lastFrame;
@@ -95,6 +98,8 @@ bool SomfyRemote::isLastCommand(somfy_commands cmd) {
   return true;
 }
 bool SomfyRemote::repeatFrame(uint8_t repeat) {
+  if((this->proto==radio_proto::GP_Remote || this->proto==radio_proto::GP_Relay) &&
+     !this->gpioCommandAllowed(this->lastFrame.cmd)) return false;
   if(this->proto == radio_proto::GP_Relay)
     return true;
   else if(this->proto == radio_proto::GP_Remote) {
