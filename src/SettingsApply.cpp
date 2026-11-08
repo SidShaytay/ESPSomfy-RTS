@@ -29,11 +29,35 @@ struct SettingsDraft {
   }
 };
 static_assert(sizeof(ConfigSettings) <= 2048, "Keep the one settings draft bounded");
+settings_apply_refusal_t securityRefusal(const SecuritySettings &before, const SecuritySettings &next) {
+  // Preserve an unchanged legacy configuration; newly enabling/changing active
+  // authentication must have usable effective credentials. Do not trim bytes.
+  const bool modeChanged = before.type != next.type;
+  if(next.type == security_types::PinEntry &&
+     (modeChanged || strcmp(before.pin,next.pin) != 0) && strlen(next.pin) != 4)
+    return settings_apply_refusal_t::invalidPin;
+  if(next.type == security_types::Password &&
+     (modeChanged || strcmp(before.username,next.username) != 0 || strcmp(before.password,next.password) != 0)) {
+    if(!hasSecret(next.username)) return settings_apply_refusal_t::usernameRequired;
+    if(!hasSecret(next.password)) return settings_apply_refusal_t::passwordRequired;
+  }
+  return settings_apply_refusal_t::none;
+}
 }
 const char *settingsSaveFailureDescription(settings_save_state_t state) {
   return state == settings_save_state_t::partial ?
     "Settings may be partly persisted; running settings unchanged. Retry before restart; no rollback was performed." :
     "Settings were not saved; running settings unchanged.";
+}
+const char *settingsApplyFailureDescription(const settings_apply_result_t &result) {
+  switch(result.refusal) {
+    case settings_apply_refusal_t::invalidPin: return "PIN must contain exactly four bytes; nothing was saved.";
+    case settings_apply_refusal_t::usernameRequired: return "Password security requires a username; nothing was saved.";
+    case settings_apply_refusal_t::passwordRequired: return "Password security requires a password; nothing was saved.";
+    case settings_apply_refusal_t::unauthorized: return "Unlock again before saving; nothing was saved.";
+    case settings_apply_refusal_t::stale: return "Settings changed; reopen the form before saving.";
+    default: return settingsSaveFailureDescription(result.persistence.state);
+  }
 }
 settings_apply_result_t applySettings(ConfigSettings &current, settings_section_t section, JsonObject request, SettingsEffects &effects) {
   settings_apply_result_t out;
@@ -58,6 +82,10 @@ settings_apply_result_t applySettings(ConfigSettings &current, settings_section_
   if(settingsSets(parts,settings_part_t::ip)) next.IP.fromJSON(request);
   if(settingsSets(parts,settings_part_t::mqtt)) next.MQTT.fromJSON(request);
   if(settingsSets(parts,settings_part_t::security)) next.Security.fromJSON(request);
+  if(settingsSets(parts,settings_part_t::security)) {
+    const auto refusal = securityRefusal(current.Security,next.Security);
+    if(refusal != settings_apply_refusal_t::none) return settings_apply_result_t::refused(refusal);
+  }
   auto persist = [&](settings_part_t part, auto &value) {
     if(!settingsSets(parts,part)) return true;
     out.persistence = value.save();

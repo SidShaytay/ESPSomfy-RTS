@@ -2,11 +2,21 @@
 #include "ConfigSettings.h"
 #include "ProtoSettings.h"
 
+enum class settings_apply_refusal_t : uint8_t {
+  none, invalidPin, usernameRequired, passwordRequired, unauthorized, stale
+};
 struct settings_apply_result_t {
   settings_save_result_t persistence;
   uint16_t persistedParts = 0;
   bool reboot = false;
-  bool saved() const { return persistence.saved(); }
+  settings_apply_refusal_t refusal = settings_apply_refusal_t::none;
+  bool saved() const { return refusal == settings_apply_refusal_t::none && persistence.saved(); }
+  static settings_apply_result_t refused(settings_apply_refusal_t reason) {
+    settings_apply_result_t result;
+    result.persistence.state = settings_save_state_t::failed;
+    result.refusal = reason;
+    return result;
+  }
 };
 // Runtime integration belongs to loop(), outside persistence/value parsing.
 // Each hook runs only after all requested settings have persisted successfully.
@@ -28,3 +38,4 @@ public:
 // unchanged, but durable keys may have changed. No transactional rollback claim.
 settings_apply_result_t applySettings(ConfigSettings &current, settings_section_t section, JsonObject request, SettingsEffects &effects);
 const char *settingsSaveFailureDescription(settings_save_state_t state);
+const char *settingsApplyFailureDescription(const settings_apply_result_t &result);
