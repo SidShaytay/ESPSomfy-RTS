@@ -59,10 +59,13 @@ class ReleaseTests(unittest.TestCase):
         compiler=json.loads((self.out/'compiler-metadata.json').read_text())
         definitions=compiler[i.BOARD]['defines']
         (self.out/'compiler-metadata.json').write_text(json.dumps(compiler))
+        self.epoch_patch=patch.object(r,'source_epoch',return_value=1760000000)
+        self.epoch_patch.start();self.addCleanup(self.epoch_patch.stop)
         self.record = dict(self.manifest['source'])
         self.identity = i.identity(self.record, 'sha256:' + 'a' * 64, ['v4.0.3'])
         for name,key in (('ESPSOMFY_SOURCE_SHA','source_sha'), ('ESPSOMFY_RELEASE_TAG','version'), ('ESPSOMFY_APP_COMPAT','app_compat')):
             definitions.append(name+'="'+self.identity[key]+'"')
+        definitions.append('ESPSOMFY_SOURCE_EPOCH=1760000000')
         (self.out/'compiler-metadata.json').write_text(json.dumps(compiler))
         # Put the actual identity inside the checked image's data segment.
         firmware = self.out / 'firmware.bin'
@@ -179,6 +182,14 @@ class ReleaseTests(unittest.TestCase):
         for environment in ('esp32s3', 'lilygo-t-embed-cc1101-plus', 'lilygo-t-embed-cc1101-ui'):
             with self.subTest(environment=environment), self.assertRaises(ValueError):
                 r.release_manifest(self.out,Path(__file__).resolve().parent.parent,'v4.0.3',environment)
+
+    def test_compiler_clock_floor_cannot_differ_from_source_commit(self):
+        path=self.out/'compiler-metadata.json';metadata=json.loads(path.read_text())
+        metadata[i.BOARD]['defines']=[value for value in metadata[i.BOARD]['defines'] if not value.startswith('ESPSOMFY_SOURCE_EPOCH=')]
+        metadata[i.BOARD]['defines'].append('ESPSOMFY_SOURCE_EPOCH=0')
+        path.write_text(json.dumps(metadata));record=r.build.artifact_manifest(self.out);record['source']=self.record
+        (self.out/'flash-manifest.json').write_text(json.dumps(record))
+        with self.assertRaises(ValueError): self.package()
 
     def test_publish_output_is_exclusive(self):
         with tempfile.TemporaryDirectory() as output:

@@ -10,7 +10,7 @@ import lilygo_manifest as build
 from update_assets import verify_manifest
 from update_profiles import load_profile
 from update_identity import (BOARD, LAYOUT, stable_tag, MANIFEST_ASSET,
-                             FIRMWARE_ASSET, identity, tags_at_head)
+                             FIRMWARE_ASSET, identity, tags_at_head, source_epoch)
 
 
 def read_app_compat(source):
@@ -38,19 +38,21 @@ def release_manifest(package, source, version, environment=BOARD):
     # Require the compiler's actual identity defines, including raw override
     # rejection. The current packager already checks physical/features flags.
     compiler = manifest['effective_build']['compiler']
-    expected_defines = {'ESPSOMFY_SOURCE_SHA': expected_identity['source_sha'],
-                        'ESPSOMFY_RELEASE_TAG': expected_identity['version'],
-                        'ESPSOMFY_APP_COMPAT': expected_identity['app_compat']}
+    expected_defines = {'ESPSOMFY_SOURCE_SHA': '"'+expected_identity['source_sha']+'"',
+                        'ESPSOMFY_RELEASE_TAG': '"'+expected_identity['version']+'"',
+                        'ESPSOMFY_APP_COMPAT': '"'+expected_identity['app_compat']+'"',
+                        'ESPSOMFY_SOURCE_EPOCH': str(source_epoch(source)),
+                        'MBEDTLS_CONFIG_FILE': '"mbedtls/esp_config.h"'}
     for name, value in expected_defines.items():
         found = [item.partition('=')[2] for item in compiler['defines']
                  if item.partition('=')[0] == name]
-        if found != ['"' + value + '"']:
+        if found != [value]:
             raise ValueError('compiler identity differs from release provenance')
     build.check_flags(compiler.get('cc_flags', []),
-                      {k: '"' + v + '"' for k,v in expected_defines.items()},
+                      expected_defines,
                       build.RETIRED_BOARD_MACRO, 'release C flags')
     build.check_flags(compiler.get('cxx_flags', []),
-                      {k: '"' + v + '"' for k,v in expected_defines.items()},
+                      expected_defines,
                       build.RETIRED_BOARD_MACRO, 'release C++ flags')
     firmware = (package / 'firmware.bin').read_bytes()
     # The compiled marker is part of the image covered by its ESP checksum/SHA.
