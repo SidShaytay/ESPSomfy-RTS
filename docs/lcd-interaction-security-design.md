@@ -2,7 +2,9 @@
 
 Status: design for review; proposed flows below are **not implemented**. Sid approved
 reuse of the configured web credential for both local controls and administration,
-with 120-second inactivity expiry and a device-wide attempt limit. Other decisions
+with 120-second inactivity expiry and a device-wide attempt limit. Sid also chose
+requiring unlock for STOP after expiry and the existing web throttle schedule with
+volatile local state (including the documented reboot-reset limitation). Other decisions
 remain pending as marked below. This document is
 based on fetched main `fc5a2947928fdf855185f77ecaae69c00b677156` and the reviewed local
 main STOP fix `a493d50`. It does not authorize controller access, flashing, RF, motor,
@@ -54,8 +56,8 @@ See the [capability matrix](lcd-web-capability-matrix.md) for operation coverage
 | Decision | Recommended proposal | Alternative and consequence |
 |---|---|---|
 | Physical-control authorization — approved | Follow configured web security: None permits local actions; PIN/password requires a local unlock for controls and admin. Navigation/read-only status stays available. | Sid approved this scope; do not create an ungated everyday-control exception. |
-| Unlock credential — approved | Reuse configured PIN or username/password. Do not store another local credential. Local-only session and 120 s inactivity expiry. | Explicit Lock, sleep, restart and security changes revoke it. A proposed additional 10 min absolute expiry needs agreement. |
-| STOP after local lock/timeout | Retain a narrow, visible STOP action for a previously authorized selection while it remains estimated moving, with fresh identity/capability/membership checks and the mixed/idle policy below. | Require unlock before every STOP. This has simpler authorization but delays stopping; merely showing motion cannot safely authorize MY to arbitrary targets. Neither policy is assumed approved. |
+| Unlock credential — approved | Reuse configured PIN or username/password. Do not store another local credential. Local-only session and 120 s inactivity expiry. | Explicit Lock, sleep, restart and security changes revoke it. |
+| STOP after local lock/timeout — approved | Require unlock after expiry, including STOP. Keep STOP reachable during an active authorized session, subject to fresh identity/capability/membership checks and the mixed/idle policy below. | This can delay stopping after expiry. Sid explicitly selected it; estimated motion does not grant an authorization bypass. |
 | Credential/text input | Bounded on-device ASCII keyboard for typed fields, masked credentials, explicit Save/Cancel; companion browser for convenient long/non-ASCII entry with the same validators. Preserve existing Unicode bytes on unchanged fields. | Full Unicode editing/font coverage adds font/input memory and requires a language coverage decision. ASCII replacement alone is not faithful name display. |
 | File and credential transfer | Use the existing authenticated companion UI and a new short-lived, physically approved stage/review/commit session. Require a trusted transport for secrets/backups, described below. No SD support. | Accept existing plain HTTP on a trusted LAN as an explicit trust decision, or add TLS/tunnel support as a scoped dependency. Current HTTP is observable to an active LAN attacker. |
 | Recovery | Existing authenticated web settings can repair local credential/configuration errors. No boot-button or failed-login bypass that grants admin. | A physical recovery mode requires a separate precise authorization/state-preservation design; do not silently equate physical possession with permission to erase or reset counters. |
@@ -187,7 +189,8 @@ A successful permitted validation resets failures. An attempted submission durin
 does not validate credentials, reset the lock or extend its deadline. Do not share async_tcp's mutable per-IP table. Volatile failures permit a reboot-based
 bypass. Persisting the failure level on failed submissions and reapplying the full lock
 duration at boot is a possible stronger policy with flash-wear and recovery consequences;
-this choice remains pending before claiming power-cycle-resistant lockout.
+Sid accepted volatile state initially, matching the existing web throttle; no new
+lockout persistence writes are introduced. Do not claim power-cycle-resistant lockout.
 
 Do not prefill stored passwords into an editable or renderable object. Existing values
 appear as “Set”; replace requires an explicit draft, and clear is a distinct confirmed
@@ -269,8 +272,8 @@ Until then record runtime heap/latency acceptance as pending, not passed by a bu
   all-moving/mixed/idle groups, partial refusal, favourites, tilt and flip semantics.
 - Admin fake persistence: strict bounds, invalid fields, edit/save/cancel, duplicate
   IDs, transaction failure, unchanged counters/identities and explicit result delivery.
-- Authorization tests: configured mode, timeout, absolute expiry, credential changes,
-  retry/backoff, reboot policy, queued intent revocation and the approved STOP exception.
+- Authorization tests: configured mode, inactivity expiry, credential changes,
+  retry/backoff, reboot policy, queued intent revocation and requiring unlock for STOP after expiry.
 - Runtime/capture tests: protected-screen capture on every entry/exit race, disconnected
   capture, allocation failures, partial band presentation and resuming only after full
   sanitized redraw. Use synthetic secret sentinels and assert absent output bytes.
