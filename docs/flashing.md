@@ -14,14 +14,12 @@ Record the physical board, source revision and firmware hash, build environment,
 
 Use the latest `main` as the completed integration baseline. New features start there and join `main` after review and tests, so subsequent firmware includes previous features. Do not assemble a deployment from unfinished parallel branches. Check that the selected image preserves the installed features:
 
-| Existing LILYGO setup | PlatformIO environment |
+| Physical LILYGO board | PlatformIO environment |
 | --- | --- |
-| Interactive LCD and manual controls | `lilygo-t-embed-cc1101-plus-ui` |
-| LCD UI with commands deliberately locked | `lilygo-t-embed-cc1101-plus-ui-preview` |
-| Simple read-only status screen | `lilygo-t-embed-cc1101-plus-display` |
-| Headless controller | `lilygo-t-embed-cc1101-plus` |
+| T-Embed CC1101 | `lilygo-t-embed-cc1101` |
+| T-Embed CC1101 Plus | `lilygo-t-embed-cc1101-plus` |
 
-For other supported boards, use their exact environment from `platformio.ini`. Do not flash a headless build over an LCD installation accidentally.
+Both canonical builds include the display, local interface and local commands. Retired `-display`, `-ui` and `-ui-preview` environments are rejected and must not silently alias a new image. Treat transition from an old profile as a separately verified migration; do not infer hardware identity from its display or version text. Generic boards keep their distinct environments.
 
 Identify HA/HomeKit/MQTT automation writers and arrange a quiet period so state and counters cannot advance unnoticed during capture. Record any automation changes for restoration. Do not run a second controller with the same radio identities.
 
@@ -88,18 +86,18 @@ An exception is allowed **only when Sid explicitly authorizes firmware-only A/B 
 
 ## 3. Build and check the exact candidate
 
-Use the pinned pioarduino Core 6.2.0 toolchain installed by `bash tools/setup-lilygo.sh`. From the chosen clean source worktree, this example builds the interactive LCD variant without accessing a device:
+Use the pinned pioarduino Core 6.2.0 toolchain installed by `bash tools/setup-lilygo.sh`. From the chosen clean source worktree, this example builds the full-feature Plus target without accessing a device:
 
 ```bash
 set -euo pipefail
 pio_tool="${ESPSOMFY_TOOL_CACHE:-$HOME/.cache/espsomfy-lilygo}/pio-python/bin/pio"
-build_environment=lilygo-t-embed-cc1101-plus-ui
+build_environment=lilygo-t-embed-cc1101-plus
 "$pio_tool" run -e "$build_environment" -j 4
 artifact_dir="$PWD/.pio/build/$build_environment"
 sha256sum "$artifact_dir/firmware.bin" "$artifact_dir/firmware.elf" "$artifact_dir/partitions.bin"
 ```
 
-If `PLATFORMIO_BUILD_DIR` is set, use that actual output directory instead. Record the clean Git revision, environment, relevant compiler defines, tool/dependency versions, firmware size and hashes. Keep the ELF for decoding a later crash. Run the relevant native, protocol, board/SPI and display/adapter checks before installation; [AGENTS.md](../AGENTS.md) and the [UI guide](lilygo-local-ui.md) list them. The headless `tools/build-lilygo.sh` packager must not label an LCD UI image.
+If `PLATFORMIO_BUILD_DIR` is set, use that actual output directory instead. Record the clean Git revision, environment, relevant compiler defines, tool/dependency versions, firmware size and hashes. Keep the ELF for decoding a later crash. Run the relevant native, protocol, board/SPI and display/adapter checks before installation; [AGENTS.md](../AGENTS.md) and the [UI guide](lilygo-local-ui.md) list them. The `tools/build-lilygo.sh` packager validates both canonical full-feature boards; its optional third argument selects the exact board environment.
 
 Compare the candidate's decoded partition table with the board's verified table. Account for erased sector padding when comparing generated `partitions.bin` with a flash sector. Confirm the inactive app differs from the running app and the image fits it. An A/B upload cannot migrate partitions or create a second slot.
 
