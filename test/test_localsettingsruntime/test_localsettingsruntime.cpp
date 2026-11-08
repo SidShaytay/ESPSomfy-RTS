@@ -4,6 +4,10 @@
 #include "LocalUiAuthorizationAdapter.h"
 #include "DeviceOps.h"
 #include "LocalOperationAdmission.h"
+#include "LoopQueue.h"
+LoopQueue loopQueue;
+static uint32_t pendingItems=0;
+uint32_t LoopQueue::pending() const { return pendingItems; }
 static LocalUi::SecuritySnapshot state;
 static bool frozen=false;
 static uint64_t sectionRevision=1;
@@ -22,7 +26,7 @@ settings_apply_result_t applyDeviceSettings(settings_section_t section,JsonObjec
   ++saves; origin=caller; return {};
 }
 #include "../../src/LocalSettingsRuntime.cpp"
-void setUp() { state={LocalUi::AuthMode::pin,true,false,3,5,0}; frozen=false;sectionRevision=1;saves=reads=activities=0;origin=99; }
+void setUp() { state={LocalUi::AuthMode::pin,true,false,3,5,0}; frozen=false;sectionRevision=1;saves=reads=activities=0;origin=99;pendingItems=0; }
 void tearDown() {}
 struct Sink : SettingsSnapshotSink { void field(proto_field_t,const settings_value_t &) override {} };
 static JsonDocument request() { JsonDocument doc; doc["hostname"]="local-name"; return doc; }
@@ -65,11 +69,25 @@ static void frozen_or_locked_service_neither_reads_nor_saves() {
   TEST_ASSERT_FALSE(backend.read(settings_section_t::general,sink));
   TEST_ASSERT_EQUAL(0,saves);TEST_ASSERT_EQUAL(0,reads);
 }
+static void pending_work_refuses_save_without_hiding_later_auth_changes() {
+  auto &backend=LocalUi::Settings::runtimeBackend();auto doc=request();const auto expected=backend.authorization();
+  pendingItems=1;
+  auto result=backend.apply(settings_section_t::general,doc.as<JsonObject>(),expected,1);
+  TEST_ASSERT_EQUAL(settings_apply_refusal_t::busy,result.refusal);
+  TEST_ASSERT_FALSE(result.saved());TEST_ASSERT_EQUAL(0,saves);
+  pendingItems=0;
+  TEST_ASSERT_TRUE(backend.apply(settings_section_t::general,doc.as<JsonObject>(),expected,1).saved());
+  TEST_ASSERT_EQUAL(1,saves);
+  pendingItems=1;state.allowed=false;
+  TEST_ASSERT_EQUAL(settings_apply_refusal_t::unauthorized,backend.apply(settings_section_t::general,doc.as<JsonObject>(),expected,1).refusal);
+  TEST_ASSERT_EQUAL(1,saves);
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(current_authorized_draft_uses_loop_owned_shared_domain);
   RUN_TEST(fresh_expiry_or_auth_replacement_refuses_before_storage);
   RUN_TEST(same_value_section_save_and_invalid_history_refuse_stale_drafts);
   RUN_TEST(frozen_or_locked_service_neither_reads_nor_saves);
+  RUN_TEST(pending_work_refuses_save_without_hiding_later_auth_changes);
   return UNITY_END();
 }

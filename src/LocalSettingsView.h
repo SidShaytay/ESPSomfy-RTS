@@ -24,7 +24,8 @@ enum class Notice : uint8_t {
   expired,
   noMemory,
   readOnly,
-  unchanged
+  unchanged,
+  busy
 };
 struct FormRow {
   char label[32] = {}, value[48] = {};

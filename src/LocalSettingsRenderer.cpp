@@ -13,6 +13,7 @@ const char *notice(Settings::Notice value) {
   switch(value) {
   case Settings::Notice::saved: return "Settings saved";
   case Settings::Notice::unchanged: return "No changes to save";
+  case Settings::Notice::busy: return "Busy - retry Save when actions finish";
   case Settings::Notice::failed: return "Save failed - changes not applied";
   case Settings::Notice::partial: return "Partial save: retry before restart";
   case Settings::Notice::invalid: return "Invalid value - check your entry";
