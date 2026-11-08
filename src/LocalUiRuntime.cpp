@@ -3,6 +3,7 @@
 #include "LocalUiAdapter.h"
 #include "LocalUiCapture.h"
 #include "LocalUiAuthorizationAdapter.h"
+#include "LocalEntityRuntime.h"
 #include "BoardProfile.h"
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
@@ -54,6 +55,24 @@ bool sameSettings(const Settings::FormView &a,const Settings::FormView &b) {
       memcmp(a.rows[i].value,b.rows[i].value,sizeof(a.rows[i].value))) return false;
   return true;
 }
+bool sameAdministration(const EntityAdmin::FormView &a,const EntityAdmin::FormView &b) {
+  if(a.kind!=b.kind || a.id!=b.id || a.mode!=b.mode || a.notice!=b.notice || a.rowCount!=b.rowCount ||
+     a.selected!=b.selected || a.total!=b.total || a.offset!=b.offset || a.protectedFrame!=b.protectedFrame ||
+     a.dirty!=b.dirty || memcmp(a.title,b.title,sizeof(a.title)) || memcmp(a.hint,b.hint,sizeof(a.hint)))return false;
+  for(uint8_t i=0;i<3;i++)if(a.rows[i].selected!=b.rows[i].selected || a.rows[i].dirty!=b.rows[i].dirty ||
+      memcmp(a.rows[i].label,b.rows[i].label,sizeof(a.rows[i].label)) || memcmp(a.rows[i].value,b.rows[i].value,sizeof(a.rows[i].value)))return false;
+  return true;
+}
+uint32_t administrationHash(const EntityAdmin::FormView &view,uint64_t epoch) {
+  const uint32_t values[]={uint32_t(view.kind),view.id,uint32_t(view.mode),uint32_t(view.notice),view.rowCount,
+    view.selected,view.total,view.offset,view.protectedFrame,view.dirty,uint32_t(epoch),uint32_t(epoch>>32)};
+  uint32_t h=hash(values,sizeof(values));h=hash(view.title,sizeof(view.title),h);h=hash(view.hint,sizeof(view.hint),h);
+  for(const auto &row:view.rows) {
+    const uint32_t flags[]={row.selected,row.dirty};h=hash(flags,sizeof(flags),h);
+    h=hash(row.label,sizeof(row.label),h);h=hash(row.value,sizeof(row.value),h);
+  }
+  return h;
+}
 // Motion/estimate repainting is coalesced until a frame finishes. Structural
 // page, target, action, editor and authorization changes supersede it promptly.
 bool sameMeaning(const View &a,const View &b,uint64_t page,uint64_t framePage,uint64_t target,uint64_t frameTarget) {
@@ -74,6 +93,7 @@ bool sameMeaning(const View &a,const View &b,uint64_t page,uint64_t framePage,ui
 void *allocate(size_t size){return heap_caps_malloc(size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);}
 uint16_t transfer[screenWidth*bandHeight];
 }
+Runtime::Runtime():administration(EntityAdmin::runtimeBackend(),runtimeCatalogue(),Settings::runtimeMemory()) {}
 void Runtime::begin() {
   setCaptureProtected(true);controller.setPreferences(loadPreferences());
   pinMode(BoardProfile::backButton,INPUT_PULLUP);
@@ -86,6 +106,8 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
     if(!graphicsMissing) {
       graphicsMissing=true;
       settingsForm.discard();settingsActive=false;
+      administration.discard();administrationActive=presentedAdministrationValid=false;
+      frameAdministration={};presentedAdministration={};frameAdministrationEpoch=presentedAdministrationEpoch=0;
       controller.discardTransient();
       cancelUnsubmittedLocalControl();
       DispatchResult ignored;takeLocalControlResult(ignored);
@@ -109,7 +131,11 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
   if(takeLocalControlResult(completion)) controller.result(now,completion);
   const View &before=controller.view();
   bool visible=hasPresented && presentedView.screen==before.screen;
-  if(before.screen==Screen::catalogue)
+  if(before.screen==Screen::home)visible &= before.selected==presentedView.selected;
+  else if(before.screen==Screen::administration)
+    visible &= administrationActive && presentedAdministrationValid &&
+      presentedAdministrationEpoch==administration.epoch() && sameAdministration(administration.view(),presentedAdministration);
+  else if(before.screen==Screen::catalogue)
     visible &= model.pageToken && presentedPageToken==model.pageToken && before.cursor==model.page.cursor &&
       presentedView.cursor==model.page.cursor && presentedView.catalogue==before.catalogue && presentedView.room==before.room;
   else if(before.screen==Screen::control) {
@@ -137,27 +163,49 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
   Credentials credentials;
   if(controller.takeCredentials(credentials)) controller.unlockResult(now,unlockAuthorization(credentials));
   credentials.clear();
-  if(controller.view().screen==Screen::unlock || controller.view().screen==Screen::settings) setCaptureProtected(true);
+  if(controller.view().screen==Screen::unlock || controller.view().screen==Screen::settings ||
+     controller.view().screen==Screen::administration) setCaptureProtected(true);
   Command command;
   if(controller.take(command)) controller.result(now,dispatch(command));
-  SettingsInput input;
+  FormInput input;
   if(controller.view().screen==Screen::settings) {
     if(!settingsActive) { settingsForm.open(settingsNow);settingsActive=true;presentedSettingsValid=false;attempted=false; }
     settingsForm.tick(settingsNow);
-    if(controller.takeSettingsInput(input)) {
-      if(settingsForm.closed()) controller.closeSettings();
+    if(controller.takeFormInput(input)) {
+      if(input.activate && !(hasPresented && presentedSettingsValid &&
+          sameSettings(settingsForm.view(),presentedSettings)))input.activate=false;
+      if(settingsForm.closed()) {if(input.turn || input.activate || input.back)controller.closeForm();}
       else {
         if(input.back) settingsForm.back(settingsNow);
         else {
           if(input.turn) settingsForm.turn(input.turn,settingsNow);
-          if(input.activate) settingsForm.activate(settingsNow);
+          if(input.activate && sameSettings(settingsForm.view(),presentedSettings)) settingsForm.activate(settingsNow);
         }
       }
     }
-    if(settingsForm.closed() && settingsForm.view().notice==Settings::Notice::none) controller.closeSettings();
+    if(settingsForm.closed() && settingsForm.view().notice==Settings::Notice::none) controller.closeForm();
   }
   if(controller.view().screen!=Screen::settings && settingsActive) {
     settingsForm.discard();settingsActive=false;presentedSettingsValid=false;
+  }
+  if(controller.view().screen==Screen::administration) {
+    if(!administrationActive) {administration.open(settingsNow);administrationActive=true;presentedAdministrationValid=false;attempted=false;}
+    administration.tick(settingsNow);
+    if(controller.takeFormInput(input)) {
+      if(administration.closed()) {
+        if(input.back || (input.activate && presentedAdministrationValid &&
+            sameAdministration(administration.view(),presentedAdministration)))controller.closeForm();
+      } else if(input.back)administration.back(settingsNow);
+      else {
+        if(input.turn)administration.turn(input.turn,settingsNow);
+        if(input.activate && presentedAdministrationValid && presentedAdministrationEpoch==administration.epoch() &&
+           sameAdministration(administration.view(),presentedAdministration))administration.activate(settingsNow);
+      }
+    }
+    if(administration.closed() && administration.view().notice==EntityAdmin::Notice::none)controller.closeForm();
+  }
+  if(controller.view().screen!=Screen::administration && administrationActive) {
+    administration.discard();administrationActive=presentedAdministrationValid=false;
   }
   if(!controller.brightness() && !wasSleeping) lockAuthorization();
   wasSleeping=!controller.brightness();light(controller.brightness());
@@ -166,15 +214,21 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
   if(view.screen==Screen::catalogue && (view.catalogue!=model.catalogue || view.room!=model.room || view.cursor!=model.page.cursor)) return true;
   if(view.screen==Screen::control && view.notice!=Notice::changed &&
      (view.entity!=model.target.ref || (!view.openedToken && model.target.token))) return true;
-  const uint32_t desired=view.screen==Screen::settings?settingsHash(settingsForm.view()):sceneHash(model,view,s);
+  const uint64_t administrationEpoch=view.screen==Screen::administration?administration.epoch():0;
+  const uint32_t desired=view.screen==Screen::settings?settingsHash(settingsForm.view()):
+    view.screen==Screen::administration?administrationHash(administration.view(),administrationEpoch):sceneHash(model,view,s);
   const bool meaning=sameMeaning(view,frameView,model.pageToken,framePageToken,model.target.token,frameTargetToken) &&
-    (view.screen!=Screen::settings || sameSettings(settingsForm.view(),frameSettings));
+    (view.screen!=Screen::settings || sameSettings(settingsForm.view(),frameSettings)) &&
+    (view.screen!=Screen::administration || (sameAdministration(administration.view(),frameAdministration) && administrationEpoch==frameAdministrationEpoch));
   if((desired!=scene || !meaning || !attempted) && (bandIndex==43 || !meaning || !attempted)) {
     const uint32_t start=micros();
-    if(view.screen==Screen::settings) canvas.paintSettings(settingsForm.view());else canvas.paint(model,view,s);
+    if(view.screen==Screen::settings) canvas.paintSettings(settingsForm.view());
+    else if(view.screen==Screen::administration)canvas.paintEntity(administration.view());
+    else canvas.paint(model,view,s);
     const uint32_t elapsed=micros()-start;
     if(elapsed>maxPaintUs) maxPaintUs=elapsed;
     if(view.screen==Screen::settings) frameSettings=settingsForm.view();
+    if(view.screen==Screen::administration) {frameAdministration=administration.view();frameAdministrationEpoch=administrationEpoch;}
     frameView=view;frameTargetToken=model.target.ref==view.entity?model.target.token:0;
     framePageToken=model.pageToken;scene=desired;bandIndex=0;attempted=true;++revision;
   }
@@ -192,12 +246,14 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
   if(++bandIndex==43) {
     if(frameView.screen==Screen::settings) {presentedSettings=frameSettings;presentedSettingsValid=true;}
     else presentedSettingsValid=false;
+    if(frameView.screen==Screen::administration) {presentedAdministration=frameAdministration;presentedAdministrationEpoch=frameAdministrationEpoch;presentedAdministrationValid=true;}
+    else presentedAdministrationValid=false;
     presentedView=frameView;presentedTargetToken=frameTargetToken;presentedPageToken=framePageToken;hasPresented=true;
     if(frameView.screen==Screen::control && frameView.openedToken && frameView.openedToken==frameTargetToken) {
       stopPresentedRef=frameView.entity;stopPresentedToken=frameTargetToken;
       markControlPresented(frameView.entity,frameTargetToken,frameView.authorizedSelection,frameView.selectionAuthGeneration);
     }
-    if(frameView.screen!=Screen::unlock && frameView.screen!=Screen::settings) setCaptureProtected(false);
+    if(frameView.screen!=Screen::unlock && frameView.screen!=Screen::settings && frameView.screen!=Screen::administration) setCaptureProtected(false);
   }
   return true;
 }

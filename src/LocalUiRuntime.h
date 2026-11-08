@@ -4,6 +4,7 @@
 #include "LocalUiMemory.h"
 #include "LocalUiRenderer.h"
 #include "LocalSettingsRuntime.h"
+#include "LocalAdministration.h"
 namespace LocalUi {
 class Runtime {
 #ifdef UI_RUNTIME_HOST_TEST
@@ -15,6 +16,10 @@ class Runtime {
   Encoder encoder;
   Settings::Form settingsForm{Settings::runtimeBackend(),Settings::runtimeMemory()};
   Settings::FormView frameSettings, presentedSettings;
+  Administration administration;
+  EntityAdmin::FormView frameAdministration,presentedAdministration;
+  uint64_t frameAdministrationEpoch=0,presentedAdministrationEpoch=0;
+  bool administrationActive=false,presentedAdministrationValid=false;
   bool settingsActive=false, presentedSettingsValid=false;
   uint32_t bandHashes[43] = {};
   uint64_t validBands = 0;
@@ -26,6 +31,7 @@ class Runtime {
   EntityRef stopPresentedRef;
 
 public:
+  Runtime();
   uint32_t maxPaintUs = 0;
   void begin();
   DisplayPreferences preferences() const { return controller.preferences(); }

@@ -40,6 +40,22 @@ struct Drive {
   void home() { tick(); tick(1); }
   void devices(bool visible=true) { home(); tick(1); click(); click(visible); tick(); }
 };
+static void administration_requires_unlock_and_forwards_only_presented_form_press() {
+  Drive d;d.home();for(unsigned i=0;i<administrationHomeIndex;i++)d.tick(1);
+  d.click(false);TEST_ASSERT_EQUAL(Screen::home,d.c.view().screen);
+  d.f.base.authorized=false;d.f.base.authMode=AuthMode::pin;d.click();
+  TEST_ASSERT_EQUAL(Screen::unlock,d.c.view().screen);
+  d.c.unlockResult(d.now,AuthResult::unlocked);d.f.base.authorized=true;d.tick();d.click();
+  TEST_ASSERT_EQUAL(Screen::administration,d.c.view().screen);
+  FormInput input;TEST_ASSERT_FALSE(d.c.takeFormInput(input));
+  d.tick(1);TEST_ASSERT_TRUE(d.c.takeFormInput(input));TEST_ASSERT_EQUAL(1,input.turn);
+  d.click(false);TEST_ASSERT_FALSE(d.c.takeFormInput(input));
+  d.click();TEST_ASSERT_TRUE(d.c.takeFormInput(input));TEST_ASSERT_TRUE(input.activate);
+  d.back();TEST_ASSERT_TRUE(d.c.takeFormInput(input));TEST_ASSERT_TRUE(input.back);
+  d.c.closeForm();TEST_ASSERT_EQUAL(Screen::home,d.c.view().screen);
+  TEST_ASSERT_EQUAL(administrationHomeIndex,d.c.view().selected);
+  Command command;TEST_ASSERT_FALSE(d.c.take(command));
+}
 static void stable_catalogue_selection_binds_id_not_slot() {
   Drive d; d.devices();
   TEST_ASSERT_EQUAL(int(Screen::control),int(d.c.view().screen));
@@ -149,12 +165,12 @@ static void privileged_brightness_draft_reverts_on_expiry_or_configuration_chang
 static void settings_receives_logical_events_and_closes_explicitly() {
   Drive d;d.home(); for(unsigned i=0;i<3;i++) d.tick(1); d.click();
   TEST_ASSERT_EQUAL(int(Screen::settings),int(d.c.view().screen));
-  SettingsInput event; TEST_ASSERT_FALSE(d.c.takeSettingsInput(event));
-  d.tick(1);TEST_ASSERT_TRUE(d.c.takeSettingsInput(event));TEST_ASSERT_EQUAL(1,event.turn);
-  d.click();TEST_ASSERT_TRUE(d.c.takeSettingsInput(event));TEST_ASSERT_TRUE(event.activate);
-  d.back();TEST_ASSERT_TRUE(d.c.takeSettingsInput(event));TEST_ASSERT_TRUE(event.back);
+  FormInput event; TEST_ASSERT_FALSE(d.c.takeFormInput(event));
+  d.tick(1);TEST_ASSERT_TRUE(d.c.takeFormInput(event));TEST_ASSERT_EQUAL(1,event.turn);
+  d.click();TEST_ASSERT_TRUE(d.c.takeFormInput(event));TEST_ASSERT_TRUE(event.activate);
+  d.back();TEST_ASSERT_TRUE(d.c.takeFormInput(event));TEST_ASSERT_TRUE(event.back);
   TEST_ASSERT_EQUAL(int(Screen::settings),int(d.c.view().screen));
-  d.c.closeSettings(); TEST_ASSERT_EQUAL(int(Screen::home),int(d.c.view().screen));
+  d.c.closeForm(); TEST_ASSERT_EQUAL(int(Screen::home),int(d.c.view().screen));
 }
 static void encoder_detents_bounce_and_memory_failures_remain_bounded() {
   Encoder e;TEST_ASSERT_EQUAL(0,e.sample(3));TEST_ASSERT_EQUAL(0,e.sample(1));TEST_ASSERT_EQUAL(0,e.sample(3));
@@ -240,9 +256,9 @@ static void assertTransientDiscarded(Drive &d) {
   TEST_ASSERT_EQUAL(0,view.openedToken);TEST_ASSERT_FALSE(view.authorizedSelection);TEST_ASSERT_EQUAL(0,view.selectionAuthGeneration);
   TEST_ASSERT_EQUAL(0,view.credentialLength);TEST_ASSERT_EQUAL(0,view.credentialMaximum);TEST_ASSERT_EQUAL(0,view.credentialChoice);
   TEST_ASSERT_EQUAL(0,view.draftValue);TEST_ASSERT_EQUAL(0,view.valueChoice);
-  Command command;Credentials credentials;DisplayPreferences preferences;SettingsInput input;
+  Command command;Credentials credentials;DisplayPreferences preferences;FormInput input;
   TEST_ASSERT_FALSE(d.c.take(command));TEST_ASSERT_FALSE(d.c.takeCredentials(credentials));
-  TEST_ASSERT_FALSE(d.c.takePreferences(preferences));TEST_ASSERT_FALSE(d.c.takeSettingsInput(input));
+  TEST_ASSERT_FALSE(d.c.takePreferences(preferences));TEST_ASSERT_FALSE(d.c.takeFormInput(input));
   TEST_ASSERT_FALSE(d.c.takeActivity());TEST_ASSERT_FALSE(d.c.takeCancellation());
 }
 static void graphics_discard_clears_raw_and_submitted_credentials_value_and_command() {
@@ -278,7 +294,8 @@ static void graphics_discard_restarts_debounce_and_suppresses_held_recovery_inpu
   }
 }
 int main() {
-  UNITY_BEGIN();RUN_TEST(stable_catalogue_selection_binds_id_not_slot);
+  UNITY_BEGIN();RUN_TEST(administration_requires_unlock_and_forwards_only_presented_form_press);
+  RUN_TEST(stable_catalogue_selection_binds_id_not_slot);
   RUN_TEST(never_presented_catalogue_or_stop_emits_no_intent);
   RUN_TEST(empty_full_and_live_reordered_catalogues_are_bounded);
   RUN_TEST(target_replacement_between_row_and_focus_is_not_rebound);
