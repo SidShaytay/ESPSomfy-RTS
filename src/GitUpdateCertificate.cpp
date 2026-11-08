@@ -9,6 +9,7 @@
 #include <type_traits>
 #include <utility>
 #include <limits>
+#include <cstddef>
 
 // Private field READS below are tied to this exact reviewed prebuilt SDK. A
 // compiler -D cannot enable date checks in its already-built X.509 verifier.
@@ -32,6 +33,18 @@ static_assert(std::is_same<decltype(std::declval<mbedtls_ssl_config>().MBEDTLS_P
   "Pinned bundle verification callback type changed");
 static_assert(std::is_same<decltype(std::declval<mbedtls_ssl_config>().MBEDTLS_PRIVATE(p_vrfy)),void *>::value,
   "Pinned bundle verification context type changed");
+// Values below fingerprint the actual reviewed prebuilt SDK ABI. Access still
+// uses typed member names; no numeric offset is used to read/write memory.
+#if defined(GIT_UPDATE_HOST_TEST) || defined(GIT_UPDATE_CERTIFICATE_HOST_TEST)
+static_assert(sizeof(mbedtls_ssl_config)==2*sizeof(void *) && alignof(mbedtls_ssl_config)==alignof(void *) &&
+  offsetof(mbedtls_ssl_config,MBEDTLS_PRIVATE(f_vrfy))==0 &&
+  offsetof(mbedtls_ssl_config,MBEDTLS_PRIVATE(p_vrfy))==sizeof(void *),"Host certificate fixture layout changed");
+#else
+static_assert(sizeof(mbedtls_ssl_config)==196 && alignof(mbedtls_ssl_config)==4 &&
+  offsetof(mbedtls_ssl_config,MBEDTLS_PRIVATE(f_vrfy))==64 &&
+  offsetof(mbedtls_ssl_config,MBEDTLS_PRIVATE(p_vrfy))==68,
+  "Updater certificate adapter ABI differs from prebuilt SDK; feature overrides are unsupported");
+#endif
 static_assert(sizeof(time_t)>=8 && std::numeric_limits<time_t>::is_signed,
   "Updater requires the pinned SDK's signed 64-bit UTC clock");
 namespace {

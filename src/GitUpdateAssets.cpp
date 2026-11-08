@@ -16,7 +16,6 @@
 #endif
 namespace {
 constexpr const char *MANIFEST="/update-assets.txt";
-#include "GitUpdateProfile.h"
 constexpr size_t MAX_MANIFEST=16384, MAX_FILE=GitUpdateProfile::fsBytes, MAX_FILES=128;
 bool hexDigest(const char *text) {
   if(strlen(text)!=64) return false;
