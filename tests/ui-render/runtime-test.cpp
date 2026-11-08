@@ -10,7 +10,7 @@ bool hasPsram = true, allocateOK = true;
 void *allocated = nullptr;
 int testPins[64] = {};
 uint32_t testNow = 0;
-static unsigned bands = 0, dispatches = 0;
+static unsigned bands = 0, dispatches = 0, locks=0;
 static bool busBusy = false, secure=false, captureProtected=true;
 LocalUi::Model LocalUi::snapshotModel(bool running) {
   Model m;
@@ -28,7 +28,7 @@ LocalUi::Model LocalUi::snapshotModel(bool running) {
 void LocalUi::capturePoll(const uint16_t *, bool, uint8_t, uint32_t) {}
 void LocalUi::setCaptureProtected(bool value) { captureProtected=value; }
 void LocalUi::authorizationActivity() {}
-void LocalUi::lockAuthorization() {}
+void LocalUi::lockAuthorization() { ++locks; }
 void LocalUi::focusAuthorizationTarget(uint8_t) {}
 LocalUi::AuthResult LocalUi::unlockAuthorization(Credentials &given) { given.clear(); return AuthResult::wrong; }
 LocalUi::DisplayPreferences LocalUi::loadPreferences() { return {}; }
@@ -113,6 +113,11 @@ int main() {
   busBusy=false;
   idle();
   assert(!captureProtected && dispatches==0);
+  const unsigned beforeSleep=locks;
+  testNow+=21000; ui.tick(testNow,s,false,send,light);
+  assert(locks==beforeSleep+1);
+  testNow+=100; ui.tick(testNow,s,false,send,light);
+  assert(locks==beforeSleep+1); // revoke only on the sleep transition
   free(allocated);
   allocated = nullptr;
   hasPsram = false;

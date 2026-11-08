@@ -128,8 +128,11 @@ bool savePreferences(const DisplayPreferences &value) {
 }
 Model snapshotModel(bool running) {
   Model m;
-  if(!running)
+  if(!running) {
+    m.authorized=false;
+    m.authMode=AuthMode::unavailable;
     return m;
+  }
 #ifdef ESPSOMFY_LOCAL_COMMANDS
   m.controlsEnabled = true;
 #endif
