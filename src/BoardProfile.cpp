@@ -1,11 +1,11 @@
 #include "BoardProfile.h"
 #include <SPI.h>
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
 #include <driver/gpio.h>
 #endif
 
 namespace BoardProfile {
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
 static bool initialized = false;
 
 static void output(uint8_t pin, uint8_t level) {
@@ -30,8 +30,8 @@ void begin() {
   output(power, HIGH);
   delay(10); // Conservative rail settling; no peripheral drivers are started.
   initialized = true;
-  Serial.printf("Board: LILYGO T-Embed CC1101 Plus; flash=%u PSRAM=%u bytes\n",
-    ESP.getFlashChipSize(), ESP.getPsramSize());
+  Serial.printf("Board: LILYGO T-Embed %s; flash=%u PSRAM=%u bytes\n",
+    name, ESP.getFlashChipSize(), ESP.getPsramSize());
   Serial.println("Board power GPIO15=HIGH; RF SW1 GPIO47=HIGH SW0 GPIO48=HIGH (433 MHz path)");
   Serial.println("Initial state: display CS41/SD CS13/nRF24 CS44=HIGH; nRF24 CE43/backlight21=LOW");
 }

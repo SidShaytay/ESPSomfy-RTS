@@ -1,4 +1,4 @@
-name: LILYGO Plus build validation
+name: LILYGO full-feature build validation
 
 on:
   push:
@@ -10,8 +10,8 @@ permissions:
   contents: read
 
 jobs:
-  plus:
-    name: Headless T-Embed CC1101 Plus
+  lilygo:
+    name: Shared CC1101 and Plus
     runs-on: ubuntu-latest
     env:
       ESPSOMFY_TOOL_CACHE: ${{ runner.temp }}/espsomfy-lilygo
@@ -31,14 +31,14 @@ jobs:
         run: CXX=g++ bash tools/test-board-profile.sh
       - name: Offline manifest rejection tests
         run: python tools/test_lilygo_manifest.py
-      - name: Build and validate exact Plus artifacts
+      - name: Build and validate shared CC1101 and Plus artifacts
         run: bash tools/build-lilygo.sh
       - name: Retain reviewable artifacts and manifest
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: lilygo-t-embed-cc1101-plus
+          name: lilygo-t-embed-cc1101
           path: |
-            build/lilygo/artifacts/
-            build/lilygo/build.log
-            build/lilygo/filesystem.log
+            build/lilygo-t-embed-cc1101/artifacts/
+            build/lilygo-t-embed-cc1101/build.log
+            build/lilygo-t-embed-cc1101/filesystem.log
           retention-days: 5

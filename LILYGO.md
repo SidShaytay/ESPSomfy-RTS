@@ -1,8 +1,8 @@
-# LILYGO T-Embed CC1101 Plus
+# LILYGO T-Embed CC1101 and CC1101 Plus
 
-For backup, firmware-only A/B installation, verification and recovery, follow [the standard flashing procedure](docs/flashing.md). Choose the variant that preserves the board's current LCD and control features before building.
+For backup, firmware-only A/B installation, verification and recovery, follow [the standard flashing procedure](docs/flashing.md). Use the shared `lilygo-t-embed-cc1101` firmware for either CC1101 or CC1101 Plus; it includes display, interactive UI and local commands.
 
-This branch forward-ports the opt-in headless Plus profile onto cjkas v4.0.2, pinned at `07bffdec6b540cc99f31d02d7e6de6d3d1e7f8f3`. The standard-layout build at revision `6842f0a22a334c849ab1c5ed11e6c474c6666aed` was installed on the original controller on November 6, 2026. Both runtime boots passed read-only checks, with credentials, identities, calibration and counters preserved. The cjkas versus xkain decision remains open; see the [installed-layout verification](docs/lilygo-standard-layout.md#installed-layout-verification). See the [baseline decision](docs/adr/0008-lilygo-maintained-baseline.md) and [historical bring-up and recovery evidence](docs/lilygo-v247.md).
+This branch uses cjkas v4.0.2, pinned at `07bffdec6b540cc99f31d02d7e6de6d3d1e7f8f3`. The standard-layout build at revision `6842f0a22a334c849ab1c5ed11e6c474c6666aed` was installed on the original controller on November 6, 2026. Both runtime boots passed read-only checks, with credentials, identities, calibration and counters preserved. The cjkas versus xkain decision remains open; see the [installed-layout verification](docs/lilygo-standard-layout.md#installed-layout-verification). See the [baseline decision](docs/adr/0008-lilygo-maintained-baseline.md) and [historical bring-up and recovery evidence](docs/lilygo-v247.md).
 
 ## Build without connecting a device
 
@@ -15,7 +15,7 @@ bash tools/build-lilygo.sh
 
 The setup/build scripts never open a serial port or flash a board. Python build tools live in `${ESPSOMFY_TOOL_CACHE:-$HOME/.cache/espsomfy-lilygo}`; pioarduino keeps its downloaded platform/compiler packages in `~/.platformio`. The pinned tag still contains application version `4.0.1`, which its build script uses for `FW_VERSION`; the manifest records both the actual compiler metadata and the pinned source revision. Assigning a distinct fork release identity remains part of issue #12. The pinned pioarduino Core 6.2.0 uses platform 55.03.312 (Arduino 3.3.12), with the exact library versions in `platformio.ini`. The vendored CC1101 driver comes from the pinned baseline. This replaces the old Arduino CLI build; historical tool versions and generated v2.4.7 binaries are not inputs to this build.
 
-The release environment `lilygo-t-embed-cc1101-plus` selects `ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS`, ESP32-S3 N16R8, QIO flash at 80 MHz, 16 MB physical flash, 8 MB OPI PSRAM and hardware USB CDC. The ROM image header uses DIO while the SDK enables configured QIO after boot; the manifest distinguishes these. Generic environments keep upstream settings. Artifacts and a validated board-specific manifest are produced locally under `build/lilygo/`; see the build script for exact output names. Hashes identify the artifacts and source inputs, but are not signatures or authorization to install them.
+The shared release environment `lilygo-t-embed-cc1101` selects `ESPSOMFY_LILYGO_T_EMBED_CC1101`, ESP32-S3 N16R8, QIO flash at 80 MHz, 16 MB physical flash, 8 MB OPI PSRAM and hardware USB CDC. The ROM image header uses DIO while the SDK enables configured QIO after boot; the manifest distinguishes these. Generic environments keep upstream settings. Artifacts and a validated board-specific manifest are produced locally under `build/lilygo-t-embed-cc1101/` by default; see the build script for exact output names. Hashes identify the artifacts and source inputs, but are not signatures or authorization to install them.
 
 ## Partitions and migration limits
 
@@ -47,7 +47,7 @@ The historical v2.4.7 table used `0x140000` app slots and LittleFS at `0x290000`
 
 Deselect shared-SPI peripherals before enabling power, select the 433 MHz filter and allow the rail to settle. Before CC1101 initialization, release SPI ownership, perform the bounded MISO-ready check and initialize SPI on the mapped pins. Retain the vendored driver’s Arduino 3 SPI handling, and cjkas’s radio lock and scheduling. Invalid frequency or failed initialization leaves the integrated radio unavailable to software: RX interrupts stay detached and new TX work is refused. A failed reconfiguration can leave the physical chip in its previous RX state; this does not prove hardware idle. The synthesizer default is 433.42 MHz; the selected filter accepts 387–464 MHz.
 
-Radio pin settings are fixed against saved, imported and UI values. Board control pins, USB 19/20 and flash/OPI PSRAM 26–37 are reserved against relay assignments even when the radio is disabled. In the headless profile, display, SD and nRF24 drivers are not started; the dark display is expected. UART0 shares pins with nRF24, so diagnostics use USB CDC.
+Radio pin settings are fixed against saved, imported and UI values. Board control pins, USB 19/20 and flash/OPI PSRAM 26–37 are reserved against relay assignments even when the radio is disabled. The shared build starts the display and local interface. SD and nRF24 drivers are not started. UART0 shares pins with nRF24, so diagnostics use USB CDC.
 
 ## State and Home Assistant compatibility
 
@@ -70,8 +70,12 @@ Use the cache override consistently if configured. Build-tool tests and exact ar
 
 Compile, GPIO harness and fake-device protocol results do not prove RF transmission, actual calibration accuracy, real-device import or rollback. Before considering deployment, finish [recovery validation #9](https://github.com/SidShaytay/ESPSomfy-RTS/issues/9), [safe releases/pull updates #12](https://github.com/SidShaytay/ESPSomfy-RTS/issues/12), and the relevant [security review #14](https://github.com/SidShaytay/ESPSomfy-RTS/issues/14). Obtain explicit approval for a concrete migration plan. Do not flash the sole working board, transmit with duplicate identities, pair, calibrate or issue motor commands as a substitute for offline evidence.
 
-## Choose the LCD variant
+## One firmware for CC1101 and Plus
 
-For the opt-in status screen, build `lilygo-t-embed-cc1101-plus-display`; the existing Plus environment stays headless. See the [display guide](docs/lilygo-status-display.md) for behavior, wiring and build instructions, and the [hardware validation record](docs/lilygo-status-validation.md).
+Use `lilygo-t-embed-cc1101` on both standard CC1101 and CC1101 Plus. The Plus adds nRF24, which this project leaves unused; their reviewed radio/display/input/power/memory wiring permits one shared firmware. It requires `ESPSOMFY_STATUS_DISPLAY`, `ESPSOMFY_LOCAL_UI` and `ESPSOMFY_LOCAL_COMMANDS`, with pinned GFX 1.12.1 and BusIO 1.17.4. Generic targets do not inherit these features.
 
-For the interactive PSRAM-backed UI, saved display settings and read-only framebuffer screenshots, use `lilygo-t-embed-cc1101-plus-ui`; see the [local UI guide](docs/lilygo-local-ui.md). The separate `lilygo-t-embed-cc1101-plus-ui-preview` environment keeps local shutter commands locked. Preserve the intended variant during updates using [the standard flashing procedure](docs/flashing.md).
+There is one environment, image and package identity. Package `compatible_boards` names exactly standard CC1101 and Plus under the same reviewed flash/PSRAM/layout/feature requirements; unknown and generic S3 hardware cannot match. The Plus-only environment/macro and all `-display`, `-ui` and `-ui-preview` release names are rejected; they are not aliases.
+
+This build consolidation preserves the existing LCD controls; complete web/LCD coverage remains tracked in the [capability matrix](docs/lcd-web-capability-matrix.md). See the [local UI guide](docs/lilygo-local-ui.md), [status fallback](docs/lilygo-status-display.md), and [pinned manufacturer/revision audit](docs/lcd-build-audit.md). A shared image does not replace physical qualification of each actual board/revision.
+
+For existing installations, identify actual hardware, running features and layout using the separately authorized procedure in [flashing](docs/flashing.md). Historical Plus/suffix profile IDs need an explicit transition; compatibility is not inferred from the new image name. This baseline does not import the unfinished #12 updater; its shared supported-hardware metadata, trust/admission/rollback and migration checks must be reviewed with that integration before GitHub installation is exposed. No second installer or profile alias is provided here.

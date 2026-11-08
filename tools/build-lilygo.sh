@@ -4,7 +4,12 @@ set -euo pipefail
 repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cache="${ESPSOMFY_TOOL_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/espsomfy-lilygo}"
 source_dir="${1:-$repo}"
-out="${2:-$source_dir/build/lilygo}"
+env="${3:-lilygo-t-embed-cc1101}"
+case "$env" in
+  lilygo-t-embed-cc1101) ;;
+  *) echo "Unsupported or retired LILYGO environment: $env" >&2; exit 1 ;;
+esac
+out="${2:-$source_dir/build/$env}"
 source_dir="$(cd -- "$source_dir" && pwd)"
 python="$cache/pio-python/bin/python3"
 pio="$cache/pio-python/bin/pio"
@@ -22,16 +27,19 @@ if [[ -e "$out/artifacts" || -L "$out/artifacts" ]]; then
 fi
 staging="$(mktemp -d "$out/.artifacts.XXXXXX")"
 trap 'rm -rf -- "$staging"' EXIT
-env=lilygo-t-embed-cc1101-plus
+build_dir="${PLATFORMIO_BUILD_DIR:-$source_dir/.pio/build}"
+# PlatformIO interprets relative build directories against the project root.
+[[ "$build_dir" = /* ]] || build_dir="$source_dir/$build_dir"
+export PLATFORMIO_BUILD_DIR="$build_dir"
 # The explicit target list is build-only. No upload/erase/monitor targets.
 "$pio" run --project-dir "$source_dir" -e "$env" -j "${ESPSOMFY_BUILD_JOBS:-4}" 2>&1 | tee "$out/build.log"
 "$pio" run --project-dir "$source_dir" -e "$env" -t buildfs 2>&1 | tee "$out/filesystem.log"
 for image in firmware.bin firmware.elf bootloader.bin partitions.bin littlefs.bin; do
-  cp "$source_dir/.pio/build/$env/$image" "$staging/$image"
+  cp "$build_dir/$env/$image" "$staging/$image"
 done
 # pioarduino includes OTA initialization in its factory image rather than
 # emitting boot_app0.bin separately. Extract only that reserved 8KB segment.
-"$python" - "$source_dir/.pio/build/$env/firmware.factory.bin" "$staging/boot_app0.bin" <<'PYCODE'
+"$python" - "$build_dir/$env/firmware.factory.bin" "$staging/boot_app0.bin" <<'PYCODE'
 from pathlib import Path
 import sys
 factory = Path(sys.argv[1]).read_bytes()

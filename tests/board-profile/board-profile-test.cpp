@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include "BoardProfile.h"
+#include "StatusBuild.h"
 #include "SPI.h"
 #include <driver/gpio.h>
 
@@ -57,6 +58,22 @@ unsigned long millis() { return clockMs; }
 void delay(unsigned long duration) { clockMs += duration; }
 
 int main() {
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  assert(BoardProfile::integratedRadio && strcmp(BoardProfile::name, "CC1101 / Plus") == 0);
+#else
+  assert(!BoardProfile::integratedRadio && strcmp(BoardProfile::name, "Generic") == 0);
+#endif
+  char build[48];
+  StatusPanel::buildIdentity(build, sizeof(build), "test");
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+#ifdef ESPSOMFY_LOCAL_UI
+  assert(strcmp(build, "CC1101 / Plus UI test") == 0);
+#else
+  assert(strcmp(build, "CC1101 / Plus LCD test") == 0);
+#endif
+#else
+  assert(strcmp(build, "Generic LCD test") == 0);
+#endif
   BoardProfile::begin();
   if(BoardProfile::integratedRadio) {
     assert(powerTransitions == 1);

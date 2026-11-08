@@ -1,18 +1,16 @@
-# Optional LILYGO status display
+# LILYGO status fallback
 
-The Plus LCD shows controller status without controlling shades. This implements the software portion of [issue #15](https://github.com/SidShaytay/ESPSomfy-RTS/issues/15); the firmware is installed, with remaining physical acceptance checks documented in the validation report. It builds on the verified standard-layout branch, separately from the minimal headless upstream contribution in #21.
+The shared CC1101/Plus build includes the interactive [local UI](lilygo-local-ui.md). This page describes its simple status fallback when PSRAM is unavailable. It is not a separate status-only production image. Dated physical results belong to the [historical validation record](lilygo-status-validation.md).
 
-## Build the optional display
+## Build for your physical board
 
-Use the pioarduino tools installed by `bash tools/setup-lilygo.sh`:
+Use pinned pioarduino Core 6.2.0:
 
 ```bash
-~/.cache/espsomfy-lilygo/pio-python/bin/pio run -e lilygo-t-embed-cc1101-plus-display
+~/.cache/espsomfy-lilygo/pio-python/bin/pio run -e lilygo-t-embed-cc1101
 ```
 
-The firmware is `.pio/build/lilygo-t-embed-cc1101-plus-display/firmware.bin`. This command only builds. It does not upload, reboot, or open a device. Keep the matching ELF for diagnostics. Do not use the existing headless artifact packager to label/package this different environment.
-
-The existing `lilygo-t-embed-cc1101-plus` environment remains headless. Both use the same standard 8 MB partition table on 16 MB hardware, QIO flash and OPI PSRAM. The display environment alone enables `ESPSOMFY_STATUS_DISPLAY` and adds pinned Adafruit GFX 1.12.1 / BusIO 1.17.4. GFX supplies only a monochrome text canvas/font; it never initializes or owns the SPI bus. Generic targets get no display dependencies.
+It requires display/UI/commands and pinned GFX 1.12.1 / BusIO 1.17.4; generic targets get no display dependencies. Keep the matching ELF. Build commands do not access a device. The packager in [LILYGO.md](../LILYGO.md) validates the exact supported CC1101/Plus hardware list and full feature set; Plus-only/suffix release names are retired.
 
 ## Read and wake the screen
 
@@ -23,11 +21,11 @@ The landscape 320×170 page uses nine 18-pixel rows and text at twice the built-
 - Wi-Fi disconnected, connecting, connected, or access point; current IPv4 address when assigned. This reports local link state, without testing internet access.
 - HTTP starting/listening/error, from the actual asynchronous TCP listener state. The `http://` address appears only with an assigned address and a listening server. Listening does not establish client reachability.
 - Radio initializing/ready/unavailable and configured frequency. Ready reads the existing availability flag, which the Plus profile publishes only after register validation and successful RX entry. A busy snapshot reports unavailable until the next successful sample; the display never weakens the checks or probes/reconfigures the radio itself.
-- Plus LCD/fork issue identity and the firmware's compiled version. The inherited source reports v4.0.1 even though the maintained baseline is pinned to the cjkas v4.0.2 revision; this feature does not relabel the firmware version.
+- Actual CC1101/Plus build identity and the firmware's compiled version. The inherited source reports v4.0.1 even though the maintained baseline is pinned to the cjkas v4.0.2 revision; this feature does not relabel the firmware version.
 
-Brightness starts at 32/255, dims to 4/255 after 30 seconds, and turns off after 60 seconds. Press and release the encoder button (GPIO0) to wake; presses are debounced for 40 ms. Holding it cannot keep waking the display. Rotation has no effect. Do not hold GPIO0 while resetting/powering on: it is also the board's boot strap.
+The fallback uses saved display brightness and timeouts; defaults are awake brightness 32/255, dim after 10 seconds and off after 20 seconds. Press and release the encoder button (GPIO0) to wake; presses are debounced for 40 ms. Holding it cannot keep waking the display. Rotation has no effect. Do not hold GPIO0 while resetting/powering on: it is also the board's boot strap.
 
-No initialization, rendering, failure, sleep, wake or rotation path submits shutter/programming commands. There is no encoder navigation or local motor-control implementation. Passwords, SSIDs, tokens, identities and shade data are not part of the display snapshot.
+No initialization, rendering, failure, sleep, wake or rotation path submits shutter/programming commands. The fallback has no encoder navigation or local motor-control path; the normal interactive renderer provides those controls. Passwords, SSIDs, tokens, identities and shade data are not part of the display snapshot.
 
 ## Wiring and shared SPI
 
@@ -39,7 +37,7 @@ Manufacturer references, checked November 6, 2026:
 
 The manufacturer's TFT_eSPI HSPI recommendation addresses that library's direct register implementation. This module instead uses Arduino's shared `SPI` object with explicit transactions and the existing radio pins. It does not instantiate TFT_eSPI, remap pins, call `SPI.end()`, change SPI pin modes, or mask interrupts.
 
-Each LCD transfer tries the existing recursive radio mutex with zero wait. A busy radio skips the transfer. CS41 is raised before transaction end; other slave selects stay deselected. The radio driver selects 4 MHz/mode0/MSB-first on every access so it cannot inherit the LCD's 20 MHz setting. The selected 4 MHz clock is below the limits in [TI’s SPI timing specification](https://www.ti.com/lit/ds/symlink/cc1101.pdf), including burst transfers without inserted delays. Reset ends its transaction before register helpers open theirs. Existing radio preflight may still end/reinitialize the bus under that same mutex; the display reopens it with the exact existing pins on its next transfer. GPIO16/DC and GPIO0/wake are reserved against saved/imported relay assignments in both Plus variants.
+Each LCD transfer tries the existing recursive radio mutex with zero wait. A busy radio skips the transfer. CS41 is raised before transaction end; other slave selects stay deselected. The radio driver selects 4 MHz/mode0/MSB-first on every access so it cannot inherit the LCD's 20 MHz setting. The selected 4 MHz clock is below the limits in [TI’s SPI timing specification](https://www.ti.com/lit/ds/symlink/cc1101.pdf), including burst transfers without inserted delays. Reset ends its transaction before register helpers open theirs. Existing radio preflight may still end/reinitialize the bus under that same mutex; the display reopens it with the exact existing pins on its next transfer. GPIO16/DC and GPIO0/wake are reserved against saved/imported relay assignments in the shared CC1101/Plus profile.
 
 Snapshots are sampled once per second after setup. Only changed text rows transfer, at most one row per 20 ms. A row transfers 11,520 pixel bytes plus 11 command/address bytes; initialization clears two scanlines per pass. At 20 MHz the pixel wire time per text row is 4.608 ms, before CPU/driver overhead. This is a calculated bound on wire volume, not a hardware latency measurement. The first BOOT page has a bounded 1.2-second setup window; initialization has a five-second elapsed-time failure limit and never waits for the radio lock.
 
