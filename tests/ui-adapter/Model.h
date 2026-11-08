@@ -16,6 +16,12 @@ struct SomfyShade : ShadeSettings,RemoteSettings {
   struct State { float currentPos=35,currentTiltPos=20,myPos=-1,myTiltPos=-1; int8_t tiltDirection=0; } value;
   uint8_t getShadeId() const{return id;} uint32_t getRemoteAddress() const{return address;}
   const State &state() const{return value;} bool isIdle() const{return idle;}
+  bool isToggle(){return isToggleShade(shadeType);}
+  somfy_commands transformCommand(somfy_commands cmd){return flipCommands?flipCommand(cmd):cmd;}
+  int8_t gpioConflict=0;
+  int8_t validateGPIOs(radio_proto,uint8_t,uint8_t,uint8_t){return gpioConflict;}
+  bool gpioCommandAllowed(somfy_commands);
+  bool canGpioCommand(somfy_commands);bool canGpioSeek(bool=false);bool canGpioTilt(somfy_commands);
   bool moveToTarget(float){idle=false;return true;} bool moveToTiltTarget(float){idle=false;return true;}
   bool sendCommand(somfy_commands,uint8_t,uint8_t){++lastRollingCode;return true;}
   bool sendTiltCommand(somfy_commands){return true;} bool isLastCommand(somfy_commands){return false;}

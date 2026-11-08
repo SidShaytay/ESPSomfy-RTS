@@ -74,6 +74,29 @@ ControlMask capabilities(const ControlDescriptor &d) {
               controlActionBit(Action::tiltDown)|controlActionBit(Action::tiltPosition));
   return mask;
 }
+ControlMask gpioCapabilities(SomfyShade &shade,ControlDescriptor d,ControlMask mask) {
+  if(rf(d.proto))return mask;
+  // Construct the same typed requests as dispatch; idle STOP remains visible.
+  d.moving=d.tiltMoving=true;
+  for(uint8_t n=0;n<uint8_t(Action::sunOff)+1;n++) {
+    const auto action=Action(n); const auto bit=controlActionBit(action);
+    if(!(mask&bit))continue;
+    shade_request_t request;
+    const bool target=action==Action::position||action==Action::tiltPosition;
+    if(prepareControlRequest(action,d,1,target?50:-1,0,request)!=ControlResult::done) {mask&=~bit;continue;}
+    bool allowed;
+    if(request.type==shade_request_type_t::tilt_command)
+      allowed=request.target>=0?shade.canGpioSeek(true):shade.canGpioTilt(request.command);
+    else if(request.target>=0)allowed=shade.canGpioSeek(shade.tiltType==tilt_types::tiltonly);
+    else {
+      allowed=shade.canGpioCommand(request.command);
+      if(request.command==somfy_commands::My && (shade.simMy || shade.proto==radio_proto::GP_Relay) && shade.isIdle())
+        allowed=allowed&&shade.canGpioSeek(shade.tiltType!=tilt_types::none);
+    }
+    if(!allowed)mask&=~bit;
+  }
+  return mask;
+}
 bool readTarget(EntityRef ref,Target &target,TargetContext &context,uint32_t &moving) {
   target={}; context={}; moving=0; target.ref=ref;
   RawTargetContext raw;
@@ -85,7 +108,7 @@ bool readTarget(EntityRef ref,Target &target,TargetContext &context,uint32_t &mo
     target.revision=raw.revision;
     if(!makeControlTargetContext(raw,context)) return false;
     target.descriptor=descriptor(*shade);
-    target.capabilities=capabilities(target.descriptor);
+    target.capabilities=gpioCapabilities(*shade,target.descriptor,capabilities(target.descriptor));
     target.valid=target.capabilities!=0;
     target.position=position(shade->state().currentPos,shade->flipPosition);
     target.tiltPosition=position(shade->state().currentTiltPos,shade->flipPosition);
@@ -136,7 +159,7 @@ public:
       auto &shade=somfy.shades[slot]; const auto id=shade.getShadeId(); if(!id || id==255) return false;
       out.id=id; out.roomId=shade.roomId; out.sortOrder=shade.sortOrder; memcpy(out.name,shade.name,21);
       out.identity=shade.getRemoteAddress(); out.revision=shade.configurationRevision;
-      const auto d=descriptor(shade); out.available=capabilities(d)!=0;
+      const auto d=descriptor(shade); out.available=gpioCapabilities(shade,d,capabilities(d))!=0;
       out.position=position(shade.state().currentPos,shade.flipPosition); out.moving=d.moving; return true;
     }
     auto &group=somfy.groups[slot]; const auto id=group.getGroupId(); if(!id || id==255) return false;
