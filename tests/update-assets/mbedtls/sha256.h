@@ -8,9 +8,10 @@
 #include <unistd.h>
 #include <vector>
 extern int hashFailure;
+extern unsigned activeHashes;
 struct mbedtls_sha256_context { std::vector<unsigned char> bytes; };
-inline void mbedtls_sha256_init(mbedtls_sha256_context *context) { context->bytes.clear(); }
-inline void mbedtls_sha256_free(mbedtls_sha256_context *) {}
+inline void mbedtls_sha256_init(mbedtls_sha256_context *context) { context->bytes.clear();++activeHashes; }
+inline void mbedtls_sha256_free(mbedtls_sha256_context *) { assert(activeHashes);--activeHashes; }
 inline int mbedtls_sha256_starts(mbedtls_sha256_context *context,int) { context->bytes.clear();return hashFailure==1 ? -1 : 0; }
 inline int mbedtls_sha256_update(mbedtls_sha256_context *context,const unsigned char *data,size_t size) { if(hashFailure==2) return -1;context->bytes.insert(context->bytes.end(),data,data+size);return 0; }
 inline int mbedtls_sha256_finish(mbedtls_sha256_context *context,unsigned char out[32]) {
