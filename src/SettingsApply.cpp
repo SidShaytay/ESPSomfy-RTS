@@ -41,7 +41,10 @@ settings_apply_result_t applySettings(ConfigSettings &current, settings_section_
   if(!parts) { out.persistence = {settings_save_state_t::failed,"request"}; return out; }
   if(section == settings_section_t::radio) {
     out.persistence = effects.saveRadio(request);
-    if(out.saved()) out.persistedParts = parts;
+    if(out.saved()) {
+      out.persistedParts = parts;
+      effects.completed(section,false);
+    }
     return out;
   }
   SettingsDraft draft(current);
@@ -101,5 +104,6 @@ settings_apply_result_t applySettings(ConfigSettings &current, settings_section_
 #if HAS_ETHERNET
   if(settingsSets(parts,settings_part_t::ethernet) && (current.connType==conn_types_t::ethernet || current.connType==conn_types_t::ethernetpref)) out.reboot=true;
 #endif
+  effects.completed(section,out.reboot);
   return out;
 }

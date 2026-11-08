@@ -19,6 +19,9 @@ public:
   virtual void mqttChanged() = 0;
   // Radio owns its lock and must persist a normalized copy before live apply.
   virtual settings_save_result_t saveRadio(JsonObject request) = 0;
+  // Runs once after complete persistence/live apply and the reboot decision.
+  // Failed or partial saves never notify, revoke clients or schedule restart.
+  virtual void completed(settings_section_t section, bool reboot) = 0;
 };
 // loop() only, after expandSettingsPayload has validated/expanded the request.
 // Failed/partial persistence leaves the in-memory settings and runtime effects
