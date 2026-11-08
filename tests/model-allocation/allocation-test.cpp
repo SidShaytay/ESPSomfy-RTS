@@ -18,6 +18,7 @@ void SomfyRemote::triggerGPIOs(somfy_frame_t &){++ioCalls;}
 bool SomfyShade::sendCommand(somfy_commands){++ioCalls;return false;}
 bool SomfyShade::sendCommand(somfy_commands,uint8_t,uint8_t){++ioCalls;return false;}
 void SomfyShade::triggerGPIOs(somfy_frame_t &){++ioCalls;}
+bool SomfyShade::gpioCommandAllowed(somfy_commands){++ioCalls;return false;}
 send_result_t SomfyShade::send(somfy_commands,uint8_t,uint8_t,uint16_t,bool){++ioCalls;return {};}
 void SomfyShade::onSaveWanted(){++ioCalls;}
 void SomfyShade::onSensorFlags(){++ioCalls;}
@@ -68,6 +69,16 @@ int main() {
     assert(shade->gpioUp==255 && shade->gpioDown==255 && shade->gpioMy==255 && shade->gpioFlags==0);
     assert(shade->roomId==0 && !shade->sunSensor && !shade->simMy && !shade->light);
     preserved(model,0,2);
+  }
+  // Reused unused groups discard deleted state without changing NVS counters.
+  { SomfyShadeController model;seed(model,0,2);seed(model,1,3);model.groups[1].clear();
+    auto &old=model.groups[1];old.flags=67;old.flipCommands=true;old.lastFrame.remoteAddress=999;
+    old.lastFrame.cmd=somfy_commands::Down;old.lastRollingCode=65500;old.direction=1;
+    auto *group=model.addGroup();assert(group==&model.groups[1] && group->getGroupId()==1);
+    assert(group->flags==0 && !group->flipCommands && group->lastFrame.remoteAddress==0);
+    assert(group->lastRollingCode==0 && group->direction==0);
+    for(auto member:group->linkedShades) assert(member==0);
+    assert(group->roomId==0 && !group->name[0]);preserved(model,0,2);
   }
   // Empty/new objects use the same defaults offered to a fresh Add draft.
   { SomfyShadeController model;

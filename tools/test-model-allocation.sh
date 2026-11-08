@@ -11,7 +11,7 @@ python3 - "$repo" "$scratch/production-reset.inc" <<'PY'
 from pathlib import Path
 import sys
 root=Path(sys.argv[1]);out=[]
-for path,names in [('SomfyRemote.cpp',['SomfyRemote::setRemoteAddress','SomfyRemote::getRemoteAddress','SomfyRemote::p_lastRollingCode','SomfyLinkedRemote::SomfyLinkedRemote']),('SomfyShade.cpp',['SomfyShade::clear','SomfyShade::onChanged','SomfyShade::getFlags','SomfyShade::setFlags','SomfyShade::p_lastRollingCode'])]:
+for path,names in [('SomfyRemote.cpp',['SomfyRemote::setRemoteAddress','SomfyRemote::getRemoteAddress','SomfyRemote::p_lastRollingCode','SomfyLinkedRemote::SomfyLinkedRemote']),('SomfyGroup.cpp',['SomfyGroup::clear']),('SomfyShade.cpp',['SomfyShade::clear','SomfyShade::onChanged','SomfyShade::getFlags','SomfyShade::setFlags','SomfyShade::p_lastRollingCode'])]:
     text=(root/'src'/path).read_text()
     for name in names:
         at=text.index(name+'(');start=text.rfind('\n',0,at)+1;brace=text.index('{',at);end=brace+1;depth=1

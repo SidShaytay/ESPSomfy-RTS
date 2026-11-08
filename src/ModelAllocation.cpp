@@ -103,6 +103,13 @@ SomfyGroup *SomfyShadeController::addGroup() {
   for(auto &group : this->groups) {
     if(group.getGroupId() != 255) continue;
     const int8_t order = this->getMaxGroupOrder() + 1;
+    group.clear();
+    group.flags = 0;
+    group.flipCommands = false;
+    group.lastFrame = {};
+    group.lastRollingCode = 0; // Fresh RAM only; next use reads its address's NVS.
+    group.direction = 0;
+    group.changed = 0;
     group.setGroupId(groupId);
     group.sortOrder = order;
     this->isDirty = true;
