@@ -593,7 +593,7 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
     s->transceiver.setConfig(cfg);
   }
   if(opts.settings || opts.network) settings.save();
-  if(opts.settings) settings.NTP.save();
+  if(opts.settings && settings.NTP.save().saved()) settings.NTP.apply();
   if(opts.network) {
     settings.IP.save();
     settings.WIFI.save();

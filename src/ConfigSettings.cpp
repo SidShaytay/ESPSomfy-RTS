@@ -101,26 +101,6 @@ bool BaseSettings::loadFile(const char *filename) {
   }
   return false; 
 }
-bool BaseSettings::parseValueString(JsonObject &obj, const char *prop, char *pdest, size_t size) {
-  if(!obj[prop].isNull()) strlcpy(pdest, obj[prop], size);
-  return true;
-}
-bool BaseSettings::parseIPAddress(JsonObject &obj, const char *prop, IPAddress *pdest) {
-  if(!obj[prop].isNull()) {
-    char buff[16];
-    strlcpy(buff, obj[prop], sizeof(buff));
-    pdest->fromString(buff);
-  }
-  return true;
-}
-int BaseSettings::parseValueInt(JsonObject &obj, const char *prop, int defVal) {
-  if(!obj[prop].isNull()) return obj[prop];
-  return defVal;
-}
-double BaseSettings::parseValueDouble(JsonObject &obj, const char *prop, double defVal) {
-  if(!obj[prop].isNull()) return obj[prop];
-  return defVal;
-}
 bool ConfigSettings::begin() {
   uint32_t chipId = 0;
   esp_chip_info_t ci;
@@ -218,23 +198,7 @@ bool ConfigSettings::getAppVersion() {
   this->appVersion.parse(app);
   return true;
 }
-bool ConfigSettings::save() {
-  Preferences pref;
-  pref.begin("CFG");
-  pref.putString("hostname", this->hostname);
-  pref.putBool("ssdpBroadcast", this->ssdpBroadcast);
-  pref.putChar("connType", static_cast<uint8_t>(this->connType));
-  pref.putBool("checkForUpdate", this->checkForUpdate);
-  pref.end();
-  return true;
-}
 bool ConfigSettings::requiresAuth() { return this->Security.type != security_types::None; }
-bool ConfigSettings::fromJSON(JsonObject &obj) {
-    if(!obj["ssdpBroadcast"].isNull()) this->ssdpBroadcast = obj["ssdpBroadcast"];
-    if(!obj["hostname"].isNull()) this->parseValueString(obj, "hostname", this->hostname, sizeof(this->hostname));
-    if(!obj["connType"].isNull()) this->connType = static_cast<conn_types_t>(obj["connType"].as<uint8_t>());
-    return true;
-}
 void ConfigSettings::print() {
   this->Security.print();
   ESP_LOGD(TAG, "Connection Type: %u", (unsigned int) this->connType);
@@ -246,37 +210,6 @@ void ConfigSettings::print() {
 }
 bool MQTTSettings::begin() {
   this->load();
-  return true;
-}
-bool MQTTSettings::fromJSON(JsonObject &obj) {
-  if(!obj["enabled"].isNull()) this->enabled = obj["enabled"];
-  if(!obj["pubDisco"].isNull()) this->pubDisco = obj["pubDisco"];
-  this->parseValueString(obj, "protocol", this->protocol, sizeof(this->protocol));
-  this->parseValueString(obj, "hostname", this->hostname, sizeof(this->hostname));
-  // An empty password clears the stored one only alongside a new username.
-  const char *username = obj["username"].as<const char *>();
-  bool newUsername = username && strcmp(username, this->username) != 0;
-  this->parseValueString(obj, "username", this->username, sizeof(this->username));
-  applySecret(obj["password"].as<const char *>(), this->password, sizeof(this->password), newUsername);
-  this->parseValueString(obj, "rootTopic", this->rootTopic, sizeof(this->rootTopic));
-  this->parseValueString(obj, "discoTopic", this->discoTopic, sizeof(this->discoTopic));
-  if(!obj["port"].isNull()) this->port = obj["port"];
-  return true;
-}
-bool MQTTSettings::save() {
-  Preferences pref;
-  pref.begin("MQTT");
-  pref.clear();
-  pref.putString("protocol", this->protocol);
-  pref.putString("hostname", this->hostname);
-  pref.putShort("port", this->port);
-  pref.putString("username", this->username);
-  pref.putString("password", this->password);
-  pref.putString("rootTopic", this->rootTopic);
-  pref.putBool("enabled", this->enabled);
-  pref.putBool("pubDisco", this->pubDisco);
-  pref.putString("discoTopic", this->discoTopic);
-  pref.end();
   return true;
 }
 bool MQTTSettings::load() {
@@ -299,15 +232,6 @@ bool NTPSettings::begin() {
   this->apply();
   return true;
 }
-bool NTPSettings::save() {
-  Preferences pref;
-  pref.begin("NTP");
-  pref.clear();
-  pref.putString("ntpServer", this->ntpServer);
-  pref.putString("posixZone", this->posixZone);
-  pref.end();
-  return this->apply();
-}
 bool NTPSettings::load() {
   Preferences pref;
   pref.begin("NTP");
@@ -319,11 +243,6 @@ bool NTPSettings::load() {
 void NTPSettings::print() {
   ESP_LOGD(TAG, "NTP Settings %s TZ:%s", this->ntpServer, this->posixZone);
 }
-bool NTPSettings::fromJSON(JsonObject &obj) {
-  this->parseValueString(obj, "ntpServer", this->ntpServer, sizeof(this->ntpServer));
-  this->parseValueString(obj, "posixZone", this->posixZone, sizeof(this->posixZone));
-  return true;
-}
 bool NTPSettings::apply() {
   // Sets the zone and starts SNTP, which sets the clock once the network is
   // up.  Waiting here with getLocalTime() held up boot by 5 s before the
@@ -331,31 +250,8 @@ bool NTPSettings::apply() {
   configTzTime(this->posixZone, this->ntpServer);
   return true;
 }
-IPSettings::IPSettings() {}
 bool IPSettings::begin() {
   this->load();
-  return true;
-}
-bool IPSettings::fromJSON(JsonObject &obj) {
-  if(!obj["dhcp"].isNull()) this->dhcp = obj["dhcp"];
-  this->parseIPAddress(obj, "ip", &this->ip);
-  this->parseIPAddress(obj, "gateway", &this->gateway);
-  this->parseIPAddress(obj, "subnet", &this->subnet);
-  this->parseIPAddress(obj, "dns1", &this->dns1);
-  this->parseIPAddress(obj, "dns2", &this->dns2);
-  return true;
-}
-bool IPSettings::save() {
-  Preferences pref;
-  pref.begin("IP");
-  pref.clear();
-  pref.putBool("dhcp", this->dhcp);
-  pref.putString("ip", this->ip.toString());
-  pref.putString("gateway", this->gateway.toString());
-  pref.putString("subnet", this->subnet.toString());
-  pref.putString("dns1", this->dns1.toString());
-  pref.putString("dns2", this->dns2.toString());
-  pref.end();
   return true;
 }
 bool IPSettings::load() {
@@ -391,26 +287,8 @@ bool SecuritySettings::begin() {
   this->load();
   return true;
 }
-bool SecuritySettings::fromJSON(JsonObject &obj) {
-  if(!obj["type"].isNull()) this->type = static_cast<security_types>(obj["type"].as<uint8_t>());
-  this->parseValueString(obj, "username", this->username, sizeof(this->username));
-  applySecret(obj["password"].as<const char *>(), this->password, sizeof(this->password));
-  applySecret(obj["pin"].as<const char *>(), this->pin, sizeof(this->pin));
-  return true;
-}
-bool SecuritySettings::save() {
-  Preferences pref;
-  pref.begin("SEC");
-  pref.clear();
-  pref.putChar("type", static_cast<uint8_t>(this->type));
-  pref.putString("username", this->username);
-  pref.putString("password", this->password);
-  pref.putString("pin", this->pin);
-  pref.end();
-  return true;
-}
 // A device that had "Secure Config Only" keeps its PIN or password and so is
-// Secured.  Its old permissions key goes with the next save's clear().
+// Secured. Its old permissions key is ignored and retained for compatibility.
 bool SecuritySettings::load() {
   Preferences pref;
   pref.begin("SEC");
@@ -426,30 +304,8 @@ void SecuritySettings::print() {
     static_cast<uint8_t>(this->type), this->username, maskSecret(this->password), maskSecret(this->pin));
 }
 
-WifiSettings::WifiSettings() {}
 bool WifiSettings::begin() {
   this->load();
-  return true;
-}
-bool WifiSettings::fromJSON(JsonObject &obj) {
-  // An empty passphrase clears the stored one only alongside a new SSID (an open network).
-  const char *ssid = obj["ssid"].as<const char *>();
-  bool newSsid = ssid && strcmp(ssid, this->ssid) != 0;
-  this->parseValueString(obj, "ssid", this->ssid, sizeof(this->ssid));
-  applySecret(obj["passphrase"].as<const char *>(), this->passphrase, sizeof(this->passphrase), newSsid);
-  if(!obj["roaming"].isNull()) this->roaming = obj["roaming"];
-  if(!obj["hidden"].isNull()) this->hidden = obj["hidden"];
-  return true;
-}
-bool WifiSettings::save() {
-  Preferences pref;
-  pref.begin("WIFI");
-  pref.clear();
-  pref.putString("ssid", this->ssid);
-  pref.putString("passphrase", this->passphrase);
-  pref.putBool("roaming", this->roaming);
-  pref.putBool("hidden", this->hidden);
-  pref.end();
   return true;
 }
 bool WifiSettings::load() {
@@ -502,19 +358,8 @@ bool WifiSettings::ssidExists(const char *ssid) {
   return false;
 }
 #if HAS_ETHERNET
-EthernetSettings::EthernetSettings() {}
 bool EthernetSettings::begin() {
   this->load();
-  return true;
-}
-bool EthernetSettings::fromJSON(JsonObject &obj) {
-  if(!obj["boardType"].isNull()) this->boardType = obj["boardType"];
-  if(!obj["phyAddress"].isNull()) this->phyAddress = obj["phyAddress"];
-  if(!obj["CLKMode"].isNull()) this->CLKMode = obj["CLKMode"];
-  if(!obj["phyType"].isNull()) this->phyType = obj["phyType"];
-  if(!obj["PWRPin"].isNull()) this->PWRPin = obj["PWRPin"];
-  if(!obj["MDCPin"].isNull()) this->MDCPin = obj["MDCPin"];
-  if(!obj["MDIOPin"].isNull()) this->MDIOPin = obj["MDIOPin"];
   return true;
 }
 bool EthernetSettings::usesPin(uint8_t pin) {
@@ -523,20 +368,6 @@ bool EthernetSettings::usesPin(uint8_t pin) {
   else if(this->MDCPin == pin) return true;
   else if(this->MDIOPin == pin) return true;
   return false;  
-}
-bool EthernetSettings::save() {
-  Preferences pref;
-  pref.begin("ETH");
-  pref.clear();
-  pref.putChar("boardType", this->boardType);
-  pref.putChar("phyAddress", this->phyAddress);
-  pref.putChar("phyType", this->phyType);
-  pref.putChar("CLKMode", this->CLKMode);
-  pref.putChar("PWRPin", this->PWRPin);
-  pref.putChar("MDCPin", this->MDCPin);
-  pref.putChar("MDIOPin", this->MDIOPin);
-  pref.end();
-  return true;
 }
 bool EthernetSettings::load() {
   Preferences pref;
