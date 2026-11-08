@@ -87,3 +87,56 @@ skip, the production UI/capture/adapter/auth harnesses, and shared CC1101 plus
 generic ESP32 firmware builds. Independent mutations removing either the lease's
 session comparison or the command's source check fail their corresponding
 regressions. All sources were restored before the passing checks.
+
+## Queued local intent admission
+
+A local command now owns one loop-adapter slot with an immutable exact target
+context, original session source, moving-member mask and monotonic admission time.
+The shared queue carries only a unique token and the exact protocol's radio flag;
+no target context is multiplied across its 32 items. Compiler assertions bound the
+slot to 704 bytes, snapshots to 512 bytes and queue items to 80 bytes.
+
+The consumer observes pending motion/context/auth even behind a held queue head.
+It discards cancelled, stale and expired markers without holding the remaining
+FIFO for radio room. Every actual request requires an age below 5000 ms and fresh
+context, admission, authorization and radio checks. Scoped STOP additionally
+requires the original session's unchanged 30-second deadline. Clock rollback
+cancels; idle members never regain eligibility. Any matching pending target read
+also intersects the existing global STOP lease, including reads for queued
+non-STOP actions; only the exact target/config/session context is affected. Mixed-group requests recheck
+before each eligible member. Crossing a deadline after the last required accepted
+request does not falsely report a partial result. A shared group STOP remains a
+single request without fallback; partial refusals never retry automatically.
+
+Back/hold explicitly cancels an unsubmitted slot. Valid same-target STOP may
+retract an unsubmitted non-STOP action, but its replacement always goes to the
+FIFO tail. An idle target is cancel-only with zero MY. If the tail is full, the
+old start stays cancelled and a distinct status says STOP was not queued.
+Different-target and unauthorized attempts cannot cancel another pending action.
+These rules do not cancel an action already handed to the existing RF/GPIO request
+service or promise a physical motor acknowledgement.
+
+`LocalControlQueue.h` exposes loop-owned pending/result/cancellation queries for
+the UI and installation coordinator. Entering local-operation freeze cancels the
+slot and revokes authorization even in None mode. Installation must separately
+coordinate other queued work and the existing transport; this adds no second
+updater worker or transfer endpoint.
+
+The host queue harness compiles the production `LoopQueue.cpp` and local adapter
+with a fake nonblocking RTOS queue, storage and request sink. It covers allocation
+and full-queue admission failure, FIFO order, cancellation/STOP-tail replacement,
+zero idle MY, source/config/restore/radio/reboot/freeze changes, exact age and grace
+boundaries, rollback, idle while waiting behind another head, GPIO off-radio
+markers, 32-member shared/mixed groups and partial refusal. Runtime/renderer tests
+also exercise actual queued UI actions, protected screens and unchanged numeric
+Apply attestation. Validation remains offline; hardware/HA stages are separate.
+
+
+The final combined queue checkpoint includes reviewed main through `5a05509`.
+All 844 native cases pass with one optional private-fixture skip, and the production
+renderer/runtime/capture/adapter/auth/real-queue harnesses pass together with the
+standalone Settings flow. Shared CC1101 and generic ESP32 SDK builds pass. The
+shared build reports 112,780 bytes static RAM and 1,411,994 bytes flash. Host layout
+checks report 64 bytes per queue item, 624 bytes for the single pending slot and 288
+bytes for the snapshot; production compiler bounds remain the portable contract.
+These are compile/host results, with no controller access, RF, HA or installation.

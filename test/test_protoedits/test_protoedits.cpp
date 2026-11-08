@@ -166,10 +166,27 @@ static void test_independent_edit_errors_survive_interleaved_parses() {
   TEST_ASSERT_EQUAL_STRING("name is not a string", secondError);
 }
 
+static void test_room_fields_use_destination_bounds_without_touching_omitted_legacy_values() {
+  TEST_ASSERT_GOOD(expand(model_edit_type_t::save_room, R"({"r":4,"n":"12345678901234567890","o":127})"));
+  TEST_ASSERT_NOT_NULL(expand(model_edit_type_t::save_room, R"({"r":4,"n":"123456789012345678901"})"));
+  TEST_ASSERT_NOT_NULL(expand(model_edit_type_t::save_room, R"({"r":4,"o":128})"));
+  TEST_ASSERT_NOT_NULL(expand(model_edit_type_t::save_room, R"({"r":4,"o":-129})"));
+  TEST_ASSERT_GOOD(expand(model_edit_type_t::save_room, R"({"r":4,"o":-128})"));
+  TEST_ASSERT_GOOD(expand(model_edit_type_t::save_room, R"({"r":4})"));
+}
+static void test_entity_names_reject_embedded_nul_without_changing_omitted_names() {
+  TEST_ASSERT_NOT_NULL(expand(model_edit_type_t::save_room, R"({"r":4,"n":"a\u0000b"})"));
+  TEST_ASSERT_NOT_NULL(expand(model_edit_type_t::save_room, R"({"r":4,"n":"a\u00001234567890123456789012345"})"));
+  TEST_ASSERT_NOT_NULL(expand(model_edit_type_t::save_shade, R"({"s":4,"n":"\u0000"})"));
+  TEST_ASSERT_GOOD(expand(model_edit_type_t::save_room, R"({"r":4,"o":1})"));
+  TEST_ASSERT_TRUE(doc["name"].isNull());
+}
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_entity_names_reject_embedded_nul_without_changing_omitted_names);
+  RUN_TEST(test_room_fields_use_destination_bounds_without_touching_omitted_legacy_values);
   RUN_TEST(test_independent_edit_errors_survive_interleaved_parses);
   RUN_TEST(test_every_edit_op_is_an_edit);
   RUN_TEST(test_other_types_are_not_edits);

@@ -6,6 +6,7 @@
 #include <vector>
 #include <stdio.h>
 SomfyShadeController somfy;
+uint64_t authTestNow=0;
 static LocalUi::SecuritySnapshot security{LocalUi::AuthMode::none,true,false,2,3,0};
 LocalUi::SecuritySnapshot LocalUi::pollAuthorization(){return security;}
 void LocalUi::lockAuthorization(){++security.generation;security.stopGrace=false;security.expiredSessionGeneration=0;if(security.mode!=LocalUi::AuthMode::none)security.allowed=false;}
@@ -17,9 +18,17 @@ struct RecordingRequests {
     return refuseAt && submitted.size()==refuseAt?shade_request_result_t::radio_refused:shade_request_result_t::done;
   }
 } shadeRequests;
+#include "LoopHarness.h"
 #define ShadeRequests RecordingRequests
+#define dispatch queuedDispatch
 #include "../../src/LocalUiAdapter.cpp"
+#undef dispatch
 #undef ShadeRequests
+LocalUi::DispatchResult LocalUi::dispatch(const Command &cmd) {
+  const auto admitted=queuedDispatch(cmd);
+  if(admitted!=DispatchResult::queued)return admitted;
+  loopQueue.drain();DispatchResult completed;assert(takeLocalControlResult(completed));return completed;
+}
 #include "../../src/SomfyShadeOps.cpp"
 using namespace LocalUi;
 static SomfyShade &device(uint8_t slot,uint8_t id,uint32_t address){
@@ -35,6 +44,7 @@ static Model open(View &view,EntityRef ref,bool authorized=true){
   return snapshotModel(true,view);
 }
 int main(){
+  loopQueue.begin();
   View view;
   const auto boot=snapshotModel(false,view);
   assert(!boot.authorized && boot.authMode==AuthMode::unavailable && !boot.pageValid);

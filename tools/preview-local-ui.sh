@@ -9,7 +9,7 @@ mkdir -p "$out"
 scratch="$(mktemp -d)"
 trap 'rm -rf -- "$scratch"' EXIT
 "${CXX:-c++}" -std=c++17 -O2 -DARDUINO=10800 -DLOCAL_UI_HOST_PREVIEW \
-  -I"$repo/tests/ui-render" -I"$repo/tests/ui-adapter" -I"$repo/src" -I"$gfx" \
+  -I"$repo/tests/ui-render" -I"$repo/tests/ui-adapter" -I"$repo/test/stubs" -I"$repo/src" -I"$gfx" \
   "$repo/tests/ui-render/render.cpp" "$repo/src/LocalUiRenderer.cpp" "$repo/src/StatusDisplay.cpp" "$gfx/Adafruit_GFX.cpp" \
   -o "$scratch/render"
 "$scratch/render" "$out"
@@ -21,7 +21,7 @@ trap 'rm -rf -- "$scratch"' EXIT
   -DARDUINOJSON_ENABLE_ARDUINO_PRINT=0 -DARDUINOJSON_ENABLE_PROGMEM=0 -DARDUINOJSON_POOL_CAPACITY=64 \
   -I"$repo/tests/ui-render" -I"$json" -I"$repo/tests/ui-adapter" -I"$repo/test/stubs" -I"$repo/src" -I"$gfx" \
   "$repo/tests/ui-render/runtime-test.cpp" "$repo/src/LocalUiRuntime.cpp" "$repo/src/LocalUiRenderer.cpp" \
-  "$repo/src/LocalUi.cpp" "$repo/src/LocalControlPolicy.cpp" "$repo/src/StatusDisplay.cpp" \
+  "$repo/src/LocalUi.cpp" "$repo/src/LocalControlPolicy.cpp" "$repo/src/ShadeRequests.cpp" "$repo/src/ShadeMotion.cpp" "$repo/src/StatusDisplay.cpp" \
   "$repo/src/LocalSettingsForm.cpp" "$repo/src/LocalSettingsRuntime.cpp" "$repo/src/LocalSettingsMemory.cpp" "$repo/src/LocalSettingsRenderer.cpp" \
   "$repo/src/ProtoSettings.cpp" "$repo/src/ProtoParse.cpp" "$repo/src/ProtoSchema.cpp" "$repo/src/JsonFormatter.cpp" "$gfx/Adafruit_GFX.cpp" \
   -o "$scratch/runtime"
@@ -31,4 +31,5 @@ trap 'rm -rf -- "$scratch"' EXIT
   "$repo/tests/ui-render/capture-test.cpp" "$repo/src/LocalUiCapture.cpp" -o "$scratch/capture"
 "$scratch/capture"
 bash "$repo/tools/test-local-ui-adapter.sh"
+bash "$repo/tools/test-local-control-queue.sh"
 python3 "$repo/tools/local_ui_previews.py" "$out"

@@ -3,6 +3,7 @@
 #include "ProtoEdits.h"
 #include "ProtoParse.h"
 #include "BitLength.h"
+#include "EntityFields.h"
 
 struct edit_op_t {
   proto_type_t type;
@@ -147,6 +148,12 @@ const char *expandEditPayload(model_edit_type_t type, JsonObjectConst d, JsonDoc
     if(!protoRouteValue(f, kv.value(), obj[routeName(type, field)].to<JsonVariant>())) {
       snprintf(why, sizeof(why), "%s is not a %s", f.name, protoKindName(f.kind));
       return why;
+    }
+    if(const auto *bounds=entityField(field)) {
+      if(!validEntityValue(*bounds,kv.value())) {
+        snprintf(why,sizeof(why),"%s is outside its supported bounds",f.name);
+        return why;
+      }
     }
     if(field == proto_field_t::bitLength &&
        (!kv.value().is<uint8_t>() || !supportedBitLength(kv.value().as<uint8_t>())))

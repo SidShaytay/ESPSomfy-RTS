@@ -17,7 +17,7 @@ uint32_t sceneHash(const Model &m,const View &v,const StatusDisplay::Snapshot &s
     uint32_t(v.entity.kind),v.entity.id,uint32_t(v.openedToken),uint32_t(v.openedToken>>32),uint32_t(v.action),
     v.valueChoice,uint32_t(v.draftValue),uint32_t(v.notice),v.level,v.setting,v.detailsOffset,v.dimSeconds,v.offSeconds,
     v.credentialChoice,v.credentialLength,v.credentialMaximum,v.credentialUser,v.credentialByte,v.retryAfterMs/1000,
-    m.authorized,m.authGeneration,m.authConfigurationGeneration,uint32_t(m.authMode),m.ready,m.controlsEnabled,
+    m.authorized,m.authGeneration,m.authConfigurationGeneration,uint32_t(m.authMode),m.ready,m.controlsEnabled,m.controlPending,
     uint32_t(m.pageToken),uint32_t(m.pageToken>>32),m.page.total,m.page.cursor,m.target.exists,m.target.valid,
     uint32_t(m.target.token),uint32_t(m.target.token>>32),m.target.capabilities,m.target.moving,m.target.stopLease,
     uint32_t(m.target.position),uint32_t(m.target.tiltPosition),m.target.descriptor.memberCount,m.target.movingCount,
@@ -88,6 +88,8 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
   }
   const uint64_t settingsNow=uint64_t(esp_timer_get_time())/1000;
   const Model model=snapshotModel(s.running,controller.view());
+  DispatchResult completion;
+  if(takeLocalControlResult(completion)) controller.result(now,completion);
   const View &before=controller.view();
   bool visible=hasPresented && presentedView.screen==before.screen;
   if(before.screen==Screen::catalogue)
@@ -111,6 +113,7 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
       before.dimSeconds==presentedView.dimSeconds && before.offSeconds==presentedView.offSeconds;
   const int8_t turn=encoder.sample((digitalRead(BoardProfile::encoderA)<<1)|digitalRead(BoardProfile::encoderB));
   controller.tick(now,model,turn,pressed,visible,digitalRead(BoardProfile::backButton)==0);
+  if(controller.takeCancellation()) cancelUnsubmittedLocalControl();
   DisplayPreferences preferences;
   if(controller.takePreferences(preferences)) controller.brightnessResult(now,model.authorized && savePreferences(preferences));
   if(controller.takeActivity()) authorizationActivity();
