@@ -1,12 +1,24 @@
 #include <unity.h>
 #include <nvs.h>
+#include <string>
 #include "SettingsApply.h"
+#include "SettingsRevisions.h"
 
 class Effects : public SettingsEffects {
 public:
   bool apClients=false;
-  int hostnames=0,times=0,mqtt=0,radio=0;
+  int hostnames=0,times=0,mqtt=0,radio=0,completions=0;
+  settings_section_t completedSection=settings_section_t::general;
+  bool completedReboot=false;
+  ConfigSettings *observed=nullptr;
+  std::string hostnameAtCompletion;
   settings_save_result_t radioResult;
+  SettingsRevisions revisions;
+  void completed(settings_section_t section,bool reboot) override {
+    completions++; completedSection=section; completedReboot=reboot;
+    revisions.completed(section);
+    if(observed) hostnameAtCompletion=observed->hostname;
+  }
   bool wifiClientsPresent() const override { return apClients; }
   void hostnameChanged() override { hostnames++; }
   void timeChanged() override { times++; }
@@ -166,6 +178,63 @@ static void test_ethernet_failure_keeps_live_pins_and_no_restart() {
   TEST_ASSERT_EQUAL(19,settings.Ethernet.MDCPin);
 }
 #endif
+static void test_completion_occurs_once_after_live_apply_and_reboot_decision() {
+  ConfigSettings settings;
+  settings.connType=conn_types_t::wifi;
+  Effects effects;
+  effects.observed=&settings;
+  auto saved=apply(settings,settings_section_t::general,R"({"hostname":"after-save"})",effects);
+  TEST_ASSERT_TRUE(saved.saved());
+  TEST_ASSERT_EQUAL(1,effects.completions);
+  TEST_ASSERT_EQUAL(settings_section_t::general,effects.completedSection);
+  TEST_ASSERT_EQUAL_STRING("after-save",effects.hostnameAtCompletion.c_str());
+  TEST_ASSERT_FALSE(effects.completedReboot);
+  saved=apply(settings,settings_section_t::network,R"({"connType":2})",effects);
+  TEST_ASSERT_TRUE(saved.saved());
+  TEST_ASSERT_EQUAL(2,effects.completions);
+  TEST_ASSERT_TRUE(effects.completedReboot);
+  TEST_ASSERT_EQUAL(saved.reboot,effects.completedReboot);
+}
+static void test_failed_and_partial_saves_never_complete() {
+  for(int phase=0;phase<3;phase++) {
+    FakeNvs::reset();
+    ConfigSettings settings;
+    settings.connType=conn_types_t::wifi;
+    Effects effects;
+    if(phase==0) FakeNvs::failOpen=1;
+    if(phase==1) FakeNvs::failSet=2;
+    if(phase==2) FakeNvs::failCommit=1;
+    auto failed=apply(settings,settings_section_t::network,R"({"connType":2,"ssid":"changed"})",effects);
+    TEST_ASSERT_FALSE(failed.saved());
+    TEST_ASSERT_EQUAL(0,effects.completions);
+    TEST_ASSERT_FALSE(effects.completedReboot);
+  }
+}
+static void test_radio_completion_uses_the_same_success_gate() {
+  ConfigSettings settings;
+  Effects effects;
+  effects.radioResult={settings_save_state_t::failed,"CC1101"};
+  TEST_ASSERT_FALSE(apply(settings,settings_section_t::radio,R"({"frequency":433.42})",effects).saved());
+  TEST_ASSERT_EQUAL(0,effects.completions);
+  effects.radioResult={};
+  TEST_ASSERT_TRUE(apply(settings,settings_section_t::radio,R"({"frequency":433.42})",effects).saved());
+  TEST_ASSERT_EQUAL(1,effects.completions);
+  TEST_ASSERT_EQUAL(settings_section_t::radio,effects.completedSection);
+  TEST_ASSERT_FALSE(effects.completedReboot);
+}
+static void test_successful_noop_security_save_invalidates_history_but_failure_does_not() {
+  ConfigSettings settings;
+  Effects effects;
+  const auto initial=effects.revisions.get(settings_section_t::security);
+  TEST_ASSERT_TRUE(apply(settings,settings_section_t::security,R"({"type":0})",effects).saved());
+  TEST_ASSERT_EQUAL_UINT64(initial+1,effects.revisions.get(settings_section_t::security));
+  TEST_ASSERT_EQUAL(security_types::None,settings.Security.type);
+  TEST_ASSERT_TRUE(apply(settings,settings_section_t::security,R"({"type":0})",effects).saved());
+  TEST_ASSERT_EQUAL_UINT64(initial+2,effects.revisions.get(settings_section_t::security));
+  FakeNvs::failCommit=FakeNvs::commits+1;
+  TEST_ASSERT_FALSE(apply(settings,settings_section_t::security,R"({"type":0})",effects).saved());
+  TEST_ASSERT_EQUAL_UINT64(initial+2,effects.revisions.get(settings_section_t::security));
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_connection_change_reboots_only_after_verified_save);
@@ -180,5 +249,9 @@ int main() {
 #if HAS_ETHERNET
   RUN_TEST(test_ethernet_failure_keeps_live_pins_and_no_restart);
 #endif
+  RUN_TEST(test_completion_occurs_once_after_live_apply_and_reboot_decision);
+  RUN_TEST(test_failed_and_partial_saves_never_complete);
+  RUN_TEST(test_radio_completion_uses_the_same_success_gate);
+  RUN_TEST(test_successful_noop_security_save_invalidates_history_but_failure_does_not);
   return UNITY_END();
 }
