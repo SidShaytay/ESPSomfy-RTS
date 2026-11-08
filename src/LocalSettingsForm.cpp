@@ -626,7 +626,7 @@ void Form::save(uint64_t now) {
   const auto result = backend.apply(section, expanded.as<JsonObject>(),
                                     admitted, admittedRevision);
   if (result.saved()) {
-    close(Notice::saved);
+    close(result.restartBlocked ? Notice::savedRestartBlocked : Notice::saved);
     return;
   }
   if (result.refusal == settings_apply_refusal_t::unauthorized) {

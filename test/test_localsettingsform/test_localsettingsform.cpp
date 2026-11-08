@@ -34,7 +34,7 @@ struct Memory : ArduinoJson::Allocator {
 struct Fake : Backend {
   Authorization auth{true, 1, 1};
   SettingsRevisions revisions;
-  bool rejectLate = false, busy = false, ethernet = false, fixedPins = true;
+  bool rejectLate = false, busy = false, restartBlocked = false, ethernet = false, fixedPins = true;
   proto_field_t overrideField = proto_field_t::count;
   int32_t overrideInteger = 0;
   float overrideNumber = 0;
@@ -90,6 +90,7 @@ struct Fake : Backend {
     applied.set(request);
     settings_apply_result_t r;
     r.persistence.state = outcome;
+    r.restartBlocked = restartBlocked;
     return r;
   }
 };
@@ -361,6 +362,17 @@ static void busy_save_retains_draft_for_an_explicit_retry_only() {
   TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(Notice::saved,form.view().notice);
   TEST_ASSERT_EQUAL(1,backend.saves);TEST_ASSERT_EQUAL(0,mem.active);
 }
+static void saved_section_reports_outstanding_restart_block_without_retaining_a_retry() {
+  Memory mem;Fake backend;Form form(backend,mem);
+  form.openSection(settings_section_t::general,0);
+  turnTo(form,1);form.activate(1);form.turn(1,1);chooseNumericApply(form);turnTo(form,3);
+  backend.restartBlocked=true;form.activate(1);
+  TEST_ASSERT_TRUE(form.closed());
+  TEST_ASSERT_EQUAL(Notice::savedRestartBlocked,form.view().notice);
+  TEST_ASSERT_FALSE(form.view().dirty);TEST_ASSERT_EQUAL(0,mem.active);
+  TEST_ASSERT_EQUAL(1,backend.saves);
+  form.tick(2);form.activate(2);TEST_ASSERT_EQUAL(1,backend.saves);
+}
 static void validation_and_save_transient_admission_fail_closed() {
   Memory mem;
   Fake backend;
@@ -618,6 +630,7 @@ int main() {
       numeric_coarse_steps_reach_bounds_and_frequency_preserves_third_decimal);
   RUN_TEST(late_backend_recheck_and_failed_persistence_never_claim_saved);
   RUN_TEST(busy_save_retains_draft_for_an_explicit_retry_only);
+  RUN_TEST(saved_section_reports_outstanding_restart_block_without_retaining_a_retry);
   RUN_TEST(restoring_previous_field_after_rejection_fails_closed_on_admission);
   RUN_TEST(validation_and_save_transient_admission_fail_closed);
   RUN_TEST(every_authoritative_section_field_is_reachable_with_board_filter);
