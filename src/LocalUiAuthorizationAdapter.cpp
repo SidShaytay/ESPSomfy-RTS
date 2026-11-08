@@ -1,6 +1,7 @@
 #ifdef ESPSOMFY_LOCAL_UI
 #include "LocalUiAuthorizationAdapter.h"
 #include "ConfigSettings.h"
+#include "SettingsRevisions.h"
 #include <esp_timer.h>
 #include <string.h>
 extern ConfigSettings settings;
@@ -16,22 +17,25 @@ struct CachedSecurity {
   ~CachedSecurity() { clear(); }
 } previous;
 bool initialized=false;
+uint64_t previousRevision=0;
 uint64_t now() { return uint64_t(esp_timer_get_time()) / 1000; }
 void sync() {
   const auto &security = settings.Security;
+  const uint64_t revision=securityConfigurationRevision();
   uint8_t different=previous.type ^ uint8_t(security.type);
   for(size_t i=0;i<sizeof(previous.username);i++) {
     different|=uint8_t(previous.username[i]^security.username[i]);
     different|=uint8_t(previous.password[i]^security.password[i]);
   }
   for(size_t i=0;i<sizeof(previous.pin);i++) different|=uint8_t(previous.pin[i]^security.pin[i]);
-  if(!initialized || different) {
+  if(!initialized || different || revision!=previousRevision) {
     authorization.configurationChanged();
     previous.clear();
     previous.type=uint8_t(security.type);
     memcpy(previous.username,security.username,sizeof(previous.username));
     memcpy(previous.password,security.password,sizeof(previous.password));
     memcpy(previous.pin,security.pin,sizeof(previous.pin));
+    previousRevision=revision;
     initialized=true;
   }
   authorization.configure(AuthMode(uint8_t(security.type)), security.username,
