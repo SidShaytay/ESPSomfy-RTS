@@ -16,6 +16,18 @@ local draft. Save submits the draft through the same loop-owned model edit
 service as the browser. Cancel, leaving the screen, authorization changes,
 configuration changes, timeout or allocation failure discard the local draft.
 Delete names the exact room ID and starts with Cancel selected.
+Selecting a field that already has a draft offers **Cancel**, **Edit draft** and
+**Revert field draft**. Revert restores only that field's original value and keeps
+other drafts. It performs no model or file write.
+
+The device/group form component adds a separate default-Cancel Save confirmation,
+showing the exact target and the effects of configuration changes. Its screens
+are not yet reachable through Administration. In those forms, inactive GPIO fields
+remain readable; a protocol change cannot silently discard an existing GPIO draft.
+Revert that draft or select a protocol that uses it. Rejected saves show a protected
+reason screen: Revise returns to the relevant field, while Cancel form discards all
+drafts. Acknowledging the reason never retries Save. A whole-form refusal uses
+Back to fields rather than naming an unrelated repair field.
 
 Back from a field cancels that edit. Back from the field list discards all its
 drafts and returns to Rooms; Back from Rooms returns to Administration, then
