@@ -64,20 +64,32 @@ static const proto_field_t GROUP_FIELDS[] = {
   proto_field_t::name, proto_field_t::roomId, proto_field_t::remoteAddress, proto_field_t::bitLength,
   proto_field_t::proto, proto_field_t::flipCommands, proto_field_t::repeats
 };
-template<size_t N>
-static bool in(proto_field_t field, const proto_field_t (&fields)[N]) {
-  for(proto_field_t f : fields)
-    if(f == field) return true;
-  return false;
+const edit_form_t *editForm(model_edit_type_t type) {
+  static const edit_form_t FORMS[] = {
+    {ROOM_FIELDS, sizeof(ROOM_FIELDS)/sizeof(*ROOM_FIELDS), proto_field_t::count},
+    {SHADE_FIELDS, sizeof(SHADE_FIELDS)/sizeof(*SHADE_FIELDS), proto_field_t::count},
+    {GROUP_FIELDS, sizeof(GROUP_FIELDS)/sizeof(*GROUP_FIELDS), proto_field_t::count},
+    {ROOM_FIELDS, sizeof(ROOM_FIELDS)/sizeof(*ROOM_FIELDS), proto_field_t::roomId},
+    {SHADE_FIELDS, sizeof(SHADE_FIELDS)/sizeof(*SHADE_FIELDS), proto_field_t::shadeId},
+    {GROUP_FIELDS, sizeof(GROUP_FIELDS)/sizeof(*GROUP_FIELDS), proto_field_t::groupId}
+  };
+  switch(type) {
+    case model_edit_type_t::add_room: return &FORMS[0];
+    case model_edit_type_t::add_shade: return &FORMS[1];
+    case model_edit_type_t::add_group: return &FORMS[2];
+    case model_edit_type_t::save_room: return &FORMS[3];
+    case model_edit_type_t::save_shade: return &FORMS[4];
+    case model_edit_type_t::save_group: return &FORMS[5];
+    default: return nullptr;
+  }
 }
 static bool takes(model_edit_type_t type, proto_field_t f) {
+  if(const auto *form = editForm(type)) {
+    if(form->identity != proto_field_t::count && f == form->identity) return true;
+    for(uint8_t i=0;i<form->count;i++) if(f == form->fields[i]) return true;
+    return false;
+  }
   switch(type) {
-    case model_edit_type_t::add_room: return in(f, ROOM_FIELDS);
-    case model_edit_type_t::save_room: return f == proto_field_t::roomId || in(f, ROOM_FIELDS);
-    case model_edit_type_t::add_shade: return in(f, SHADE_FIELDS);
-    case model_edit_type_t::save_shade: return f == proto_field_t::shadeId || in(f, SHADE_FIELDS);
-    case model_edit_type_t::add_group: return in(f, GROUP_FIELDS);
-    case model_edit_type_t::save_group: return f == proto_field_t::groupId || in(f, GROUP_FIELDS);
     case model_edit_type_t::delete_room: return f == proto_field_t::roomId;
     case model_edit_type_t::delete_shade: return f == proto_field_t::shadeId;
     case model_edit_type_t::delete_group: return f == proto_field_t::groupId;

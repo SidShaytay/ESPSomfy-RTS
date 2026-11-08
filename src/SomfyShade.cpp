@@ -107,7 +107,7 @@ void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
   this->behaviour.onFrame(frame, internal, millis());
 }
 void SomfyShade::processWaitingFrame() { this->behaviour.onWaitingFrame(millis()); }
-void SomfyShade::processInternalCommand(somfy_commands cmd, uint8_t repeat) { this->behaviour.onGroupCommand(cmd, repeat, millis()); }
+void SomfyShade::processInternalCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) { this->behaviour.onGroupCommand(cmd, repeat, millis(), stepSize); }
 void SomfyShade::checkMovement() { this->behaviour.tick(millis()); }
 void SomfyShade::markTxPending(uint32_t ticket) { this->behaviour.onTxQueued(ticket, millis()); }
 void SomfyShade::processTxEvent(const somfy_tx_event_t &evt) { this->behaviour.onTxEvent(evt); }
@@ -124,9 +124,6 @@ bool SomfyShade::moveToTiltTarget(float target) { return this->behaviour.moveToT
 bool SomfyShade::setMyPosition(int8_t pos, int8_t tilt) { return this->behaviour.setMyPosition(pos, tilt, millis()); }
 bool SomfyShade::moveToMyPosition() { return this->behaviour.moveToMyPosition(millis()); }
 void SomfyShade::setPosition(float pos, float tilt) { this->behaviour.setPosition(pos, tilt); }
-send_result_t SomfyShade::send(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority) {
-  return SomfyRemote::sendCommandAfter(cmd, repeat, stepSize, delayMs, priority, true);
-}
 void SomfyShade::onSaveWanted() { somfy.isDirty = true; }
 void SomfyShade::onSensorFlags() { somfy.updateGroupFlags(); }
 bool SomfyShade::save() {

@@ -77,7 +77,7 @@ class ShadeBehaviour {
     // whether the press was short or long.
     void onWaitingFrame(uint32_t now);
     // A group the shade belongs to sent cmd.
-    void onGroupCommand(somfy_commands cmd, uint8_t repeat, uint32_t now);
+    void onGroupCommand(somfy_commands cmd, uint8_t repeat, uint32_t now, uint8_t stepSize = 0);
     // Every loop() pass: moves the simulated position, stops at the target and
     // stores the favorite.
     void tick(uint32_t now);
