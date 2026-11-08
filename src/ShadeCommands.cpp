@@ -4,7 +4,7 @@ extern SomfyShadeController somfy;
 bool SomfyShade::sendCommand(somfy_commands cmd) { return this->sendCommand(cmd, this->repeats); }
 bool SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
   if(!this->canGpioCommand(cmd))return false;
-  if(cmd==somfy_commands::My && (this->simMy || this->proto==radio_proto::GP_Relay) && this->isIdle() && !this->canGpioSeek(this->tiltType!=tilt_types::none))return false;
+  if(cmd==somfy_commands::My && !this->isToggle() && this->shadeType!=shade_types::drycontact && (this->simMy || this->proto==radio_proto::GP_Relay) && this->isIdle() && !this->canGpioSeek(this->tiltType!=tilt_types::none))return false;
   // This sendCommand function will always be called externally. sendCommand at the remote level
   // is expected to be called internally when the motor needs commanded.
   if(this->bitLength == 0) this->bitLength = somfy.transceiver.config.type;

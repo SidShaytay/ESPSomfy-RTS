@@ -87,5 +87,11 @@ int main(){
  assert(binary.state().currentPos==0&&levels[40]==LOW);
  assert(binary.sendCommand(somfy_commands::Down));binary.behaviour.tick(4);binary.setGPIOs();
  assert(binary.state().currentPos==100&&levels[40]==HIGH);
+ // Ordinary MY is an existing one-button toggle, not a favorite seek.
+ for(auto type:{shade_types::drycontact,shade_types::garage1,shade_types::lgate1,shade_types::cgate1,shade_types::rgate1}) {
+   SomfyShade toggle;toggle.proto=radio_proto::GP_Relay;toggle.shadeType=type;
+   toggle.gpioUp=17;toggle.gpioDown=40;
+   assert(toggle.sendCommand(somfy_commands::My));
+ }
  puts("GPIO command boundaries and all category/opcode mappings passed");
 }
