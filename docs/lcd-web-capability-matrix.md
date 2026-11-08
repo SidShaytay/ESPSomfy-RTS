@@ -2,6 +2,8 @@
 
 Inventory baseline: fetched main `fc5a2947928fdf855185f77ecaae69c00b677156` (2026-11-08). This is a **design inventory, not implementation or parity evidence**. Every LCD workflow below is proposed unless explicitly described as existing. No live device was accessed. No row authorizes RF, GPIO, model persistence, flashing, HA changes or hardware testing during development.
 
+Sid's updated build decision: one shared full-feature `lilygo-t-embed-cc1101` firmware supports both CC1101 and CC1101 Plus. The unused Plus nRF24 module does not justify a second image. This supersedes the issue's original two-build requirement; hardware compatibility still names exactly these supported boards and does not imply generic S3 support. Build consolidation alone does not implement the proposed workflows below.
+
 ## How to read the matrix
 
 The current web application is `data-src/index.html` and `data-src/index.js`; `data-src/js/views.js` adapts the protocol model. Most operations use protocol 2 over `/ws`; the complete operation registry is `src/ProtoSchema.h:20`. Command requests use `parseShadeOp` / `ShadeRequests::run` (`src/ProtoOps.cpp:157`, `src/ShadeRequests.cpp:40`); edits use `expandEditPayload` and loop-owned `applyModelEdit` (`src/ProtoEdits.cpp:129`, `src/SomfyJson.cpp`); settings use `expandSettingsPayload` / `runDeviceOp` (`src/ProtoSettings.cpp:188`, `src/DeviceOps.cpp:217`). LCD code must call shared domain seams with typed data, never loopback HTTP, web handlers, or direct radio/rolling-code manipulation.

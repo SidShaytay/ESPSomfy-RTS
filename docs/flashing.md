@@ -16,10 +16,9 @@ Use the latest `main` as the completed integration baseline. New features start 
 
 | Physical LILYGO board | PlatformIO environment |
 | --- | --- |
-| T-Embed CC1101 | `lilygo-t-embed-cc1101` |
-| T-Embed CC1101 Plus | `lilygo-t-embed-cc1101-plus` |
+| T-Embed CC1101 or CC1101 Plus | `lilygo-t-embed-cc1101` |
 
-Both canonical builds include the display, local interface and local commands. Retired `-display`, `-ui` and `-ui-preview` environments are rejected and must not silently alias a new image. Treat transition from an old profile as a separately verified migration; do not infer hardware identity from its display or version text. Generic boards keep their distinct environments.
+The shared build includes the display, local interface and local commands. The retired Plus-only environment and `-display`, `-ui` and `-ui-preview` environments are rejected and must not silently alias a new image. Treat transition from an old profile as a separately verified migration; do not infer hardware identity from its display or version text. Generic boards keep their distinct environments.
 
 Identify HA/HomeKit/MQTT automation writers and arrange a quiet period so state and counters cannot advance unnoticed during capture. Record any automation changes for restoration. Do not run a second controller with the same radio identities.
 
@@ -86,18 +85,18 @@ An exception is allowed **only when Sid explicitly authorizes firmware-only A/B 
 
 ## 3. Build and check the exact candidate
 
-Use the pinned pioarduino Core 6.2.0 toolchain installed by `bash tools/setup-lilygo.sh`. From the chosen clean source worktree, this example builds the full-feature Plus target without accessing a device:
+Use the pinned pioarduino Core 6.2.0 toolchain installed by `bash tools/setup-lilygo.sh`. From the chosen clean source worktree, this example builds the shared full-feature CC1101/Plus target without accessing a device:
 
 ```bash
 set -euo pipefail
 pio_tool="${ESPSOMFY_TOOL_CACHE:-$HOME/.cache/espsomfy-lilygo}/pio-python/bin/pio"
-build_environment=lilygo-t-embed-cc1101-plus
+build_environment=lilygo-t-embed-cc1101
 "$pio_tool" run -e "$build_environment" -j 4
 artifact_dir="$PWD/.pio/build/$build_environment"
 sha256sum "$artifact_dir/firmware.bin" "$artifact_dir/firmware.elf" "$artifact_dir/partitions.bin"
 ```
 
-If `PLATFORMIO_BUILD_DIR` is set, use that actual output directory instead. Record the clean Git revision, environment, relevant compiler defines, tool/dependency versions, firmware size and hashes. Keep the ELF for decoding a later crash. Run the relevant native, protocol, board/SPI and display/adapter checks before installation; [AGENTS.md](../AGENTS.md) and the [UI guide](lilygo-local-ui.md) list them. The `tools/build-lilygo.sh` packager validates both canonical full-feature boards; its optional third argument selects the exact board environment.
+If `PLATFORMIO_BUILD_DIR` is set, use that actual output directory instead. Record the clean Git revision, environment, relevant compiler defines, tool/dependency versions, firmware size and hashes. Keep the ELF for decoding a later crash. Run the relevant native, protocol, board/SPI and display/adapter checks before installation; [AGENTS.md](../AGENTS.md) and the [UI guide](lilygo-local-ui.md) list them. The `tools/build-lilygo.sh` packager validates the single full-feature shared image and its exact supported CC1101/Plus hardware list.
 
 Compare the candidate's decoded partition table with the board's verified table. Account for erased sector padding when comparing generated `partitions.bin` with a flash sector. Confirm the inactive app differs from the running app and the image fits it. An A/B upload cannot migrate partitions or create a second slot.
 

@@ -2,6 +2,8 @@
 
 Design-stage audit, 2026-11-08. This document describes gaps and proposed work; it does not certify feature parity or hardware operation. No controller, serial device, RF, motor or Home Assistant access was performed.
 
+Current product update: Sid superseded the initial two-build decision with **one shared full-feature CC1101/Plus image**, `lilygo-t-embed-cc1101`. Plus nRF24 is unused. The two-build implementation/results below are retained as dated history; the shared image retains an exact supported-hardware list, memory/layout/features and explicit historical profile transition. Current build guidance is in [LILYGO.md](../LILYGO.md).
+
 ## Baseline and preserved work
 
 The isolated audit worktree starts at fetched remote main `fc5a2947928fdf855185f77ecaae69c00b677156`. Local main is `a493d50`, one commit ahead. The complete difference is the reviewed shared-group STOP fix in `src/LocalUiAdapter.cpp`, its fake-sink regression cases in `tests/ui-adapter/adapter-test.cpp`, and the corresponding paragraph in `docs/lilygo-local-ui.md` (37 added lines, four removed lines across three files).
@@ -104,3 +106,18 @@ Final compile/package sizes for code revision `3cc6317` (canonical build change 
 | CC1101 Plus | 1,407,376 | 28,890,080 | 108,060 | 1,362,534 | 1,934,960 |
 
 Both use 3,342,336-byte slots. Packages record revision `3cc6317` and `dirty: true` because current documentation edits were pending during packaging; they are local build evidence, not published release artifacts. A clean final release must be rebuilt/revalidated from its final integrated revision. The generic `esp32dev` full firmware build also passed in separate `.pio/build-generic`, confirming no LILYGO display dependency/feature is required there.
+
+## Shared CC1101/Plus build — superseding product decision
+
+Sid directed one shared firmware after the earlier two-build slice. Code/tooling commit `549b1df` provides only `lilygo-t-embed-cc1101`, with the shared `ESPSOMFY_LILYGO_T_EMBED_CC1101` macro and `CC1101 / Plus` status identity. The Plus nRF24 module remains disabled/unused. Production compilation and packaging reject the retired Plus macro/environment and all suffix environments rather than aliasing them.
+
+Package metadata contains exactly `compatible_boards: [lilygo-t-embed-cc1101, lilygo-t-embed-cc1101-plus]`, bound to the shared audited wiring, ESP32-S3 N16R8, QIO/OPI memory, `default_8MB` layout and all three display/UI/command flags. Missing/extended/unknown/generic supported-hardware lists fail validation, including in-place caller mutation. Historical profile/installed-image transitions remain explicit work with #12; neither shared hardware nor a filename permits a generic image fallback.
+
+Offline verification for the shared build:
+
+- 34 packaging/config/build-script tests passed. Red tests first caught the duplicate environments and old separate identities. A test also reproduced an emitted-list alias that could modify the validator's expected hardware list; emitting an independent list fixed it. Disabling retired-macro rejection caused three expected failures; restoration returned all tests to green.
+- Shared and generic board tests, UI/LCD build-label checks, reserved GPIOs, negative compilation (retired/dual/wrong-target/missing/noncanonical-value flags), panel and radio SPI tests passed. Production renderer generated eight 320×170 previews; runtime, capture and shared-group STOP fake sinks passed.
+- The shared full firmware and filesystem package built and passed independent manifest validation. Binary: **1,407,360 bytes**; ELF: **28,887,064 bytes**; linker static RAM: **108,060 bytes**; linker flash: **1,362,518 bytes**; app-slot headroom: **1,934,976 bytes** of the 3,342,336-byte slot.
+- Generic `esp32dev` full firmware passed in separate `.pio/build-generic`. The shared build used `.pio/build-shared`. These compile checks do not provide runtime combined-load or hardware-revision qualification.
+
+Current guides, matrix, security design, AGENTS instructions, CI and preview defaults now use the single shared image. Dated two-build results and installation evidence above remain history. Shared full-feature configuration does not establish complete web/LCD parity; all controller/HA/RF/motor/flashing stages remain separately authorized.
