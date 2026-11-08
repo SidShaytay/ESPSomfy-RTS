@@ -699,7 +699,7 @@ void ShadeBehaviour::onFrame(somfy_frame_t &frame, bool internal, uint32_t now) 
   //if(dir == 0 && this->settings.tiltType == tilt_types::tiltmotor && this->s.tiltDirection != 0) this->setTiltMovement(0, now);
   this->setMovement(dir, now);
 }
-void ShadeBehaviour::onGroupCommand(somfy_commands cmd, uint8_t repeat, uint32_t now) {
+void ShadeBehaviour::onGroupCommand(somfy_commands cmd, uint8_t repeat, uint32_t now, uint8_t stepSize) {
   // The reason why we are processing all frames here is so
   // any linked remotes that may happen to be on the same ESPSomfy RTS
   // device can trigger the appropriate actions.
@@ -766,12 +766,12 @@ void ShadeBehaviour::onGroupCommand(somfy_commands cmd, uint8_t repeat, uint32_t
       }
       break;
     case somfy_commands::StepUp:
-      // A group step is always one step.
-      if(!this->applyStep(-1, 1)) return;
+      // Match the transmitted frame; zero retains the protocol default of one.
+      if(!this->applyStep(-1, stepSize == 0 ? 1 : stepSize)) return;
       break;
     case somfy_commands::StepDown:
       dir = 1;
-      if(!this->applyStep(1, 1)) return;
+      if(!this->applyStep(1, stepSize == 0 ? 1 : stepSize)) return;
       break;
     case somfy_commands::Flag:
       this->p_sunFlag(false);
