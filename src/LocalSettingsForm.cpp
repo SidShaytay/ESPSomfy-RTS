@@ -388,6 +388,9 @@ void Form::render() {
   else if (notice == Notice::failed)
     copy(frame.hint, sizeof(frame.hint),
          "Not saved; running unchanged. Retry or Cancel.");
+  else if (notice == Notice::busy)
+    copy(frame.hint, sizeof(frame.hint),
+         "Actions queued. Retry Save when clear, or Cancel.");
   else if (notice == Notice::invalid)
     copy(frame.hint, sizeof(frame.hint),
          "Value refused. Revise the draft or Cancel.");
@@ -636,7 +639,9 @@ void Form::save(uint64_t now) {
   }
   frame.mode = Mode::fields;
   selected = count();
-  frame.notice = result.refusal != settings_apply_refusal_t::none
+  frame.notice = result.refusal == settings_apply_refusal_t::busy
+                     ? Notice::busy
+                 : result.refusal != settings_apply_refusal_t::none
                      ? Notice::invalid
                  : result.persistence.state == settings_save_state_t::partial
                      ? Notice::partial

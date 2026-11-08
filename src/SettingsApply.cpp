@@ -57,6 +57,7 @@ const char *settingsApplyFailureDescription(const settings_apply_result_t &resul
     case settings_apply_refusal_t::passwordRequired: return "Password security requires a password; nothing was saved.";
     case settings_apply_refusal_t::unauthorized: return "Unlock again before saving; nothing was saved.";
     case settings_apply_refusal_t::stale: return "Settings changed; reopen the form before saving.";
+    case settings_apply_refusal_t::busy: return "Actions are queued; retry Save when they finish. Nothing was saved.";
     default: return settingsSaveFailureDescription(result.persistence.state);
   }
 }

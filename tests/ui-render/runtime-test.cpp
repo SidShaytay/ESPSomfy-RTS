@@ -9,6 +9,9 @@
 #include <stdio.h>
 #include <map>
 #include "DeviceOps.h"
+#include "LoopQueue.h"
+LoopQueue loopQueue;
+uint32_t LoopQueue::pending() const { return 0; }
 bool hasPsram=true,allocateOK=true;
 void *allocated=nullptr;
 bool settingsAllocateOK=true;
