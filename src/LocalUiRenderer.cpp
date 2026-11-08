@@ -22,7 +22,7 @@ const char *notices[] = {"",
                          "Unlock required", "Invalid credentials", "Too many attempts - wait",
                          "Local unlock unavailable", "Unlocked - select action again",
                          "Command accepted", "Partially accepted - review",
-                         "Busy - retry", "Pending action cancelled", "Estimate unavailable - no draft"};
+                         "Busy - retry", "Pending action cancelled", "Estimate unavailable - no draft", "Queued action expired - retry", "Cancelled; STOP not queued"};
 } // namespace
 void Canvas::drawPixel(int16_t x, int16_t y, uint16_t color) {
   if(pixels && x >= 0 && x < screenWidth && y >= 0 && y < screenHeight)
@@ -252,7 +252,8 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
         if(value>=0) {snprintf(label,sizeof(label),"%d%%",value);text(258,y+20,label,false,muted,48);}
       }
     }
-    if(v.notice!=Notice::none) text(12,164,notices[int(v.notice)],false,amber);
+    if(m.controlPending) text(12,164,"Queued action; Back cancels",false,amber);
+    else if(v.notice!=Notice::none) text(12,164,notices[int(v.notice)],false,amber);
     else text(12,164,"Turn: choose   Back: STOP page",false,muted);
   } else if(v.screen==Screen::value) {
     snprintf(label,sizeof(label),"#%s%u %s",v.entity.kind==EntityKind::group?"G":"",unsigned(v.entity.id),m.target.name);
@@ -269,7 +270,7 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
         text(x+35,136,choices[i],false,active?teal:white,108);
       }
     } else text(12,135,"Turn: adjust   Push: review",false,teal);
-    text(12,164,v.notice!=Notice::none?notices[int(v.notice)]:"Back: cancel   Apply sends",false,v.notice!=Notice::none?amber:muted);
+    text(12,164,m.controlPending?"Queued action; Back cancels both":v.notice!=Notice::none?notices[int(v.notice)]:"Back: cancel   Apply sends",false,m.controlPending||v.notice!=Notice::none?amber:muted);
   } else {
     const auto &t=m.target;
     snprintf(label,sizeof(label),"#%s%u %s",v.entity.kind==EntityKind::group?"G":"",unsigned(v.entity.id),t.exists?t.name:"Not configured");
@@ -292,7 +293,7 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
     for(unsigned i=0;i<menu.count;i++) {
       const int width=(296-int(menu.count-1)*8)/menu.count,x=12+i*(width+8);
       const auto action=menu.actions[i];const bool active=action==v.action;
-      const bool enabled=t.valid && (action==Action::count || action!=Action::stop || t.moving);
+      const bool enabled=t.valid && (action==Action::count || action!=Action::stop || t.moving || m.controlPending);
       fillRoundRect(x,85,width,52,6,active?selected:bg);drawRoundRect(x,85,width,52,6,active?teal:line);
       const auto color=enabled?white:muted;
       if(action==Action::stop) drawRect(x+width/2-5,94,10,10,color);
@@ -302,7 +303,9 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
       }
       text(x+8,127,controlLabel(action),false,color,width-12);
     }
-    if(v.notice!=Notice::none) text(12,163,notices[int(v.notice)],false,amber);
+    if(v.notice==Notice::cancelled || v.notice==Notice::stopNotQueued) text(12,163,notices[int(v.notice)],false,amber);
+    else if(m.controlPending) text(12,163,v.notice==Notice::busy?"Busy; Back cancels queued action":"Queued - Back cancels",false,amber);
+    else if(v.notice!=Notice::none) text(12,163,notices[int(v.notice)],false,amber);
     else if(!m.authorized) text(12,163,t.stopLease?"STOP only; unlock other actions":"Press: unlock   Back: return",false,amber);
     else text(12,163,t.pendingRelayTilt?"Separate relay tilt unavailable":"Press: select   Back: return",false,t.pendingRelayTilt?amber:muted);
   }

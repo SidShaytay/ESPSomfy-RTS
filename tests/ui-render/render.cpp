@@ -60,6 +60,10 @@ int main(int argc,char **argv) {
   v.action=Action::stepDown;v.draftValue=127;canvas.paint(m,v,s);save(argv[1],"step-apply",buffer);
   v.screen=Screen::control;v.action=Action::toggle;target.capabilities=controlActionBit(Action::toggle);
   canvas.paint(m,v,s);save(argv[1],"toggle",buffer);
+  v.screen=Screen::control;v.action=Action::stop;target.capabilities=7;target.moving=false;m.controlPending=true;
+  canvas.paint(m,v,s);save(argv[1],"pending-idle-stop",buffer);original=buffer;
+  m.controlPending=false;canvas.paint(m,v,s);assert(buffer!=original);
+  v.notice=Notice::stopNotQueued;canvas.paint(m,v,s);save(argv[1],"stop-not-queued",buffer);v.notice=Notice::none;
   v.screen=Screen::brightness;v.dimSeconds=v.offSeconds=0;v.setting=2;canvas.paint(m,v,s);save(argv[1],"no-timeouts",buffer);
   v.screen=Screen::unlock;v.credentialMaximum=4;v.credentialLength=4;v.credentialChoice=CredentialEditor::doneChoice;
   canvas.paint(m,v,s);save(argv[1],"unlock-pin",buffer);original=buffer;

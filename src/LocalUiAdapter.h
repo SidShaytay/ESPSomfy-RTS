@@ -1,6 +1,7 @@
 #pragma once
 #include "LocalUi.h"
 #include "LocalOperationAdmission.h"
+#include "LocalControlQueue.h"
 namespace LocalUi {
 Model snapshotModel(bool running,const View &);
 // Called only after a complete control frame was presented. Context tokens are

@@ -11,8 +11,8 @@ constexpr uint8_t detailsRowCount=10, detailsVisibleRows=6, homeRows=6;
 enum class Screen : uint8_t { status, home, catalogue, roomKinds, control, actions, value, details, brightness, unlock, settings };
 using Action=ControlAction;
 enum class Notice : uint8_t { none, preview, queued, refused, idle, changed, wait, saved, saveFailed,
-  unlockRequired, unlockWrong, unlockWait, unlockUnavailable, unlocked, done, partial, busy, cancelled, valueUnavailable };
-enum class DispatchResult : uint8_t { queued, done, partial, refused, stale, busy, denied, idle, cancelled };
+  unlockRequired, unlockWrong, unlockWait, unlockUnavailable, unlocked, done, partial, busy, cancelled, valueUnavailable, expired, stopNotQueued };
+enum class DispatchResult : uint8_t { queued, done, partial, refused, stale, busy, denied, idle, cancelled, expired, cancelledBusy };
 struct Target {
   EntityRef ref;
   char name[21]={};
@@ -30,7 +30,7 @@ struct Model {
   CatalogueKind catalogue=CatalogueKind::devices;
   uint8_t room=allRooms;
   uint64_t pageToken=0, modelRevision=0, restoreRevision=0;
-  bool pageValid=false, ready=false, controlsEnabled=false, anyMoving=false;
+  bool pageValid=false, ready=false, controlsEnabled=false, anyMoving=false, controlPending=false;
   AuthMode authMode=AuthMode::unavailable;
   bool authorized=false;
   uint32_t authGeneration=0, authConfigurationGeneration=0, retryAfterMs=0, expiredSessionGeneration=0;
@@ -84,7 +84,7 @@ class Controller {
   uint32_t brightnessConfigurationGeneration=0, editorActivity=0, editorConfigurationGeneration=0;
   uint32_t chosenIdentity=0;
   uint64_t chosenRevision=0, chosenModelRevision=0, chosenRestoreRevision=0;
-  bool bindTarget=false, authorizeAfterUnlock=false, authActivity=false;
+  bool bindTarget=false, authorizeAfterUnlock=false, authActivity=false, cancelPending=false;
   SettingsInput settingsInput;
   void editorView();
   void valueView();
@@ -104,6 +104,7 @@ public:
   const View &view() const { return state; }
   uint8_t brightness() const { return asleep?0:dimmed?(state.level<4?1:4):state.level; }
   bool take(Command &out);
+  bool takeCancellation() {const bool value=cancelPending;cancelPending=false;return value;}
   void result(uint32_t now,DispatchResult);
   void brightnessResult(uint32_t now,bool saved);
   void unlockResult(uint32_t now,AuthResult);
