@@ -6,12 +6,17 @@
 #include <cstdint>
 
 static uint8_t flash[1025];
-static unsigned reads = 0, freed = 0;
+static unsigned reads = 0, freed = 0, encryptionReads=0, nextOffset=0, yields=0, stopAfter=0;
+static bool stopRequested=false;
+static bool stopped() { return stopRequested; }
+static void cooperate() { if(++yields==stopAfter) stopRequested=true; }
 static const char *mode;
-bool esp_flash_encryption_enabled() { return !strcmp(mode,"encrypted"); }
+bool esp_flash_encryption_enabled() { assert(!stopRequested);++encryptionReads;return !strcmp(mode,"encrypted"); }
 int esp_flash_read(void *, void *out, uint32_t offset, uint32_t count) {
   assert(reinterpret_cast<uintptr_t>(out) % 4 == 0);
-  assert(offset == reads * 512);
+  assert(!stopRequested);
+  if(offset==0) nextOffset=0;
+  assert(offset==nextOffset);nextOffset+=count;
   assert(offset + count <= sizeof(flash));
   assert(count == (offset < 1024 ? 512 : 1));
   ++reads;
@@ -44,6 +49,21 @@ int main(int argc, char **argv) {
   assert(!strcmp(gitUpdateBootloaderDigest(), "0104000000000000000000000000000000000000000000000000000000000000"));
   memset(flash, 1, sizeof(flash));
   if(!strcmp(mode, "tampered")) flash[512] = 2;
+  if(!strncmp(mode,"interrupted",11)) {
+    stopRequested=true;
+    assert(gitUpdateBootloaderStatus({stopped,cooperate})==UpdateAttestation::interrupted);
+    assert(reads==0 && encryptionReads==0 && freed==0);
+    stopRequested=false;stopAfter=!strcmp(mode,"interrupted-final") ? 3 : 2;
+    assert(gitUpdateBootloaderStatus({stopped,cooperate})==UpdateAttestation::interrupted);
+    assert(reads==stopAfter && freed==1);
+    const auto before=reads;
+    stopRequested=false;
+    assert(gitUpdateBootloaderStatus()==UpdateAttestation::verified);
+    assert(reads==before+3 && freed==2); // interruption was not cached
+    assert(gitUpdateBootloaderStatus()==UpdateAttestation::verified);
+    assert(reads==before+3 && freed==2);
+    return 0;
+  }
   const bool valid = !strcmp(mode, "valid");
   assert(gitUpdateBootloaderMatches() == valid);
   assert(freed == (!strcmp(mode,"encrypted") ? 0u : 1u));

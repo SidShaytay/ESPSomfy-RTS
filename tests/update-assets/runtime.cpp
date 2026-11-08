@@ -9,7 +9,10 @@
 #include <mbedtls/sha256.h>
 std::string fixtureRoot,failRead;
 int rootFailure=0,hashFailure=0;
-bool failSeek=false;
+bool failSeek=false,stopRequested=false;
+unsigned activeFiles=0,activeDirectories=0,activeHashes=0,yields=0,stopAfter=0;
+static bool stopped() { return stopRequested; }
+static void cooperate() { if(++yields==stopAfter) stopRequested=true; }
 std::string assetTestCompatibility=INITIAL_COMPAT;
 std::vector<Entry> rootEntries={{"appversion",DT_REG},{"index.js.gz",DT_REG},{"empty.css",DT_REG},{"folder",DT_DIR},{"folder.css.gz",DT_REG},{"update-assets.txt",DT_REG}};
 TestFS LittleFS;
@@ -35,6 +38,17 @@ static std::string compatibility(const std::string &bytes) {
 int main(int argc,char **argv) {
   assert(argc==2);fixtureRoot=argv[1];
   fakeTaskWdt.subscribed=true;
+  stopRequested=true;
+  assert(gitUpdateAssetsStatus({stopped,cooperate})==UpdateAttestation::interrupted);
+  assert(activeFiles==0 && activeDirectories==0 && activeHashes==0);
+  stopRequested=false;
+  for(unsigned nth=1;nth<=50;nth++) {
+    yields=0;stopAfter=nth;
+    const auto result=gitUpdateAssetsStatus({stopped,cooperate});
+    assert(result==(stopRequested ? UpdateAttestation::interrupted : UpdateAttestation::verified));
+    assert(activeFiles==0 && activeDirectories==0 && activeHashes==0);
+    stopRequested=false;
+  }
   assert(gitUpdateAssetsMatch());
   assert(fakeTaskWdt.resets>=9);
   rootEntries.push_back({"unexpected.js",DT_REG});
