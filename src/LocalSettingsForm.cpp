@@ -143,6 +143,16 @@ void format(const settings_field_t &f, const settings_value_t &v, char *out,
     copy(out, size, v.boolean ? "Set" : "Unset");
     return;
   }
+  if (v.kind == 'i') {
+    bool listed = !f.choiceCount;
+    for (uint8_t i = 0; i < f.choiceCount; i++)
+      if (f.choices[i] == v.integer)
+        listed = true;
+    if (v.integer < f.lo || v.integer > f.hi || !listed) {
+      snprintf(out, size, "Invalid (%ld)", long(v.integer));
+      return;
+    }
+  }
   if (f.field == proto_field_t::securityType) {
     copy(out, size,
          v.integer == 0   ? "None"
@@ -459,9 +469,9 @@ void Form::beginField(uint64_t now, bool replace) {
     frame.mode = Mode::adjust;
   } else if (f.choiceCount) {
     uint8_t index = 0;
-    while (index + 1 < f.choiceCount && f.choices[index] != v.integer)
+    while (index < f.choiceCount && f.choices[index] != v.integer)
       ++index;
-    ok = editor.beginChoice(index, f.choiceCount, now);
+    ok = index < f.choiceCount && editor.beginChoice(index, f.choiceCount, now);
     frame.mode = Mode::adjust;
   } else {
     scale = f.schema().kind == 'n'
@@ -469,21 +479,28 @@ void Form::beginField(uint64_t now, bool replace) {
                 : 1;
     const int64_t low = int64_t(f.lo) * (scale == 1000 ? 10 : 1),
                   high = int64_t(f.hi) * (scale == 1000 ? 10 : 1);
-    int64_t value =
-        f.schema().kind == 'n' ? llround(double(v.number) * scale) : v.integer;
-    // Outdated firmware values remain visible; editing starts at the closest
-    // supported bound.
-    if (value < low)
-      value = low;
-    if (value > high)
-      value = high;
-    ok = editor.beginInteger(value, low, high, 1, now);
+    if (f.schema().kind == 'n') {
+      // Round only to the editor's explicit decimal resolution. Check finite
+      // bounds before converting to an integer; corrupt source values never
+      // select a different supported value or reach an overflowing llround.
+      const long double scaled = static_cast<long double>(v.number) * scale;
+      if (isfinite(scaled)) {
+        const long double rounded = roundl(scaled);
+        if (rounded >= static_cast<long double>(low) &&
+            rounded <= static_cast<long double>(high))
+          ok = editor.beginInteger(int64_t(rounded), low, high, 1, now);
+      }
+    } else
+      ok = editor.beginInteger(v.integer, low, high, 1, now);
     frame.mode = Mode::adjust;
   }
   wipe(&v, sizeof(v));
   if (!ok) {
-    close(Notice::invalid);
-    return;
+    editor.cancel();
+    editingField = nullptr;
+    selected = fieldIndex;
+    frame.mode = Mode::fields;
+    frame.notice = Notice::invalid;
   }
   render();
 }

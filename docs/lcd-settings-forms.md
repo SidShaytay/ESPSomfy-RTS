@@ -6,7 +6,7 @@ This document describes the `LocalUi::Settings::Form` component. The parent LCD 
 
 ## Editing and saving
 
-Turn to select a section or field, then press to edit. Rotation changes the draft only. For numeric values, press to open the actions menu: **Edit value**, **Step** and **Apply to draft**. Step cycles through powers of ten within the field's range, allowing large values such as an MQTT port to be reached quickly. Numbers stop at their shared bounds. Frequency retains three decimal places; the other fractional radio values retain two.
+Turn to select a section or field, then press to edit. Rotation changes the draft only. For numeric values, press to open the actions menu: **Edit value**, **Step** and **Apply to draft**. Step cycles through powers of ten within the field's range, allowing large values such as an MQTT port to be reached quickly. Numbers stop at their shared bounds. Unsupported stored choices and out-of-range or nonfinite numbers remain unchanged and refuse editor entry with Invalid; opening a field never silently substitutes a supported value. Frequency retains three decimal places; the other fractional radio values retain two.
 
 For text, turn to select a character, press to append it, or choose Delete byte, Exact byte, Apply to draft or Cancel edit. Exact byte accepts nonzero bytes for values that cannot be entered with the ASCII picker. The screen shows the end of long drafts, an ellipsis when the beginning is clipped, and the current/maximum byte count. The renderer handles unsupported glyphs separately from the stored bytes.
 

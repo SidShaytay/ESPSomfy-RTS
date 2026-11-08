@@ -1,5 +1,7 @@
 #include "LocalSettingsForm.h"
 #include "SettingsRevisions.h"
+#include <float.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unity.h>
@@ -33,6 +35,9 @@ struct Fake : Backend {
   Authorization auth{true, 1, 1};
   SettingsRevisions revisions;
   bool rejectLate = false, ethernet = false, fixedPins = true;
+  proto_field_t overrideField = proto_field_t::count;
+  int32_t overrideInteger = 0;
+  float overrideNumber = 0;
   unsigned saves = 0, activities = 0;
   settings_save_state_t outcome = settings_save_state_t::saved;
   JsonDocument applied;
@@ -64,6 +69,10 @@ struct Fake : Backend {
         v.integer = 1883;
       if (m.field == proto_field_t::frequency)
         v.number = 433.421;
+      if (m.field == overrideField) {
+        v.integer = overrideInteger;
+        v.number = overrideNumber;
+      }
       sink.field(m.field, v);
     }
     return true;
@@ -435,6 +444,104 @@ restoring_previous_field_after_rejection_fails_closed_on_admission() {
   TEST_ASSERT_EQUAL(0, mem.active);
   TEST_ASSERT_EQUAL(0, backend.saves);
 }
+static void
+invalid_originals_stay_visible_and_cannot_be_applied_as_supported_values() {
+  struct Invalid {
+    settings_section_t section;
+    uint8_t index;
+    proto_field_t field;
+    int32_t integer;
+    float number;
+  };
+  const Invalid cases[] = {
+      {settings_section_t::radio, 0, proto_field_t::bitLength, 57, 0},
+      {settings_section_t::radio, 1, proto_field_t::proto, 99, 0},
+      {settings_section_t::security, 0, proto_field_t::securityType, 99, 0},
+      {settings_section_t::mqtt, 4, proto_field_t::port, 0, 0},
+      {settings_section_t::mqtt, 4, proto_field_t::port, 65536, 0},
+      {settings_section_t::radio, 9, proto_field_t::frequency, 0, 299},
+      {settings_section_t::radio, 9, proto_field_t::frequency, 0, 929},
+      {settings_section_t::radio, 9, proto_field_t::frequency, 0, NAN},
+      {settings_section_t::radio, 9, proto_field_t::frequency, 0, INFINITY},
+      {settings_section_t::radio, 9, proto_field_t::frequency, 0, -INFINITY},
+      {settings_section_t::radio, 9, proto_field_t::frequency, 0, FLT_MAX}};
+  for (const auto &value : cases) {
+    Memory mem;
+    Fake backend;
+    backend.overrideField = value.field;
+    backend.overrideInteger = value.integer;
+    backend.overrideNumber = value.number;
+    Form form(backend, mem);
+    TEST_ASSERT_TRUE(form.openSection(value.section, 0));
+    turnTo(form, value.index);
+    if (value.field == proto_field_t::proto ||
+        value.field == proto_field_t::securityType)
+      TEST_ASSERT_EQUAL_STRING(
+          "Invalid (99)",
+          form.view().rows[value.index < 3 ? value.index : 2].value);
+    form.activate(1);
+    TEST_ASSERT_EQUAL(Mode::fields, form.view().mode);
+    TEST_ASSERT_EQUAL(Notice::invalid, form.view().notice);
+    TEST_ASSERT_FALSE(form.view().dirty);
+    TEST_ASSERT_EQUAL(value.index, form.view().selected);
+    // Repeated pressing cannot enter an editor or persist a replacement.
+    form.activate(1);
+    TEST_ASSERT_EQUAL(Mode::fields, form.view().mode);
+    TEST_ASSERT_EQUAL(Notice::invalid, form.view().notice);
+    TEST_ASSERT_EQUAL(0, mem.active);
+    TEST_ASSERT_EQUAL(0, backend.saves);
+    TEST_ASSERT_EQUAL(value.integer, backend.overrideInteger);
+    if (isnan(value.number))
+      TEST_ASSERT_TRUE(isnan(backend.overrideNumber));
+    else
+      TEST_ASSERT_TRUE(value.number == backend.overrideNumber);
+  }
+}
+static void
+invalid_original_rejection_keeps_other_changed_fields_and_valid_float_boundaries_editable() {
+  Memory mem;
+  Fake backend;
+  Form form(backend, mem);
+  form.openSection(settings_section_t::mqtt, 0);
+  form.activate(1);
+  form.turn(1, 1);
+  chooseNumericApply(form);
+  TEST_ASSERT_TRUE(form.view().dirty);
+  backend.overrideField = proto_field_t::port;
+  backend.overrideInteger = 0;
+  turnTo(form, 4);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(Mode::fields, form.view().mode);
+  TEST_ASSERT_TRUE(form.view().dirty);
+  TEST_ASSERT_EQUAL(Notice::invalid, form.view().notice);
+  form.back(1);
+  TEST_ASSERT_EQUAL(0, mem.active);
+  backend.overrideField = proto_field_t::rxBandwidth;
+  backend.overrideNumber = 58.03f;
+  form.openSection(settings_section_t::radio, 0);
+  turnTo(form, 10);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(Mode::adjust, form.view().mode);
+  TEST_ASSERT_EQUAL_STRING("58.03", form.view().rows[0].value);
+  form.back(1);
+  TEST_ASSERT_EQUAL(0, backend.saves);
+}
+static void unknown_connection_is_labelled_invalid_and_never_retargeted() {
+  Memory mem;
+  Fake backend;
+  backend.ethernet = true;
+  backend.overrideField = proto_field_t::connMode;
+  backend.overrideInteger = 99;
+  Form form(backend, mem);
+  form.openSection(settings_section_t::network, 0);
+  TEST_ASSERT_EQUAL_STRING("Invalid (99)", form.view().rows[0].value);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(Mode::fields, form.view().mode);
+  TEST_ASSERT_EQUAL(Notice::invalid, form.view().notice);
+  TEST_ASSERT_FALSE(form.view().dirty);
+  TEST_ASSERT_EQUAL(99, backend.overrideInteger);
+  TEST_ASSERT_EQUAL(0, backend.saves);
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(rotation_and_field_apply_do_not_persist_until_explicit_save);
@@ -454,5 +561,10 @@ int main() {
   RUN_TEST(validation_and_save_transient_admission_fail_closed);
   RUN_TEST(every_authoritative_section_field_is_reachable_with_board_filter);
   RUN_TEST(editor_timeout_and_auth_history_are_checked_on_input_without_tick);
+  RUN_TEST(
+      invalid_originals_stay_visible_and_cannot_be_applied_as_supported_values);
+  RUN_TEST(
+      invalid_original_rejection_keeps_other_changed_fields_and_valid_float_boundaries_editable);
+  RUN_TEST(unknown_connection_is_labelled_invalid_and_never_retargeted);
   return UNITY_END();
 }
