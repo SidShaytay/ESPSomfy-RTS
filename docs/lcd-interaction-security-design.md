@@ -2,8 +2,9 @@
 
 Status: design for review; proposed flows below are **not implemented**. Sid approved
 reuse of the configured web credential for both local controls and administration,
-with 120-second inactivity expiry and a device-wide attempt limit. Sid also chose
-requiring unlock for STOP after expiry and the existing web throttle schedule with
+with 120-second inactivity expiry and a device-wide attempt limit. Sid later superseded the initial STOP decision: narrowly scoped STOP remains available
+after expiry for already-authorized continuing movement, as described below. The existing
+web throttle schedule uses
 volatile local state (including the documented reboot-reset limitation). Other decisions
 remain pending as marked below. This document is
 based on fetched main `fc5a2947928fdf855185f77ecaae69c00b677156` and the reviewed local
@@ -63,9 +64,9 @@ See the [capability matrix](lcd-web-capability-matrix.md) for operation coverage
 |---|---|---|
 | Physical-control authorization — approved | Follow configured web security: None permits local actions; PIN/password requires a local unlock for controls and admin. Navigation/read-only status stays available. | Sid approved this scope; do not create an ungated everyday-control exception. |
 | Unlock credential — approved | Reuse configured PIN or username/password. Do not store another local credential. Local-only session and 120 s inactivity expiry. | Explicit Lock, sleep, restart and security changes revoke it. |
-| STOP after local lock/timeout — approved | Require unlock after expiry, including STOP. Keep STOP reachable during an active authorized session, subject to fresh identity/capability/membership checks and the mixed/idle policy below. | This can delay stopping after expiry. Sid explicitly selected it; estimated motion does not grant an authorization bypass. |
+| STOP after local lock/timeout — approved override | Keep a narrow movement-scoped STOP lease for the same previously authorized target/RF identity/exact member and capability context, only for movement already in progress at expiry. All other actions require unlock. | Lease ends irrevocably on observed idle or target/config/membership/security change; later movement cannot regain it. See STOP policy below. |
 | Credential/text input | Bounded on-device ASCII keyboard for typed fields, masked credentials, explicit Save/Cancel; companion browser for convenient long/non-ASCII entry with the same validators. Preserve existing Unicode bytes on unchanged fields. | Full Unicode editing/font coverage adds font/input memory and requires a language coverage decision. ASCII replacement alone is not faithful name display. |
-| File and credential transfer | Use the existing authenticated companion UI and a new short-lived, physically approved stage/review/commit session. Require a trusted transport for secrets/backups, described below. No SD support. | Accept existing plain HTTP on a trusted LAN as an explicit trust decision, or add TLS/tunnel support as a scoped dependency. Current HTTP is observable to an active LAN attacker. |
+| Files — approved browser-owned equivalent | Backup, restore and manual firmware/web upload stay in the existing browser workflow. LCD gives truthful instructions/status; no hybrid browser/LCD confirmation or staging session. | No new transfer endpoints, TLS/tunnels or SD support are authorized by this issue. Standalone LCD GitHub update must use reviewed #12 service. |
 | Recovery | Existing authenticated web settings can repair local credential/configuration errors. No boot-button or failed-login bypass that grants admin. | A physical recovery mode requires a separate precise authorization/state-preservation design; do not silently equate physical possession with permission to erase or reset counters. |
 
 These decisions are product/security choices, not feature deferrals. A browser-equivalent
@@ -174,6 +175,17 @@ STOP is a distinct intent from favourite/MY despite sharing the on-air command:
 4. All idle: no RF. Favourite is a separately labelled intentional action, with shared
    idle/tilt/type restrictions. `set_favorite` is administration with confirmation.
 
+At authorization expiry, retain a STOP lease only for matching movement observed both
+while the session was authorized and at expiry. Freeze the eligible moving member set;
+a group member that starts moving later cannot acquire a lease. Revalidate exact target,
+RF identities, membership, capabilities and security configuration before every request.
+Observed idle irreversibly removes the target/member from the lease; idle then new motion
+does not revive it. Any relevant configuration or security change revokes the lease.
+A shared group MY requires every current member to retain a matching continuing-motion
+lease; otherwise stop only leased moving members individually. No lease permits an idle
+MY/favourite, new movement, another target or a fallback after a refused shared request.
+Keep this STOP action reachable while other controls show Unlock required.
+
 RTS position/motion is estimated. External remotes and unknown movement can make it
 wrong; the UI must not claim a safety stop, emergency stop or motor acknowledgement.
 
@@ -213,39 +225,26 @@ in-flight capture and during band-transfer failure. Existing immutable screensho
 already handed to a response cannot be recalled; therefore secrets must never enter
 capture buffers in the first place. Apply no-store headers to all capture errors too.
 
-## Companion files, imports and updater
+## Browser-owned files and standalone updater
 
-No file picker or SD storage is implied by the LCD. Proposed Settings → Transfers shows
-instructions and current session state. On the already authenticated companion page,
-request a specific operation; the LCD shows its nonsecret operation name and asks approval.
-Bind one 120 s, single-use session to the authenticated client/session, operation, selected
-restore parts and device/config generation. Do not print bearer credentials in QR codes,
-URLs or LCD captures. The LCD confirmation is not a substitute for web authentication.
-
-The existing server is HTTP. An active LAN observer can steal tokens, credentials and
-backups. For a workflow described as secure, require an authenticated encrypted transport
-(e.g. a reviewed trusted tunnel) or implement verified TLS with memory admission; do not
-pretend a one-time code fixes plaintext transport. Sid must choose this boundary before
-credential/file-transfer implementation. No new external service is assumed.
-
-Imports stage one bounded file, validate format/length/sections/version/counts and record
-its digest. Present sanitized scope and validation result, then require explicit Apply
-on LCD; revalidate authentication, session, config generation, selected sections and
-file digest on loop. Do not invoke today's immediate-write upload handlers as if they
-already provide this transaction. Malformed/oversized, disconnected, expired, rejected
-and replaced staging must clean up without applying. Fixed staging ownership prevents
-another client from substituting a file between approval and commit. Cancellation stops
-only staging, and never claims to undo an update/restore that already committed.
+Sid explicitly selected the existing browser-owned workflows as the equivalent for
+file-based backup/export, restore/import and manual firmware/web uploads. The LCD cannot
+pick or save host files. Its corresponding pages explain that those operations are
+performed in the browser and do not imply local staging, review, approval or cancellation
+controls that the current server does not support. There is no new hybrid transfer
+session, file endpoint, TLS/tunnel requirement or SD storage in this scope.
 
 Current backups omit password/PIN/Wi-Fi passphrase values but expose identifiers,
-configuration and rolling counters, and need the same transfer authorization;
-the companion downloads through the authenticated transport, not a public static path.
-Restoring old rolling codes is unsafe: apply the preservation/recovery rules in
-[flashing](flashing.md) and issue #9, validate compatibility and counter policy, and fail
-closed on unresolved conflicts. Do not create duplicate radio identities or reset counters.
-Firmware checking/install uses only the issue #12 service with exact physical-board
-identity, authenticated metadata, feature/partition/web compatibility, staging admission,
-quiescence and rollback. The LCD is a client of that service, not another installer.
+configuration and rolling counters. Existing web authorization still applies. Keep their
+contents outside logs, screenshots and fixtures. Restore retains the state-preservation
+and counter-recovery requirements of [flashing](flashing.md) and issue #9; this offline
+stage does not authorize restoring any production file or changing current counters.
+
+Functions that can be fully standalone on LCD remain local. Firmware checking/install
+uses only the reviewed issue #12 service, with exact physical-board identity, authenticated
+metadata, feature/partition/web compatibility, staging admission, quiescence and rollback.
+The LCD is its client, not another installer. Until that service is reviewed/integrated,
+show unavailable honestly; do not present browser manual upload as standalone GitHub update.
 
 ## Memory, scheduling and failure budgets
 
@@ -280,13 +279,13 @@ Until then record runtime heap/latency acceptance as pending, not passed by a bu
 - Admin fake persistence: strict bounds, invalid fields, edit/save/cancel, duplicate
   IDs, transaction failure, unchanged counters/identities and explicit result delivery.
 - Authorization tests: configured mode, inactivity expiry, credential changes,
-  retry/backoff, reboot policy, queued intent revocation and requiring unlock for STOP after expiry.
+  retry/backoff, reboot policy, queued intent revocation and the narrow STOP lease after expiry, including idle-then-new-motion and member movement changes.
 - Runtime/capture tests: protected-screen capture on every entry/exit race, disconnected
   capture, allocation failures, partial band presentation and resuming only after full
   sanitized redraw. Use synthetic secret sentinels and assert absent output bytes.
-- Companion fake transport/staging: malformed/oversized files, auth failure, origin and
-  client binding, replay, expiry, cancellation/disconnect, digest substitution, restore
-  section mismatch, counter conflict, concurrent edits, low memory and update admission.
+- Browser-owned equivalent pages: truthful file workflow instructions without invented
+  staging or local confirmation/cancellation. Preserve existing web transfer tests.
+  Standalone #12 fake-service checks cover identity/trust/admission/failure/rollback.
 - Production-renderer previews: all new pages at 320×170, long/duplicate/non-ASCII names,
   masked credentials, confirmation defaults, error/queued/partial state and dim/wake.
   Text mockups above alone do not meet the preview acceptance criterion.
