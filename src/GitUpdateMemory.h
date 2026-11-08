@@ -6,7 +6,7 @@ struct GitUpdateMemoryStats {
 // Requested bytes include our aligned bookkeeping, not SDK heap overhead.
 constexpr size_t GIT_UPDATE_TLS_BUDGET=512u*1024;
 constexpr size_t GIT_UPDATE_TLS_INTERNAL_BUDGET=32u*1024;
-// Install ONCE before ANY TLS allocator use, never around a handshake. Earlier
+// Install ONCE before ANY mbedTLS allocation (including non-TLS crypto), never around a handshake. Earlier
 // TLS allocations must never be freed through this new allocation/free pair.
 // This function is intentionally not invoked by current firmware startup.
 bool gitUpdateMemoryBegin();
