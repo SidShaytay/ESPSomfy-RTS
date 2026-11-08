@@ -1,8 +1,10 @@
 # Local entity administration
 
-The room administration component supports Add, Edit and Delete without a
-browser. Parent navigation and the display completion gate integrate it as a
-protected screen. Shade and group forms are not implemented by this room slice.
+The room administration component implements Add, Edit and Delete without a
+browser. Parent navigation and presentation gating are not wired yet, so the
+component is not reachable from the device menu. Integration must protect its
+screens and require a complete matching display frame before acting. Shade and
+group forms are not implemented by this room slice.
 
 Turning changes only the field editor. Apply copies a field into the bounded
 local draft. Save submits the draft through the same loop-owned model edit
@@ -15,8 +17,12 @@ form. A changed-only document and temporary expanded request use the injected
 bounded, wiping allocator. Names retain the model's 20-byte limit; sort order
 uses its signed 8-bit representation. These bounds are shared with the typed
 edit parser. Omitted fields preserve existing values, including legacy values.
-An invalid original number is shown as invalid and cannot silently be clamped
-by opening and applying an editor.
+Invalid original numbers and malformed UTF-8 names offer a separate replacement
+prompt with Cancel selected by default. Replace starts an empty text editor or
+a bounded numeric candidate; it changes no stored value. Apply updates only the
+draft, and Save persists it. Cancel preserves the original and other drafts.
+An invalid offered Add default (such as sort order 128 after an existing maximum
+of 127) must be explicitly replaced before Save; it cannot silently wrap.
 
 The runtime checks authorization, configuration history and the existing work
 queue immediately before a mutation or model-file retry. Pending work produces

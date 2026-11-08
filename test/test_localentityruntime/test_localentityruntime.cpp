@@ -25,20 +25,27 @@ struct Room {
 struct SomfyShadeController {
   uint64_t configurationRevision = 1;
   Room room;
+  int maxRoomOrder = 5;
   Room *getRoomById(uint8_t id) { return id == 4 ? &room : nullptr; }
   uint8_t getNextRoomId() { return 9; }
-  int getMaxRoomOrder() { return 5; }
+  int getMaxRoomOrder() { return maxRoomOrder; }
 } somfy;
 LoopQueue loopQueue;
 static unsigned pendingCount = 0, applies = 0, commits = 0;
 uint32_t LoopQueue::pending() const { return pendingCount; }
 static ArduinoJson::Allocator *expectedAllocator = nullptr;
+static const char *expectedName = "New room";
+static model_edit_type_t expectedType = model_edit_type_t::save_room;
 edit_result_t applyModelEdit(model_edit_t &edit) {
   ++applies;
   TEST_ASSERT_EQUAL_PTR(expectedAllocator, edit.doc.allocator());
-  TEST_ASSERT_EQUAL_STRING("New room", edit.doc["name"].as<const char *>());
-  TEST_ASSERT_EQUAL(model_edit_type_t::save_room, edit.type);
-  TEST_ASSERT_EQUAL(4, edit.doc["roomId"].as<int>());
+  TEST_ASSERT_EQUAL_STRING(expectedName, edit.doc["name"].as<const char *>());
+  TEST_ASSERT_EQUAL(expectedType, edit.type);
+  if (expectedType == model_edit_type_t::add_room) {
+    TEST_ASSERT_TRUE(edit.doc["roomId"].isNull());
+    TEST_ASSERT_EQUAL(0, edit.doc["sortOrder"].as<int>());
+  } else
+    TEST_ASSERT_EQUAL(4, edit.doc["roomId"].as<int>());
   TEST_ASSERT_EQUAL(0, edit.replyTo.client);
   ++somfy.configurationRevision;
   return edit_result_t::completed(
@@ -85,6 +92,9 @@ void setUp() {
   LocalUi::frozen = false;
   pendingCount = applies = commits = 0;
   somfy.configurationRevision = 1;
+  somfy.maxRoomOrder = 5;
+  expectedName = "New room";
+  expectedType = model_edit_type_t::save_room;
 }
 void tearDown() {}
 using namespace LocalUi::EntityAdmin;
@@ -161,8 +171,47 @@ apply_swaps_psram_allocator_without_internal_copy_and_retry_is_file_only() {
   TEST_ASSERT_EQUAL(1, applies);
   TEST_ASSERT_EQUAL(1, commits);
 }
+static void actual_add_room_default_128_cannot_wrap_without_replacement() {
+  somfy.maxRoomOrder = 127;
+  auto &backend = runtimeBackend();
+  Value value;
+  TEST_ASSERT_TRUE(
+      backend.read(Kind::room, 0, proto_field_t::sortOrder, value));
+  TEST_ASSERT_EQUAL(128, value.integer);
+  Memory memory;
+  expectedAllocator = &memory;
+  expectedName = "A";
+  expectedType = model_edit_type_t::add_room;
+  Form form(backend, memory);
+  TEST_ASSERT_TRUE(form.open(Kind::room, 0, 0));
+  form.activate(1);
+  for (int i = 0; i < 33; i++)
+    form.turn(1, 1);
+  form.activate(1);
+  for (int i = 0; i < 64; i++)
+    form.turn(1, 1);
+  form.activate(1);
+  form.turn(1, 1);
+  form.turn(1, 1);
+  form.activate(1); // name-only Save
+  TEST_ASSERT_EQUAL(0, applies);
+  TEST_ASSERT_EQUAL(1, form.view().selected);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(Mode::replace, form.view().mode);
+  form.turn(1, 1);
+  form.activate(1);
+  form.activate(1);
+  form.turn(-1, 1);
+  form.activate(1); // Replace -> Apply zero
+  TEST_ASSERT_EQUAL(0, applies);
+  form.turn(1, 1);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(1, applies);
+  TEST_ASSERT_EQUAL(0, memory.active);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(actual_add_room_default_128_cannot_wrap_without_replacement);
   RUN_TEST(read_preserves_original_and_prepare_is_side_effect_free);
   RUN_TEST(final_admission_checks_auth_history_freeze_and_queue);
   RUN_TEST(

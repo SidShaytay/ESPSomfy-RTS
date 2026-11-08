@@ -58,7 +58,7 @@ class Form {
   void render();
   void close(Notice);
   void touch(uint64_t now);
-  void beginField(uint64_t now);
+  void beginField(uint64_t now, bool replaceInvalid = false);
   void applyField(uint64_t now);
   void save(uint64_t now);
 

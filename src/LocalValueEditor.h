@@ -61,6 +61,9 @@ public:
   ValueEditor(const ValueEditor &)=delete;
   ValueEditor &operator=(const ValueEditor &)=delete;
   ~ValueEditor() { close(EditOutcome::idle); }
+  // Read-only validation for callers offering an explicit invalid-value
+  // replacement flow. beginText retains its legacy-preservation contract.
+  static bool validUtf8(const char *text) { return text && utf8(text); }
   ValueKind kind() const { return type; }
   EditOutcome outcome() const { return state; }
   bool active() const { return editing; }

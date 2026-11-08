@@ -21,23 +21,32 @@ const char *label(proto_field_t field) {
     return protoField(field).name;
   }
 }
+bool validOriginal(const entity_field_t &f, const Value &value) {
+  if (value.kind != f.schema().kind)
+    return false;
+  if (value.kind == 's')
+    return strlen(value.text) <= uint64_t(f.hi) &&
+           ValueEditor::validUtf8(value.text);
+  if (value.kind == 'b')
+    return true;
+  if (value.integer < f.lo || value.integer > f.hi)
+    return false;
+  if (!f.choiceCount)
+    return true;
+  for (uint8_t i = 0; i < f.choiceCount; i++)
+    if (f.choices[i] == value.integer)
+      return true;
+  return false;
+}
 void format(const entity_field_t &f, const Value &value, char *to,
             size_t size) {
   if (value.kind == 's')
-    copy(to, size, value.text);
+    copy(to, size, validOriginal(f, value) ? value.text : "Invalid UTF-8");
   else if (value.kind == 'b')
     copy(to, size, value.boolean ? "On" : "Off");
-  else {
-    bool valid = value.integer >= f.lo && value.integer <= f.hi;
-    if (f.choiceCount) {
-      bool found = false;
-      for (uint8_t i = 0; i < f.choiceCount; i++)
-        found |= f.choices[i] == value.integer;
-      valid &= found;
-    }
-    snprintf(to, size, valid ? "%lld" : "Invalid (%lld)",
+  else
+    snprintf(to, size, validOriginal(f, value) ? "%lld" : "Invalid (%lld)",
              (long long)value.integer);
-  }
 }
 Notice admissionNotice(Admission a) {
   return a == Admission::locked  ? Notice::locked
@@ -251,6 +260,18 @@ void Form::render() {
     snprintf(frame.rows[2].value, sizeof(frame.rows[2].value), "%lld",
              (long long)step);
     copy(frame.hint, sizeof(frame.hint), "Apply changes only the draft.");
+  } else if (mode == Mode::replace) {
+    const auto &f = *entityField(fields->fields[editing]);
+    snprintf(frame.title, sizeof(frame.title), "%s %u: %s", title(kind), id,
+             label(f.field));
+    frame.rowCount = frame.total = 2;
+    frame.selected = selected;
+    copy(frame.rows[0].label, sizeof(frame.rows[0].label), "Cancel");
+    copy(frame.rows[1].label, sizeof(frame.rows[1].label),
+         "Replace invalid value");
+    frame.rows[selected ? 1 : 0].selected = true;
+    copy(frame.hint, sizeof(frame.hint),
+         "Original kept until Apply; Save persists replacement.");
   } else if (mode == Mode::confirm) {
     frame.rowCount = frame.total = 2;
     frame.selected = selected;
@@ -277,14 +298,31 @@ void Form::render() {
              id);
   }
 }
-void Form::beginField(uint64_t now) {
-  editing = selected;
+void Form::beginField(uint64_t now, bool replaceInvalid) {
+  if (!replaceInvalid)
+    editing = selected;
   stepPower = 0;
   const auto &f = *entityField(metadata()->fields[editing]);
   Value v;
   if (!read(f, v)) {
     close(Notice::changed);
     return;
+  }
+  if (!replaceInvalid && !validOriginal(f, v)) {
+    editor.cancel();
+    frame.mode = Mode::replace;
+    frame.notice = Notice::invalid;
+    selected = 0;
+    render();
+    return;
+  }
+  if (replaceInvalid) {
+    // Seed only after an explicit Replace action. Until Apply, neither this
+    // bounded candidate nor cancellation changes the original or other drafts.
+    v = {};
+    v.kind = f.schema().kind;
+    v.integer =
+        f.choiceCount ? f.choices[0] : (f.lo <= 0 && f.hi >= 0 ? 0 : f.lo);
   }
   bool ok = false;
   if (v.kind == 's')
@@ -299,6 +337,8 @@ void Form::beginField(uint64_t now) {
     ok = editor.beginInteger(v.integer, f.lo, f.hi, 1, now);
   if (!ok) {
     frame.notice = Notice::invalid;
+    frame.mode = Mode::fields;
+    selected = editing;
     render();
     return;
   }
@@ -342,6 +382,25 @@ void Form::applyField(uint64_t) {
 void Form::save(uint64_t now) {
   if (!guard(now))
     return;
+  if (!sourceId && !deleting) {
+    // An offered default can be invalid (e.g. next sort order after 127).
+    // Never let an omitted field silently wrap in the domain's add default.
+    for (uint8_t i = 0; i < metadata()->count; i++) {
+      const auto &f = *entityField(metadata()->fields[i]);
+      Value value;
+      if (!read(f, value)) {
+        close(Notice::changed);
+        return;
+      }
+      if (!validOriginal(f, value)) {
+        frame.mode = Mode::fields;
+        frame.notice = Notice::invalid;
+        selected = i;
+        render();
+        return;
+      }
+    }
+  }
   const auto editType = type(deleting);
   JsonDocument expanded(&allocator);
   proto_error_buffer_t error = {};
@@ -482,6 +541,14 @@ void Form::activate(uint64_t now) {
       return;
     }
     break;
+  case Mode::replace:
+    if (selected) {
+      beginField(now, true);
+      return;
+    }
+    frame.mode = Mode::fields;
+    selected = editing;
+    break;
   case Mode::confirm:
     if (selected) {
       save(now);
@@ -524,6 +591,9 @@ void Form::back(uint64_t now) {
   if (frame.mode == Mode::text || frame.mode == Mode::adjust ||
       frame.mode == Mode::actions) {
     editor.cancel();
+    frame.mode = Mode::fields;
+    selected = editing;
+  } else if (frame.mode == Mode::replace) {
     frame.mode = Mode::fields;
     selected = editing;
   } else if (frame.mode == Mode::confirm) {
