@@ -428,16 +428,18 @@ void Form::render() {
     return;
   } else
     return;
-  if (notice == Notice::partial && mode != Mode::replace)
+  const bool consequenceHint = mode == Mode::secret || mode == Mode::confirm ||
+                               mode == Mode::replace;
+  if (notice == Notice::partial && !consequenceHint)
     copy(frame.hint, sizeof(frame.hint),
          "May be partly stored; running unchanged. Retry before restart.");
-  else if (notice == Notice::failed && mode != Mode::replace)
+  else if (notice == Notice::failed && !consequenceHint)
     copy(frame.hint, sizeof(frame.hint),
          "Not saved; running unchanged. Retry or Cancel.");
-  else if (notice == Notice::busy && mode != Mode::replace)
+  else if (notice == Notice::busy && !consequenceHint)
     copy(frame.hint, sizeof(frame.hint),
          "Actions queued. Retry Save when clear, or Cancel.");
-  else if (notice == Notice::invalid && mode != Mode::replace)
+  else if (notice == Notice::invalid && !consequenceHint)
     copy(frame.hint, sizeof(frame.hint),
          "Value refused. Revise the draft or Cancel.");
   frame.selected = selected;
