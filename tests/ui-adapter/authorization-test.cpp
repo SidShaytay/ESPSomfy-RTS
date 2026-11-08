@@ -20,25 +20,26 @@ int main() {
   strcpy(given.secret,"aB!9");
   assert(unlockAuthorization(given)==AuthResult::unlocked && !given.secret[0]);
   const auto first=pollAuthorization();
-  assert(first.allowed && !first.stopGrace);
+  assert(first.allowed && !first.stopGrace && !first.expiredSessionGeneration);
   authTestNow=119999; assert(pollAuthorization().allowed);
   authTestNow=120000; auto expired=pollAuthorization();
-  assert(!expired.allowed && expired.stopGrace);
+  assert(!expired.allowed && expired.stopGrace && expired.expiredSessionGeneration==first.generation);
   assert(first.generation!=expired.generation);
   assert(first.configurationGeneration==expired.configurationGeneration);
   authorizationActivity(); assert(!pollAuthorization().allowed); // input cannot revive timeout
   for(unsigned i=0;i<5;i++) assert(unlockAuthorization(given)==AuthResult::wrong);
   assert(pollAuthorization().retryAfterMs==30000 && pollAuthorization().stopGrace);
+  assert(pollAuthorization().expiredSessionGeneration==first.generation);
   strcpy(given.secret,"aB!9");
   assert(unlockAuthorization(given)==AuthResult::locked && !given.secret[0]);
   authTestNow=149999;
   assert(pollAuthorization().stopGrace); // last millisecond of the 30 s grace
   authTestNow=150000;
-  assert(!pollAuthorization().allowed && !pollAuthorization().stopGrace);
+  assert(!pollAuthorization().allowed && !pollAuthorization().stopGrace && !pollAuthorization().expiredSessionGeneration);
   authTestNow+=30000; strcpy(given.secret,"aB!9");
   assert(unlockAuthorization(given)==AuthResult::unlocked);
   strcpy(settings.Security.pin,"new!");
-  assert(!pollAuthorization().allowed && !pollAuthorization().stopGrace);
+  assert(!pollAuthorization().allowed && !pollAuthorization().stopGrace && !pollAuthorization().expiredSessionGeneration);
   assert(first.configurationGeneration!=pollAuthorization().configurationGeneration);
   strcpy(given.secret,"new!"); assert(unlockAuthorization(given)==AuthResult::unlocked);
   const auto beforeInactive=pollAuthorization();
@@ -56,7 +57,7 @@ int main() {
   assert(!afterNoop.allowed && !afterNoop.stopGrace);
   assert(afterNoop.configurationGeneration!=beforeNoop.configurationGeneration);
   strcpy(given.secret,"new!"); assert(unlockAuthorization(given)==AuthResult::unlocked);
-  lockAuthorization(); assert(!pollAuthorization().allowed && !pollAuthorization().stopGrace);
+  lockAuthorization(); assert(!pollAuthorization().allowed && !pollAuthorization().stopGrace && !pollAuthorization().expiredSessionGeneration);
   settings.Security.type=security_types::None;
   assert(pollAuthorization().allowed);
   settings.Security.type=security_types::Password;

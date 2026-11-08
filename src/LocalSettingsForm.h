@@ -67,6 +67,8 @@ public:
   void turn(int direction, uint64_t now);
   void activate(uint64_t now);
   void back(uint64_t now);
+  // Out-of-band teardown: erase every draft without consulting auth or time.
+  void discard() { close(Notice::none); }
   const FormView &view() const { return frame; }
   bool closed() const { return frame.mode == Mode::closed; }
 };

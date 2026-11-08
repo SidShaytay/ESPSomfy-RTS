@@ -542,8 +542,53 @@ static void unknown_connection_is_labelled_invalid_and_never_retargeted() {
   TEST_ASSERT_EQUAL(99, backend.overrideInteger);
   TEST_ASSERT_EQUAL(0, backend.saves);
 }
+static void
+out_of_band_discard_wipes_secret_draft_and_active_editor_even_when_locked() {
+  Memory mem;
+  Fake backend;
+  Form form(backend, mem);
+  form.openSection(settings_section_t::network, 0);
+  turnTo(form, 2);
+  form.activate(1);
+  form.turn(1, 1);
+  form.activate(1);
+  textApply(form, "X");
+  TEST_ASSERT_TRUE(form.view().dirty);
+  TEST_ASSERT_GREATER_THAN(0, mem.active);
+  form.turn(-1, 1);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(Mode::text, form.view().mode);
+  backend.auth.allowed = false;
+  const auto activity = backend.activities;
+  form.discard();
+  TEST_ASSERT_TRUE(form.closed());
+  TEST_ASSERT_EQUAL(Notice::none, form.view().notice);
+  TEST_ASSERT_EQUAL(0, mem.active);
+  TEST_ASSERT_EQUAL(0, backend.saves);
+  TEST_ASSERT_EQUAL(activity, backend.activities);
+  TEST_ASSERT_EQUAL_STRING("", form.view().rows[0].value);
+  form.discard();
+  TEST_ASSERT_TRUE(form.closed());
+  TEST_ASSERT_EQUAL(0, mem.active);
+  TEST_ASSERT_EQUAL(0, backend.saves);
+}
+static void empty_save_closes_without_storage_or_allocating_a_request() {
+  for(uint8_t i=0;i<5;i++) {
+    Memory memory;Fake backend;Form form(backend,memory);
+    const auto section=settings_section_t(i);
+    TEST_ASSERT_TRUE(form.openSection(section,1));
+    turnTo(form,settingsFieldCount(section,false));
+    form.activate(1);
+    TEST_ASSERT_TRUE(form.closed());
+    TEST_ASSERT_EQUAL(Notice::unchanged,form.view().notice);
+    TEST_ASSERT_EQUAL(0,backend.saves);
+    TEST_ASSERT_EQUAL(0,memory.active);
+    TEST_ASSERT_EQUAL(0,memory.allocations);
+  }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(empty_save_closes_without_storage_or_allocating_a_request);
   RUN_TEST(rotation_and_field_apply_do_not_persist_until_explicit_save);
   RUN_TEST(cancel_auth_revision_and_timeout_close_and_release_drafts);
   RUN_TEST(risky_save_defaults_to_cancel_and_partial_retains_explicit_retry);
@@ -566,5 +611,7 @@ int main() {
   RUN_TEST(
       invalid_original_rejection_keeps_other_changed_fields_and_valid_float_boundaries_editable);
   RUN_TEST(unknown_connection_is_labelled_invalid_and_never_retargeted);
+  RUN_TEST(
+      out_of_band_discard_wipes_secret_draft_and_active_editor_even_when_locked);
   return UNITY_END();
 }

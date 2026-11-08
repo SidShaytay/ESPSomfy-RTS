@@ -2,7 +2,7 @@
 
 The local settings component covers General, Network, MQTT, Security and Radio. It reads field lists, lengths, ranges and non-contiguous choices from the same tables as socket settings validation. Ethernet fields appear only on Ethernet-capable builds. The shared board's fixed radio GPIOs and its WiFi-only connection setting are shown read-only.
 
-This document describes the `LocalUi::Settings::Form` component. The parent LCD controller, runtime backend and renderer connect it to the device screen; component tests run offline with a fake backend. It does not provide scans, restart, entity administration or an updater.
+Open **Home → Settings** and unlock with the configured credential when required. The LCD controller connects the form directly to the shared settings operations; it does not use a browser or a socket loopback. Scans, restart, entity administration and the updater use their own flows.
 
 ## Editing and saving
 
@@ -10,7 +10,7 @@ Turn to select a section or field, then press to edit. Rotation changes the draf
 
 For text, turn to select a character, press to append it, or choose Delete byte, Exact byte, Apply to draft or Cancel edit. Exact byte accepts nonzero bytes for values that cannot be entered with the ASCII picker. The screen shows the end of long drafts, an ellipsis when the beginning is clipped, and the current/maximum byte count. The renderer handles unsupported glyphs separately from the stored bytes.
 
-**Apply to draft** validates the changed fields with the shared settings validator. It does not persist anything. Select **Save** at the end of the field list to persist. Network, MQTT, Security and Radio show a consequence-specific confirmation with Cancel selected initially. General settings save directly after this explicit Save action.
+**Apply to draft** validates the changed fields with the shared settings validator. It does not persist anything. Select **Save** at the end of the field list to persist. Network, MQTT, Security and Radio show a consequence-specific confirmation with Cancel selected initially. General settings save directly after this explicit Save action. Saving with no applied field drafts closes with “No changes to save” and does not write settings.
 
 Back inside an editor discards that field's current edit and returns to the field list. Previously applied field drafts remain. Back from a confirmation returns to the field list. Back from a section or field list, or selecting Cancel, closes the form and discards all drafts.
 
@@ -32,4 +32,8 @@ The form closes and erases its drafts on authorization-history changes, a change
 
 The form owns one changed-only short-key JSON document. Unmodified values are read into one bounded temporary value at a time. Shared validation uses a transient expanded request document under the same injected allocator budget. Firmware supplies PSRAM-only bounded, wiping storage; the allocator must outlive the form and both documents. Admission failure closes the form without a save. Form state is bounded to 1 KiB, and the renderer receives a separate three-row `FormView` containing no raw secrets. Every form frame is protected from public screen capture.
 
-The parent supplies logical turn/activate/Back/tick events after wake suppression and debounce. The component does not poll GPIOs, run HTTP/socket loopback, issue RF commands or access Home Assistant. All runtime reads, checks and saves belong to the device loop.
+The parent supplies logical turn/activate/Back/tick events after wake suppression and debounce. A press is accepted only after the exact current form selection has finished reaching the LCD. Entering the form always requires a fresh presentation, even when it looks identical to a previous visit. Results stay protected until acknowledged and a complete non-settings frame replaces them.
+
+Leaving Settings, sleep, graphics failure and cancellation discard all drafts. The display's configured inactivity behavior can therefore discard a form before its own timeout. Back from an editor still cancels only that edit; Back from the field list discards the whole form.
+
+Firmware uses one PSRAM-only allocator with a 4 KiB requested-byte cap including its headers. SDK heap metadata and alignment overhead need additional headroom. Offline runtime tests use host JSON pools adjusted to the target's 1 KiB pool request size; this checks the bounded path, not physical heap consumption or timing on the board. The production allocator, renderer, controller and shared save bridge are exercised with fake device operations and GPIOs. No controller, RF or Home Assistant access is involved.

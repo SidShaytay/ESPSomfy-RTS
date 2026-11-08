@@ -80,7 +80,7 @@ static void open_context_change_does_not_reseed_or_retarget() {
   Drive d; d.devices(); ++d.f.base.target.token; ++d.f.base.target.revision;
   d.tick(); d.click(); Command out; TEST_ASSERT_FALSE(d.c.take(out));
   TEST_ASSERT_EQUAL(99,d.c.view().openedToken);
-  d.f.base.authorized=false; d.f.base.target.stopLease=true; d.click();
+  d.f.base.expiredSessionGeneration=d.f.base.authGeneration; d.f.base.authorized=false; d.f.base.target.stopLease=true; d.click();
   TEST_ASSERT_FALSE(d.c.take(out)); TEST_ASSERT_EQUAL(int(Notice::changed),int(d.c.view().notice));
 }
 static void locked_selection_unlocks_without_replaying() {
@@ -97,10 +97,15 @@ static void locked_selection_unlocks_without_replaying() {
   d.click(); TEST_ASSERT_TRUE(d.c.take(out));
 }
 static void locked_stop_lease_never_authorizes_another_action() {
-  Drive d; d.devices(); d.f.base.authorized=false; d.f.base.target.stopLease=true;
+  Drive d; d.devices(); d.f.base.expiredSessionGeneration=d.f.base.authGeneration; d.f.base.authorized=false; d.f.base.target.stopLease=true;
   d.click(); Command out; TEST_ASSERT_TRUE(d.c.take(out));
   d.tick(-1); d.click(); TEST_ASSERT_FALSE(d.c.take(out));
   TEST_ASSERT_EQUAL(int(Screen::unlock),int(d.c.view().screen));
+  Drive missing;missing.devices();missing.f.base.authorized=false;missing.f.base.target.stopLease=true;
+  missing.click();TEST_ASSERT_FALSE(missing.c.take(out)); // old aggregate source0 fails closed
+  Drive source;source.devices();source.f.base.expiredSessionGeneration=source.f.base.authGeneration;
+  source.f.base.authorized=false;source.f.base.target.stopLease=true;++source.f.base.authGeneration;
+  source.click();TEST_ASSERT_TRUE(source.c.take(out));TEST_ASSERT_EQUAL(source.f.base.expiredSessionGeneration,out.authGeneration);
 }
 static void secrets_wipe_on_cancel_configuration_change_sleep_and_timeout() {
   for(unsigned reason=0;reason<4;reason++) {
@@ -160,6 +165,64 @@ static void encoder_detents_bounce_and_memory_failures_remain_bounded() {
   GraphicsMemory failed;failed.begin(true,[](size_t)->void*{return nullptr;});
   TEST_ASSERT_EQUAL(int(GraphicsFailure::allocation),int(failed.failure));
 }
+static void openMore(Drive &d) {
+  d.f.base.target.capabilities=allControlActions & ~controlActionBit(Action::toggle);
+  d.devices(); d.tick(1);d.tick(1);d.click();
+  TEST_ASSERT_EQUAL(int(Screen::actions),int(d.c.view().screen));
+}
+static void numeric_control_draft_requires_displayed_apply_and_cancel_never_emits() {
+  Drive d;openMore(d);d.click();
+  TEST_ASSERT_EQUAL(int(Screen::value),int(d.c.view().screen));
+  TEST_ASSERT_EQUAL(35,d.c.view().draftValue);
+  d.tick(1);Command out;TEST_ASSERT_FALSE(d.c.take(out));
+  d.click();TEST_ASSERT_EQUAL(2,d.c.view().valueChoice); // confirmation defaults Cancel
+  d.tick(-1);d.click(false);TEST_ASSERT_FALSE(d.c.take(out));
+  d.click();TEST_ASSERT_TRUE(d.c.take(out));
+  TEST_ASSERT_EQUAL(int(Action::position),int(out.action));TEST_ASSERT_EQUAL(36,out.value);
+  TEST_ASSERT_EQUAL(int(Screen::control),int(d.c.view().screen));
+  TEST_ASSERT_EQUAL(int(Action::stop),int(d.c.view().action));
+  Drive cancel;openMore(cancel);cancel.click();cancel.tick(1);cancel.back();
+  TEST_ASSERT_EQUAL(int(Screen::control),int(cancel.c.view().screen));TEST_ASSERT_FALSE(cancel.c.take(out));
+  Drive defaultCancel;openMore(defaultCancel);defaultCancel.click();defaultCancel.click();defaultCancel.click();
+  TEST_ASSERT_EQUAL(int(Screen::control),int(defaultCancel.c.view().screen));TEST_ASSERT_FALSE(defaultCancel.c.take(out));
+}
+static void numeric_control_drafts_discard_on_context_authorization_and_timeout() {
+  for(unsigned reason=0;reason<4;reason++) {
+    Drive d;openMore(d);d.click();d.tick(1);
+    if(reason==0) ++d.f.base.target.token;
+    if(reason==1) d.f.base.authorized=false;
+    if(reason==2) ++d.f.base.authGeneration;
+    d.tick(0,false,true,false,reason==3?30000:50);
+    TEST_ASSERT_EQUAL(int(Screen::control),int(d.c.view().screen));
+    Command out;TEST_ASSERT_FALSE(d.c.take(out));TEST_ASSERT_EQUAL(0,d.c.view().draftValue);
+  }
+}
+static void toggle_and_capability_menus_have_no_invisible_fallback() {
+  Drive d;d.f.base.target.capabilities=controlActionBit(Action::toggle);d.devices();
+  TEST_ASSERT_EQUAL(int(Action::toggle),int(d.c.view().action));
+  d.tick(1);d.click(false);Command out;TEST_ASSERT_FALSE(d.c.take(out));
+  d.click();TEST_ASSERT_TRUE(d.c.take(out));TEST_ASSERT_EQUAL(int(Action::toggle),int(out.action));
+  d.click();TEST_ASSERT_TRUE(d.c.take(out));TEST_ASSERT_EQUAL(int(Action::toggle),int(out.action));
+  Drive extras;openMore(extras);extras.tick(1); // tilt up after position
+  extras.click(false);TEST_ASSERT_FALSE(extras.c.take(out));
+  extras.click();TEST_ASSERT_TRUE(extras.c.take(out));TEST_ASSERT_EQUAL(int(Action::tiltUp),int(out.action));
+}
+static void step_bounds_and_tilt_stop_never_borrow_stop_grace() {
+  Drive d;openMore(d);
+  // Extra order: position, tilt up/STOP/down/position, MY, Favorite, step up/down, sun on/off.
+  for(unsigned i=0;i<7;i++) d.tick(1);
+  TEST_ASSERT_EQUAL(int(Action::stepUp),int(d.c.view().action));d.click();
+  for(unsigned i=0;i<140;i++) d.tick(1);
+  TEST_ASSERT_EQUAL(127,d.c.view().draftValue);d.click();d.tick(-1);d.click();
+  Command out;TEST_ASSERT_TRUE(d.c.take(out));TEST_ASSERT_EQUAL(127,out.step);TEST_ASSERT_EQUAL(-1,out.value);
+  Drive tilt;openMore(tilt);tilt.tick(1);tilt.tick(1);
+  tilt.f.base.target.tiltMoving=true;tilt.f.base.expiredSessionGeneration=tilt.f.base.authGeneration;
+  tilt.f.base.authorized=false;tilt.f.base.target.stopLease=true;
+  tilt.click();TEST_ASSERT_FALSE(tilt.c.take(out));TEST_ASSERT_EQUAL(int(Screen::unlock),int(tilt.c.view().screen));
+  Drive unknown;openMore(unknown);unknown.f.base.target.position=-1;unknown.click();
+  TEST_ASSERT_EQUAL(int(Screen::actions),int(unknown.c.view().screen));
+  TEST_ASSERT_EQUAL(int(Notice::valueUnavailable),int(unknown.c.view().notice));TEST_ASSERT_FALSE(unknown.c.take(out));
+}
 int main() {
   UNITY_BEGIN();RUN_TEST(stable_catalogue_selection_binds_id_not_slot);
   RUN_TEST(never_presented_catalogue_or_stop_emits_no_intent);
@@ -174,5 +237,9 @@ int main() {
   RUN_TEST(privileged_brightness_draft_reverts_on_expiry_or_configuration_change);
   RUN_TEST(settings_receives_logical_events_and_closes_explicitly);
   RUN_TEST(encoder_detents_bounce_and_memory_failures_remain_bounded);
+  RUN_TEST(numeric_control_draft_requires_displayed_apply_and_cancel_never_emits);
+  RUN_TEST(numeric_control_drafts_discard_on_context_authorization_and_timeout);
+  RUN_TEST(toggle_and_capability_menus_have_no_invisible_fallback);
+  RUN_TEST(step_bounds_and_tilt_stop_never_borrow_stop_grace);
   return UNITY_END();
 }

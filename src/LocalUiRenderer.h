@@ -4,6 +4,7 @@
 #include "LocalUi.h"
 #include "StatusDisplay.h"
 namespace LocalUi {
+namespace Settings { struct FormView; }
 constexpr int screenWidth = 320, screenHeight = 170, bandHeight = 4;
 constexpr size_t framebufferBytes = screenWidth * screenHeight * sizeof(uint16_t);
 class Canvas : public Adafruit_GFX {
@@ -17,6 +18,7 @@ public:
   void drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t c) override { fillRect(x, y, w, 1, c); }
   void drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t c) override { fillRect(x, y, 1, h, c); }
   void paint(const Model &, const View &, const StatusDisplay::Snapshot &);
+  void paintSettings(const Settings::FormView &);
 
 private:
   void text(int x, int baseline, const char *, bool title = false, uint16_t color = 0xef7d,
