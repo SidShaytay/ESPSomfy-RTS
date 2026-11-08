@@ -96,6 +96,18 @@ int main(){
   back();one.idle=two.idle=true;idle();const auto beforeSleep=locks;
   testNow+=21000;ui.tick(testNow,status,false,send,light);assert(locks==beforeSleep+1);
   testNow+=100;ui.tick(testNow,status,false,send,light);assert(locks==beforeSleep+1);
+  // Numeric movement requires the exact Apply choice to finish reaching LCD.
+  authorization.configure(AuthMode::none,"","");one.idle=false;idle();
+  rotate(1);idle();rotate(1);idle();click();idle();click();idle();
+  assert(lastQuery.screen==Screen::control && lastQuery.entity.id==7);
+  rotate(1);idle();rotate(1);idle();click();idle();
+  assert(lastQuery.screen==Screen::actions);click();idle();
+  assert(lastQuery.screen==Screen::value);const int expected=lastQuery.draftValue+1;
+  rotate(1);idle();assert(lastQuery.draftValue==expected);
+  const auto beforeDraft=submitted.size();click();idle();assert(lastQuery.valueChoice==2);
+  busBusy=true;rotate(-1);click();assert(submitted.size()==beforeDraft);
+  busBusy=false;idle();click();assert(submitted.size()==beforeDraft+1);
+  assert(submitted.back().target==expected && submitted.back().type==shade_request_type_t::shade_command);
   free(allocated);allocated=nullptr;hasPsram=false;
   Runtime missing;missing.begin();assert(missing.failure()==GraphicsFailure::missing && !missing.tick(testNow,status,false,send,light));
   hasPsram=true;allocateOK=false;Runtime failed;failed.begin();assert(failed.failure()==GraphicsFailure::allocation && !failed.tick(testNow,status,false,send,light));
