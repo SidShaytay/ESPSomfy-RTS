@@ -35,8 +35,23 @@ int main() {
   assert(!pollAuthorization().allowed && !pollAuthorization().expired);
   assert(first.configurationGeneration!=pollAuthorization().configurationGeneration);
   strcpy(given.secret,"new!"); assert(unlockAuthorization(given)==AuthResult::unlocked);
+  const auto beforeInactive=pollAuthorization();
+  strcpy(settings.Security.password,"inactive-password"); // PIN mode still active
+  const auto afterInactive=pollAuthorization();
+  assert(!afterInactive.allowed && !afterInactive.expired);
+  assert(afterInactive.configurationGeneration!=beforeInactive.configurationGeneration);
+  strcpy(given.secret,"new!"); assert(unlockAuthorization(given)==AuthResult::unlocked);
+  strcpy(settings.Security.username,"inactive-user");
+  assert(!pollAuthorization().allowed);
+  strcpy(given.secret,"new!"); assert(unlockAuthorization(given)==AuthResult::unlocked);
   lockAuthorization(); assert(!pollAuthorization().allowed && !pollAuthorization().expired);
   settings.Security.type=security_types::None;
   assert(pollAuthorization().allowed);
+  settings.Security.type=security_types::Password;
+  strcpy(settings.Security.username,"user"); strcpy(settings.Security.password,"pass");
+  pollAuthorization(); strcpy(given.username,"user"); strcpy(given.secret,"pass");
+  assert(unlockAuthorization(given)==AuthResult::unlocked);
+  strcpy(settings.Security.pin,"old?"); // inactive PIN in password mode
+  assert(!pollAuthorization().allowed);
   puts("Authorization adapter: configured credentials, secured boot, expiry, device-wide lockout, change revocation and wipe passed.");
 }

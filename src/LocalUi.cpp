@@ -99,6 +99,8 @@ void Controller::shortPress(uint32_t now, const Model &m, bool visible) {
   case Screen::choose:
     if(state.selected == 4) {
       if(!m.authorized) { beginUnlock(Screen::choose); break; }
+      brightnessBefore = preferences();
+      brightnessConfigurationGeneration = m.authConfigurationGeneration;
       state.screen = Screen::brightness;
       state.setting = 0;
       break;
@@ -159,6 +161,15 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
     backSince = now;
   }
   state.retryAfterMs = m.retryAfterMs;
+  if(state.screen == Screen::brightness &&
+     (!m.authorized || m.authConfigurationGeneration != brightnessConfigurationGeneration)) {
+    setPreferences(brightnessBefore);
+    savePending = false;
+    state.screen = Screen::choose;
+    state.notice = Notice::unlockRequired;
+    noticeSince = now;
+    consumed = true;
+  }
   if(state.screen == Screen::unlock &&
      (m.authMode != editorMode || m.authConfigurationGeneration != editorConfigurationGeneration ||
       uint32_t(now - editorActivity) >= 30000)) {
@@ -281,6 +292,7 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
   // Inactivity returns to status but never navigates away during estimated motion.
   if(!moving && uint32_t(now - activity) >= (state.offSeconds ? uint32_t(state.offSeconds) * 1000 : 30000)) {
     if(state.screen == Screen::unlock) { editor.cancel(); editorView(); }
+    if(state.screen == Screen::brightness) { setPreferences(brightnessBefore); savePending=false; }
     state.screen = Screen::status;
     state.action = Action::stop;
   }

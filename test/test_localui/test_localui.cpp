@@ -347,6 +347,25 @@ static void same_mode_credential_change_wipes_unlock_draft_immediately() {
   Credentials out; TEST_ASSERT_FALSE(c.takeCredentials(out));
   Command command; TEST_ASSERT_FALSE(c.take(command));
 }
+static void display_draft_reverts_on_auth_expiry_or_security_change() {
+  for(unsigned reason=0;reason<3;reason++) {
+    Controller c; auto m=model(); m.targets[0].moving=true;
+    c.tick(0,m,1,false,true);
+    for(unsigned i=0;i<4;i++) c.tick(10+i,m,1,false,true);
+    click(c,100,m);
+    TEST_ASSERT_EQUAL(int(Screen::brightness),int(c.view().screen));
+    c.tick(300,m,1,false,true); // draft previews64 while authorized
+    TEST_ASSERT_EQUAL(64,c.preference());
+    if(reason==0) m.authorized=false;
+    else if(reason==1) ++m.authConfigurationGeneration;
+    else m.targets[0].moving=false;
+    c.tick(reason==2?21000:400,m,reason==2?0:1,false,true);
+    TEST_ASSERT_NOT_EQUAL(int(Screen::brightness),int(c.view().screen));
+    TEST_ASSERT_EQUAL(32,c.preference());
+    DisplayPreferences out; TEST_ASSERT_FALSE(c.takePreferences(out));
+    Command command; TEST_ASSERT_FALSE(c.take(command));
+  }
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(details_wheel_scrolls_without_leaving_or_sending);
@@ -365,5 +384,6 @@ int main() {
   RUN_TEST(secured_controls_unlock_without_replaying_and_stop_lease_is_narrow);
   RUN_TEST(secret_entry_wipes_on_sleep_and_motion_independent_timeout);
   RUN_TEST(same_mode_credential_change_wipes_unlock_draft_immediately);
+  RUN_TEST(display_draft_reverts_on_auth_expiry_or_security_change);
   return UNITY_END();
 }

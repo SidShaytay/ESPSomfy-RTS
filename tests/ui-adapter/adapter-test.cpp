@@ -65,6 +65,16 @@ static LocalUi::Command command(uint8_t selected, LocalUi::Action action) {
 }
 int main() {
   using namespace LocalUi;
+  const auto boot=snapshotModel(false);
+  assert(!boot.authorized && boot.authMode==AuthMode::unavailable);
+  Controller bootInput;
+  bootInput.tick(0,boot,1,false,false);
+  for(unsigned i=0;i<4;i++) bootInput.tick(10+i,boot,1,false,false);
+  bootInput.tick(100,boot,0,true,false); bootInput.tick(141,boot,0,true,false);
+  bootInput.tick(180,boot,0,false,false); bootInput.tick(221,boot,0,false,false);
+  assert(bootInput.view().screen!=Screen::brightness);
+  DisplayPreferences bootSave; Command bootCommand;
+  assert(!bootInput.takePreferences(bootSave) && !bootInput.take(bootCommand));
   somfy.shades[1].address = 200;
   // Real reported configuration: paired RTS devices of category shutter (4).
   auto m = snapshotModel(true);

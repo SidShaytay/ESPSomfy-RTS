@@ -50,6 +50,8 @@ class Controller {
   CredentialEditor editor;
   AuthMode editorMode = AuthMode::none;
   Screen afterUnlock = Screen::control;
+  DisplayPreferences brightnessBefore;
+  uint32_t brightnessConfigurationGeneration = 0;
   uint32_t editorActivity = 0, editorConfigurationGeneration = 0;
   bool authActivity = false;
   void editorView();

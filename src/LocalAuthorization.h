@@ -62,11 +62,11 @@ public:
       expected.clear();
       expected = next;
       mode = nextMode;
-      ++configurationRevision;
-      lock();
+      configurationChanged();
     }
     next.clear();
   }
+  void configurationChanged() { ++configurationRevision; lock(); }
   AuthMode configuredMode() const { return mode; }
   uint32_t generation() const { return revision; }
   uint32_t configurationGeneration() const { return configurationRevision; }
