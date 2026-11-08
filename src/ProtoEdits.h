@@ -11,6 +11,16 @@
 // rules stay in one place.  Kept free of the shade model and the web server so
 // it can be unit tested on the PC (pio test -e native).
 
+struct edit_form_t {
+  const proto_field_t *fields;
+  uint8_t count;
+  proto_field_t identity; // count for add; stable ID supplied separately on save
+};
+// Stable metadata for add/save room/shade/group; nullptr for action-only edits.
+// Field kinds/names/keys come from protoField(). Model validation still owns
+// entity ranges, capabilities, unique identities and cross-field constraints.
+const edit_form_t *editForm(model_edit_type_t type);
+
 // The edit an op asks for; false for a type that isn't an edit op.
 bool protoEditType(uint8_t type, model_edit_type_t &out);
 // The request of an edit route, from the op's payload d: full names for the
