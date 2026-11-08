@@ -70,6 +70,38 @@ def check_flags(flags, required, forbidden, origin, require_present=False):
             raise ValueError(origin + ' removes or conflicts with required macro ' + name)
 
 
+def crypto_configuration(profile, compiler):
+    """Prebuilt Mbed TLS layout cannot be reconfigured with application flags."""
+    canonical = '"mbedtls/esp_config.h"'
+    def crypto(name):
+        return name.startswith(('MBEDTLS_', 'CONFIG_MBEDTLS_'))
+    definitions = compiler.get('defines', [])
+    selected = [item.partition('=')[2] for item in definitions
+                if item.partition('=')[0] == 'MBEDTLS_CONFIG_FILE']
+    if selected != [canonical]:
+        raise ValueError('compiler Mbed TLS configuration is missing or conflicting')
+    for item in definitions:
+        name = item.partition('=')[0]
+        if crypto(name) and name != 'MBEDTLS_CONFIG_FILE':
+            raise ValueError('compiler overrides the prebuilt Mbed TLS configuration')
+    for origin, flags in (('resolved flags', profile.get('build_flags', [])),
+                          ('C flags', compiler.get('cc_flags', [])),
+                          ('C++ flags', compiler.get('cxx_flags', []))):
+        tokens = shlex.split(' '.join(flags))
+        index = 0
+        while index < len(tokens):
+            token = tokens[index]
+            if token in ('-D', '-U') and index + 1 < len(tokens):
+                index += 1
+                token += tokens[index]
+            if token.startswith(('-D', '-U')):
+                name, _, value = token[2:].partition('=')
+                if crypto(name) and (token.startswith('-U') or name != 'MBEDTLS_CONFIG_FILE' or
+                                     value not in (canonical, 'mbedtls/esp_config.h')):
+                    raise ValueError(origin + ' overrides the prebuilt Mbed TLS configuration')
+            index += 1
+
+
 PARTITIONS = {
     'nvs': (1, 2, 0x9000, 0x5000),
     'otadata': (1, 0, 0xe000, 0x2000),
@@ -186,6 +218,7 @@ def build_configuration(profile, compiler):
     includes = compiler.get('includes', {}).get('build', [])
     if not any(path.replace('\\', '/').endswith('/esp32s3/qio_opi/include') for path in includes):
         raise ValueError('compiler SDK does not use ESP32-S3 QIO/OPI memory')
+    crypto_configuration(profile, compiler)
     return {'resolved': profile, 'compiler': compiler}
 
 

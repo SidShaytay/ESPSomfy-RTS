@@ -58,7 +58,7 @@ class ManifestTests(unittest.TestCase):
         (self.out / 'firmware.elf').write_bytes(b'ELF-symbols')
         profile = dict(m.BUILD_SETTINGS, lib_deps=list(m.DISPLAY_LIBRARIES), platform=m.PLATFORM, framework=['arduino'], build_flags=list(m.REQUIRED_FLAGS))
         compiler = {'env_name': m.ENV, 'build_type': 'release',
-                    'defines': [f[2:] for f in m.REQUIRED_FLAGS] + ['BOARD_HAS_PSRAM', 'IDF_VER="v5.5.5"'],
+                    'defines': [f[2:] for f in m.REQUIRED_FLAGS] + ['BOARD_HAS_PSRAM', 'IDF_VER="v5.5.5"', 'MBEDTLS_CONFIG_FILE="mbedtls/esp_config.h"'],
                     'cc_flags': [], 'cxx_flags': [],
                     'includes': {'build': ['/sdk/esp32s3/qio_opi/include']}}
         (self.out / 'resolved-config.json').write_text(json.dumps([['env:' + m.ENV, list(profile.items())]]))
@@ -66,6 +66,19 @@ class ManifestTests(unittest.TestCase):
         self.manifest = m.artifact_manifest(self.out)
         self.manifest['source'] = {'revision': m.BASELINE['revision'], 'dirty': False,
                                    'input_sha256': {'platformio.ini': '0' * 64}}
+
+    def test_crypto_feature_overrides_cannot_change_prebuilt_sdk_abi(self):
+        import copy
+        for macro in ('MBEDTLS_SSL_DTLS_CONNECTION_ID','CONFIG_MBEDTLS_SSL_DTLS_CONNECTION_ID','MBEDTLS_USER_CONFIG_FILE'):
+            for field in ('defines','cc_flags','cxx_flags'):
+                evidence=copy.deepcopy(self.manifest['effective_build'])
+                evidence['compiler'][field].append(('' if field=='defines' else '-D')+macro+'=1')
+                with self.subTest(macro=macro,field=field), self.assertRaises(ValueError):
+                    m.build_configuration(evidence['resolved'],evidence['compiler'])
+            evidence=copy.deepcopy(self.manifest['effective_build'])
+            evidence['resolved']['build_flags'].extend(['-D',macro+'=1'])
+            with self.subTest(macro=macro,field='resolved'), self.assertRaises(ValueError):
+                m.build_configuration(evidence['resolved'],evidence['compiler'])
 
     def test_canonical_package_includes_full_interface(self):
         self.assertFalse(self.manifest['target']['headless'])
