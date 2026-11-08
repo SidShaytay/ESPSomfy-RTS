@@ -101,6 +101,9 @@ class Controller {
   void openCatalogue(CatalogueKind,uint8_t room);
 public:
   void tick(uint32_t now,const Model &,int8_t turn,bool pressed,bool visible,bool backPressed=false);
+  // No writes/domain calls. The Runtime separately locks authorization, cancels
+  // admitted queue work and discards its Form/presentation state on graphics loss.
+  void discardTransient();
   const View &view() const { return state; }
   uint8_t brightness() const { return asleep?0:dimmed?(state.level<4?1:4):state.level; }
   bool take(Command &out);
