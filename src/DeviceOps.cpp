@@ -41,78 +41,21 @@ void freeSettingsSave(settings_save_t *save) {
  * getSettings: what the settings routes sent, under the dictionary's
  * keys.  Secrets only say whether they are set.
  ********************************************************************/
-// An address of 0.0.0.0 is sent as "", as the settings routes did.
-static void addAddress(ProtoWriter &w, proto_field_t field, const IPAddress &ip) {
-  if(ip != IPAddress(0, 0, 0, 0)) w.add(field, ip.toString().c_str());
-}
-static void writeSettings(ProtoWriter &w, settings_section_t section) {
-  switch(section) {
-    case settings_section_t::general:
-      w.add(proto_field_t::hostname, settings.hostname);
-      w.add(proto_field_t::ssdpBroadcast, settings.ssdpBroadcast);
-      w.add(proto_field_t::ntpServer, settings.NTP.ntpServer);
-      w.add(proto_field_t::posixZone, settings.NTP.posixZone);
-      break;
-    case settings_section_t::network:
-      w.add(proto_field_t::connMode, static_cast<uint8_t>(settings.connType));
-      w.add(proto_field_t::ssid, settings.WIFI.ssid);
-      w.add(proto_field_t::hasPassphrase, hasSecret(settings.WIFI.passphrase));
-      w.add(proto_field_t::roaming, settings.WIFI.roaming);
-      w.add(proto_field_t::hidden, settings.WIFI.hidden);
-#if HAS_ETHERNET
-      w.add(proto_field_t::hasEthernet, true);
-      w.add(proto_field_t::boardType, settings.Ethernet.boardType);
-      w.add(proto_field_t::phyType, settings.Ethernet.phyType);
-      w.add(proto_field_t::CLKMode, settings.Ethernet.CLKMode);
-      w.add(proto_field_t::phyAddress, settings.Ethernet.phyAddress);
-      w.add(proto_field_t::PWRPin, settings.Ethernet.PWRPin);
-      w.add(proto_field_t::MDCPin, settings.Ethernet.MDCPin);
-      w.add(proto_field_t::MDIOPin, settings.Ethernet.MDIOPin);
-#endif
-      w.add(proto_field_t::dhcp, settings.IP.dhcp);
-      addAddress(w, proto_field_t::ip, settings.IP.ip);
-      addAddress(w, proto_field_t::gateway, settings.IP.gateway);
-      addAddress(w, proto_field_t::subnet, settings.IP.subnet);
-      addAddress(w, proto_field_t::dns1, settings.IP.dns1);
-      addAddress(w, proto_field_t::dns2, settings.IP.dns2);
-      break;
-    case settings_section_t::mqtt:
-      w.add(proto_field_t::enabled, settings.MQTT.enabled);
-      w.add(proto_field_t::pubDisco, settings.MQTT.pubDisco);
-      w.add(proto_field_t::protocol, settings.MQTT.protocol);
-      w.add(proto_field_t::hostname, settings.MQTT.hostname);
-      w.add(proto_field_t::port, settings.MQTT.port);
-      w.add(proto_field_t::username, settings.MQTT.username);
-      w.add(proto_field_t::hasPassword, hasSecret(settings.MQTT.password));
-      w.add(proto_field_t::rootTopic, settings.MQTT.rootTopic);
-      w.add(proto_field_t::discoTopic, settings.MQTT.discoTopic);
-      break;
-    case settings_section_t::security:
-      w.add(proto_field_t::securityType, static_cast<uint8_t>(settings.Security.type));
-      w.add(proto_field_t::username, settings.Security.username);
-      w.add(proto_field_t::hasPassword, hasSecret(settings.Security.password));
-      w.add(proto_field_t::hasPin, hasSecret(settings.Security.pin));
-      break;
-    case settings_section_t::radio: {
-      const transceiver_config_t &cfg = somfy.transceiver.config;
-      w.add(proto_field_t::bitLength, cfg.type);
-      w.add(proto_field_t::proto, static_cast<uint8_t>(cfg.proto));
-      w.add(proto_field_t::enabled, cfg.enabled);
-      w.add(proto_field_t::TXPin, cfg.TXPin);
-      w.add(proto_field_t::RXPin, cfg.RXPin);
-      w.add(proto_field_t::SCKPin, cfg.SCKPin);
-      w.add(proto_field_t::MOSIPin, cfg.MOSIPin);
-      w.add(proto_field_t::MISOPin, cfg.MISOPin);
-      w.add(proto_field_t::CSNPin, cfg.CSNPin);
-      w.add(proto_field_t::frequency, cfg.frequency);
-      w.add(proto_field_t::rxBandwidth, cfg.rxBandwidth);
-      w.add(proto_field_t::deviation, cfg.deviation);
-      w.add(proto_field_t::txPower, cfg.txPower);
-      w.add(proto_field_t::noiseDetection, cfg.noiseDetection);
-      w.add(proto_field_t::radioInit, cfg.radioInit);
-      break;
+class ProtocolSettingsSink : public SettingsSnapshotSink {
+  ProtoWriter &writer;
+public:
+  explicit ProtocolSettingsSink(ProtoWriter &writer) : writer(writer) {}
+  void field(proto_field_t field, const settings_value_t &value) override {
+    switch(value.kind) {
+      case 'b': writer.add(field,value.boolean); break;
+      case 'i': writer.add(field,value.integer); break;
+      case 'n': writer.add(field,value.number); break;
+      case 's': writer.add(field,value.text); break;
     }
   }
+};
+bool readDeviceSettings(settings_section_t section, SettingsSnapshotSink &sink) {
+  return readSettingsSnapshot(section,settings,somfy.transceiver.config,sink);
 }
 
 /*********************************************************************
@@ -172,7 +115,8 @@ void runDeviceOp(const loop_item_t &item) {
   switch(static_cast<proto_type_t>(item.op)) {
     case proto_type_t::getSettings: {
       ProtoWriter w = protoSocket.beginReply(item.replyTo);
-      writeSettings(w, static_cast<settings_section_t>(item.section));
+      ProtocolSettingsSink sink(w);
+      readDeviceSettings(static_cast<settings_section_t>(item.section),sink);
       protoSocket.endReply(item.replyTo);
       break;
     }
