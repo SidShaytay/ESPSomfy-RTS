@@ -19,7 +19,7 @@ struct Model {
   bool ready = false, controlsEnabled = false;
   AuthMode authMode = AuthMode::none;
   bool authorized = true;
-  uint32_t authGeneration = 0, retryAfterMs = 0;
+  uint32_t authGeneration = 0, authConfigurationGeneration = 0, retryAfterMs = 0;
 };
 struct DisplayPreferences {
   uint8_t brightness = 32;
@@ -50,7 +50,7 @@ class Controller {
   CredentialEditor editor;
   AuthMode editorMode = AuthMode::none;
   Screen afterUnlock = Screen::control;
-  uint32_t editorActivity = 0;
+  uint32_t editorActivity = 0, editorConfigurationGeneration = 0;
   bool authActivity = false;
   void editorView();
   bool hasCommand = false, started = false, raw = false, stable = false;

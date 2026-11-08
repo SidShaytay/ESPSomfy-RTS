@@ -333,6 +333,20 @@ static void secret_entry_wipes_on_sleep_and_motion_independent_timeout() {
     Command command; TEST_ASSERT_FALSE(c.take(command));
   }
 }
+static void same_mode_credential_change_wipes_unlock_draft_immediately() {
+  Controller c; auto m=model(); m.authorized=false; m.authMode=AuthMode::pin; m.authGeneration=2;
+  m.targets[0].moving=true;
+  c.tick(0,m,1,false,true); click(c,100,m); click(c,300,m);
+  c.tick(500,m,1,false,true); click(c,600,m);
+  TEST_ASSERT_EQUAL(1,c.view().credentialLength);
+  ++m.authGeneration; // credential changed, same mode
+  ++m.authConfigurationGeneration;
+  c.tick(800,m,0,false,true);
+  TEST_ASSERT_NOT_EQUAL(int(Screen::unlock),int(c.view().screen));
+  TEST_ASSERT_EQUAL(0,c.view().credentialLength);
+  Credentials out; TEST_ASSERT_FALSE(c.takeCredentials(out));
+  Command command; TEST_ASSERT_FALSE(c.take(command));
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(details_wheel_scrolls_without_leaving_or_sending);
@@ -350,5 +364,6 @@ int main() {
   RUN_TEST(moving_stop_is_not_blocked_by_a_repaint);
   RUN_TEST(secured_controls_unlock_without_replaying_and_stop_lease_is_narrow);
   RUN_TEST(secret_entry_wipes_on_sleep_and_motion_independent_timeout);
+  RUN_TEST(same_mode_credential_change_wipes_unlock_draft_immediately);
   return UNITY_END();
 }

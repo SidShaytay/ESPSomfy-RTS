@@ -66,6 +66,7 @@ void Controller::shortPress(uint32_t now, const Model &m, bool visible) {
   auto beginUnlock = [&](Screen returning) {
     afterUnlock = returning;
     editorMode = m.authMode;
+    editorConfigurationGeneration = m.authConfigurationGeneration;
     editor.begin(editorMode);
     editorActivity = now;
     state.screen = Screen::unlock;
@@ -159,7 +160,8 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
   }
   state.retryAfterMs = m.retryAfterMs;
   if(state.screen == Screen::unlock &&
-     (m.authMode != editorMode || uint32_t(now - editorActivity) >= 30000)) {
+     (m.authMode != editorMode || m.authConfigurationGeneration != editorConfigurationGeneration ||
+      uint32_t(now - editorActivity) >= 30000)) {
     goBack();
     state.notice = Notice::unlockRequired;
     noticeSince = now;

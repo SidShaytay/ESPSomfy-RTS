@@ -47,7 +47,8 @@ uint64_t shadeConfiguration(uint8_t id) {
 void authorizeModel(Model &m) {
   const auto security=pollAuthorization();
   m.authMode=security.mode; m.authorized=security.allowed;
-  m.authGeneration=security.generation; m.retryAfterMs=security.retryAfterMs;
+  m.authGeneration=security.generation; m.authConfigurationGeneration=security.configurationGeneration;
+  m.retryAfterMs=security.retryAfterMs;
   if(security.allowed) leaseTarget=controlFocus;
   else if(controlFocus<3 && controlFocus!=leaseTarget) leaseTarget=255;
   for(uint8_t selected=0;selected<3;selected++) {
