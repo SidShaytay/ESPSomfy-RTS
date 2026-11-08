@@ -151,6 +151,22 @@ int main(){
   one.shadeType=shade_types::garage1;++one.configurationRevision;++somfy.configurationRevision;
   model=open(view,{EntityKind::device,7});assert(model.target.capabilities==controlActionBit(Action::toggle));
   assert(dispatch(command(view,Action::toggle))==DispatchResult::done && submitted.back().command==somfy_commands::Toggle);
+  // GPIO capabilities use the same fresh, read-only domain admission as sends.
+  one.shadeType=shade_types::roller;one.tiltType=tilt_types::none;
+  one.gpioUp=255;one.gpioDown=40;one.gpioMy=255;++one.configurationRevision;
+  model=open(view,{EntityKind::device,7});
+  assert(model.target.capabilities==controlActionBit(Action::down));
+  const auto noGpioSend=submitted.size();
+  assert(dispatch(command(view,Action::up))==DispatchResult::refused && submitted.size()==noGpioSend);
+  assert(dispatch(command(view,Action::down))==DispatchResult::done);
+  one.gpioConflict=1;++one.configurationRevision;model=open(view,{EntityKind::device,7});
+  assert(model.target.capabilities==0 && !model.target.valid);
+  assert(dispatch(command(view,Action::down))==DispatchResult::refused);
+  one.gpioConflict=0;one.proto=radio_proto::GP_Relay;one.idle=true;
+  one.gpioUp=17;one.gpioDown=one.gpioMy=255;++one.configurationRevision;
+  model=open(view,{EntityKind::device,7});
+  assert(model.target.capabilities==(controlActionBit(Action::up)|controlActionBit(Action::stop)));
+  one.gpioUp=one.gpioDown=one.gpioMy=0;
   // An old intent/lease must not borrow a later expired session's grace, even
   // when no adapter observation happened during that replacement session.
   one.shadeType=shade_types::shutter;one.proto=radio_proto::RTS;one.tiltType=tilt_types::none;one.bitLength=56;one.idle=false;
