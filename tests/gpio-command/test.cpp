@@ -81,5 +81,11 @@ int main(){
  single.gpioDown=255;const auto before=gpioWrites;const auto reads=storageReads;const auto stored=storageWrites;
  assert(!single.send(somfy_commands::My,2,0,0,false).sent);
  assert(gpioWrites==before&&storageReads==reads&&storageWrites==stored);
+ SomfyShade binary;binary.proto=radio_proto::GP_Relay;binary.shadeType=shade_types::drycontact;binary.gpioDown=40;
+ binary.behaviour.restore(100,0,-1,-1);
+ assert(binary.sendCommand(somfy_commands::Up));binary.behaviour.tick(2);binary.setGPIOs();
+ assert(binary.state().currentPos==0&&levels[40]==LOW);
+ assert(binary.sendCommand(somfy_commands::Down));binary.behaviour.tick(4);binary.setGPIOs();
+ assert(binary.state().currentPos==100&&levels[40]==HIGH);
  puts("GPIO command boundaries and all category/opcode mappings passed");
 }
