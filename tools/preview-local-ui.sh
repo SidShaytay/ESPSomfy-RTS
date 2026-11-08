@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-gfx="${GFX_DIR:-$repo/.pio/libdeps/lilygo-t-embed-cc1101-plus-ui/Adafruit GFX Library}"
+gfx="${GFX_DIR:-$repo/.pio/libdeps/lilygo-t-embed-cc1101-plus/Adafruit GFX Library}"
 out="${1:-$repo/build/ui-preview}"
 [[ -f "$gfx/Adafruit_GFX.cpp" ]] || { echo 'Build the UI env first, or set GFX_DIR to its pinned Adafruit GFX library directory.' >&2; exit 1; }
 mkdir -p "$out"

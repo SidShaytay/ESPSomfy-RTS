@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create/check a Plus artifact package offline. Never opens a serial port.
+"""Create/check a canonical LILYGO artifact package offline. Never opens a serial port.
 
 This is integrity and target validation, not a signature or hardware detection.
 A firmware update is valid only after separate provisioning of this exact table.
@@ -21,7 +21,7 @@ TARGET = {'board': 'LILYGO T-Embed CC1101 Plus', 'chip': 'esp32s3',
           'environment': ENV, 'flash_bytes': 0x1000000, 'flash_mode': 'qio',
           'flash_frequency_hz': 80000000, 'rom_header_flash_mode': 'dio',
           'psram_bytes': 0x800000,
-          'psram_mode': 'opi', 'usb': 'hardware CDC on boot', 'headless': True,
+          'psram_mode': 'opi', 'usb': 'hardware CDC on boot', 'headless': False,
           'profile_macro': 'ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS'}
 BUILD_SETTINGS = {'board': 'esp32-s3-devkitc1-n16r8', 'build_type': 'release',
                   'board_build.partitions': 'default_8MB.csv',
@@ -30,7 +30,48 @@ BUILD_SETTINGS = {'board': 'esp32-s3-devkitc1-n16r8', 'build_type': 'release',
                   'board_build.psram_type': 'opi', 'board_upload.flash_size': '16MB'}
 REQUIRED_FLAGS = ['-DCORE_DEBUG_LEVEL=2', '-DARDUINO_USB_MODE=1',
                   '-DARDUINO_USB_CDC_ON_BOOT=1',
-                  '-DESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS']
+                  '-DESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS',
+                  '-DESPSOMFY_STATUS_DISPLAY', '-DESPSOMFY_LOCAL_UI',
+                  '-DESPSOMFY_LOCAL_COMMANDS']
+ENVIRONMENTS = {
+    ENV: ('LILYGO T-Embed CC1101 Plus', 'ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS'),
+    'lilygo-t-embed-cc1101': ('LILYGO T-Embed CC1101', 'ESPSOMFY_LILYGO_T_EMBED_CC1101'),
+}
+DISPLAY_LIBRARIES = ['adafruit/Adafruit GFX Library@1.12.1', 'adafruit/Adafruit BusIO@1.17.4']
+
+
+def required_flags(environment):
+    if environment not in ENVIRONMENTS:
+        raise ValueError('unsupported or retired LILYGO environment')
+    return [flag.replace(TARGET['profile_macro'], ENVIRONMENTS[environment][1])
+            for flag in REQUIRED_FLAGS]
+
+
+def check_flags(flags, required, forbidden, origin, require_present=False):
+    definitions = {}
+    undefined = set()
+    tokens = shlex.split(' '.join(flags))
+    index = 0
+    while index < len(tokens):
+        flag = tokens[index]
+        if flag in ('-D', '-U') and index + 1 < len(tokens):
+            index += 1
+            flag += tokens[index]
+        if flag.startswith(('-D', '-U')):
+            name, _, value = flag[2:].partition('=')
+            if flag.startswith('-U'):
+                undefined.add(name)
+            else:
+                definitions.setdefault(name, []).append(value)
+        index += 1
+    if forbidden in definitions:
+        raise ValueError(origin + ' defines opposite physical board')
+    for name, value in required.items():
+        found = definitions.get(name)
+        if name in undefined or (found is not None and found != [value]) or (require_present and found is None):
+            raise ValueError(origin + ' removes or conflicts with required macro ' + name)
+
+
 PARTITIONS = {
     'nvs': (1, 2, 0x9000, 0x5000),
     'otadata': (1, 0, 0xe000, 0x2000),
@@ -80,7 +121,7 @@ def partition_table(data):
             raise ValueError('duplicate partition')
         found[label] = (kind, subtype, offset, size)
     if not checked_md5 or found != PARTITIONS:
-        raise ValueError('not the Plus partition layout')
+        raise ValueError('not the canonical LILYGO partition layout')
     return {name: {'type': values[0], 'subtype': values[1],
                    'offset': values[2], 'size': values[3]}
             for name, values in found.items()}
@@ -117,33 +158,33 @@ def build_configuration(profile, compiler):
     """Validate resolved PIO settings and the compiler's final macro set."""
     for key, expected in BUILD_SETTINGS.items():
         if profile.get(key) != expected:
-            raise ValueError(f'Plus build setting {key} does not match {expected}')
+            raise ValueError(f'LILYGO build setting {key} does not match {expected}')
     if profile.get('platform') != PLATFORM or profile.get('framework') != ['arduino']:
         raise ValueError('not the pinned Arduino platform')
     if profile.get('build_unflags'):
-        raise ValueError('Plus profile does not permit build_unflags')
-    if compiler.get('build_type') != 'release' or compiler.get('env_name') != ENV:
-        raise ValueError('compiler metadata is not the Plus release environment')
-    required = dict(flag[2:].partition('=')[::2] for flag in REQUIRED_FLAGS)
+        raise ValueError('LILYGO profile does not permit build_unflags')
+    environment = compiler.get('env_name')
+    flags = required_flags(environment)
+    if compiler.get('build_type') != 'release':
+        raise ValueError('compiler metadata is not a LILYGO release environment')
+    if not set(DISPLAY_LIBRARIES).issubset(profile.get('lib_deps', [])):
+        raise ValueError('missing pinned display libraries')
+    required = dict(flag[2:].partition('=')[::2] for flag in flags)
+    forbidden = next(macro for _, macro in ENVIRONMENTS.values() if macro != ENVIRONMENTS[environment][1])
+    check_flags(profile.get('build_flags', []), required, forbidden, 'resolved flags', require_present=True)
     required['BOARD_HAS_PSRAM'] = ''
     required['IDF_VER'] = '"v5.5.5"'
     defines = compiler.get('defines', [])
+    if any(entry.partition('=')[0] == forbidden for entry in defines):
+        raise ValueError('compiler defines opposite physical board')
     for name, value in required.items():
         found = [entry.partition('=')[2] for entry in defines
                  if entry.partition('=')[0] == name]
         if found != [value]:
             raise ValueError(f'effective compiler macro {name} is missing or conflicting')
-    # -U may survive as a raw C/C++ flag; don't let a later undefine defeat
-    # CPPDEFINES. Conflicting -D values are rejected here as well.
+    # Raw compiler flags can override CPPDEFINES, including split -U forms.
     for field in ('cc_flags', 'cxx_flags'):
-        tokens = shlex.split(' '.join(compiler.get(field, [])))
-        for index, flag in enumerate(tokens):
-            if flag in ('-D', '-U') and index + 1 < len(tokens):
-                flag += tokens[index + 1]
-            if flag.startswith(('-D', '-U')):
-                name, _, value = flag[2:].partition('=')
-                if name in required and (flag.startswith('-U') or value != required[name]):
-                    raise ValueError(f'{field} overrides required macro {name}')
+        check_flags(compiler.get(field, []), required, forbidden, field)
     includes = compiler.get('includes', {}).get('build', [])
     if not any(path.replace('\\', '/').endswith('/esp32s3/qio_opi/include') for path in includes):
         raise ValueError('compiler SDK does not use ESP32-S3 QIO/OPI memory')
@@ -154,8 +195,17 @@ def build_evidence(out):
     # Keep only target compiler evidence: unrelated upload target descriptions
     # and other environments are not inputs to the package contract.
     resolved = dict(json.loads((out / 'resolved-config.json').read_text()))
-    profile = dict(resolved['env:' + ENV])
-    metadata = json.loads((out / 'compiler-metadata.json').read_text())[ENV]
+    metadata_document = json.loads((out / 'compiler-metadata.json').read_text())
+    if len(metadata_document) != 1:
+        raise ValueError('package must identify exactly one physical-board environment')
+    environment = next(iter(metadata_document))
+    required_flags(environment)
+    if 'env:' + environment not in resolved:
+        raise ValueError('missing resolved physical-board environment')
+    profile = dict(resolved['env:' + environment])
+    metadata = metadata_document[environment]
+    if metadata.get('env_name') != environment:
+        raise ValueError('compiler and resolved environment identities differ')
     compiler = {key: metadata[key] for key in
                 ('env_name', 'build_type', 'defines', 'cc_flags', 'cxx_flags', 'includes')}
     return build_configuration(profile, compiler)
@@ -188,10 +238,14 @@ def artifact_manifest(out):
     elf = (out / 'firmware.elf').read_bytes()
     if not elf:
         raise ValueError('missing ELF symbols')
-    return {'schema': 1, 'baseline': BASELINE.copy(), 'target': TARGET.copy(),
+    evidence = build_evidence(out)
+    environment = evidence['compiler']['env_name']
+    board, macro = ENVIRONMENTS[environment]
+    target = dict(TARGET, board=board, environment=environment, profile_macro=macro)
+    return {'schema': 1, 'baseline': BASELINE.copy(), 'target': target,
             'platform': PLATFORM, 'arduino_core': '3.3.12', 'esp_idf': '5.5.5',
             'pioarduino_core': '6.2.0', 'build_settings': BUILD_SETTINGS.copy(),
-            'profile_build_flags': list(REQUIRED_FLAGS), 'effective_build': build_evidence(out),
+            'profile_build_flags': required_flags(environment), 'effective_build': evidence,
             'partitions': table, 'segments': segments,
             'usage': dict(USAGE),
             'symbols': {'file': 'firmware.elf', 'size': len(elf), 'sha256': digest(elf)}}
@@ -203,7 +257,7 @@ def validate(manifest, out):
     expected = artifact_manifest(out)
     for key, value in expected.items():
         if manifest.get(key) != value:
-            raise ValueError(f'manifest {key} does not match the Plus artifacts/contract')
+            raise ValueError(f'manifest {key} does not match the LILYGO artifacts/contract')
     source = manifest.get('source', {})
     if (not re.fullmatch(r'[0-9a-f]{40}', source.get('revision', '')) or
             type(source.get('dirty')) is not bool or
@@ -249,7 +303,7 @@ def main():
         path.write_text(json.dumps(manifest, indent=2) + '\n')
     else:
         validate(json.loads(path.read_text()), args.directory)
-    print(f'Validated Plus artifacts: {path}')
+    print(f'Validated LILYGO artifacts: {path}')
 
 
 if __name__ == '__main__':
