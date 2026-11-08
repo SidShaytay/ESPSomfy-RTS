@@ -5,6 +5,7 @@
 #include <string.h>
 #include <string>
 #define PROGMEM
+using byte=uint8_t;
 class __FlashStringHelper;
 class String {
   std::string s;

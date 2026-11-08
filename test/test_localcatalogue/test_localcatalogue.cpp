@@ -1,5 +1,6 @@
 #include <unity.h>
 #include "LocalCatalogue.h"
+#include "LocalText.h"
 #include <string.h>
 using namespace LocalUi;
 void setUp() {}
@@ -137,6 +138,13 @@ static void room_pages_include_all_and_unassigned_without_allocating_rooms() {
   TEST_ASSERT_TRUE(roomCataloguePage(source,0,page,9,true));
   TEST_ASSERT_EQUAL(10,page.cursor); TEST_ASSERT_EQUAL(9,page.rows[1].id);
 }
+static void lcd_fallback_is_per_codepoint_and_never_interprets_control_bytes() {
+  char out[32]; lcdLabel("#7 \xc3\xa9\xe5\xb8\x98\n",out,sizeof(out));
+  TEST_ASSERT_EQUAL_STRING("#7 ???",out);
+  lcdLabel("bad\xffname",out,sizeof(out)); TEST_ASSERT_EQUAL_STRING("bad?name",out);
+  char small[4];lcdLabel("\xf0\x9f\x94\x91XYZZ",small,sizeof(small));
+  TEST_ASSERT_EQUAL_STRING("?XY",small);
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(empty_and_full_pages_are_bounded);
@@ -148,5 +156,6 @@ int main() {
   RUN_TEST(source_replacement_during_page_copy_fails_closed);
   RUN_TEST(selected_stable_id_survives_reorder_and_deletion_clamps_cursor);
   RUN_TEST(room_pages_include_all_and_unassigned_without_allocating_rooms);
+  RUN_TEST(lcd_fallback_is_per_codepoint_and_never_interprets_control_bytes);
   return UNITY_END();
 }
