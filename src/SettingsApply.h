@@ -3,7 +3,7 @@
 #include "ProtoSettings.h"
 
 enum class settings_apply_refusal_t : uint8_t {
-  none, invalidPin, usernameRequired, passwordRequired, unauthorized, stale
+  none, invalidPin, usernameRequired, passwordRequired, unauthorized, stale, busy
 };
 struct settings_apply_result_t {
   settings_save_result_t persistence;

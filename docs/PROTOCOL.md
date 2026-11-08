@@ -40,8 +40,8 @@ The keys of `hello` (`fw`, `sh`) and of the schema itself (`T`, `F`, `E`, `Q`) n
 | Range | Sender | Types |
 |---|---|---|
 | 1–15 | control | `hello` 1, `reply` 2, `next` 3, `sync` 4, `syncEnd` 5, `subscribe` 6, `unsubscribe` 7 |
-| 16–127 | client ops | commands: `shadeCommand` 16, `groupCommand` 17, `tiltCommand` 18, `repeatCommand` 19, `setPositions` 20, `setSensor` 21, `setMyPosition` 22, `unpairShade` 23, `setRollingCode` 24, `sendRemoteCommand` 25; edits: 26–44 (`addRoom` … `groupSortOrder`); reads: `getNextRoom` 45, `getNextShade` 46, `getNextGroup` 47, `groupOptions` 48; settings and the device: `getSettings` 49, `saveSettings` 50, `scanWifi` 51, `beginFrequencyScan` 52, `endFrequencyScan` 53, `reboot` 54 |
-| 128–255 | device events | `shadeState`, `shade`, `shadeRemoved`, `group`, `groupState`, `groupRemoved`, `room`, `roomRemoved`, `roomOrder`, `shadeOrder`, `groupOrder`, `shadeCommanded`, `memory`, `wifi`, `ethernet`, `frame`, `frequencyScan`, `repeaters`, `settingsChanged`, `wifiNetworks` |
+| 16–127 | client ops | commands: `shadeCommand` 16, `groupCommand` 17, `tiltCommand` 18, `repeatCommand` 19, `setPositions` 20, `setSensor` 21, `setMyPosition` 22, `unpairShade` 23, `setRollingCode` 24, `sendRemoteCommand` 25; edits: 26–44 (`addRoom` … `groupSortOrder`); reads: `getNextRoom` 45, `getNextShade` 46, `getNextGroup` 47, `groupOptions` 48; settings and the device: `getSettings` 49, `saveSettings` 50, `scanWifi` 51, `beginFrequencyScan` 52, `endFrequencyScan` 53, `reboot` 54, `commitModel` 55 |
+| 128–255 | device events | `shadeState`, `shade`, `shadeRemoved`, `group`, `groupState`, `groupRemoved`, `room`, `roomRemoved`, `roomOrder`, `shadeOrder`, `groupOrder`, `shadeCommanded`, `memory`, `wifi`, `ethernet`, `frame`, `frequencyScan`, `repeaters`, `settingsChanged`, `wifiNetworks`, `modelPersistence` |
 
 A number is never reused. A retired type stays reserved.
 
@@ -76,6 +76,7 @@ Events go out to every client from the moment it connects, so they can arrive du
 | `memory`, `wifi`, `ethernet` | every 30 s, WiFi only when the signal moved | |
 | `settingsChanged` | another client saved settings | `section` |
 | `wifiNetworks` | a WiFi scan this client asked for is done; to that client only | `networks`, each with `ssid`, `channel`, `strength`, `macAddress` |
+| `modelPersistence` | an explicit/queued or automatic retry model commit finishes; to other clients after an edit/commit reply, all clients for browser upload/automatic commits | `durable`, `modelSaveState`, `rebooting`, and `desc` on failure or a deferred requested restart |
 
 ## Commands
 
@@ -112,7 +113,8 @@ Each edit op is the edit route of the same name: `addRoom`, `addShade`, `addGrou
 - The payload holds what the route's request does, under the dictionary's keys: a room's, shade's or group's fields as in the sync, and its id to save, delete or link it. `linkRemote` takes `remoteAddress` and `lastRollingCode`; `linkRepeater` takes `remoteAddress`; `setPaired` needs `paired`. A sort order takes `ids`, the ids in their new order.
 - As with the commands, only the fields that were sent are applied. A key that isn't in the dictionary, a field the edit doesn't set, or a value of the wrong kind, is a bad request before anything is queued. A shade's save doesn't set `paired`, `linkedRemotes` or `flags` (`light` is its own field, and `setSensor` sets the sun and wind), and a group's doesn't set `sunSensor`, which comes from its shades.
 - One edit runs at a time, whichever client or route sent it: while one is waiting, another gets busy.
-- The reply comes once the edit is applied and saved. An add's reply carries the new item's id (`roomId`, `shadeId` or `groupId`). A refused edit has the route's reason in `desc`: not found for an id that doesn't exist, otherwise a bad request, with the reason's number in `validation` for a shade whose settings don't add up.
+- The reply separates application from persistence. `applied` 1 means the running model changed; `ok` 1 and `durable` 1 mean its **model file** was verified after replacement; they do not qualify separate NVS/counter writes. `modelSaveState` is 0 saved, 1 failed before replacement, or 2 uncertain after replacement. An add retains its new `roomId`, `shadeId` or `groupId` even when the reply is an `internal` persistence error. Adopt the applied state and assigned ID before showing the warning; retry `commitModel`, never replay an applied add/delete/link.
+- A refused edit has no `applied` flag and carries the route's reason in `desc`: not found for an ID that does not exist, otherwise a bad request, with the reason's number in `validation` for a shade whose settings do not add up. Applied changes still fan out exactly once after the reply when file persistence fails; other clients also receive `modelPersistence`. See [model persistence](model-persistence.md).
 - The edit's events follow: the whole item for an add or save, `*Removed` for a delete, the new order for a sort order, `repeaters` for a repeater.
 
 ## Reads
@@ -169,12 +171,17 @@ The settings are in five sections. `getSettings` and `saveSettings` name one in 
 | `beginFrequencyScan` | | ok, or radio unavailable when the radio is disabled. The radio sends nothing until the scan ends. Subscribe to the `frequencyScan` feed to follow it. |
 | `endFrequencyScan` | | ok. A scan nobody ends stops after 5 minutes. |
 | `reboot` | | ok, and the device restarts half a second later. |
+| `commitModel` | empty object; edit/target/command fields are refused | Writes only the current model, without repeating an edit, consuming a counter or sending RF. `ok`/`durable` require a verified model file; `modelSaveState` and failure `desc` report the outcome. It does not request a restart and keeps normal FIFO order. |
 
 These ops run on `loop()` like the rest. `endFrequencyScan` goes ahead of whatever is waiting in the loop queue: an unpair waits there for the radio to send again, which only the scan's end allows.
 
 ## Replies
 
 A client message with an `id` gets exactly one `reply` with that `id`, to that client only, whether it is an op or a control message such as `next`: `ok` 1 on success, or an error `code` and a `desc` for people. Error codes are in the schema: bad request, unknown op, unauthorized, not found, busy, radio unavailable, internal.
+
+An application-upload recovery commit can precede a held RF head, but cannot run or remove accepted commands/edits. Its requested automatic restart is suppressed if operations remain queued at completion; a verified file then has `durable` 1, `rebooting` 0, and a description saying restart was not scheduled. No restart permission is retained for later retries.
+
+Model persistence adds `applied` (`ap`, boolean), `durable` (`du`, boolean), and `modelSaveState` (`ds`, integer, default -1 for not reported). A model edit that was applied but not saved is an `internal` reply with its assigned ID and `applied` 1. Missing boolean fields have their schema default 0; do not treat an absent `durable` field as saved.
 
 A malformed message gets a bad request, with its `id` when it had one. A type a client may not send gets an unknown op.
 

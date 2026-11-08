@@ -27,3 +27,5 @@ inline int xQueuePeek(QueueHandle_t q,void *out,unsigned wait) {
 inline int xQueueReceive(QueueHandle_t q,void *out,unsigned wait) {
   if(!xQueuePeek(q,out,wait))return 0;static_cast<FakeRtosQueue *>(q)->items.pop_front();return 1;
 }
+
+inline unsigned uxQueueMessagesWaiting(QueueHandle_t q) {return static_cast<FakeRtosQueue *>(q)->items.size();}

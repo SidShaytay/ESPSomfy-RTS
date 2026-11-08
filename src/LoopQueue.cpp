@@ -12,6 +12,7 @@
 #ifdef ESPSOMFY_LOCAL_UI
 #include "LocalControlQueue.h"
 #endif
+#include "ModelCommitService.h"
 
 static const char *TAG = "LoopQueue";
 
@@ -43,6 +44,9 @@ bool LoopQueue::submit(const loop_item_t &item, bool first) {
     return false;
   }
   return true;
+}
+uint32_t LoopQueue::pending() const {
+  return this->queue ? uxQueueMessagesWaiting(static_cast<QueueHandle_t>(this->queue)) : 0;
 }
 void LoopQueue::drain() {
   if(!this->queue) return;
@@ -96,6 +100,9 @@ void LoopQueue::drain() {
         rebootDelay.rebootTime = millis() + 1000;
         break;
       }
+      case loop_item_type_t::model_commit:
+        runModelCommit(item);
+        break;
       case loop_item_type_t::model_edit:
         runModelEdit(item.edit);
         break;

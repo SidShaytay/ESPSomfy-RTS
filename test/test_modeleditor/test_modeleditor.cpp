@@ -161,8 +161,7 @@ static void test_any_other_refusal_is_not_not_found() {
 }
 
 static edit_result_t resultFor(uint8_t id, uint8_t shadeId = 0) {
-  edit_result_t r;
-  r.id = id;
+  edit_result_t r=edit_result_t::completed(id,{ModelCommitState::saved,ModelCommitStage::none});
   r.shadeId = shadeId;
   return r;
 }
