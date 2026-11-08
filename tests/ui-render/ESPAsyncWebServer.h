@@ -15,6 +15,7 @@ public:
   Filler fill;
   std::map<std::string, std::string> headers;
   size_t length;
+  int status=200;
   AsyncWebServerResponse(size_t n, Filler f) : fill(f), length(n) {}
   void addHeader(const char *key, const char *value) { headers[key] = value; }
   void addHeader(const char *key, const String &value) { headers[key] = value.c_str(); }
@@ -27,7 +28,11 @@ public:
   void send(int code, const char *, const char *) { status = code; }
   void send(AsyncWebServerResponse *r) {
     response.reset(r);
-    status = 200;
+    status = r->status;
+  }
+  AsyncWebServerResponse *beginResponse(int code, const char *, const char *) {
+    if(failResponse) return nullptr;
+    auto *r=new AsyncWebServerResponse(0,{}); r->status=code; return r;
   }
   AsyncWebServerResponse *beginResponse(const char *type, size_t n, Filler f) {
     assert(std::string(type) == "image/bmp");
