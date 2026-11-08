@@ -33,7 +33,7 @@ struct Model {
   bool pageValid=false, ready=false, controlsEnabled=false, anyMoving=false;
   AuthMode authMode=AuthMode::unavailable;
   bool authorized=false;
-  uint32_t authGeneration=0, authConfigurationGeneration=0, retryAfterMs=0;
+  uint32_t authGeneration=0, authConfigurationGeneration=0, retryAfterMs=0, expiredSessionGeneration=0;
 };
 static_assert(sizeof(Model)<=512,"LCD snapshot owns only one target and three catalogue rows");
 struct DisplayPreferences {
@@ -69,6 +69,7 @@ struct Command {
   Action action=Action::stop;
   int8_t value=-1;
   uint8_t step=0;
+  // Active session source, or the original expired source for scoped STOP.
   uint32_t authGeneration=0;
 };
 class Controller {

@@ -70,3 +70,20 @@ blocked, and the regression fails; restoring it passes. The shared CC1101 firmwa
 build uses 110,684 bytes static RAM and 1,386,362 bytes flash. The separate pending
 intent/LoopQueue integration still follows this checkpoint before full everyday
 control completion is claimed. No hardware or HA acceptance is implied.
+
+## Authorization session source
+
+STOP grace is also bound to the original authorized session generation captured
+before inactivity revocation. Failed unlocks may advance the current revision but
+preserve that original source and deadline. Successful unlock, explicit lock,
+security configuration replacement, clock rollback or the grace deadline clears the source.
+An old focus or submitted command cannot borrow a later session's grace, even if
+that replacement session both began and expired between adapter observations.
+Missing source metadata fails closed. The same source ticket is available to the
+subsequent queued-intent admission layer; no additional credential is stored.
+
+The session-source foundation passed 787 native cases with one optional fixture
+skip, the production UI/capture/adapter/auth harnesses, and shared CC1101 plus
+generic ESP32 firmware builds. Independent mutations removing either the lease's
+session comparison or the command's source check fail their corresponding
+regressions. All sources were restored before the passing checks.

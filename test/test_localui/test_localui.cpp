@@ -80,7 +80,7 @@ static void open_context_change_does_not_reseed_or_retarget() {
   Drive d; d.devices(); ++d.f.base.target.token; ++d.f.base.target.revision;
   d.tick(); d.click(); Command out; TEST_ASSERT_FALSE(d.c.take(out));
   TEST_ASSERT_EQUAL(99,d.c.view().openedToken);
-  d.f.base.authorized=false; d.f.base.target.stopLease=true; d.click();
+  d.f.base.expiredSessionGeneration=d.f.base.authGeneration; d.f.base.authorized=false; d.f.base.target.stopLease=true; d.click();
   TEST_ASSERT_FALSE(d.c.take(out)); TEST_ASSERT_EQUAL(int(Notice::changed),int(d.c.view().notice));
 }
 static void locked_selection_unlocks_without_replaying() {
@@ -97,10 +97,15 @@ static void locked_selection_unlocks_without_replaying() {
   d.click(); TEST_ASSERT_TRUE(d.c.take(out));
 }
 static void locked_stop_lease_never_authorizes_another_action() {
-  Drive d; d.devices(); d.f.base.authorized=false; d.f.base.target.stopLease=true;
+  Drive d; d.devices(); d.f.base.expiredSessionGeneration=d.f.base.authGeneration; d.f.base.authorized=false; d.f.base.target.stopLease=true;
   d.click(); Command out; TEST_ASSERT_TRUE(d.c.take(out));
   d.tick(-1); d.click(); TEST_ASSERT_FALSE(d.c.take(out));
   TEST_ASSERT_EQUAL(int(Screen::unlock),int(d.c.view().screen));
+  Drive missing;missing.devices();missing.f.base.authorized=false;missing.f.base.target.stopLease=true;
+  missing.click();TEST_ASSERT_FALSE(missing.c.take(out)); // old aggregate source0 fails closed
+  Drive source;source.devices();source.f.base.expiredSessionGeneration=source.f.base.authGeneration;
+  source.f.base.authorized=false;source.f.base.target.stopLease=true;++source.f.base.authGeneration;
+  source.click();TEST_ASSERT_TRUE(source.c.take(out));TEST_ASSERT_EQUAL(source.f.base.expiredSessionGeneration,out.authGeneration);
 }
 static void secrets_wipe_on_cancel_configuration_change_sleep_and_timeout() {
   for(unsigned reason=0;reason<4;reason++) {

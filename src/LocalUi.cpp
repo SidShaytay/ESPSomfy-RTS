@@ -83,14 +83,14 @@ void Controller::submitControl(uint32_t now,const Model &m,bool visible,Action a
   const auto &t=m.target;
   if(!t.exists || t.ref!=state.entity || !state.openedToken || t.token!=state.openedToken)
     state.notice=Notice::changed;
-  else if(!m.authorized && !(action==Action::stop && t.stopLease)) beginUnlock(now,m,Screen::control);
+  else if(!m.authorized && !(action==Action::stop && t.stopLease && m.expiredSessionGeneration)) beginUnlock(now,m,Screen::control);
   else if(!visible) state.notice=Notice::wait;
   else if(!(t.capabilities & controlActionBit(action))) state.notice=Notice::refused;
   else if((action==Action::stop && !t.moving) || (action==Action::tiltStop && !t.tiltMoving)) state.notice=Notice::idle;
   else if(!m.controlsEnabled) state.notice=Notice::preview;
   else if(!m.ready) state.notice=Notice::refused;
   else {
-    pending={state.entity,state.openedToken,action,value,step,m.authGeneration};
+    pending={state.entity,state.openedToken,action,value,step,m.authorized?m.authGeneration:m.expiredSessionGeneration};
     hasCommand=true;state.notice=Notice::queued;
   }
   if(state.screen!=Screen::unlock) state.screen=Screen::control;
