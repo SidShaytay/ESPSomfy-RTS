@@ -2,7 +2,7 @@
 #define PROTO_OPS_H
 #include <stdint.h>
 #include <ArduinoJson.h>
-#include "ProtoSchema.h"
+#include "ProtoParse.h"
 #include "ShadeRequests.h"
 #include "SomfyFrame.h"
 
@@ -18,10 +18,10 @@
 // loop() runs.
 // nullptr when the payload is good and req is filled in; otherwise what is
 // wrong with it, for a bad request reply.
-const char *parseShadeOp(uint8_t type, JsonObjectConst d, shade_request_t &req);
+const char *parseShadeOp(uint8_t type, JsonObjectConst d, shade_request_t &req, proto_error_buffer_t &error);
 // sendRemoteCommand: a frame as a remote that isn't one of the shades, so it
 // touches nothing of the shade model.  The same as parseShadeOp otherwise.
-const char *parseRemoteCommandOp(JsonObjectConst d, somfy_frame_t &frame, uint8_t &repeats);
+const char *parseRemoteCommandOp(JsonObjectConst d, somfy_frame_t &frame, uint8_t &repeats, proto_error_buffer_t &error);
 // A command by its name, as shadeCommanded reports it ("Up", "StepDown"),
 // in any case.  False for a name that isn't a command.
 bool protoCommand(const char *name, somfy_commands &cmd);

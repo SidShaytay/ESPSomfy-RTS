@@ -10,12 +10,13 @@ void setUp() {}
 void tearDown() {}
 
 static JsonDocument doc;
+static proto_error_buffer_t error;
 static shade_request_t req;
 
 static const char *parse(proto_type_t type, const char *payload) {
   doc.clear();
   TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(doc, payload).code());
-  return parseShadeOp(static_cast<uint8_t>(type), doc.as<JsonObjectConst>(), req);
+  return parseShadeOp(static_cast<uint8_t>(type), doc.as<JsonObjectConst>(), req, error);
 }
 #define TEST_ASSERT_GOOD(why) TEST_ASSERT_NULL_MESSAGE(why, why)
 
@@ -74,7 +75,7 @@ static void test_only_the_first_problem_is_reported() {
 }
 static void test_a_left_out_payload_is_missing_everything() {
   doc.clear();
-  TEST_ASSERT_EQUAL_STRING("shadeId is missing", parseShadeOp(static_cast<uint8_t>(proto_type_t::unpairShade), JsonObjectConst(), req));
+  TEST_ASSERT_EQUAL_STRING("shadeId is missing", parseShadeOp(static_cast<uint8_t>(proto_type_t::unpairShade), JsonObjectConst(), req, error));
 }
 static void test_tilt_command() {
   TEST_ASSERT_GOOD(parse(proto_type_t::tiltCommand, R"({"s":2,"t":40})"));
@@ -172,7 +173,7 @@ static void test_remote_command() {
   deserializeJson(doc, R"({"a":1193046,"cm":"Up","c":42,"ek":160,"rp":3})");
   somfy_frame_t frame;
   uint8_t repeats = 9;
-  TEST_ASSERT_GOOD(parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats));
+  TEST_ASSERT_GOOD(parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats, error));
   TEST_ASSERT_EQUAL_UINT32(0x123456, frame.remoteAddress);
   TEST_ASSERT_EQUAL(somfy_commands::Up, frame.cmd);
   TEST_ASSERT_EQUAL_UINT16(42, frame.rollingCode);
@@ -184,7 +185,7 @@ static void test_remote_command_defaults() {
   deserializeJson(doc, R"({"a":1,"cm":"My","c":1})");
   somfy_frame_t frame;
   uint8_t repeats = 9;
-  TEST_ASSERT_GOOD(parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats));
+  TEST_ASSERT_GOOD(parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats, error));
   TEST_ASSERT_EQUAL_UINT8(0xA7, frame.encKey);
   TEST_ASSERT_EQUAL_UINT8(0, repeats);
 }
@@ -193,13 +194,13 @@ static void test_remote_command_needs_an_address_and_a_rolling_code() {
   uint8_t repeats;
   doc.clear();
   deserializeJson(doc, R"({"cm":"Up","c":1})");
-  TEST_ASSERT_EQUAL_STRING("remoteAddress is missing", parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats));
+  TEST_ASSERT_EQUAL_STRING("remoteAddress is missing", parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats, error));
   doc.clear();
   deserializeJson(doc, R"({"a":0,"cm":"Up","c":1})");
-  TEST_ASSERT_EQUAL_STRING("remoteAddress must be 1-16777215", parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats));
+  TEST_ASSERT_EQUAL_STRING("remoteAddress must be 1-16777215", parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats, error));
   doc.clear();
   deserializeJson(doc, R"({"a":5,"cm":"Up","c":0})");
-  TEST_ASSERT_EQUAL_STRING("lastRollingCode must be 1-65535", parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats));
+  TEST_ASSERT_EQUAL_STRING("lastRollingCode must be 1-65535", parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats, error));
 }
 
 /*********************************************************************
@@ -223,10 +224,25 @@ static void test_request_results_become_replies() {
   TEST_ASSERT_EQUAL_STRING("The shade has no tilt", protoRequestErrorDesc(shade, shade_request_result_t::no_tilt));
 }
 
+static void test_independent_command_errors_survive_interleaved_parses() {
+  JsonDocument shadeDoc, remoteDoc;
+  proto_error_buffer_t shadeBuffer, remoteBuffer;
+  shade_request_t shade;
+  somfy_frame_t frame;
+  uint8_t repeats;
+  deserializeJson(shadeDoc, R"({"cm":"Up"})");
+  deserializeJson(remoteDoc, R"({"cm":"Up","c":1})");
+  const char *shadeError = parseShadeOp(static_cast<uint8_t>(proto_type_t::shadeCommand), shadeDoc.as<JsonObjectConst>(), shade, shadeBuffer);
+  const char *remoteError = parseRemoteCommandOp(remoteDoc.as<JsonObjectConst>(), frame, repeats, remoteBuffer);
+  TEST_ASSERT_EQUAL_STRING("shadeId is missing", shadeError);
+  TEST_ASSERT_EQUAL_STRING("remoteAddress is missing", remoteError);
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_independent_command_errors_survive_interleaved_parses);
   RUN_TEST(test_every_command_op_but_the_remote_frame_is_a_shade_request);
   RUN_TEST(test_shade_command_by_name);
   RUN_TEST(test_shade_command_to_a_target);
