@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "SomfyFrame.h"
 #include "ShadeTypes.h"
+#include "ModelCommitResult.h"
 
 // The rules ModelEditor applies when the shade model is edited: which id, sort
 // order and remote address a new room, shade or group gets, how ids go into
@@ -28,12 +29,18 @@ enum class model_edit_type_t : uint8_t {
 // group gained or lost.  code is the validation error of a shade that wasn't
 // saved, 0 otherwise.  notFound: it was refused for an id that doesn't exist.
 struct edit_result_t {
-  bool ok = true;
+  // ok certifies application plus the model file, not separate NVS writes.
+  // Applied persistence failure retains IDs; retry COMMIT, never the edit.
+  bool ok = false;
+  bool applied = false;
+  ModelCommitResult persistence;
   bool notFound = false;
   uint8_t id = 0;
   uint8_t shadeId = 0;
   int8_t code = 0;
   const char *desc = "";
+  bool durable() const { return applied && persistence.saved(); }
+  static edit_result_t completed(uint8_t id,ModelCommitResult persistence);
   static edit_result_t error(const char *desc, int8_t code = 0) {
     edit_result_t r;
     r.ok = false;

@@ -141,3 +141,11 @@ ModelCommitResult commitModelFile(const char *mountpoint,
     io.remove(staging); // Best effort; never remove the canonical file.
   return result;
 }
+
+const char *modelCommitFailureDescription(ModelCommitState state) {
+  return state == ModelCommitState::uncertain
+             ? "Running changes applied; model file could not be verified. "
+               "Retry Commit before restarting."
+             : "Running changes applied; model file not saved. Previous file "
+               "retained. Retry Commit before restarting.";
+}

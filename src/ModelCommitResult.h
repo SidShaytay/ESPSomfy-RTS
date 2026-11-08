@@ -21,3 +21,12 @@ struct ModelCommitResult {
   ModelCommitStage stage = ModelCommitStage::none;
   bool saved() const { return state == ModelCommitState::saved; }
 };
+
+// Completion metadata is separate from the file-only persistence result.
+struct ModelCommitReport {
+  ModelCommitResult file;
+  bool rebooting = false;
+  bool restartDeferred = false;
+};
+// Safe static descriptions; no record names, paths or counter values.
+const char *modelCommitFailureDescription(ModelCommitState state);
