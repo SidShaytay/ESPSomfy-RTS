@@ -21,7 +21,7 @@ const char *label(proto_field_t field) {
     return protoField(field).name;
   }
 }
-bool validOriginal(const entity_field_t &f, const Value &value) {
+bool validStored(const entity_field_t &f, const Value &value) {
   if (value.kind != f.schema().kind)
     return false;
   if (value.kind == 's')
@@ -41,11 +41,11 @@ bool validOriginal(const entity_field_t &f, const Value &value) {
 void format(const entity_field_t &f, const Value &value, char *to,
             size_t size) {
   if (value.kind == 's')
-    copy(to, size, validOriginal(f, value) ? value.text : "Invalid UTF-8");
+    copy(to, size, validStored(f, value) ? value.text : "Invalid UTF-8");
   else if (value.kind == 'b')
     copy(to, size, value.boolean ? "On" : "Off");
   else
-    snprintf(to, size, validOriginal(f, value) ? "%lld" : "Invalid (%lld)",
+    snprintf(to, size, validStored(f, value) ? "%lld" : "Invalid (%lld)",
              (long long)value.integer);
 }
 Notice admissionNotice(Admission a) {
@@ -54,6 +54,45 @@ Notice admissionNotice(Admission a) {
                                  : Notice::busy;
 }
 } // namespace
+uint8_t Backend::choiceCount(Kind, uint8_t, proto_field_t field) {
+  const auto *f = entityField(field);
+  return f ? f->choiceCount : 0;
+}
+bool Backend::choiceAt(Kind, uint8_t, proto_field_t field, uint8_t index, Choice &out) {
+  out = {};
+  const auto *f = entityField(field);
+  if (!f || index >= f->choiceCount) return false;
+  out.value = f->choices[index];
+  snprintf(out.label, sizeof(out.label), "%lld", (long long)out.value);
+  return true;
+}
+bool Form::choice(const entity_field_t &f, uint8_t index, Choice &out) {
+  out = {};
+  return backend.choiceAt(kind, sourceId, f.field, index, out) &&
+         memchr(out.label, 0, sizeof(out.label)) && out.value >= f.lo && out.value <= f.hi;
+}
+bool Form::validOriginal(const entity_field_t &f, const Value &v) {
+  if (!validStored(f, v)) return false;
+  const auto count = backend.choiceCount(kind, sourceId, f.field);
+  if (!count || v.kind != 'i') return true;
+  for (uint8_t i = 0; i < count; i++) {
+    Choice item;
+    if (!choice(f, i, item)) { close(Notice::changed); return false; }
+    if (item.value == v.integer) return true;
+  }
+  return false;
+}
+void Form::formatValue(const entity_field_t &f, const Value &v, char *out, size_t size) {
+  format(f, v, out, size);
+  const auto count = backend.choiceCount(kind, sourceId, f.field);
+  if (!count || v.kind != 'i' || !validStored(f, v)) return;
+  for (uint8_t i = 0; i < count; i++) {
+    Choice item;
+    if (!choice(f, i, item)) { close(Notice::changed); return; }
+    if (item.value == v.integer) { copy(out, size, item.label); return; }
+  }
+  snprintf(out, size, "Invalid (%lld)", (long long)v.integer);
+}
 Form::Form(Backend &b, ArduinoJson::Allocator &a)
     : backend(b), allocator(a), changes(&a) {}
 Form::~Form() { discard(); }
@@ -201,7 +240,8 @@ void Form::render() {
           close(Notice::changed);
           return;
         }
-        format(f, v, row.value, sizeof(row.value));
+        formatValue(f, v, row.value, sizeof(row.value));
+        if (closed()) return;
         row.dirty = !changes[f.schema().key].isNull();
       } else
         copy(row.label, sizeof(row.label),
@@ -233,24 +273,23 @@ void Form::render() {
                "%u/%u bytes. Apply to draft; Back cancels.", editor.length(),
                editor.maximumBytes());
     } else {
-      if (f.choiceCount) {
-        char raw[48];
-        editor.preview(raw, sizeof(raw));
-        unsigned n = unsigned(strtoul(raw, nullptr, 10));
-        if (n < f.choiceCount)
-          snprintf(frame.rows[0].value, sizeof(frame.rows[0].value), "%d",
-                   f.choices[n]);
+      if (editor.kind() == ValueKind::choice) {
+        char raw[48]; editor.preview(raw, sizeof(raw));
+        Choice item;
+        if (!choice(f, uint8_t(strtoul(raw, nullptr, 10)), item)) { close(Notice::changed); return; }
+        copy(frame.rows[0].value, sizeof(frame.rows[0].value), item.label);
       }
       copy(frame.rows[1].label, sizeof(frame.rows[1].label), "Turn to adjust");
       copy(frame.rows[2].label, sizeof(frame.rows[2].label),
-           "Press for Apply / Step");
+           editor.kind() == ValueKind::integer ? "Press for Apply / Step" : "Press for Apply / Cancel");
       copy(frame.hint, sizeof(frame.hint), "Back cancels this field.");
     }
   } else if (mode == Mode::actions) {
-    frame.rowCount = frame.total = 3;
+    const bool numeric = editor.kind() == ValueKind::integer;
+    frame.rowCount = frame.total = numeric ? 3 : 2;
     frame.selected = selected;
     const char *labels[] = {"Apply to draft", "Cancel field", "Change step"};
-    for (unsigned i = 0; i < 3; i++) {
+    for (unsigned i = 0; i < frame.total; i++) {
       copy(frame.rows[i].label, sizeof(frame.rows[i].label), labels[i]);
       frame.rows[i].selected = selected == i;
     }
@@ -308,7 +347,9 @@ void Form::beginField(uint64_t now, bool replaceInvalid) {
     close(Notice::changed);
     return;
   }
+  const auto choices = backend.choiceCount(kind, sourceId, f.field);
   if (!replaceInvalid && !validOriginal(f, v)) {
+    if (closed()) return;
     editor.cancel();
     frame.mode = Mode::replace;
     frame.notice = Notice::invalid;
@@ -321,18 +362,24 @@ void Form::beginField(uint64_t now, bool replaceInvalid) {
     // bounded candidate nor cancellation changes the original or other drafts.
     v = {};
     v.kind = f.schema().kind;
-    v.integer =
-        f.choiceCount ? f.choices[0] : (f.lo <= 0 && f.hi >= 0 ? 0 : f.lo);
+    v.integer = f.lo <= 0 && f.hi >= 0 ? 0 : f.lo;
+    if (choices) {
+      Choice item;
+      if (!choice(f, 0, item)) { close(Notice::changed); return; }
+      v.integer = item.value;
+    }
   }
   bool ok = false;
   if (v.kind == 's')
     ok = editor.beginText(v.text, f.hi, TextEncoding::utf8, false, now);
   else if (v.kind == 'b')
     ok = editor.beginBoolean(v.boolean, now);
-  else if (f.choiceCount) {
-    for (uint8_t i = 0; i < f.choiceCount; i++)
-      if (f.choices[i] == v.integer)
-        ok = editor.beginChoice(i, f.choiceCount, now);
+  else if (choices) {
+    for (uint8_t i = 0; i < choices; i++) {
+      Choice item;
+      if (!choice(f, i, item)) { close(Notice::changed); return; }
+      if (item.value == v.integer) ok = editor.beginChoice(i, choices, now);
+    }
   } else
     ok = editor.beginInteger(v.integer, f.lo, f.hi, 1, now);
   if (!ok) {
@@ -355,11 +402,17 @@ void Form::applyField(uint64_t) {
     ok = editor.takeText(text, sizeof(text));
     if (ok)
       changes[key].set(text);
-  } else if (f.schema().kind == 'b' || f.choiceCount) {
+  } else if (f.schema().kind == 'b' || editor.kind() == ValueKind::choice) {
     uint8_t n = 0;
     ok = editor.takeChoice(n);
-    if (ok)
-      changes[key] = f.choiceCount ? int(f.choices[n]) : int(n);
+    if (ok) {
+      if (f.schema().kind == 'b') changes[key] = int(n);
+      else {
+        Choice item;
+        if (!choice(f, n, item)) { close(Notice::changed); return; }
+        changes[key] = item.value;
+      }
+    }
   } else {
     int64_t n = 0;
     ok = editor.takeNumber(n);
@@ -393,6 +446,7 @@ void Form::save(uint64_t now) {
         return;
       }
       if (!validOriginal(f, value)) {
+        if (closed()) return;
         frame.mode = Mode::fields;
         frame.notice = Notice::invalid;
         selected = i;
@@ -431,11 +485,16 @@ void Form::save(uint64_t now) {
   const auto outcome =
       backend.apply(editType, expanded, admitted, admittedRevision);
   if (outcome.admission != Admission::accepted) {
-    if (outcome.admission == Admission::busy) {
+    if (outcome.admission == Admission::busy || outcome.admission == Admission::invalid) {
       frame.mode = Mode::fields;
-      frame.notice = Notice::busy;
+      frame.notice = outcome.admission == Admission::busy ? Notice::busy : Notice::invalid;
+      if (outcome.admission == Admission::invalid)
+        for (uint8_t i = 0; i < metadata()->count; i++)
+          if (metadata()->fields[i] == outcome.field) selected = i;
       render();
-    } else
+    } else if (outcome.admission == Admission::noMemory)
+      close(Notice::noMemory);
+    else
       close(admissionNotice(outcome.admission));
     return;
   }

@@ -15,10 +15,15 @@ struct Value {
   bool boolean = false;
   char text[21] = {};
 };
-enum class Admission : uint8_t { accepted, locked, stale, busy };
+struct Choice {
+  int64_t value = 0;
+  char label[32] = {};
+};
+enum class Admission : uint8_t { accepted, locked, stale, busy, invalid, noMemory };
 struct ApplyResult {
   edit_result_t edit;
   Admission admission = Admission::accepted;
+  proto_field_t field = proto_field_t::count;
 };
 struct CommitResult {
   ModelCommitResult file;
@@ -33,6 +38,11 @@ public:
   virtual uint64_t revision() = 0;
   virtual bool prepare(Kind kind, uint8_t id, uint8_t &offeredId) = 0;
   virtual bool read(Kind kind, uint8_t id, proto_field_t field, Value &out) = 0;
+  // Bounded choice reads share the prepared target/history. Values are stable
+  // domain IDs, never list indices. A missing advertised choice invalidates
+  // the form; labels must be terminated. Zero means a numeric/text field.
+  virtual uint8_t choiceCount(Kind, uint8_t sourceId, proto_field_t);
+  virtual bool choiceAt(Kind, uint8_t sourceId, proto_field_t, uint8_t, Choice &);
   // Final auth/history checks follow all allocation/validation work. The
   // expanded request may be consumed with allocator-preserving ADL swap.
   virtual ApplyResult apply(model_edit_type_t, JsonDocument &expanded,
@@ -56,6 +66,9 @@ class Form {
   bool guard(uint64_t now);
   bool read(const entity_field_t &, Value &);
   void render();
+  bool validOriginal(const entity_field_t &, const Value &);
+  bool choice(const entity_field_t &, uint8_t, Choice &);
+  void formatValue(const entity_field_t &, const Value &, char *, size_t);
   void close(Notice);
   void touch(uint64_t now);
   void beginField(uint64_t now, bool replaceInvalid = false);
