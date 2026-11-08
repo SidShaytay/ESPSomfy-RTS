@@ -31,6 +31,30 @@ enum class settings_part_t : uint8_t {
   security,  // SecuritySettings
   radio      // transceiver_config_t
 };
+// The authoritative save table, also used to build local forms. Numeric lo/hi
+// are integers, or hundredths for kind n; hi is byte length for kind s.
+// Non-contiguous choices are explicit. Metadata never contains stored values.
+struct settings_field_t {
+  settings_part_t part;
+  proto_field_t field;
+  const char *route;
+  int32_t lo, hi;
+  const int16_t *choices = nullptr;
+  uint8_t choiceCount = 0;
+  const proto_field_info_t &schema() const { return protoField(field); }
+  const char *routeName() const { return route ? route : schema().name; }
+  bool secret() const { return field == proto_field_t::passphrase || field == proto_field_t::password || field == proto_field_t::pin; }
+  bool ethernetOnly() const { return part == settings_part_t::ethernet; }
+  bool ipAddress() const { return part == settings_part_t::ip && schema().kind == 's'; }
+  proto_field_t presenceField() const {
+    return field == proto_field_t::passphrase ? proto_field_t::hasPassphrase :
+      field == proto_field_t::password ? proto_field_t::hasPassword :
+      field == proto_field_t::pin ? proto_field_t::hasPin : proto_field_t::count;
+  }
+};
+uint8_t settingsFieldCount(settings_section_t section, bool hasEthernet);
+// Stable pointer into the save table, nullptr past the filtered section's end.
+const settings_field_t *settingsFieldAt(settings_section_t section, uint8_t index, bool hasEthernet);
 const char *settingsSectionName(settings_section_t section);
 // The section that payload d names in section.  nullptr when it is good;
 // otherwise what is wrong with it, for a bad request reply.

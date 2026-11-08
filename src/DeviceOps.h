@@ -5,6 +5,7 @@
 #include "LoopQueue.h"
 #include "ProtoSettings.h"
 #include "SettingsApply.h"
+#include "SettingsRead.h"
 
 // Socket protocol 2's settings ops and the WiFi scan, run on loop()
 // (docs/PROTOCOL.md).  loop() also reads the settings while it runs the
@@ -24,6 +25,8 @@ struct settings_save_t {
 settings_save_t *newSettingsSave(bool &busy);
 // Frees a save, run or refused, so another may follow.
 void freeSettingsSave(settings_save_t *save);
+// loop() only: reads running values/presence flags through the shared snapshot.
+bool readDeviceSettings(settings_section_t section, SettingsSnapshotSink &sink);
 // loop() only: applies a request already validated/expanded by
 // expandSettingsPayload. Shared by socket and local administration callers;
 // owns the runtime hostname/time/MQTT/radio effects, with no loopback HTTP.
