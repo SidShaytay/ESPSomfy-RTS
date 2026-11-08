@@ -6,6 +6,7 @@
 #include "ProtoSettings.h"
 #include "SettingsApply.h"
 #include "SettingsRead.h"
+#include "SettingsRevisions.h"
 
 // Socket protocol 2's settings ops and the WiFi scan, run on loop()
 // (docs/PROTOCOL.md).  loop() also reads the settings while it runs the
@@ -29,8 +30,10 @@ void freeSettingsSave(settings_save_t *save);
 bool readDeviceSettings(settings_section_t section, SettingsSnapshotSink &sink);
 // loop() only: applies a request already validated/expanded by
 // expandSettingsPayload. Shared by socket and local administration callers;
-// owns the runtime hostname/time/MQTT/radio effects, with no loopback HTTP.
-settings_apply_result_t applyDeviceSettings(settings_section_t section, JsonObject request);
+// owns runtime effects, browser notification/session revocation and required
+// restart scheduling. Zero origin means LCD; a socket origin queues its reply
+// before returning to ProtoSocket::loop(), which drains it before closure.
+settings_apply_result_t applyDeviceSettings(settings_section_t section, JsonObject request, uint32_t originSocketClient = 0);
 // loop(): runs a proto_device item and replies.
 void runDeviceOp(const loop_item_t &item);
 #endif

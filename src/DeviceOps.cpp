@@ -5,6 +5,7 @@
 #include "esp_log.h"
 #include "DeviceOps.h"
 #include "SettingsApply.h"
+#include "SettingsCompletion.h"
 #include "ConfigSettings.h"
 #include "ESPNetwork.h"
 #include "MqttConnection.h"
@@ -24,6 +25,10 @@ extern Web webServer;
 extern rebootDelay_t rebootDelay;
 
 static std::atomic<bool> saveBusy(false);
+static SettingsRevisions settingsRevisions;
+uint64_t deviceSettingsRevision(settings_section_t section) { return settingsRevisions.get(section); }
+uint64_t securityConfigurationRevision() { return settingsRevisions.get(settings_section_t::security); }
+void invalidateDeviceSettingsRevisions() { settingsRevisions.invalidateAll(); }
 
 settings_save_t *newSettingsSave(bool &busy) {
   busy = saveBusy.exchange(true);
@@ -62,7 +67,14 @@ bool readDeviceSettings(settings_section_t section, SettingsSnapshotSink &sink) 
  * saveSettings: what the settings routes do with their request
  ********************************************************************/
 class RuntimeSettingsEffects : public SettingsEffects {
+  const security_types securityBefore;
+  const uint32_t originSocketClient;
 public:
+  explicit RuntimeSettingsEffects(uint32_t origin) : securityBefore(settings.Security.type), originSocketClient(origin) {}
+  void completed(settings_section_t section, bool reboot) override {
+    settingsRevisions.completed(section);
+    completeSettingsSave({section,securityBefore,settings.Security.type,originSocketClient,reboot},protoSocket,rebootDelay,millis());
+  }
   bool wifiClientsPresent() const override { return WiFi.softAPgetStationNum() != 0; }
   void hostnameChanged() override { net.updateHostname(); }
   void timeChanged() override { settings.NTP.apply(); }
@@ -73,15 +85,14 @@ public:
     return somfy.transceiver.setConfig(next);
   }
 };
-settings_apply_result_t applyDeviceSettings(settings_section_t section, JsonObject request) {
-  RuntimeSettingsEffects effects;
+settings_apply_result_t applyDeviceSettings(settings_section_t section, JsonObject request, uint32_t originSocketClient) {
+  RuntimeSettingsEffects effects(originSocketClient);
   return applySettings(settings,section,request,effects);
 }
 static void runSave(const proto_reply_to_t &to, settings_save_t *save) {
   const settings_section_t section = save->section;
-  const security_types securityBefore = settings.Security.type;
   const uint32_t ip = save->ip;
-  const auto result = applyDeviceSettings(section,save->request.as<JsonObject>());
+  const auto result = applyDeviceSettings(section,save->request.as<JsonObject>(),to.client);
   freeSettingsSave(save);
   if(!result.saved()) {
     protoSocket.replyRefused(to,proto_error_t::internal,settingsSaveFailureDescription(result.persistence.state));
@@ -97,18 +108,8 @@ static void runSave(const proto_reply_to_t &to, settings_save_t *save) {
   w.add(proto_field_t::rebooting, reboot);
   protoSocket.endReply(to);
   ESP_LOGI(TAG, "Socket [%lu] saved the %s settings%s", (unsigned long)to.client, settingsSectionName(section), reboot ? ", rebooting" : "");
-  // Under Secured every token may have changed, and a client that connected
-  // under None had none: they all connect again, the saver with the token in
-  // its reply, and the rest log in when theirs is refused.  None to None
-  // changes nobody's access.
-  const bool closeAll = section == settings_section_t::security &&
-    (securityBefore != settings.Security.type || settings.requiresAuth());
-  if(closeAll) protoSocket.closeAll(to.client);
-  else protoSocket.settingsChanged(to.client, settingsSectionName(section));
-  if(reboot) {
-    rebootDelay.rebootTime = millis() + 1000;
-    rebootDelay.reboot = true;
-  }
+  // Completion is shared with local saves. closeAll(origin) defers this
+  // socket until its reply above drains, so its replacement token is delivered.
 }
 
 void runDeviceOp(const loop_item_t &item) {
