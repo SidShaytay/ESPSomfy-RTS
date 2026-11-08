@@ -1,4 +1,5 @@
 #include "GitUpdateAssets.h"
+#include "GitUpdateProfile.h"
 #if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
 #include <LittleFS.h>
 #include "TaskWdt.h"
@@ -15,14 +16,14 @@
 #endif
 namespace {
 constexpr const char *MANIFEST="/update-assets.txt";
-#include "GitUpdateProfile.h"
 constexpr size_t MAX_MANIFEST=16384, MAX_FILE=GitUpdateProfile::fsBytes, MAX_FILES=128;
 bool hexDigest(const char *text) {
   if(strlen(text)!=64) return false;
   for(size_t i=0;i<64;i++) if(!((text[i]>='0' && text[i]<='9') || (text[i]>='a' && text[i]<='f'))) return false;
   return true;
 }
-UpdateAttestation hashFile(File &file, char (&hex)[65]) {
+UpdateAttestation hashFile(File &file, char (&hex)[65],UpdateAttestationControl control) {
+  if(control.stopped()) return UpdateAttestation::interrupted;
   mbedtls_sha256_context context;
   mbedtls_sha256_init(&context);
   resetTaskWdt();
@@ -30,11 +31,14 @@ UpdateAttestation hashFile(File &file, char (&hex)[65]) {
   uint8_t buffer[1024];
   size_t remaining=file.size();
   while(result == UpdateAttestation::verified && remaining) {
+    if(control.stopped()) { result=UpdateAttestation::interrupted;break; }
     const size_t count=remaining<sizeof(buffer) ? remaining : sizeof(buffer);
     if(file.read(buffer,count)!=count) result=UpdateAttestation::readError;
     else if(mbedtls_sha256_update(&context,buffer,count)!=0) result=UpdateAttestation::hashError;
     remaining-=count;
     resetTaskWdt();
+    control.cooperate();
+    if(control.stopped()) result=UpdateAttestation::interrupted;
   }
   uint8_t digest[32];
   if(result == UpdateAttestation::verified && mbedtls_sha256_finish(&context,digest)!=0) result=UpdateAttestation::hashError;
@@ -45,8 +49,9 @@ UpdateAttestation hashFile(File &file, char (&hex)[65]) {
   hex[64]=0;
   return UpdateAttestation::verified;
 }
-bool line(File &file,char *buffer,size_t capacity) {
+bool line(File &file,char *buffer,size_t capacity,UpdateAttestationControl control) {
   for(size_t n=0;n+1<capacity;n++) {
+    if(control.stopped()) return false;
     uint8_t value;
     if(file.read(&value,1)!=1) return false;
     if(value=='\n') { buffer[n]=0;return true; }
@@ -77,20 +82,24 @@ bool servable(const char *name) {
 }
 // Re-scan the small authenticated manifest instead of retaining 16 KiB of
 // filenames on the internal stack. No configuration file contents are read.
-int listedRootAsset(File &manifest,const char *path) {
+int listedRootAsset(File &manifest,const char *path,UpdateAttestationControl control) {
+  if(control.stopped()) return -3;
   if(!manifest.seek(0)) return -2;
   char record[224];
-  if(!line(manifest,record,sizeof(record))) return -2;
+  if(!line(manifest,record,sizeof(record),control)) return control.stopped() ? -3 : -2;
   for(size_t index=0;manifest.available() && index<MAX_FILES;index++) {
-    if(!line(manifest,record,sizeof(record))) return -2;
+    if(control.stopped()) return -3;
+    if(!line(manifest,record,sizeof(record),control)) return control.stopped() ? -3 : -2;
     const char *name=strchr(record,' ');
     if(!name || !(name=strchr(name+1,' '))) return -2;
     if(strcmp(name+1,path)==0) return static_cast<int>(index);
     resetTaskWdt();
+    control.cooperate();
   }
-  return -1;
+  return control.stopped() ? -3 : -1;
 }
-UpdateAttestation rootAssets(File &manifest,size_t expectedRootFiles) {
+UpdateAttestation rootAssets(File &manifest,size_t expectedRootFiles,UpdateAttestationControl control) {
+  if(control.stopped()) return UpdateAttestation::interrupted;
   const char *mount=LittleFS.mountpoint();
   if(!mount || !mount[0]) return UpdateAttestation::directoryError;
   DIR *root=opendir(mount);
@@ -100,12 +109,15 @@ UpdateAttestation rootAssets(File &manifest,size_t expectedRootFiles) {
   uint32_t seen[4]={};
   bool sawManifest=false;
   while(true) {
+    if(control.stopped()) { result=UpdateAttestation::interrupted;break; }
     errno=0;
     const dirent *entry=readdir(root);
     if(!entry) {
       if(errno) result=UpdateAttestation::directoryError;
       break;
     }
+    control.cooperate();
+    if(control.stopped()) { result=UpdateAttestation::interrupted;break; }
     if(++count>256) { result=UpdateAttestation::bounds;break; }
     const size_t length=strnlen(entry->d_name,sizeof(entry->d_name));
     if(length==0 || length>127) { result=UpdateAttestation::bounds;break; }
@@ -114,7 +126,8 @@ UpdateAttestation rootAssets(File &manifest,size_t expectedRootFiles) {
     memcpy(path+1,entry->d_name,length+1);
     if(strcmp(path,MANIFEST)==0) { sawManifest=true;continue; }
     if(!servable(path)) continue;
-    const int index=listedRootAsset(manifest,path);
+    const int index=listedRootAsset(manifest,path,control);
+    if(index==-3) { result=UpdateAttestation::interrupted;break; }
     if(index==-2) { result=UpdateAttestation::readError;break; }
     if(index<0) { result=UpdateAttestation::unexpectedAsset;break; }
     if(entry->d_type!=DT_REG) { result=UpdateAttestation::directoryError;break; }
@@ -129,7 +142,8 @@ UpdateAttestation rootAssets(File &manifest,size_t expectedRootFiles) {
   return result;
 }
 }
-UpdateAttestation gitUpdateAssetsStatus() {
+UpdateAttestation gitUpdateAssetsStatus(UpdateAttestationControl control) {
+  if(control.stopped()) return UpdateAttestation::interrupted;
   const char *compat=ESPSOMFY_APP_COMPAT;
   if(strncmp(compat,"sha256:",7)!=0 || !hexDigest(compat+7)) return UpdateAttestation::invalid;
   File file=LittleFS.open(MANIFEST,"r");
@@ -138,17 +152,19 @@ UpdateAttestation gitUpdateAssetsStatus() {
   if(file.size()==0) return UpdateAttestation::invalid;
   if(file.size()>MAX_MANIFEST) return UpdateAttestation::bounds;
   char digest[65];
-  auto hashed=hashFile(file,digest);
+  auto hashed=hashFile(file,digest,control);
   if(hashed!=UpdateAttestation::verified) return hashed;
   if(strcmp(digest,compat+7)!=0) return UpdateAttestation::mismatch;
+  if(control.stopped()) return UpdateAttestation::interrupted;
   if(!file.seek(0)) return UpdateAttestation::readError;
   char record[224];
-  if(!line(file,record,sizeof(record)) || strcmp(record,"ESPSOMFY_ASSETS_V1")!=0) return UpdateAttestation::invalid;
+  if(!line(file,record,sizeof(record),control) || strcmp(record,"ESPSOMFY_ASSETS_V1")!=0) return control.stopped() ? UpdateAttestation::interrupted : UpdateAttestation::invalid;
   size_t count=0,total=0,rootFiles=0;
   char previous[128]="";
   while(file.available()) {
+    if(control.stopped()) return UpdateAttestation::interrupted;
     if(++count>MAX_FILES) return UpdateAttestation::bounds;
-    if(!line(file,record,sizeof(record)) || strlen(record)<68 || record[64]!=' ') return UpdateAttestation::invalid;
+    if(!line(file,record,sizeof(record),control) || strlen(record)<68 || record[64]!=' ') return control.stopped() ? UpdateAttestation::interrupted : UpdateAttestation::invalid;
     record[64]=0;
     if(!hexDigest(record)) return UpdateAttestation::invalid;
     char *sizeText=record+65;
@@ -169,23 +185,24 @@ UpdateAttestation gitUpdateAssetsStatus() {
     if(!asset) return UpdateAttestation::missing;
     if(asset.isDirectory()) return UpdateAttestation::invalid;
     if(asset.size()!=bytes) return UpdateAttestation::mismatch;
-    hashed=hashFile(asset,digest);
+    hashed=hashFile(asset,digest,control);
     if(hashed!=UpdateAttestation::verified) return hashed;
     if(strcmp(record,digest)!=0) return UpdateAttestation::mismatch;
     asset.close();
   }
   if(!count) return UpdateAttestation::invalid;
-  const auto root=rootAssets(file,rootFiles);
+  const auto root=rootAssets(file,rootFiles,control);
   if(root!=UpdateAttestation::verified) return root;
   // Detect a manifest change during verification too. Future updater ownership
   // must exclude filesystem uploads; this remains a point-in-time check.
+  if(control.stopped()) return UpdateAttestation::interrupted;
   if(!file.seek(0)) return UpdateAttestation::readError;
-  hashed=hashFile(file,digest);
+  hashed=hashFile(file,digest,control);
   if(hashed!=UpdateAttestation::verified) return hashed;
   return strcmp(digest,compat+7)==0 ? UpdateAttestation::verified : UpdateAttestation::mismatch;
 }
 bool gitUpdateAssetsMatch() { return updateAttested(gitUpdateAssetsStatus()); }
 #else
-UpdateAttestation gitUpdateAssetsStatus() { return UpdateAttestation::unsupported; }
+UpdateAttestation gitUpdateAssetsStatus(UpdateAttestationControl) { return UpdateAttestation::unsupported; }
 bool gitUpdateAssetsMatch() { return false; }
 #endif

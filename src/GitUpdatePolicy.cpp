@@ -56,6 +56,7 @@ const char *reason(CheckResult result) {
   return "Unknown update policy result";
 }
 const char *validate(const Manifest &m, const char *installedApp) { return reason(check(m,installedApp)); }
+bool stableVersion(const char *text) { uint32_t parts[3];return version(text,parts); }
 bool newer(const char *available, const char *installed) {
   uint32_t a[3], b[3];
   if(!version(available,a) || !version(installed,b)) return false;

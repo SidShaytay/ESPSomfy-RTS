@@ -40,7 +40,7 @@ class BuildIdentityTests(unittest.TestCase):
             compatibility = update_assets.write_manifest(source / 'data')
             (source / 'update-profiles.json').write_bytes((ROOT / 'update-profiles.json').read_bytes())
             record = {'revision':'a'*40, 'dirty':True, 'input_sha256':{}}
-            with patch.object(lilygo_manifest, 'source_record', return_value=record), patch.object(update_identity, 'tags_at_head', return_value=['v4.0.3']):
+            with patch.object(lilygo_manifest, 'source_record', return_value=record), patch.object(update_identity, 'tags_at_head', return_value=['v4.0.3']), patch.object(update_identity,'git',return_value='1760000000'):
                 result = self.run_script('lilygo-t-embed-cc1101', source)
                 self.assertIn('dev-aaaaaaaaaaaa-dirty', result['ESPSOMFY_RELEASE_TAG'])
                 self.assertIn(compatibility, result['ESPSOMFY_APP_COMPAT'])

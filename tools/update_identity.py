@@ -15,9 +15,16 @@ def stable_tag(tag):
 
 
 def git(source, *args):
-    # Sid's authenticated wrapper is used locally; stock git is for CI hosts.
-    command = 'git' # Read-only local provenance; never authenticates or publishes.
+    # Read-only local provenance; never authenticates or publishes.
+    command = 'git'
     return subprocess.check_output([command, '-C', str(source), *args], text=True).strip()
+
+
+def source_epoch(source):
+    value = int(git(source, 'show', '-s', '--format=%ct', 'HEAD'))
+    if not 1577836800 <= value <= 0x7fffffffffffffff:
+        raise ValueError('invalid source timestamp for verified HTTPS clock floor')
+    return value
 
 
 def tags_at_head(source):
