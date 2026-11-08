@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
+ulimit -c 0
 repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 scratch="$(mktemp -d)"
 trap 'rm -rf -- "$scratch"' EXIT
 compiler="${CXX:-c++}"
 common=(-std=c++11 -Wall -Wextra -Werror -I"$repo/tests/board-profile" -I"$repo/src")
 sources=("$repo/tests/board-profile/board-profile-test.cpp" "$repo/src/BoardProfile.cpp")
-for board in ESPSOMFY_LILYGO_T_EMBED_CC1101 ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS; do
+for board in ESPSOMFY_LILYGO_T_EMBED_CC1101; do
   "$compiler" "${common[@]}" -D"$board" -DCONFIG_IDF_TARGET_ESP32S3 "${sources[@]}" -o "$scratch/board-test"
   "$scratch/board-test"
   "$compiler" "${common[@]}" -D"$board" -DCONFIG_IDF_TARGET_ESP32S3 -DESPSOMFY_LOCAL_UI "${sources[@]}" -o "$scratch/ui-build-test"
@@ -26,7 +27,7 @@ reject() {
     exit 1
   fi
 }
-for board in ESPSOMFY_LILYGO_T_EMBED_CC1101 ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS; do
+for board in ESPSOMFY_LILYGO_T_EMBED_CC1101; do
   "$compiler" "${common[@]}" -D"$board" -DCONFIG_IDF_TARGET_ESP32S3 "${features[@]}" "$scratch/features.cpp" -o "$scratch/features"
   reject -D"$board" "${features[@]}"
   for removed in ESPSOMFY_STATUS_DISPLAY ESPSOMFY_LOCAL_UI ESPSOMFY_LOCAL_COMMANDS; do
@@ -36,6 +37,7 @@ for board in ESPSOMFY_LILYGO_T_EMBED_CC1101 ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS;
   done
   reject -D"$board"=0 -DCONFIG_IDF_TARGET_ESP32S3 "${features[@]}"
 done
+reject -DESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS -DCONFIG_IDF_TARGET_ESP32S3 "${features[@]}"
 reject -DESPSOMFY_LILYGO_T_EMBED_CC1101 -DESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS -DCONFIG_IDF_TARGET_ESP32S3 "${features[@]}"
 reject -DCONFIG_IDF_TARGET_ESP32S3 "${features[@]}"
 echo 'Missing features, wrong targets and conflicting boards rejected as expected'

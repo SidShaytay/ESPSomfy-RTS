@@ -13,16 +13,18 @@ from pathlib import Path
 import struct
 import subprocess
 
-ENV = 'lilygo-t-embed-cc1101-plus'
+ENV = 'lilygo-t-embed-cc1101'
 BASELINE = {'repository': 'https://github.com/cjkas/ESPSomfy-RTS',
             'tag': 'v4.0.2', 'revision': '07bffdec6b540cc99f31d02d7e6de6d3d1e7f8f3'}
 PLATFORM = 'https://github.com/pioarduino/platform-espressif32/releases/download/55.03.312/platform-espressif32.zip'
-TARGET = {'board': 'LILYGO T-Embed CC1101 Plus', 'chip': 'esp32s3',
+TARGET = {'board': 'LILYGO T-Embed CC1101 / Plus',
+          'compatible_boards': ['lilygo-t-embed-cc1101', 'lilygo-t-embed-cc1101-plus'],
+          'chip': 'esp32s3',
           'environment': ENV, 'flash_bytes': 0x1000000, 'flash_mode': 'qio',
           'flash_frequency_hz': 80000000, 'rom_header_flash_mode': 'dio',
           'psram_bytes': 0x800000,
           'psram_mode': 'opi', 'usb': 'hardware CDC on boot', 'headless': False,
-          'profile_macro': 'ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS'}
+          'profile_macro': 'ESPSOMFY_LILYGO_T_EMBED_CC1101'}
 BUILD_SETTINGS = {'board': 'esp32-s3-devkitc1-n16r8', 'build_type': 'release',
                   'board_build.partitions': 'default_8MB.csv',
                   'board_build.flash_mode': 'qio', 'board_build.f_flash': '80000000L',
@@ -30,21 +32,17 @@ BUILD_SETTINGS = {'board': 'esp32-s3-devkitc1-n16r8', 'build_type': 'release',
                   'board_build.psram_type': 'opi', 'board_upload.flash_size': '16MB'}
 REQUIRED_FLAGS = ['-DCORE_DEBUG_LEVEL=2', '-DARDUINO_USB_MODE=1',
                   '-DARDUINO_USB_CDC_ON_BOOT=1',
-                  '-DESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS',
+                  '-DESPSOMFY_LILYGO_T_EMBED_CC1101',
                   '-DESPSOMFY_STATUS_DISPLAY', '-DESPSOMFY_LOCAL_UI',
                   '-DESPSOMFY_LOCAL_COMMANDS']
-ENVIRONMENTS = {
-    ENV: ('LILYGO T-Embed CC1101 Plus', 'ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS'),
-    'lilygo-t-embed-cc1101': ('LILYGO T-Embed CC1101', 'ESPSOMFY_LILYGO_T_EMBED_CC1101'),
-}
+RETIRED_BOARD_MACRO = 'ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS'
 DISPLAY_LIBRARIES = ['adafruit/Adafruit GFX Library@1.12.1', 'adafruit/Adafruit BusIO@1.17.4']
 
 
 def required_flags(environment):
-    if environment not in ENVIRONMENTS:
+    if environment != ENV:
         raise ValueError('unsupported or retired LILYGO environment')
-    return [flag.replace(TARGET['profile_macro'], ENVIRONMENTS[environment][1])
-            for flag in REQUIRED_FLAGS]
+    return list(REQUIRED_FLAGS)
 
 
 def check_flags(flags, required, forbidden, origin, require_present=False):
@@ -64,8 +62,8 @@ def check_flags(flags, required, forbidden, origin, require_present=False):
             else:
                 definitions.setdefault(name, []).append(value)
         index += 1
-    if forbidden in definitions:
-        raise ValueError(origin + ' defines opposite physical board')
+    if forbidden in definitions or forbidden in undefined:
+        raise ValueError(origin + ' uses retired Plus-only board macro')
     for name, value in required.items():
         found = definitions.get(name)
         if name in undefined or (found is not None and found != [value]) or (require_present and found is None):
@@ -170,7 +168,7 @@ def build_configuration(profile, compiler):
     if not set(DISPLAY_LIBRARIES).issubset(profile.get('lib_deps', [])):
         raise ValueError('missing pinned display libraries')
     required = dict(flag[2:].partition('=')[::2] for flag in flags)
-    forbidden = next(macro for _, macro in ENVIRONMENTS.values() if macro != ENVIRONMENTS[environment][1])
+    forbidden = RETIRED_BOARD_MACRO
     check_flags(profile.get('build_flags', []), required, forbidden, 'resolved flags', require_present=True)
     required['BOARD_HAS_PSRAM'] = ''
     required['IDF_VER'] = '"v5.5.5"'
@@ -240,8 +238,7 @@ def artifact_manifest(out):
         raise ValueError('missing ELF symbols')
     evidence = build_evidence(out)
     environment = evidence['compiler']['env_name']
-    board, macro = ENVIRONMENTS[environment]
-    target = dict(TARGET, board=board, environment=environment, profile_macro=macro)
+    target = dict(TARGET, compatible_boards=list(TARGET['compatible_boards']))
     return {'schema': 1, 'baseline': BASELINE.copy(), 'target': target,
             'platform': PLATFORM, 'arduino_core': '3.3.12', 'esp_idf': '5.5.5',
             'pioarduino_core': '6.2.0', 'build_settings': BUILD_SETTINGS.copy(),

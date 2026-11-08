@@ -1,20 +1,16 @@
 #pragma once
 #include <Arduino.h>
 
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS) && defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
-#error "Select exactly one physical LILYGO board"
+#ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
+#error "Retired Plus-only macro: use ESPSOMFY_LILYGO_T_EMBED_CC1101 for CC1101 and Plus"
 #endif
 namespace BoardProfile {
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS) || defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
 #if !defined(CONFIG_IDF_TARGET_ESP32S3)
-#error "The LILYGO T-Embed CC1101 profiles require an ESP32-S3 target"
+#error "The shared LILYGO T-Embed CC1101 profile requires an ESP32-S3 target"
 #endif
 constexpr bool integratedRadio = true;
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
-constexpr const char *name = "CC1101 Plus";
-#else
-constexpr const char *name = "CC1101";
-#endif
+constexpr const char *name = "CC1101 / Plus";
 #else
 constexpr bool integratedRadio = false;
 constexpr const char *name = "Generic";

@@ -90,38 +90,40 @@ class ManifestTests(unittest.TestCase):
                 with self.subTest(feature=feature, flags=flags), self.assertRaises(ValueError):
                     m.build_configuration(evidence['resolved'], evidence['compiler'])
 
-    def test_opposite_physical_board_cannot_be_added(self):
+    def test_retired_plus_macro_cannot_be_added(self):
         import copy
         original = self.manifest['effective_build']
         for field in ('defines', 'cc_flags', 'cxx_flags'):
             evidence = copy.deepcopy(original)
-            evidence['compiler'][field].append(('' if field == 'defines' else '-D') + 'ESPSOMFY_LILYGO_T_EMBED_CC1101')
+            evidence['compiler'][field].append(('' if field == 'defines' else '-D') + 'ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS')
             with self.subTest(field=field), self.assertRaises(ValueError):
                 m.build_configuration(evidence['resolved'], evidence['compiler'])
 
     def test_retired_profile_names_are_rejected(self):
-        for suffix in ('-display', '-ui', '-ui-preview'):
+        for suffix in ('-display', '-ui', '-ui-preview', '-plus', '-plus-display', '-plus-ui', '-plus-ui-preview'):
             compiler = self.manifest['effective_build']['compiler'].copy()
             compiler['env_name'] = m.ENV + suffix
             with self.subTest(suffix=suffix), self.assertRaises(ValueError):
                 m.build_configuration(self.manifest['effective_build']['resolved'], compiler)
 
-    def test_standard_board_retains_distinct_identity(self):
-        environment = 'lilygo-t-embed-cc1101'
-        evidence = self.manifest['effective_build']
-        profile = evidence['resolved'].copy()
-        profile['build_flags'] = m.required_flags(environment)
-        compiler = evidence['compiler'].copy()
-        compiler['env_name'] = environment
-        compiler['defines'] = [entry.replace('ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS', 'ESPSOMFY_LILYGO_T_EMBED_CC1101')
-                               for entry in compiler['defines']]
-        (self.out / 'resolved-config.json').write_text(json.dumps([['env:' + environment, list(profile.items())]]))
-        (self.out / 'compiler-metadata.json').write_text(json.dumps({environment: compiler}))
-        manifest = m.artifact_manifest(self.out)
-        self.assertEqual(manifest['target']['environment'], environment)
-        self.assertEqual(manifest['target']['board'], 'LILYGO T-Embed CC1101')
-        self.assertEqual(manifest['target']['profile_macro'], 'ESPSOMFY_LILYGO_T_EMBED_CC1101')
-        self.assertFalse(manifest['target']['headless'])
+    def test_shared_image_names_both_supported_physical_boards(self):
+        self.assertEqual(m.ENV, 'lilygo-t-embed-cc1101')
+        self.assertEqual(self.manifest['target']['board'], 'LILYGO T-Embed CC1101 / Plus')
+        self.assertEqual(self.manifest['target']['compatible_boards'],
+                         ['lilygo-t-embed-cc1101', 'lilygo-t-embed-cc1101-plus'])
+        self.assertEqual(self.manifest['target']['profile_macro'], 'ESPSOMFY_LILYGO_T_EMBED_CC1101')
+        self.assertFalse(self.manifest['target']['headless'])
+
+    def test_unknown_or_generic_hardware_membership_is_rejected(self):
+        for boards in (['esp32s3'], ['lilygo-t-embed-cc1101'],
+                       ['lilygo-t-embed-cc1101', 'lilygo-t-embed-cc1101-plus', 'unknown']):
+            self.manifest['target']['compatible_boards'] = boards
+            with self.subTest(boards=boards), self.assertRaises(ValueError):
+                m.validate(self.manifest, self.out)
+
+    def test_append_cannot_extend_the_hardware_allowlist(self):
+        # In-place caller edits must not mutate the validator's expected list.
+        self.manifest['target']['compatible_boards'].append('esp32s3')
         with self.assertRaises(ValueError):
             m.validate(self.manifest, self.out)
 
@@ -131,15 +133,15 @@ class ManifestTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             m.build_configuration(evidence['resolved'], evidence['compiler'])
 
-    def test_only_two_full_feature_lilygo_environments(self):
+    def test_only_one_shared_full_feature_lilygo_environment(self):
         import configparser
         config = configparser.ConfigParser(interpolation=None)
         config.read(Path(__file__).resolve().parent.parent / 'platformio.ini')
         lilygo = {name for name in config.sections() if name.startswith('env:lilygo-')}
-        self.assertEqual(lilygo, {'env:' + name for name in m.ENVIRONMENTS})
-        for name in m.ENVIRONMENTS:
+        self.assertEqual(lilygo, {'env:lilygo-t-embed-cc1101'})
+        for name in [m.ENV]:
             flags = config['env:' + name]['build_flags'].split()
-            self.assertIn('-D' + m.ENVIRONMENTS[name][1], flags)
+            self.assertIn('-D' + 'ESPSOMFY_LILYGO_T_EMBED_CC1101', flags)
             for feature in ('ESPSOMFY_STATUS_DISPLAY', 'ESPSOMFY_LOCAL_UI', 'ESPSOMFY_LOCAL_COMMANDS'):
                 self.assertIn('-D' + feature, flags)
         for name in config.sections():
@@ -294,7 +296,7 @@ class BuildScriptTests(unittest.TestCase):
             marker.write_text('preserve')
             repo = Path(__file__).resolve().parent.parent
             result = subprocess.run(['bash', str(repo / 'tools/build-lilygo.sh'), str(repo), str(root),
-                                     'lilygo-t-embed-cc1101-plus-ui'], capture_output=True, text=True)
+                                     'lilygo-t-embed-cc1101-plus'], capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn('Unsupported or retired', result.stderr)
             self.assertEqual(marker.read_text(), 'preserve')

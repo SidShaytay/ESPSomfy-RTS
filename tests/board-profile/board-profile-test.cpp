@@ -58,26 +58,18 @@ unsigned long millis() { return clockMs; }
 void delay(unsigned long duration) { clockMs += duration; }
 
 int main() {
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
-  assert(BoardProfile::integratedRadio && strcmp(BoardProfile::name, "CC1101 Plus") == 0);
-#elif defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
-  assert(BoardProfile::integratedRadio && strcmp(BoardProfile::name, "CC1101") == 0);
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  assert(BoardProfile::integratedRadio && strcmp(BoardProfile::name, "CC1101 / Plus") == 0);
 #else
   assert(!BoardProfile::integratedRadio && strcmp(BoardProfile::name, "Generic") == 0);
 #endif
   char build[48];
   StatusPanel::buildIdentity(build, sizeof(build), "test");
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
 #ifdef ESPSOMFY_LOCAL_UI
-  assert(strcmp(build, "CC1101 Plus UI test") == 0);
+  assert(strcmp(build, "CC1101 / Plus UI test") == 0);
 #else
-  assert(strcmp(build, "CC1101 Plus LCD test") == 0);
-#endif
-#elif defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
-#ifdef ESPSOMFY_LOCAL_UI
-  assert(strcmp(build, "CC1101 UI test") == 0);
-#else
-  assert(strcmp(build, "CC1101 LCD test") == 0);
+  assert(strcmp(build, "CC1101 / Plus LCD test") == 0);
 #endif
 #else
   assert(strcmp(build, "Generic LCD test") == 0);

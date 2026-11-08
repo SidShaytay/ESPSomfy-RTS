@@ -4,9 +4,9 @@ set -euo pipefail
 repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cache="${ESPSOMFY_TOOL_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/espsomfy-lilygo}"
 source_dir="${1:-$repo}"
-env="${3:-lilygo-t-embed-cc1101-plus}"
+env="${3:-lilygo-t-embed-cc1101}"
 case "$env" in
-  lilygo-t-embed-cc1101|lilygo-t-embed-cc1101-plus) ;;
+  lilygo-t-embed-cc1101) ;;
   *) echo "Unsupported or retired LILYGO environment: $env" >&2; exit 1 ;;
 esac
 out="${2:-$source_dir/build/$env}"
