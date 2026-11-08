@@ -1,0 +1,23 @@
+#pragma once
+#include <stdint.h>
+enum class ModelCommitState : uint8_t { saved, failed, uncertain };
+enum class ModelCommitStage : uint8_t {
+  none,
+  path,
+  open,
+  write,
+  serialize,
+  flush,
+  sync,
+  close,
+  verifyOpen,
+  verifyRead,
+  verifyBytes,
+  verifyClose,
+  replace
+};
+struct ModelCommitResult {
+  ModelCommitState state = ModelCommitState::failed;
+  ModelCommitStage stage = ModelCommitStage::none;
+  bool saved() const { return state == ModelCommitState::saved; }
+};

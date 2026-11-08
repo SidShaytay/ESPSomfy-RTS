@@ -75,15 +75,7 @@ bool SomfyShadeController::begin() {
   if(saveFlag) somfy.commit();
   return true;
 }
-void SomfyShadeController::commit() {
-  resetTaskWdt(); // Make sure we don't reset inadvertently.
-  ShadeConfigFile file;
-  file.begin();
-  file.save(this);
-  file.end();
-  this->isDirty = false;
-  this->lastCommit = millis();
-}
+
 void SomfyShadeController::writeBackup() {
   resetTaskWdt(); // Make sure we don't reset inadvertently.
   this->backupData = "";
@@ -115,7 +107,6 @@ void SomfyRoom::clear() {
   this->roomId = 0;
   strcpy(this->name, "");
 }
-bool SomfyRoom::save() { somfy.commit(); return true; }
 void SomfyShadeController::processFrame(somfy_frame_t &frame, bool internal, const SomfyRemote *skip) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     if(&this->shades[i] == skip) continue;
@@ -285,7 +276,7 @@ uint32_t SomfyShadeController::sendFrame(somfy_frame_t &frame, uint8_t repeat, u
   job.firstRepeat = 1;
   return this->transceiver.submitTx(job, priority, delayMs);
 }
-bool SomfyShadeController::deleteShade(uint8_t shadeId) {
+ModelCommitResult SomfyShadeController::deleteShade(uint8_t shadeId) {
   Preferences pref;
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     if(this->shades[i].getShadeId() == shadeId) {
@@ -297,10 +288,9 @@ bool SomfyShadeController::deleteShade(uint8_t shadeId) {
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
     if(this->groups[i].getGroupId() != 255 && this->groups[i].unlinkShade(shadeId)) this->groups[i].configChanged();
   }
-  this->commit();
-  return true;
+  return this->commit();
 }
-bool SomfyShadeController::deleteRoom(uint8_t roomId) {
+ModelCommitResult SomfyShadeController::deleteRoom(uint8_t roomId) {
   for(uint8_t i = 0; i < SOMFY_MAX_ROOMS; i++) {
     if(this->rooms[i].roomId == roomId) {
       rooms[i].unpublish();
@@ -321,10 +311,9 @@ bool SomfyShadeController::deleteRoom(uint8_t roomId) {
       this->rooms[i].clear();
     }
   }
-  this->commit();
-  return true;
+  return this->commit();
 }
-bool SomfyShadeController::deleteGroup(uint8_t groupId) {
+ModelCommitResult SomfyShadeController::deleteGroup(uint8_t groupId) {
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
     if(this->groups[i].getGroupId() == groupId) {
       // Its shades are no longer in a group, which their inGroup shows.
@@ -336,8 +325,7 @@ bool SomfyShadeController::deleteGroup(uint8_t groupId) {
       this->groups[i].clear();
     }
   }
-  this->commit();
-  return true;
+  return this->commit();
 }
 void SomfyShadeController::loop() { 
   this->transceiver.loop(); 
