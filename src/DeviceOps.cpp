@@ -4,6 +4,7 @@
 #include <new>
 #include "esp_log.h"
 #include "DeviceOps.h"
+#include "SettingsApply.h"
 #include "ConfigSettings.h"
 #include "ESPNetwork.h"
 #include "MqttConnection.h"
@@ -117,85 +118,37 @@ static void writeSettings(ProtoWriter &w, settings_section_t section) {
 /*********************************************************************
  * saveSettings: what the settings routes do with their request
  ********************************************************************/
-// Applies the parts of the network section that were sent.  True when the
-// device must reboot for them, by the rules of /setNetwork.
-static bool saveNetwork(JsonObject req, uint16_t parts) {
-  bool reboot = false;
-  if(settingsSets(parts, settings_part_t::conn)) {
-    const conn_types_t connType = static_cast<conn_types_t>(req["connType"].as<uint8_t>());
-    if(connType != settings.connType) {
-      settings.connType = connType;
-      settings.save();
-      reboot = true;
-    }
+class RuntimeSettingsEffects : public SettingsEffects {
+public:
+  bool wifiClientsPresent() const override { return WiFi.softAPgetStationNum() != 0; }
+  void hostnameChanged() override { net.updateHostname(); }
+  void timeChanged() override { settings.NTP.apply(); }
+  void mqttChanged() override { mqtt.disconnect(); }
+  settings_save_result_t saveRadio(JsonObject request) override {
+    transceiver_config_t next = somfy.transceiver.config;
+    next.fromJSON(request);
+    return somfy.transceiver.setConfig(next);
   }
-  if(settingsSets(parts, settings_part_t::wifi)) {
-    // Compared after fromJSON, which decides whether an empty passphrase keeps the stored one.
-    WifiSettings before = settings.WIFI;
-    settings.WIFI.fromJSON(req);
-    settings.WIFI.save();
-    // Not while someone is on the soft AP: the device joins the network once
-    // they have left it.
-    if(settings.connType == conn_types_t::wifi && WiFi.softAPgetStationNum() == 0 &&
-      (strcmp(before.ssid, settings.WIFI.ssid) != 0 || strcmp(before.passphrase, settings.WIFI.passphrase) != 0))
-      reboot = true;
-  }
-#if HAS_ETHERNET
-  if(settingsSets(parts, settings_part_t::ethernet)) {
-    settings.Ethernet.fromJSON(req);
-    settings.Ethernet.save();
-    if(settings.connType == conn_types_t::ethernet || settings.connType == conn_types_t::ethernetpref) reboot = true;
-  }
-#endif
-  if(settingsSets(parts, settings_part_t::ip)) {
-    settings.IP.fromJSON(req);
-    settings.IP.save();
-  }
-  return reboot;
+};
+settings_apply_result_t applyDeviceSettings(settings_section_t section, JsonObject request) {
+  RuntimeSettingsEffects effects;
+  return applySettings(settings,section,request,effects);
 }
 static void runSave(const proto_reply_to_t &to, settings_save_t *save) {
-  JsonObject req = save->request.as<JsonObject>();
   const settings_section_t section = save->section;
-  const uint16_t parts = settingsParts(section, req);
-  bool reboot = false;
-  char token[API_TOKEN_SIZE] = "";
   const security_types securityBefore = settings.Security.type;
-  switch(section) {
-    case settings_section_t::general:
-      if(settingsSets(parts, settings_part_t::general)) {
-        settings.fromJSON(req);
-        settings.save();
-        if(!req["hostname"].isNull()) net.updateHostname();
-      }
-      if(settingsSets(parts, settings_part_t::ntp)) {
-        settings.NTP.fromJSON(req);
-        settings.NTP.save();
-        settings.NTP.apply();
-      }
-      break;
-    case settings_section_t::network:
-      reboot = saveNetwork(req, parts);
-      break;
-    case settings_section_t::mqtt:
-      // loop() connects again with the new settings.
-      mqtt.disconnect();
-      settings.MQTT.fromJSON(req);
-      settings.MQTT.save();
-      break;
-    case settings_section_t::security:
-      settings.Security.fromJSON(req);
-      settings.Security.save();
-      if(settings.requiresAuth()) webServer.createAPIToken(IPAddress(save->ip), token);
-      break;
-    case settings_section_t::radio: {
-      // Parsed into a copy so the radio task never sees a half updated config.
-      transceiver_config_t cfg = somfy.transceiver.config;
-      cfg.fromJSON(req);
-      somfy.transceiver.setConfig(cfg);
-      break;
-    }
-  }
+  const uint32_t ip = save->ip;
+  const auto result = applyDeviceSettings(section,save->request.as<JsonObject>());
   freeSettingsSave(save);
+  if(!result.saved()) {
+    protoSocket.replyRefused(to,proto_error_t::internal,settingsSaveFailureDescription(result.persistence.state));
+    ESP_LOGE(TAG,"Socket [%lu] %s settings save failed%s",(unsigned long)to.client,settingsSectionName(section),
+      result.persistence.state == settings_save_state_t::partial ? "; durable state may be partial" : "");
+    return;
+  }
+  char token[API_TOKEN_SIZE] = "";
+  if(section == settings_section_t::security && settings.requiresAuth()) webServer.createAPIToken(IPAddress(ip),token);
+  const bool reboot = result.reboot;
   ProtoWriter w = protoSocket.beginReply(to);
   w.add(proto_field_t::apiKey, token);
   w.add(proto_field_t::rebooting, reboot);

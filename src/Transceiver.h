@@ -9,6 +9,7 @@
 #include "RadioScheduler.h"
 #include "PulseDecoder.h"
 #include "BoardProfile.h"
+#include "SettingsSaveResult.h"
 
 // The CC1101 radio: receive decoding, the radio task that transmits radio
 // jobs, the frequency scan and the radio config.
@@ -43,7 +44,7 @@ struct transceiver_config_t {
     int8_t txPower = 10;              // Transmission power {-30, -20, -15, -10, -6, 0, 5, 7, 10, 11, 12}.  Default is 12.
     bool noiseDetection = false;      // Disable RX interrupt when RF noise is detected (>100 pulses/10s)
     void fromJSON(JsonObject& obj);
-    void save();
+    settings_save_result_t save();
     void load();
     void apply();
     void applyBoardPins();
@@ -72,8 +73,9 @@ class Transceiver {
     bool available() const { return _available.load(); }
     bool printBuffer = false;
     bool fromJSON(JsonObject& obj);
-    // Swaps in, saves and applies the config.
-    void setConfig(const transceiver_config_t &cfg);
+    // Persists a prepared config before swapping/applying it. Failed or partial
+    // persistence leaves the live config and hardware unchanged.
+    settings_save_result_t setConfig(const transceiver_config_t &cfg);
     bool begin();
     void loop();
     bool end();

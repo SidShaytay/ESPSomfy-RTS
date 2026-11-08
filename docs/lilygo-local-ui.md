@@ -22,6 +22,12 @@ The [manufacturer schematic](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/bl
 
 The Wi-Fi glyph indicates connection, not measured signal strength. The installed build reads battery percentage and voltage from the BQ27220 fuel gauge. Status shows percentage; Details shows percentage and voltage. Startup, no battery, invalid values and failed reads are labeled explicitly. USB/charging detection remains outside this change. Live checks returned 100% and 4,146 mV; these are gauge-reported values, not an independent capacity measurement.
 
+## If a settings save fails
+
+A settings save error leaves the running settings unchanged and does not automatically reconnect or restart the controller. If the error says settings may be partly persisted, retry the complete intended settings before restarting: some stored values may already have changed, and a restart can load those values. Reading settings shows the running values, so it cannot prove that storage rolled back.
+
+This shared settings service is groundwork for issue #25's local administration screens; it does not mean those menus are already implemented. Backup/restore and manual firmware/web-file transfers remain browser-owned. The existing restore workflow has separate completion and partial-write limitations; this change does not make restores transactional.
+
 ## Memory and rendering
 
 | Allocation | Location | Size | Lifetime |
