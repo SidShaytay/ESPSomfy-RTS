@@ -37,8 +37,15 @@ jobs:
           CXX=g++ bash tools/test-update-bootloader.sh
           CXX=g++ bash tools/test-update-assets.sh
           CXX=g++ bash tools/test-update-certificate.sh
+          CXX=g++ bash tools/test-update-memory.sh
       - name: Build and validate shared CC1101 and Plus artifacts
         run: bash tools/build-lilygo.sh
+      - name: Offline worker and real SDK link checks
+        env:
+          ARDUINOJSON_INCLUDE: .pio/libdeps/lilygo-t-embed-cc1101/ArduinoJson/src
+        run: |
+          CXX=g++ bash tools/test-update-worker.sh
+          bash tools/test-update-sdk-link.sh
       - name: Retain reviewable artifacts and manifest
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

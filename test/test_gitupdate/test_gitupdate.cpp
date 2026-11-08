@@ -70,6 +70,8 @@ static void image_identity_must_match_authenticated_manifest() {
   m=valid();image.resize(100+marker.size()-1);TEST_ASSERT_FALSE(hasIdentity(reinterpret_cast<const uint8_t *>(image.data()),image.size(),m));
 }
 static void bounded_versions_urls_and_manifest_fail_closed() {
+  TEST_ASSERT_TRUE(stableVersion("v4294967295.4294967295.4294967295"));
+  TEST_ASSERT_FALSE(stableVersion("dev-source"));
   for(const char *v : {"", "v01.2.3", "v1.02.3", "v1.2.03", "v1.2", "v1.2.3.4", "v4294967296.0.0", "dev-aaa", "v1.2.3+build"})
     TEST_ASSERT_FALSE(newer(v,"v0.0.0"));
   TEST_ASSERT_TRUE(newer("v4294967295.0.0","v4294967294.9.9"));
