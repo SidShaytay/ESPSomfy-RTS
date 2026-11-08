@@ -30,7 +30,7 @@ uint32_t sceneHash(const Model &m, const View &v, const StatusDisplay::Snapshot 
                              s.battery.millivolts,
                              v.credentialChoice, v.credentialLength, v.credentialMaximum,
                              v.credentialUser, v.credentialByte, v.retryAfterMs/1000,
-                             m.authorized, m.authGeneration, uint32_t(m.authMode),
+                             m.authorized, m.authGeneration, m.authConfigurationGeneration, uint32_t(m.authMode),
                              m.ready,
                              m.controlsEnabled,
                              s.running,
