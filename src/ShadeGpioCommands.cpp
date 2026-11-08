@@ -1,4 +1,5 @@
 #include "Somfy.h"
+extern SomfyShadeController somfy;
 #include "ShadeGpioCommands.h"
 
 bool SomfyShade::gpioCommandAllowed(somfy_commands wire) {

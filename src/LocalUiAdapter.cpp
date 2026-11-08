@@ -90,7 +90,7 @@ ControlMask gpioCapabilities(SomfyShade &shade,ControlDescriptor d,ControlMask m
     else if(request.target>=0)allowed=shade.canGpioSeek(shade.tiltType==tilt_types::tiltonly);
     else {
       allowed=shade.canGpioCommand(request.command);
-      if(request.command==somfy_commands::My && (shade.simMy || shade.proto==radio_proto::GP_Relay) && shade.isIdle())
+      if(action==Action::my && (shade.simMy || shade.proto==radio_proto::GP_Relay) && shade.isIdle())
         allowed=allowed&&shade.canGpioSeek(shade.tiltType!=tilt_types::none);
     }
     if(!allowed)mask&=~bit;

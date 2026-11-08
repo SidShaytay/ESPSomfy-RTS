@@ -163,7 +163,11 @@ int main(){
   one.gpioConflict=1;++one.configurationRevision;model=open(view,{EntityKind::device,7});
   assert(model.target.capabilities==0 && !model.target.valid);
   assert(dispatch(command(view,Action::down))==DispatchResult::refused);
-  one.gpioConflict=0;one.gpioUp=one.gpioDown=one.gpioMy=0;
+  one.gpioConflict=0;one.proto=radio_proto::GP_Relay;one.idle=true;
+  one.gpioUp=17;one.gpioDown=one.gpioMy=255;++one.configurationRevision;
+  model=open(view,{EntityKind::device,7});
+  assert(model.target.capabilities==(controlActionBit(Action::up)|controlActionBit(Action::stop)));
+  one.gpioUp=one.gpioDown=one.gpioMy=0;
   // An old intent/lease must not borrow a later expired session's grace, even
   // when no adapter observation happened during that replacement session.
   one.shadeType=shade_types::shutter;one.proto=radio_proto::RTS;one.tiltType=tilt_types::none;one.bitLength=56;one.idle=false;

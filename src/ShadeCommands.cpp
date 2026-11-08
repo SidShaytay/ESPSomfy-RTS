@@ -1,4 +1,5 @@
 #include "Somfy.h"
+extern SomfyShadeController somfy;
 
 bool SomfyShade::sendCommand(somfy_commands cmd) { return this->sendCommand(cmd, this->repeats); }
 bool SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
