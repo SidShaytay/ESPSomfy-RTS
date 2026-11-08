@@ -569,8 +569,22 @@ static void malformed_refusal_and_expired_validation_wipe_without_mutation() {
     TEST_ASSERT_EQUAL(0, backend.applies);
   }
 }
+static void whole_form_refusal_never_misidentifies_a_scalar_repair_field() {
+  Memory memory; DeviceBackend backend; Form form(backend, memory);
+  form.open(Kind::shade, 4, 0); adjustField(form, 6, 1);
+  backend.preflight = Admission::invalid; backend.refusedField = proto_field_t::count;
+  selectField(form, 21); form.activate(1); form.turn(1, 1); form.activate(1);
+  TEST_ASSERT_EQUAL(Mode::validation, form.view().mode);
+  TEST_ASSERT_EQUAL_STRING("Back to fields", form.view().rows[0].label);
+  TEST_ASSERT_EQUAL_STRING("Shade 4", form.view().title);
+  TEST_ASSERT_TRUE(form.view().dirty);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(Mode::fields, form.view().mode);
+  TEST_ASSERT_EQUAL(0, backend.applies);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(whole_form_refusal_never_misidentifies_a_scalar_repair_field);
   RUN_TEST(changed_choice_must_resolve_again_before_final_save);
   RUN_TEST(dirty_field_revert_is_explicit_and_preserves_other_drafts);
   RUN_TEST(inactive_gpio_draft_requires_revert_or_protocol_change_without_silent_drop);

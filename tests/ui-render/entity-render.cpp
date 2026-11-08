@@ -108,6 +108,41 @@ int main(int argc, char **argv) {
     for (unsigned col = 235; col < 309; col++)
       lastChanged |= pixels[row * 320 + col] != wide[row * 320 + col];
   assert(lastChanged); // The newest suffix reaches the visible right edge.
+  view = {};
+  view.kind = EntityAdmin::Kind::shade;
+  view.id = 4;
+  view.mode = EntityAdmin::Mode::validation;
+  view.rowCount = view.total = 2;
+  strcpy(view.title, "Shade 4: Up GPIO");
+  strcpy(view.rows[0].label, "Revise field"); view.rows[0].selected = true;
+  strcpy(view.rows[1].label, "Cancel form");
+  strcpy(view.hint, "Revert inactive GPIO draft or select GPIO protocol.");
+  save(canvas, pixels.data(), view, argv[1], "entity-device-refused");
+  const auto refusal = pixels;
+  view.notice = EntityAdmin::Notice::busy;
+  save(canvas, pixels.data(), view, argv[1], "entity-device-refused-stale-notice");
+  assert(refusal == pixels); // Never hide the current actionable reason.
+  strcpy(view.hint, "Revert inactive GPIO draft or select radio protocol.");
+  save(canvas, pixels.data(), view, argv[1], "entity-device-refused-alternate");
+  bool reasonChanged = false;
+  for (unsigned row = 128; row < 154; row++)
+    for (unsigned col = 12; col < 308; col++)
+      reasonChanged |= pixels[row * 320 + col] != refusal[row * 320 + col];
+  assert(reasonChanged); // The last words reach the actual second display line.
+  view.mode = EntityAdmin::Mode::draft;
+  view.notice = EntityAdmin::Notice::none;
+  view.rowCount = view.total = 3;
+  strcpy(view.rows[0].label, "Cancel");
+  strcpy(view.rows[1].label, "Edit draft");
+  strcpy(view.rows[2].label, "Revert field draft");
+  strcpy(view.hint, "Revert keeps other drafts.");
+  save(canvas, pixels.data(), view, argv[1], "entity-device-draft");
+  view.mode = EntityAdmin::Mode::confirm;
+  view.rowCount = view.total = 2;
+  strcpy(view.title, "Save Shade 4");
+  strcpy(view.rows[1].label, "Save");
+  strcpy(view.hint, "May change live GPIO, motor timing and RF identity.");
+  save(canvas, pixels.data(), view, argv[1], "entity-device-save-confirm");
   puts("Production entity renderer: fields, identity confirmation, complete "
        "applied/file-only failure and text states passed.");
 }

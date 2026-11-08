@@ -115,7 +115,7 @@ void Form::close(Notice n) {
   admitted = {};
   admittedRevision = activityAt = observedAt = 0;
   sourceId = id = selected = editing = stepPower = 0;
-  deleting = false;
+  deleting = validationField = false;
   memset(validationReason, 0, sizeof(validationReason));
   frame = {};
   frame.notice = n;
@@ -221,9 +221,9 @@ bool Form::fieldActive(const entity_field_t &f) {
   return validStored(*protocol, value) && entityFieldActive(f, radio_proto(value.integer));
 }
 void Form::refuse(proto_field_t field, const char *reason) {
-  editing = 0;
+  editing = 0; validationField = false;
   for (uint8_t i = 0; i < metadata()->count; i++)
-    if (metadata()->fields[i] == field) editing = i;
+    if (metadata()->fields[i] == field) { editing = i; validationField = true; }
   copy(validationReason, sizeof(validationReason), reason);
   frame.mode = Mode::validation;
   frame.notice = Notice::invalid;
@@ -336,11 +336,14 @@ void Form::render() {
          "Original kept until Apply; Save persists replacement.");
   } else if (mode == Mode::draft || mode == Mode::validation) {
     const auto &f = *entityField(type(), fields->fields[editing]);
-    snprintf(frame.title, sizeof(frame.title), "%s %u: %s", title(kind), id, label(f.field));
+    if (mode == Mode::validation && !validationField)
+      snprintf(frame.title, sizeof(frame.title), "%s %u", title(kind), id);
+    else
+      snprintf(frame.title, sizeof(frame.title), "%s %u: %s", title(kind), id, label(f.field));
     frame.selected = selected;
     if (mode == Mode::validation) {
       frame.rowCount = frame.total = 2;
-      copy(frame.rows[0].label, sizeof(frame.rows[0].label), "Revise field");
+      copy(frame.rows[0].label, sizeof(frame.rows[0].label), validationField ? "Revise field" : "Back to fields");
       copy(frame.rows[1].label, sizeof(frame.rows[1].label), "Cancel form");
       copy(frame.hint, sizeof(frame.hint), validationReason);
     } else {

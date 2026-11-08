@@ -63,7 +63,7 @@ class Form {
   uint64_t admittedRevision = 0, activityAt = 0, observedAt = 0;
   Kind kind = Kind::room;
   uint8_t sourceId = 0, id = 0, selected = 0, editing = 0, stepPower = 0;
-  bool deleting = false;
+  bool deleting = false, validationField = false;
   char validationReason[64] = {};
   model_edit_type_t type(bool remove = false) const;
   const edit_form_t *metadata() const;
