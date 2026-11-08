@@ -15,7 +15,8 @@ class Runtime {
   uint8_t bandIndex = 43;
   bool attempted = false, hasPresented = false, wasSleeping = false;
   View frameView, presentedView;
-  uint32_t frameIdentity = 0, presentedIdentity = 0;
+  uint64_t frameTargetToken=0,presentedTargetToken=0,framePageToken=0,presentedPageToken=0,stopPresentedToken=0;
+  EntityRef stopPresentedRef;
 
 public:
   uint32_t maxPaintUs = 0;

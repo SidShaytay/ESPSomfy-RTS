@@ -11,212 +11,254 @@ extern SomfyShadeController somfy;
 extern ShadeRequests shadeRequests;
 namespace LocalUi {
 namespace {
+TargetContext focusedContext;
+uint64_t focusedToken=0, tokenSerial=0, presentedToken=0;
+EntityRef presentedRef;
+bool hasFocus=false;
 StopLease stopLease;
-uint8_t controlFocus=255, leaseTarget=255;
-uint32_t stopMasks[3] = {};
-uint64_t mix(uint64_t hash, uint32_t value) { return (hash ^ value) * UINT64_C(1099511628211); }
-uint64_t textHash(uint64_t hash, const char *value) {
-  for(size_t i=0;i<21 && value[i];i++) hash=mix(hash,uint8_t(value[i]));
-  return hash;
+uint32_t focusedMoving=0, leasedMoving=0;
+CataloguePage previousPage;
+CatalogueKind previousKind=CatalogueKind::devices;
+uint8_t previousRoom=allRooms;
+uint64_t previousModelRevision=0, previousRestore=0, pageToken=0;
+bool pageCached=false, controlsFrozen=false;
+uint64_t nextToken() { return tokenSerial==UINT64_MAX?0:++tokenSerial; }
+bool rf(radio_proto proto) {
+  return proto==radio_proto::RTS || proto==radio_proto::RTW || proto==radio_proto::RTV;
 }
-uint64_t radioConfiguration() {
-  const auto &radio=somfy.transceiver.config;
-  uint64_t hash=UINT64_C(14695981039346656037);
-  const uint32_t values[]={radio.enabled, radio.type, uint32_t(radio.proto), radio.SCKPin,
-    radio.TXPin, radio.RXPin, radio.MOSIPin, radio.MISOPin, radio.CSNPin,
-    uint32_t(int32_t(radio.txPower)), radio.noiseDetection};
-  for(auto value:values) hash=mix(hash,value);
-  const float floats[]={radio.frequency,radio.deviation,radio.rxBandwidth};
-  for(float value:floats) {
-    uint32_t bits; memcpy(&bits,&value,sizeof(bits)); hash=mix(hash,bits);
-  }
-  return hash;
+uint8_t effectiveBits(uint8_t bits) { return bits?bits:somfy.transceiver.config.type; }
+int8_t position(float value,bool flip) {
+  if(!isfinite(value) || value<0 || value>100) return -1;
+  return int8_t(flip?100-value:value);
 }
-uint64_t shadeConfiguration(uint8_t id) {
-  auto *shade = somfy.getShadeById(id);
-  if(!shade) return 0;
-  uint64_t hash=UINT64_C(14695981039346656037);
-  const uint32_t values[] = {uint32_t(shade->proto), uint32_t(shade->shadeType), uint32_t(shade->tiltType),
-    shade->paired, shade->bitLength, shade->repeats, shade->flipCommands, shade->flipPosition,
-    shade->upTime, shade->downTime, shade->tiltTime, shade->stepSize, shade->simMy, shade->sunSensor,
-    shade->light, shade->gpioUp, shade->gpioDown, shade->gpioMy, shade->gpioFlags, shade->roomId};
-  for(auto value:values) hash=mix(hash,value);
-  for(auto &remote:shade->linkedRemotes) hash=mix(hash,remote.getRemoteAddress());
-  return textHash(hash,shade->name);
+void label(char (&out)[21],const char *input) {
+  if(!memchr(input,0,21)) { strcpy(out,"Invalid name"); return; }
+  memcpy(out,input,21);
 }
-void authorizeModel(Model &m) {
-  const auto security=pollAuthorization();
-  m.authMode=security.mode; m.authorized=security.allowed;
-  m.authGeneration=security.generation; m.authConfigurationGeneration=security.configurationGeneration;
-  m.retryAfterMs=security.retryAfterMs;
-  // Leaving controls for an ordinary menu does not select a different RF target.
-  if(security.allowed && controlFocus<3) leaseTarget=controlFocus;
-  else if(controlFocus<3 && controlFocus!=leaseTarget) leaseTarget=255;
-  for(uint8_t selected=0;selected<3;selected++) {
-    StopContext context;
-    uint32_t moving=0;
-    const auto &target=m.targets[selected];
-    if(target.valid) {
-      context.id=selected==2?1:selected+1; context.group=selected==2;
-      context.identity=target.identity; context.securityGeneration=security.configurationGeneration;
-      context.members=selected==2?2:1;
-      context.configuration=radioConfiguration();
-      for(uint8_t member=0;member<context.members;member++) {
-        const uint8_t index=selected==2?member:selected;
-        context.memberIds[member]=index+1;
-        context.memberIdentities[member]=m.targets[index].identity;
-        const uint64_t configuration=shadeConfiguration(index+1);
-        context.configuration=mix(context.configuration,uint32_t(configuration));
-        context.configuration=mix(context.configuration,uint32_t(configuration>>32));
-        if(m.targets[index].moving) moving|=uint32_t(1)<<member;
-      }
-      if(selected==2) {
-        auto *group=somfy.getGroupById(1);
-        context.configuration=mix(context.configuration,uint32_t(group->proto));
-        context.configuration=mix(context.configuration,group->bitLength);
-        context.configuration=mix(context.configuration,group->repeats);
-        context.configuration=mix(context.configuration,group->flipCommands);
-        context.configuration=textHash(context.configuration,group->name);
-      }
+ControlDescriptor descriptor(SomfyShade &shade) {
+  ControlDescriptor d;
+  d.shadeType=shade.shadeType; d.tiltType=shade.tiltType; d.proto=shade.proto;
+  d.bitLength=effectiveBits(shade.bitLength); d.paired=shade.paired; d.sunSensor=shade.sunSensor;
+  d.moving=!shade.isIdle(); d.tiltMoving=shade.state().tiltDirection!=0;
+  return d;
+}
+ControlMask capabilities(const ControlDescriptor &d) {
+  ControlMask mask=controlCapabilities(d);
+  // Separate/Euro relay tilt has no independent actuator mapping. Keep ordinary
+  // lift and existing integrated/tilt-only paths; never invent a pin remap.
+  if(d.proto==radio_proto::GP_Relay &&
+     (d.tiltType==tilt_types::tiltmotor || d.tiltType==tilt_types::euromode))
+    mask &= ~(controlActionBit(Action::tiltUp)|controlActionBit(Action::tiltStop)|
+              controlActionBit(Action::tiltDown)|controlActionBit(Action::tiltPosition));
+  return mask;
+}
+bool readTarget(EntityRef ref,Target &target,TargetContext &context,uint32_t &moving) {
+  target={}; context={}; moving=0; target.ref=ref;
+  if(!ref.valid()) return false;
+  context.ref=ref; context.modelRevision=somfy.configurationRevision;
+  context.restoreRevision=somfy.restoreRevision; context.radioRevision=somfy.transceiver.configurationRevision;
+  if(ref.kind==EntityKind::device) {
+    auto *shade=somfy.getShadeById(ref.id); if(!shade) return false;
+    target.exists=true; label(target.name,shade->name);
+    target.identity=context.identity=shade->getRemoteAddress();
+    target.revision=context.revision=shade->configurationRevision;
+    context.memberCount=1; context.members[0]={ref.id,context.identity,context.revision};
+    target.descriptor=descriptor(*shade);
+    target.capabilities=capabilities(target.descriptor);
+    target.valid=target.capabilities!=0;
+    target.position=position(shade->state().currentPos,shade->flipPosition);
+    target.tiltPosition=position(shade->state().currentTiltPos,shade->flipPosition);
+    target.moving=target.descriptor.moving; target.tiltMoving=target.descriptor.tiltMoving;
+    target.movingCount=target.moving?1:0; moving=target.moving?1:0;
+    target.pendingRelayTilt=shade->proto==radio_proto::GP_Relay &&
+      (shade->tiltType==tilt_types::tiltmotor || shade->tiltType==tilt_types::euromode);
+  } else {
+    auto *group=somfy.getGroupById(ref.id); if(!group) return false;
+    target.exists=true; label(target.name,group->name);
+    target.identity=context.identity=group->getRemoteAddress();
+    target.revision=context.revision=group->configurationRevision;
+    target.descriptor.group=true; target.descriptor.proto=group->proto;
+    target.descriptor.bitLength=effectiveBits(group->bitLength);
+    ControlMask common=allControlActions;
+    bool compatible=rf(group->proto) && context.identity!=0;
+    uint8_t ids[32]={}, count=0;
+    for(auto id:group->linkedShades) {
+      if(!id || id==255) continue;
+      uint8_t at=count;
+      while(at && ids[at-1]>id) { ids[at]=ids[at-1]; --at; }
+      if((at && ids[at-1]==id) || (at<count && ids[at]==id)) return false;
+      ids[at]=id; ++count;
     }
-    m.targets[selected].configuration=context.configuration;
-    if(selected==leaseTarget) {
-      stopLease.observe(context,moving,security.allowed,security.stopGrace);
-      stopMasks[selected]=stopLease.allowed(context);
-    } else stopMasks[selected]=0;
-    m.targets[selected].stopLease=stopMasks[selected]!=0;
+    context.memberCount=count;
+    for(uint8_t i=0;i<count;i++) {
+      auto *shade=somfy.getShadeById(ids[i]); if(!shade) return false;
+      const auto member=descriptor(*shade);
+      context.members[i]={ids[i],shade->getRemoteAddress(),shade->configurationRevision};
+      compatible &= member.paired && member.proto==group->proto &&
+        member.bitLength==target.descriptor.bitLength && context.members[i].identity!=0;
+      common &= capabilities(member);
+      target.descriptor.sunSensor |= member.sunSensor;
+      if(member.moving) { moving|=uint32_t(1)<<i; ++target.movingCount; }
+      target.tiltMoving |= member.tiltMoving;
+    }
+    target.descriptor.memberCount=compatible?count:0;
+    target.descriptor.commonActions=common;
+    target.descriptor.moving=target.moving=moving!=0;
+    target.descriptor.tiltMoving=target.tiltMoving;
+    target.capabilities=capabilities(target.descriptor);
+    target.valid=target.capabilities!=0;
   }
+  if(rf(target.descriptor.proto) && !context.identity) { target.valid=false; target.capabilities=0; }
+  return context.valid();
 }
-void name(char *out, const char *input) {
-  for(int i = 0; i < 20 && input[i]; i++)
-    out[i] = (input[i] >= 32 && input[i] <= 126) ? input[i] : '?';
+class RuntimeCatalogue : public CatalogueSource {
+public:
+  bool read(CatalogueKind kind,uint8_t slot,CatalogueEntry &out) override {
+    out={};
+    if(kind==CatalogueKind::rooms) {
+      const auto &room=somfy.rooms[slot]; if(!room.roomId) return false;
+      out.id=room.roomId; out.sortOrder=room.sortOrder; memcpy(out.name,room.name,21); return true;
+    }
+    if(kind==CatalogueKind::devices) {
+      auto &shade=somfy.shades[slot]; const auto id=shade.getShadeId(); if(!id || id==255) return false;
+      out.id=id; out.roomId=shade.roomId; out.sortOrder=shade.sortOrder; memcpy(out.name,shade.name,21);
+      out.identity=shade.getRemoteAddress(); out.revision=shade.configurationRevision;
+      const auto d=descriptor(shade); out.available=capabilities(d)!=0;
+      out.position=position(shade.state().currentPos,shade.flipPosition); out.moving=d.moving; return true;
+    }
+    auto &group=somfy.groups[slot]; const auto id=group.getGroupId(); if(!id || id==255) return false;
+    out.id=id; out.roomId=group.roomId; out.sortOrder=group.sortOrder; memcpy(out.name,group.name,21);
+    out.identity=group.getRemoteAddress(); out.revision=group.configurationRevision;
+    out.available=rf(group.proto) && out.identity!=0; out.moving=group.direction!=0; return true;
+  }
+};
+bool samePage(const CataloguePage &a,const CataloguePage &b) {
+  if(a.offset!=b.offset || a.cursor!=b.cursor || a.count!=b.count || a.total!=b.total) return false;
+  for(uint8_t i=0;i<a.count;i++) {
+    const auto &x=a.rows[i],&y=b.rows[i];
+    if(x.id!=y.id || x.roomId!=y.roomId || x.sortOrder!=y.sortOrder || x.identity!=y.identity ||
+       x.revision!=y.revision || memcmp(x.name,y.name,21)!=0) return false;
+  }
+  return true;
 }
-void readShade(uint8_t id, Target &t) {
-  auto *shade = somfy.getShadeById(id);
-  if(!shade)
-    return;
-  name(t.name, shade->name);
-  t.identity = shade->getRemoteAddress();
-  // Device-category behavior belongs to the shared command dispatcher.
-  t.valid = shade->paired && shade->proto == radio_proto::RTS && t.identity != 0;
-  t.moving = !shade->isIdle();
-  const float pos = shade->state().currentPos;
-  if(isfinite(pos) && pos >= 0 && pos <= 100)
-    t.open[0] = 100 - shade->transformPosition(pos);
+void observeLease(const View &view,const SecuritySnapshot &security) {
+  const bool selected=hasFocus && view.entity==focusedContext.ref && view.openedToken==focusedToken;
+  const bool authorized=selected && view.authorizedSelection && security.allowed &&
+    view.selectionAuthGeneration==security.generation && presentedToken==focusedToken &&
+    presentedRef==view.entity;
+  const auto context=focusedContext.stopContext(focusedToken,security.configurationGeneration,
+    security.allowed?security.generation:security.expiredSessionGeneration);
+  stopLease.observe(context,focusedMoving,authorized,selected && security.stopGrace);
+  leasedMoving=stopLease.allowed(context);
 }
 } // namespace
-void focusAuthorizationTarget(uint8_t selected) { controlFocus=selected<3?selected:255; }
+bool localControlsFrozen() { return controlsFrozen; }
+void setLocalControlsFrozen(bool value) {
+  if(value && !controlsFrozen) lockAuthorization();
+  controlsFrozen=value;
+}
 DisplayPreferences loadPreferences() {
-  DisplayPreferences out;
-  Preferences prefs;
-  if(!prefs.begin("LCDUI", true))
-    return out;
-  out.brightness = prefs.getUChar("brightness", 32);
-  out.dimSeconds = prefs.getUShort("dimSeconds", 10);
-  out.offSeconds = prefs.getUShort("offSeconds", 20);
-  prefs.end();
-  return out;
+  DisplayPreferences out; Preferences prefs;
+  if(!prefs.begin("LCDUI",true)) return out;
+  out.brightness=prefs.getUChar("brightness",32); out.dimSeconds=prefs.getUShort("dimSeconds",10);
+  out.offSeconds=prefs.getUShort("offSeconds",20); prefs.end(); return out;
 }
 bool savePreferences(const DisplayPreferences &value) {
-  Preferences prefs;
-  if(!prefs.begin("LCDUI"))
-    return false;
-  const bool ok = prefs.putUChar("brightness", value.brightness) == 1 &&
-                  prefs.putUShort("dimSeconds", value.dimSeconds) == 2 &&
-                  prefs.putUShort("offSeconds", value.offSeconds) == 2;
-  prefs.end();
-  return ok;
+  Preferences prefs; if(!prefs.begin("LCDUI")) return false;
+  const bool ok=prefs.putUChar("brightness",value.brightness)==1 &&
+    prefs.putUShort("dimSeconds",value.dimSeconds)==2 && prefs.putUShort("offSeconds",value.offSeconds)==2;
+  prefs.end(); return ok;
 }
-Model snapshotModel(bool running) {
+Model snapshotModel(bool running,const View &view) {
   Model m;
-  if(!running) {
-    m.authorized=false;
-    m.authMode=AuthMode::unavailable;
-    return m;
-  }
+  if(!running) return m;
 #ifdef ESPSOMFY_LOCAL_COMMANDS
-  m.controlsEnabled = true;
+  m.controlsEnabled=true;
 #endif
-  m.ready = somfy.transceiver.available() && !somfy.transceiver.txSuspended();
-  // Existing model IDs, not RF identities or names; model renames are reflected.
-  readShade(1, m.targets[0]);
-  readShade(2, m.targets[1]);
-  auto *group = somfy.getGroupById(1);
-  if(!group) { authorizeModel(m); return m; }
-  auto &t = m.targets[2];
-  name(t.name, group->name);
-  bool one = false, two = false, other = false;
-  for(auto id : group->linkedShades) {
-    if(id == 1)
-      one = true;
-    else if(id == 2)
-      two = true;
-    else if(id != 0 && id != 255)
-      other = true;
+  const auto security=pollAuthorization();
+  m.authMode=security.mode; m.authorized=security.allowed; m.authGeneration=security.generation;
+  m.authConfigurationGeneration=security.configurationGeneration; m.retryAfterMs=security.retryAfterMs;
+  m.expiredSessionGeneration=security.expiredSessionGeneration;
+  m.modelRevision=somfy.configurationRevision; m.restoreRevision=somfy.restoreRevision;
+  m.catalogue=view.catalogue; m.room=view.room;
+  for(auto &shade:somfy.shades) if(shade.getShadeId()!=255 && !shade.isIdle()) m.anyMoving=true;
+  RuntimeCatalogue source;
+  if(view.catalogue==CatalogueKind::rooms) m.pageValid=roomCataloguePage(source,view.cursor,m.page,view.anchorId,view.anchored);
+  else if(view.room==0 || view.room==allRooms || somfy.getRoomById(view.room))
+    m.pageValid=cataloguePage(source,view.catalogue,view.cursor,view.room,m.page,view.anchorId,view.anchored);
+  if(m.pageValid && (!pageCached || previousKind!=m.catalogue || previousRoom!=m.room ||
+      previousModelRevision!=m.modelRevision || previousRestore!=m.restoreRevision || !samePage(previousPage,m.page))) {
+    previousPage=m.page; previousKind=m.catalogue; previousRoom=m.room;
+    previousModelRevision=m.modelRevision; previousRestore=m.restoreRevision;
+    pageToken=nextToken(); pageCached=true;
   }
-  t.identity = group->getRemoteAddress();
-  t.members[0] = m.targets[0].identity;
-  t.members[1] = m.targets[1].identity;
-  t.valid = one && two && !other && m.targets[0].valid && m.targets[1].valid &&
-            group->proto == radio_proto::RTS && group->getRemoteAddress() != 0;
-  if(!t.valid)
-    t.identity = 0;
-  t.moving = m.targets[0].moving || m.targets[1].moving;
-  t.open[0] = m.targets[0].open[0];
-  t.open[1] = m.targets[1].open[0];
-  authorizeModel(m);
+  m.pageToken=m.pageValid?pageToken:0;
+  TargetContext next;
+  uint32_t moving=0;
+  const bool valid=readTarget(view.entity,m.target,next,moving);
+  if(valid && (!hasFocus || !focusedContext.same(next))) {
+    focusedContext=next; focusedToken=nextToken(); presentedToken=0;
+  }
+  hasFocus=valid && focusedToken!=0;
+  if(!hasFocus) { focusedToken=presentedToken=0; }
+  focusedMoving=moving; m.target.token=hasFocus?focusedToken:0;
+  observeLease(view,security);
+  m.target.stopLease=leasedMoving!=0 && m.target.valid;
+  m.ready=!controlsFrozen && (!rf(m.target.descriptor.proto) ||
+    (somfy.transceiver.available() && !somfy.transceiver.txSuspended()));
   return m;
 }
-bool dispatch(const Command &cmd) {
+void markControlPresented(EntityRef ref,uint64_t token,bool authorizedSelection,uint32_t sessionGeneration) {
+  if(!hasFocus || ref!=focusedContext.ref || !token || token!=focusedToken) return;
+  Target target; TargetContext current; uint32_t moving=0;
+  if(!readTarget(ref,target,current,moving) || !focusedContext.same(current)) return;
+  presentedRef=ref; presentedToken=token; focusedMoving=moving;
+  View view; view.entity=ref; view.openedToken=token;
+  view.authorizedSelection=authorizedSelection; view.selectionAuthGeneration=sessionGeneration;
+  observeLease(view,pollAuthorization());
+}
+DispatchResult dispatch(const Command &cmd) {
 #ifndef ESPSOMFY_LOCAL_COMMANDS
-  (void)cmd;
-  return false; // Preview binary contains no local request submission.
+  (void)cmd; return DispatchResult::refused;
 #else
-  if(cmd.selected >= 3 ||
-     (cmd.action != Action::up && cmd.action != Action::down && cmd.action != Action::stop))
-    return false;
-  const Model current = snapshotModel(true);
-  const auto &target = current.targets[cmd.selected];
-  if(!current.ready || !target.valid || target.identity != cmd.identity || target.configuration != cmd.configuration ||
-     target.members[0] != cmd.members[0] || target.members[1] != cmd.members[1])
-    return false;
-  const bool session=current.authorized && current.authGeneration==cmd.authGeneration;
-  if(!session && !(cmd.action==Action::stop && target.stopLease)) return false;
-  const uint32_t leased=stopMasks[cmd.selected];
+  if(controlsFrozen) return DispatchResult::refused;
+  if(!hasFocus || !cmd.ref.valid() || cmd.ref!=focusedContext.ref || !cmd.token || cmd.token!=focusedToken ||
+     presentedRef!=cmd.ref || presentedToken!=cmd.token) return DispatchResult::stale;
+  Target target; TargetContext current; uint32_t moving=0;
+  if(!readTarget(cmd.ref,target,current,moving) || !current.same(focusedContext)) return DispatchResult::stale;
+  const auto security=pollAuthorization();
+  const bool session=security.allowed && cmd.authGeneration==security.generation;
+  View view; view.entity=cmd.ref; view.openedToken=cmd.token;
+  view.authorizedSelection=session; view.selectionAuthGeneration=cmd.authGeneration;
+  focusedMoving=moving; observeLease(view,security);
+  if(!session && !(cmd.action==Action::stop && leasedMoving && cmd.authGeneration &&
+     cmd.authGeneration==security.expiredSessionGeneration)) return DispatchResult::denied;
+  if(rf(target.descriptor.proto) && (!somfy.transceiver.available() || somfy.transceiver.txSuspended()))
+    return DispatchResult::refused;
+  if(!(target.capabilities & controlActionBit(cmd.action))) return DispatchResult::refused;
   shade_request_t request;
-  if(cmd.action == Action::stop) {
-    // A moving pair can stop on its shared identity in one transmission,
-    // just like its Up/Down press. Never send a shared My to an idle member.
-    if(cmd.selected == 2 && current.targets[0].moving && current.targets[1].moving &&
-       (session || leased==3)) {
-      request.type = shade_request_type_t::group_command;
-      request.id = 1;
-      request.command = somfy_commands::My;
-      return shadeRequests.run(request) == shade_request_result_t::done;
+  if(cmd.action==Action::stop) {
+    const uint32_t all=current.memberCount==32?UINT32_MAX:(uint32_t(1)<<current.memberCount)-1;
+    const uint32_t eligible=session?moving:moving&leasedMoving;
+    if(!eligible) return DispatchResult::idle;
+    if(cmd.ref.kind==EntityKind::group && moving==all && (session || leasedMoving==all)) {
+      request.type=shade_request_type_t::group_command; request.id=cmd.ref.id; request.command=somfy_commands::My;
+      return shadeRequests.run(request)==shade_request_result_t::done?DispatchResult::done:DispatchResult::refused;
     }
-    // Mixed groups and individual selections stop only the moving members,
-    // rechecked immediately on the model's owning loop.
-    bool sent = false;
-    for(uint8_t i = 0; i < 2; i++) {
-      if(cmd.selected != 2 && cmd.selected != i)
-        continue;
-      auto *shade = somfy.getShadeById(i + 1);
-      const uint8_t bit=cmd.selected==2?i:0;
-      if(!shade || shade->isIdle() || (!session && !(leased & (uint32_t(1)<<bit))))
-        continue;
-      request.id = i + 1;
-      request.command = somfy_commands::My;
-      if(shadeRequests.run(request) != shade_request_result_t::done)
-        return false;
-      sent = true;
+    bool sent=false;
+    for(uint8_t i=0;i<current.memberCount;i++) {
+      if(!(eligible&(uint32_t(1)<<i))) continue;
+      auto *shade=somfy.getShadeById(current.members[i].id);
+      if(!shade || shade->isIdle()) continue;
+      request.id=current.members[i].id; request.command=somfy_commands::My;
+      if(shadeRequests.run(request)!=shade_request_result_t::done) return sent?DispatchResult::partial:DispatchResult::refused;
+      sent=true;
     }
-    return sent;
+    return sent?DispatchResult::done:DispatchResult::idle;
   }
-  request.id = cmd.selected == 2 ? 1 : cmd.selected + 1;
-  request.type =
-      cmd.selected == 2 ? shade_request_type_t::group_command : shade_request_type_t::shade_command;
-  request.command = cmd.action == Action::up ? somfy_commands::Up : somfy_commands::Down;
-  return shadeRequests.run(request) == shade_request_result_t::done;
+  const auto prepared=prepareControlRequest(cmd.action,target.descriptor,cmd.ref.id,cmd.value,cmd.step,request);
+  if(prepared!=ControlResult::done) return prepared==ControlResult::idle?DispatchResult::idle:DispatchResult::refused;
+  return shadeRequests.run(request)==shade_request_result_t::done?DispatchResult::done:DispatchResult::refused;
 #endif
 }
 } // namespace LocalUi

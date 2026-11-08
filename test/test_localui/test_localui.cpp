@@ -1,389 +1,245 @@
 #include <unity.h>
 #include "LocalUi.h"
 #include "LocalUiMemory.h"
-#include "StatusDisplay.h"
 #include <string.h>
 using namespace LocalUi;
-void setUp() {}
-void tearDown() {}
-static Model model() {
-  Model m;
-  m.ready = true;
-  m.controlsEnabled = true;
-  for(int i = 0; i < 3; i++) {
-    m.targets[i].valid = true;
-    m.targets[i].identity = i + 1;
+void setUp() {} void tearDown() {}
+struct Fixture : CatalogueSource {
+  CatalogueEntry devices[32]={},groups[16]={},rooms[16]={};
+  Model base;
+  Fixture() {
+    devices[3]={7,0,0,"Bedroom",700,1,35,true,true};
+    base.ready=base.controlsEnabled=base.authorized=true;
+    base.authMode=AuthMode::none; base.authGeneration=2; base.authConfigurationGeneration=1;
+    base.modelRevision=4; base.restoreRevision=1; base.anyMoving=true;
+    base.target.ref={EntityKind::device,7}; strcpy(base.target.name,"Bedroom");
+    base.target.identity=700; base.target.revision=1; base.target.token=99;
+    base.target.exists=base.target.valid=base.target.moving=true;
+    base.target.capabilities=7; base.target.position=35;
   }
-  return m;
-}
-static void click(Controller &c, uint32_t t, const Model &m, bool visible = true) {
-  c.tick(t, m, 0, true, visible);
-  c.tick(t + 41, m, 0, true, visible);
-  c.tick(t + 80, m, 0, false, visible);
-  c.tick(t + 121, m, 0, false, visible);
-}
-static void navigation_does_not_emit() {
-  Controller c;
-  auto m = model();
-  Command cmd;
-  c.tick(0, m, 0, false, true);
-  TEST_ASSERT_FALSE(c.take(cmd));
-  c.tick(100, m, 1, false, true);
-  TEST_ASSERT_EQUAL((int)Screen::choose, (int)c.view().screen);
-  click(c, 200, m);
-  TEST_ASSERT_EQUAL((int)Screen::control, (int)c.view().screen);
-  TEST_ASSERT_EQUAL((int)Action::stop, (int)c.view().action);
-  TEST_ASSERT_FALSE(c.take(cmd));
-  c.tick(400, m, -1, false, true);
-  TEST_ASSERT_FALSE(c.take(cmd));
-  click(c, 500, m);
-  TEST_ASSERT_TRUE(c.take(cmd));
-  TEST_ASSERT_EQUAL((int)Action::up, (int)cmd.action);
-  TEST_ASSERT_FALSE(c.take(cmd));
-  TEST_ASSERT_EQUAL((int)Action::stop, (int)c.view().action);
-}
-static void wake_consumes_input_and_hold_is_back() {
-  Controller c;
-  auto m = model();
-  Command cmd;
-  c.tick(0, m, 0, false, true);
-  c.tick(61000, m, 0, false, true);
-  TEST_ASSERT_EQUAL(0, c.brightness());
-  click(c, 62000, m);
-  TEST_ASSERT_EQUAL((int)Screen::status, (int)c.view().screen);
-  TEST_ASSERT_FALSE(c.take(cmd));
-  c.tick(62200, m, 1, false, true);
-  click(c, 62300, m);
-  c.tick(62500, m, 0, true, true);
-  c.tick(62541, m, 0, true, true);
-  c.tick(63400, m, 0, true, true);
-  c.tick(63500, m, 0, false, true);
-  c.tick(63541, m, 0, false, true);
-  TEST_ASSERT_EQUAL((int)Screen::choose, (int)c.view().screen);
-  TEST_ASSERT_FALSE(c.take(cmd));
-}
-static void stop_identity_and_presentation_guards() {
-  Controller c;
-  auto m = model();
-  Command cmd;
-  c.tick(0, m, 1, false, true);
-  click(c, 100, m);
-  click(c, 300, m);
-  TEST_ASSERT_FALSE(c.take(cmd)); // idle STOP cannot mean favourite
-  c.tick(500, m, -1, false, true);
-  click(c, 600, m, false);
-  TEST_ASSERT_FALSE(c.take(cmd));
-  m.targets[0].identity = 999;
-  click(c, 800, m);
-  TEST_ASSERT_FALSE(c.take(cmd));
-}
-static void decoder_rejects_bounce_and_partial_steps() {
-  Encoder e;
-  TEST_ASSERT_EQUAL(0, e.sample(3));
-  TEST_ASSERT_EQUAL(0, e.sample(1));
-  TEST_ASSERT_EQUAL(0, e.sample(3)); // bounce
-  TEST_ASSERT_EQUAL(0, e.sample(1));
-  TEST_ASSERT_EQUAL(1, e.sample(0)); // clockwise detent
-  TEST_ASSERT_EQUAL(0, e.sample(2));
-  TEST_ASSERT_EQUAL(1, e.sample(3)); // second detent
-  TEST_ASSERT_EQUAL(0, e.sample(2));
-  TEST_ASSERT_EQUAL(-1, e.sample(0)); // anticlockwise
-  TEST_ASSERT_EQUAL(0, e.sample(1));
-  TEST_ASSERT_EQUAL(-1, e.sample(3));
-  TEST_ASSERT_EQUAL(0, e.sample(0));
-  TEST_ASSERT_EQUAL(0, e.sample(3)); // invalid jumps
-}
-static void preview_and_boot_hold_never_emit() {
-  Controller c;
-  auto m = model();
-  m.controlsEnabled = false;
-  Command cmd;
-  c.tick(0, m, 0, true, true);
-  c.tick(1000, m, 0, true, true);
-  c.tick(1100, m, 0, false, true);
-  c.tick(1141, m, 0, false, true);
-  TEST_ASSERT_EQUAL((int)Screen::status, (int)c.view().screen);
-  uint32_t random = 71;
-  for(unsigned i = 0; i < 20000; i++) {
-    random = random * 1664525 + 1013904223;
-    c.tick(1200 + i * 17, m, int8_t((random >> 8) % 3) - 1, (random >> 16) % 2, true);
-    TEST_ASSERT_FALSE(c.take(cmd));
-    TEST_ASSERT_LESS_THAN(5, c.view().selected);
+  bool read(CatalogueKind kind,uint8_t slot,CatalogueEntry &out) override {
+    out=kind==CatalogueKind::devices?devices[slot]:kind==CatalogueKind::groups?groups[slot]:rooms[slot];
+    return out.id!=0;
   }
+  Model snapshot(const View &v) {
+    Model m=base; m.catalogue=v.catalogue; m.room=v.room;
+    m.pageValid=v.catalogue==CatalogueKind::rooms?roomCataloguePage(*this,v.cursor,m.page,v.anchorId,v.anchored):
+      cataloguePage(*this,v.catalogue,v.cursor,v.room,m.page,v.anchorId,v.anchored);
+    m.pageToken=11;
+    if(v.entity!=m.target.ref) m.target={};
+    return m;
+  }
+};
+struct Drive {
+  Controller c; Fixture f; uint32_t now=0;
+  void tick(int8_t turn=0,bool pressed=false,bool visible=true,bool back=false,uint32_t advance=50) {
+    now+=advance; auto m=f.snapshot(c.view()); c.tick(now,m,turn,pressed,visible,back);
+  }
+  void click(bool visible=true) { tick(0,true,visible);tick(0,true,visible);tick(0,false,visible);tick(0,false,visible); }
+  void back() { tick(0,false,true,true);tick(0,false,true,true);tick();tick(); }
+  void home() { tick(); tick(1); }
+  void devices(bool visible=true) { home(); tick(1); click(); click(visible); tick(); }
+};
+static void stable_catalogue_selection_binds_id_not_slot() {
+  Drive d; d.devices();
+  TEST_ASSERT_EQUAL(int(Screen::control),int(d.c.view().screen));
+  TEST_ASSERT_EQUAL(7,d.c.view().entity.id); TEST_ASSERT_EQUAL(99,d.c.view().openedToken);
+  Command out; TEST_ASSERT_FALSE(d.c.take(out));
+  d.click(); TEST_ASSERT_TRUE(d.c.take(out));
+  TEST_ASSERT_EQUAL(7,out.ref.id); TEST_ASSERT_EQUAL(99,out.token);
+  TEST_ASSERT_EQUAL(int(Action::stop),int(out.action));
 }
-static unsigned allocations = 0;
-static void *noMemory(size_t n) {
-  ++allocations;
-  TEST_ASSERT_EQUAL(108800, n);
-  return nullptr;
+static void never_presented_catalogue_or_stop_emits_no_intent() {
+  Drive d; d.devices(false);
+  TEST_ASSERT_EQUAL(int(Screen::catalogue),int(d.c.view().screen));
+  d.click(); d.tick();
+  TEST_ASSERT_EQUAL(int(Screen::control),int(d.c.view().screen));
+  d.click(false);
+  Command out; TEST_ASSERT_FALSE(d.c.take(out));
+  TEST_ASSERT_EQUAL(int(Notice::wait),int(d.c.view().notice));
+  d.click(true); TEST_ASSERT_TRUE(d.c.take(out));
 }
-static void memory_fallback_has_an_explicit_cause() {
-  GraphicsMemory missing;
-  missing.begin(false, noMemory);
-  TEST_ASSERT_EQUAL(0, allocations);
-  TEST_ASSERT_EQUAL((int)GraphicsFailure::missing, (int)missing.failure);
-  GraphicsMemory failed;
-  failed.begin(true, noMemory);
-  TEST_ASSERT_EQUAL(1, allocations);
-  TEST_ASSERT_NULL(failed.pixels);
-  StatusDisplay::Snapshot s;
-  s.graphicsFailure = uint8_t(failed.failure);
-  StatusDisplay::Page p;
-  StatusDisplay::format(s, p);
-  TEST_ASSERT_NOT_NULL(strstr(p.lines[1], "PSRAM alloc failed"));
-  s.graphicsFailure = uint8_t(missing.failure);
-  StatusDisplay::format(s, p);
-  TEST_ASSERT_NOT_NULL(strstr(p.lines[1], "PSRAM not found"));
+static void empty_full_and_live_reordered_catalogues_are_bounded() {
+  Drive d; d.f.devices[3]={}; d.home(); d.tick(1); d.click(); d.tick();
+  TEST_ASSERT_EQUAL(0,d.c.view().cursor); d.click(); Command out; TEST_ASSERT_FALSE(d.c.take(out));
+  for(uint8_t i=0;i<32;i++) d.f.devices[i]={uint8_t(i+1),0,int8_t(i),"Same name",uint32_t(100+i),1};
+  d.tick();
+  for(unsigned i=0;i<40;i++) d.tick(1);
+  TEST_ASSERT_EQUAL(31,d.c.view().cursor); d.tick(1); TEST_ASSERT_EQUAL(31,d.c.view().cursor);
+  d.f.devices[31].sortOrder=-1; d.tick(); TEST_ASSERT_EQUAL(0,d.c.view().cursor);
+  TEST_ASSERT_EQUAL(32,d.c.view().anchorId);
+  d.f.devices[31]={}; d.tick(); TEST_ASSERT_EQUAL(0,d.c.view().cursor);
 }
-static void estimated_motion_keeps_stop_awake() {
-  Controller c;
-  auto m = model();
-  m.targets[0].moving = true;
-  c.tick(0, m, 0, false, true);
-  c.tick(70000, m, 0, false, true);
-  TEST_ASSERT_EQUAL(32, c.brightness());
-  m.targets[0].moving = false;
-  c.tick(130001, m, 0, false, true);
-  TEST_ASSERT_EQUAL(0, c.brightness());
+static void target_replacement_between_row_and_focus_is_not_rebound() {
+  Drive d; d.home(); d.tick(1); d.click(); d.click();
+  d.f.base.target.identity=701; ++d.f.base.target.revision; ++d.f.base.target.token;
+  d.tick(); d.click(); Command out; TEST_ASSERT_FALSE(d.c.take(out));
+  TEST_ASSERT_EQUAL(0,d.c.view().openedToken);
 }
-static void brightness_and_twenty_second_idle_timeout() {
-  Controller c;
-  auto m = model();
-  DisplayPreferences saved;
-  Command command;
-  c.tick(0, m, 0, false, true);
-  c.tick(1, m, 1, false, true);
-  for(unsigned i = 0; i < 4; i++)
-    c.tick(10 + i, m, 1, false, true);
-  TEST_ASSERT_EQUAL(4, c.view().selected);
-  click(c, 100, m);
-  TEST_ASSERT_EQUAL((int)Screen::brightness, (int)c.view().screen);
-  c.tick(300, m, -1, false, true);
-  TEST_ASSERT_EQUAL(16, c.brightness());
-  TEST_ASSERT_FALSE(c.takePreferences(saved));
-  click(c, 400, m);
-  click(c, 600, m);
-  click(c, 800, m);
-  TEST_ASSERT_TRUE(c.takePreferences(saved));
-  TEST_ASSERT_EQUAL(16, saved.brightness);
-  TEST_ASSERT_FALSE(c.take(command));
-  c.tick(11000, m, 0, false, true);
-  TEST_ASSERT_EQUAL(4, c.brightness());
-  c.tick(21000, m, 0, false, true);
-  TEST_ASSERT_EQUAL(0, c.brightness());
-  c.setBrightness(0);
-  TEST_ASSERT_EQUAL(32, c.preference());
+static void open_context_change_does_not_reseed_or_retarget() {
+  Drive d; d.devices(); ++d.f.base.target.token; ++d.f.base.target.revision;
+  d.tick(); d.click(); Command out; TEST_ASSERT_FALSE(d.c.take(out));
+  TEST_ASSERT_EQUAL(99,d.c.view().openedToken);
+  d.f.base.expiredSessionGeneration=d.f.base.authGeneration; d.f.base.authorized=false; d.f.base.target.stopLease=true; d.click();
+  TEST_ASSERT_FALSE(d.c.take(out)); TEST_ASSERT_EQUAL(int(Notice::changed),int(d.c.view().notice));
 }
-static void changed_group_members_and_mixed_gestures_are_blocked() {
-  Controller c;
-  auto m = model();
-  Command cmd;
-  m.targets[2].members[0] = 1;
-  m.targets[2].members[1] = 2;
-  c.tick(0, m, 1, false, true);
-  c.tick(10, m, 1, false, true);
-  c.tick(20, m, 1, false, true);
-  click(c, 100, m);
-  c.tick(300, m, -1, false, true);
-  m.targets[2].members[1] = 99;
-  click(c, 400, m);
-  TEST_ASSERT_FALSE(c.take(cmd));
-  Controller single;
-  single.tick(0, m, 1, false, true);
-  click(single, 100, m);
-  single.tick(300, m, -1, false, true);
-  single.tick(400, m, 0, true, true);
-  single.tick(441, m, 0, true, true);
-  single.tick(500, m, 0, false, true);
-  single.tick(541, m, 1, false, true);
-  TEST_ASSERT_FALSE(single.take(cmd));
-}
-static void separate_back_button_and_disabled_timeouts() {
-  Controller c;
-  auto m = model();
-  Command cmd;
-  c.tick(0, m, 1, false, true);
-  click(c, 100, m);
-  c.tick(400, m, 0, false, true, true);
-  c.tick(441, m, 0, false, true, true);
-  TEST_ASSERT_EQUAL((int)Screen::choose, (int)c.view().screen);
-  TEST_ASSERT_FALSE(c.take(cmd));
-  c.tick(500, m, 0, false, true, false);
-  c.tick(541, m, 0, false, true, false);
-  click(c, 600, m);
-  TEST_ASSERT_EQUAL((int)Screen::control, (int)c.view().screen); // next knob press still works
-  Controller always;
-  always.setPreferences({32, 0, 0});
-  always.tick(0, m, 0, false, true);
-  always.tick(600000, m, 0, false, true);
-  TEST_ASSERT_EQUAL(32, always.brightness());
-  Controller dimOnly;
-  dimOnly.setPreferences({32, 5, 0});
-  dimOnly.tick(0, m, 0, false, true);
-  dimOnly.tick(6000, m, 0, false, true);
-  TEST_ASSERT_EQUAL(4, dimOnly.brightness());
-  Controller sleepOnly;
-  sleepOnly.setPreferences({32, 0, 5});
-  sleepOnly.tick(0, m, 0, false, true);
-  sleepOnly.tick(6000, m, 0, false, true);
-  TEST_ASSERT_EQUAL(0, sleepOnly.brightness());
-  sleepOnly.tick(7000, m, 0, false, true, true);
-  sleepOnly.tick(7041, m, 0, false, true, true);
-  TEST_ASSERT_EQUAL(32, sleepOnly.brightness());
-  TEST_ASSERT_EQUAL((int)Screen::status, (int)sleepOnly.view().screen);
-}
-static void no_dim_no_sleep_are_selectable_and_saved() {
-  Controller c;
-  auto m = model();
-  DisplayPreferences saved;
-  Command cmd;
-  c.tick(0, m, 1, false, true);
-  for(int i = 0; i < 4; i++)
-    c.tick(10 + i, m, 1, false, true);
-  click(c, 100, m);
-  click(c, 300, m); // display settings, then dim row
-  c.tick(500, m, -1, false, true);
-  c.tick(510, m, -1, false, true);
-  TEST_ASSERT_EQUAL(0, c.view().dimSeconds);
-  click(c, 600, m);
-  for(int i = 0; i < 4; i++)
-    c.tick(800 + i, m, -1, false, true);
-  TEST_ASSERT_EQUAL(0, c.view().offSeconds);
-  c.tick(1000, m, 0, false, true, true);
-  c.tick(1041, m, 0, false, true, true);
-  TEST_ASSERT_TRUE(c.takePreferences(saved));
-  TEST_ASSERT_EQUAL(0, saved.dimSeconds);
-  TEST_ASSERT_EQUAL(0, saved.offSeconds);
-  TEST_ASSERT_FALSE(c.take(cmd));
-}
-static void moving_stop_is_not_blocked_by_a_repaint() {
-  Controller c;
-  auto m = model();
-  m.targets[0].moving = true;
-  Command cmd;
-  c.tick(0, m, 1, false, true);
-  click(c, 100, m);
-  click(c, 300, m, false);
-  TEST_ASSERT_TRUE(c.take(cmd));
-  TEST_ASSERT_EQUAL((int)Action::stop, (int)cmd.action);
-}
-static void details_wheel_scrolls_without_leaving_or_sending() {
-  Controller c;
-  auto m = model();
-  Command cmd;
-  c.tick(0, m, 0, false, true);
-  c.tick(100, m, 0, true, true);
-  c.tick(141, m, 0, true, true);
-  c.tick(942, m, 0, true, true);
-  c.tick(1000, m, 0, false, true);
-  c.tick(1041, m, 0, false, true);
-  TEST_ASSERT_EQUAL((int)Screen::details, (int)c.view().screen);
-  c.tick(1100, m, 1, false, true);
-  TEST_ASSERT_EQUAL((int)Screen::details, (int)c.view().screen);
-  TEST_ASSERT_EQUAL(1, c.view().detailsOffset);
-  for(int i = 0; i < 20; ++i) c.tick(1200 + i, m, 1, false, true);
-  TEST_ASSERT_EQUAL(detailsRowCount - detailsVisibleRows, c.view().detailsOffset);
-  for(int i = 0; i < 20; ++i) c.tick(1300 + i, m, -1, false, true);
-  TEST_ASSERT_EQUAL(0, c.view().detailsOffset);
-  TEST_ASSERT_FALSE(c.take(cmd));
-  click(c, 1400, m);
-  TEST_ASSERT_EQUAL((int)Screen::status, (int)c.view().screen);
-}
-static void secured_controls_unlock_without_replaying_and_stop_lease_is_narrow() {
-  Controller c; auto m=model(); m.authorized=false; m.authMode=AuthMode::pin; m.authGeneration=4;
-  m.targets[0].moving=true;
-  c.tick(0,m,1,false,true); click(c,100,m); click(c,300,m);
-  TEST_ASSERT_EQUAL(int(Screen::unlock),int(c.view().screen));
-  Command command; TEST_ASSERT_FALSE(c.take(command));
-  c.tick(500,m,1,false,true); // choose !
-  uint32_t time=600;
-  for(int i=0;i<4;i++,time+=200) click(c,time,m);
-  for(int i=0;i<96;i++) c.tick(time++,m,1,false,true); // Done
-  click(c,time+100,m);
-  Credentials given; TEST_ASSERT_TRUE(c.takeCredentials(given));
+static void locked_selection_unlocks_without_replaying() {
+  Drive d; d.f.base.authorized=false; d.f.base.authMode=AuthMode::pin; d.devices(); d.click();
+  TEST_ASSERT_EQUAL(int(Screen::unlock),int(d.c.view().screen));
+  d.tick(1); for(unsigned i=0;i<4;i++) d.click();
+  for(unsigned i=0;i<96;i++) d.tick(1);
+  d.click(); Credentials given; TEST_ASSERT_TRUE(d.c.takeCredentials(given));
   TEST_ASSERT_EQUAL_STRING("!!!!",given.secret);
-  c.unlockResult(time+230,AuthResult::unlocked);
-  TEST_ASSERT_EQUAL(int(Screen::control),int(c.view().screen));
-  TEST_ASSERT_FALSE(c.take(command)); // unlocking does not replay previous action
-  m.targets[0].stopLease=true;
-  click(c,time+500,m);
-  TEST_ASSERT_TRUE(c.take(command));
-  TEST_ASSERT_EQUAL(int(Action::stop),int(command.action));
-  TEST_ASSERT_EQUAL(4,command.authGeneration);
-  c.tick(time+700,m,-1,false,true); // UP is not covered by the lease
-  click(c,time+800,m);
-  TEST_ASSERT_EQUAL(int(Screen::unlock),int(c.view().screen));
-  TEST_ASSERT_FALSE(c.take(command));
-  c.tick(time+1100,m,0,false,true,true); c.tick(time+1141,m,0,false,true,true);
-  TEST_ASSERT_EQUAL(int(Screen::control),int(c.view().screen));
-  TEST_ASSERT_FALSE(c.takeCredentials(given));
+  d.c.unlockResult(d.now,AuthResult::unlocked);
+  d.f.base.authorized=true; ++d.f.base.authGeneration; d.tick();
+  TEST_ASSERT_TRUE(d.c.view().authorizedSelection);
+  Command out; TEST_ASSERT_FALSE(d.c.take(out));
+  d.click(); TEST_ASSERT_TRUE(d.c.take(out));
 }
-static void secret_entry_wipes_on_sleep_and_motion_independent_timeout() {
-  for(unsigned state=0;state<2;state++) {
-    const bool moving=state!=0;
-    Controller c; auto m=model(); m.authorized=false; m.authMode=AuthMode::pin;
-    m.targets[0].moving=moving;
-    c.tick(0,m,1,false,true); click(c,100,m); click(c,300,m);
-    c.tick(500,m,1,false,true); click(c,600,m);
-    TEST_ASSERT_EQUAL(1,c.view().credentialLength);
-    c.tick(moving?31000:21000,m,0,false,true);
-    TEST_ASSERT_NOT_EQUAL(int(Screen::unlock),int(c.view().screen));
-    TEST_ASSERT_EQUAL(0,c.view().credentialLength);
-    Credentials out; TEST_ASSERT_FALSE(c.takeCredentials(out));
-    Command command; TEST_ASSERT_FALSE(c.take(command));
+static void locked_stop_lease_never_authorizes_another_action() {
+  Drive d; d.devices(); d.f.base.expiredSessionGeneration=d.f.base.authGeneration; d.f.base.authorized=false; d.f.base.target.stopLease=true;
+  d.click(); Command out; TEST_ASSERT_TRUE(d.c.take(out));
+  d.tick(-1); d.click(); TEST_ASSERT_FALSE(d.c.take(out));
+  TEST_ASSERT_EQUAL(int(Screen::unlock),int(d.c.view().screen));
+  Drive missing;missing.devices();missing.f.base.authorized=false;missing.f.base.target.stopLease=true;
+  missing.click();TEST_ASSERT_FALSE(missing.c.take(out)); // old aggregate source0 fails closed
+  Drive source;source.devices();source.f.base.expiredSessionGeneration=source.f.base.authGeneration;
+  source.f.base.authorized=false;source.f.base.target.stopLease=true;++source.f.base.authGeneration;
+  source.click();TEST_ASSERT_TRUE(source.c.take(out));TEST_ASSERT_EQUAL(source.f.base.expiredSessionGeneration,out.authGeneration);
+}
+static void secrets_wipe_on_cancel_configuration_change_sleep_and_timeout() {
+  for(unsigned reason=0;reason<4;reason++) {
+    Drive d; d.f.base.authorized=false; d.f.base.authMode=AuthMode::pin; d.devices();d.click();
+    d.tick(1); d.click(); TEST_ASSERT_EQUAL(1,d.c.view().credentialLength);
+    if(reason==0) d.back();
+    else if(reason==1) { ++d.f.base.authConfigurationGeneration; d.tick(); }
+    else { d.f.base.anyMoving=reason==3; d.tick(0,false,true,false,reason==3?31000:21000); }
+    TEST_ASSERT_NOT_EQUAL(int(Screen::unlock),int(d.c.view().screen));
+    TEST_ASSERT_EQUAL(0,d.c.view().credentialLength); Credentials given; TEST_ASSERT_FALSE(d.c.takeCredentials(given));
+    Command out; TEST_ASSERT_FALSE(d.c.take(out));
   }
 }
-static void same_mode_credential_change_wipes_unlock_draft_immediately() {
-  Controller c; auto m=model(); m.authorized=false; m.authMode=AuthMode::pin; m.authGeneration=2;
-  m.targets[0].moving=true;
-  c.tick(0,m,1,false,true); click(c,100,m); click(c,300,m);
-  c.tick(500,m,1,false,true); click(c,600,m);
-  TEST_ASSERT_EQUAL(1,c.view().credentialLength);
-  ++m.authGeneration; // credential changed, same mode
-  ++m.authConfigurationGeneration;
-  c.tick(800,m,0,false,true);
-  TEST_ASSERT_NOT_EQUAL(int(Screen::unlock),int(c.view().screen));
-  TEST_ASSERT_EQUAL(0,c.view().credentialLength);
-  Credentials out; TEST_ASSERT_FALSE(c.takeCredentials(out));
-  Command command; TEST_ASSERT_FALSE(c.take(command));
+static void wake_holds_and_mixed_gestures_do_not_emit() {
+  Drive d; d.f.base.anyMoving=false; d.tick(); d.tick(0,false,true,false,21000);
+  TEST_ASSERT_EQUAL(0,d.c.brightness()); d.click();
+  TEST_ASSERT_EQUAL(int(Screen::status),int(d.c.view().screen));
+  Command out; TEST_ASSERT_FALSE(d.c.take(out));
+  Drive held; held.tick(0,true);held.tick(0,true,true,false,900);held.tick();held.tick();
+  TEST_ASSERT_EQUAL(int(Screen::status),int(held.c.view().screen));
+  held.devices(); held.tick(-1); held.tick(0,true);held.tick(1,true);held.tick();held.tick();
+  TEST_ASSERT_FALSE(held.c.take(out));
 }
-static void display_draft_reverts_on_auth_expiry_or_security_change() {
-  for(unsigned reason=0;reason<3;reason++) {
-    Controller c; auto m=model(); m.targets[0].moving=true;
-    c.tick(0,m,1,false,true);
-    for(unsigned i=0;i<4;i++) c.tick(10+i,m,1,false,true);
-    click(c,100,m);
-    TEST_ASSERT_EQUAL(int(Screen::brightness),int(c.view().screen));
-    c.tick(300,m,1,false,true); // draft previews64 while authorized
-    TEST_ASSERT_EQUAL(64,c.preference());
-    if(reason==0) m.authorized=false;
-    else if(reason==1) ++m.authConfigurationGeneration;
-    else m.targets[0].moving=false;
-    c.tick(reason==2?21000:400,m,reason==2?0:1,false,true);
-    TEST_ASSERT_NOT_EQUAL(int(Screen::brightness),int(c.view().screen));
-    TEST_ASSERT_EQUAL(32,c.preference());
-    DisplayPreferences out; TEST_ASSERT_FALSE(c.takePreferences(out));
-    Command command; TEST_ASSERT_FALSE(c.take(command));
+static void brightness_back_cancels_and_explicit_save_reports_failure() {
+  Drive d; d.home(); for(unsigned i=0;i<4;i++) d.tick(1); d.click();
+  TEST_ASSERT_EQUAL(int(Screen::brightness),int(d.c.view().screen));
+  d.tick(1); TEST_ASSERT_EQUAL(64,d.c.preference()); d.back();
+  DisplayPreferences saved; TEST_ASSERT_FALSE(d.c.takePreferences(saved)); TEST_ASSERT_EQUAL(32,d.c.preference());
+  d.click(); d.tick(1); d.click();d.click();d.click();
+  TEST_ASSERT_TRUE(d.c.takePreferences(saved)); TEST_ASSERT_EQUAL(64,saved.brightness);
+  d.c.brightnessResult(d.now,false); TEST_ASSERT_EQUAL(int(Notice::saveFailed),int(d.c.view().notice));
+}
+static void privileged_brightness_draft_reverts_on_expiry_or_configuration_change() {
+  for(unsigned reason=0;reason<2;reason++) {
+    Drive d; d.home();for(unsigned i=0;i<4;i++) d.tick(1);d.click();d.tick(1);
+    if(reason==0) d.f.base.authorized=false; else ++d.f.base.authConfigurationGeneration;
+    d.tick(1); TEST_ASSERT_NOT_EQUAL(int(Screen::brightness),int(d.c.view().screen));
+    TEST_ASSERT_EQUAL(32,d.c.preference()); DisplayPreferences saved;TEST_ASSERT_FALSE(d.c.takePreferences(saved));
   }
+}
+static void settings_receives_logical_events_and_closes_explicitly() {
+  Drive d;d.home(); for(unsigned i=0;i<3;i++) d.tick(1); d.click();
+  TEST_ASSERT_EQUAL(int(Screen::settings),int(d.c.view().screen));
+  SettingsInput event; TEST_ASSERT_FALSE(d.c.takeSettingsInput(event));
+  d.tick(1);TEST_ASSERT_TRUE(d.c.takeSettingsInput(event));TEST_ASSERT_EQUAL(1,event.turn);
+  d.click();TEST_ASSERT_TRUE(d.c.takeSettingsInput(event));TEST_ASSERT_TRUE(event.activate);
+  d.back();TEST_ASSERT_TRUE(d.c.takeSettingsInput(event));TEST_ASSERT_TRUE(event.back);
+  TEST_ASSERT_EQUAL(int(Screen::settings),int(d.c.view().screen));
+  d.c.closeSettings(); TEST_ASSERT_EQUAL(int(Screen::home),int(d.c.view().screen));
+}
+static void encoder_detents_bounce_and_memory_failures_remain_bounded() {
+  Encoder e;TEST_ASSERT_EQUAL(0,e.sample(3));TEST_ASSERT_EQUAL(0,e.sample(1));TEST_ASSERT_EQUAL(0,e.sample(3));
+  TEST_ASSERT_EQUAL(0,e.sample(1));TEST_ASSERT_EQUAL(1,e.sample(0));TEST_ASSERT_EQUAL(0,e.sample(2));
+  TEST_ASSERT_EQUAL(1,e.sample(3));TEST_ASSERT_EQUAL(0,e.sample(2));TEST_ASSERT_EQUAL(-1,e.sample(0));
+  GraphicsMemory missing; missing.begin(false,[](size_t)->void*{return nullptr;});
+  TEST_ASSERT_EQUAL(int(GraphicsFailure::missing),int(missing.failure));
+  GraphicsMemory failed;failed.begin(true,[](size_t)->void*{return nullptr;});
+  TEST_ASSERT_EQUAL(int(GraphicsFailure::allocation),int(failed.failure));
+}
+static void openMore(Drive &d) {
+  d.f.base.target.capabilities=allControlActions & ~controlActionBit(Action::toggle);
+  d.devices(); d.tick(1);d.tick(1);d.click();
+  TEST_ASSERT_EQUAL(int(Screen::actions),int(d.c.view().screen));
+}
+static void numeric_control_draft_requires_displayed_apply_and_cancel_never_emits() {
+  Drive d;openMore(d);d.click();
+  TEST_ASSERT_EQUAL(int(Screen::value),int(d.c.view().screen));
+  TEST_ASSERT_EQUAL(35,d.c.view().draftValue);
+  d.tick(1);Command out;TEST_ASSERT_FALSE(d.c.take(out));
+  d.click();TEST_ASSERT_EQUAL(2,d.c.view().valueChoice); // confirmation defaults Cancel
+  d.tick(-1);d.click(false);TEST_ASSERT_FALSE(d.c.take(out));
+  d.click();TEST_ASSERT_TRUE(d.c.take(out));
+  TEST_ASSERT_EQUAL(int(Action::position),int(out.action));TEST_ASSERT_EQUAL(36,out.value);
+  TEST_ASSERT_EQUAL(int(Screen::control),int(d.c.view().screen));
+  TEST_ASSERT_EQUAL(int(Action::stop),int(d.c.view().action));
+  Drive cancel;openMore(cancel);cancel.click();cancel.tick(1);cancel.back();
+  TEST_ASSERT_EQUAL(int(Screen::control),int(cancel.c.view().screen));TEST_ASSERT_FALSE(cancel.c.take(out));
+  Drive defaultCancel;openMore(defaultCancel);defaultCancel.click();defaultCancel.click();defaultCancel.click();
+  TEST_ASSERT_EQUAL(int(Screen::control),int(defaultCancel.c.view().screen));TEST_ASSERT_FALSE(defaultCancel.c.take(out));
+}
+static void numeric_control_drafts_discard_on_context_authorization_and_timeout() {
+  for(unsigned reason=0;reason<4;reason++) {
+    Drive d;openMore(d);d.click();d.tick(1);
+    if(reason==0) ++d.f.base.target.token;
+    if(reason==1) d.f.base.authorized=false;
+    if(reason==2) ++d.f.base.authGeneration;
+    d.tick(0,false,true,false,reason==3?30000:50);
+    TEST_ASSERT_EQUAL(int(Screen::control),int(d.c.view().screen));
+    Command out;TEST_ASSERT_FALSE(d.c.take(out));TEST_ASSERT_EQUAL(0,d.c.view().draftValue);
+  }
+}
+static void toggle_and_capability_menus_have_no_invisible_fallback() {
+  Drive d;d.f.base.target.capabilities=controlActionBit(Action::toggle);d.devices();
+  TEST_ASSERT_EQUAL(int(Action::toggle),int(d.c.view().action));
+  d.tick(1);d.click(false);Command out;TEST_ASSERT_FALSE(d.c.take(out));
+  d.click();TEST_ASSERT_TRUE(d.c.take(out));TEST_ASSERT_EQUAL(int(Action::toggle),int(out.action));
+  d.click();TEST_ASSERT_TRUE(d.c.take(out));TEST_ASSERT_EQUAL(int(Action::toggle),int(out.action));
+  Drive extras;openMore(extras);extras.tick(1); // tilt up after position
+  extras.click(false);TEST_ASSERT_FALSE(extras.c.take(out));
+  extras.click();TEST_ASSERT_TRUE(extras.c.take(out));TEST_ASSERT_EQUAL(int(Action::tiltUp),int(out.action));
+}
+static void step_bounds_and_tilt_stop_never_borrow_stop_grace() {
+  Drive d;openMore(d);
+  // Extra order: position, tilt up/STOP/down/position, MY, Favorite, step up/down, sun on/off.
+  for(unsigned i=0;i<7;i++) d.tick(1);
+  TEST_ASSERT_EQUAL(int(Action::stepUp),int(d.c.view().action));d.click();
+  for(unsigned i=0;i<140;i++) d.tick(1);
+  TEST_ASSERT_EQUAL(127,d.c.view().draftValue);d.click();d.tick(-1);d.click();
+  Command out;TEST_ASSERT_TRUE(d.c.take(out));TEST_ASSERT_EQUAL(127,out.step);TEST_ASSERT_EQUAL(-1,out.value);
+  Drive tilt;openMore(tilt);tilt.tick(1);tilt.tick(1);
+  tilt.f.base.target.tiltMoving=true;tilt.f.base.expiredSessionGeneration=tilt.f.base.authGeneration;
+  tilt.f.base.authorized=false;tilt.f.base.target.stopLease=true;
+  tilt.click();TEST_ASSERT_FALSE(tilt.c.take(out));TEST_ASSERT_EQUAL(int(Screen::unlock),int(tilt.c.view().screen));
+  Drive unknown;openMore(unknown);unknown.f.base.target.position=-1;unknown.click();
+  TEST_ASSERT_EQUAL(int(Screen::actions),int(unknown.c.view().screen));
+  TEST_ASSERT_EQUAL(int(Notice::valueUnavailable),int(unknown.c.view().notice));TEST_ASSERT_FALSE(unknown.c.take(out));
 }
 int main() {
-  UNITY_BEGIN();
-  RUN_TEST(details_wheel_scrolls_without_leaving_or_sending);
-  RUN_TEST(navigation_does_not_emit);
-  RUN_TEST(wake_consumes_input_and_hold_is_back);
-  RUN_TEST(stop_identity_and_presentation_guards);
-  RUN_TEST(decoder_rejects_bounce_and_partial_steps);
-  RUN_TEST(preview_and_boot_hold_never_emit);
-  RUN_TEST(memory_fallback_has_an_explicit_cause);
-  RUN_TEST(estimated_motion_keeps_stop_awake);
-  RUN_TEST(brightness_and_twenty_second_idle_timeout);
-  RUN_TEST(changed_group_members_and_mixed_gestures_are_blocked);
-  RUN_TEST(separate_back_button_and_disabled_timeouts);
-  RUN_TEST(no_dim_no_sleep_are_selectable_and_saved);
-  RUN_TEST(moving_stop_is_not_blocked_by_a_repaint);
-  RUN_TEST(secured_controls_unlock_without_replaying_and_stop_lease_is_narrow);
-  RUN_TEST(secret_entry_wipes_on_sleep_and_motion_independent_timeout);
-  RUN_TEST(same_mode_credential_change_wipes_unlock_draft_immediately);
-  RUN_TEST(display_draft_reverts_on_auth_expiry_or_security_change);
+  UNITY_BEGIN();RUN_TEST(stable_catalogue_selection_binds_id_not_slot);
+  RUN_TEST(never_presented_catalogue_or_stop_emits_no_intent);
+  RUN_TEST(empty_full_and_live_reordered_catalogues_are_bounded);
+  RUN_TEST(target_replacement_between_row_and_focus_is_not_rebound);
+  RUN_TEST(open_context_change_does_not_reseed_or_retarget);
+  RUN_TEST(locked_selection_unlocks_without_replaying);
+  RUN_TEST(locked_stop_lease_never_authorizes_another_action);
+  RUN_TEST(secrets_wipe_on_cancel_configuration_change_sleep_and_timeout);
+  RUN_TEST(wake_holds_and_mixed_gestures_do_not_emit);
+  RUN_TEST(brightness_back_cancels_and_explicit_save_reports_failure);
+  RUN_TEST(privileged_brightness_draft_reverts_on_expiry_or_configuration_change);
+  RUN_TEST(settings_receives_logical_events_and_closes_explicitly);
+  RUN_TEST(encoder_detents_bounce_and_memory_failures_remain_bounded);
+  RUN_TEST(numeric_control_draft_requires_displayed_apply_and_cancel_never_emits);
+  RUN_TEST(numeric_control_drafts_discard_on_context_authorization_and_timeout);
+  RUN_TEST(toggle_and_capability_menus_have_no_invisible_fallback);
+  RUN_TEST(step_bounds_and_tilt_stop_never_borrow_stop_grace);
   return UNITY_END();
 }

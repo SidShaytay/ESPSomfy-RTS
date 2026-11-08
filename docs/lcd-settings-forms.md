@@ -1,0 +1,35 @@
+# LCD settings forms
+
+The local settings component covers General, Network, MQTT, Security and Radio. It reads field lists, lengths, ranges and non-contiguous choices from the same tables as socket settings validation. Ethernet fields appear only on Ethernet-capable builds. The shared board's fixed radio GPIOs and its WiFi-only connection setting are shown read-only.
+
+This document describes the `LocalUi::Settings::Form` component. The parent LCD controller, runtime backend and renderer connect it to the device screen; component tests run offline with a fake backend. It does not provide scans, restart, entity administration or an updater.
+
+## Editing and saving
+
+Turn to select a section or field, then press to edit. Rotation changes the draft only. For numeric values, press to open the actions menu: **Edit value**, **Step** and **Apply to draft**. Step cycles through powers of ten within the field's range, allowing large values such as an MQTT port to be reached quickly. Numbers stop at their shared bounds. Unsupported stored choices and out-of-range or nonfinite numbers remain unchanged and refuse editor entry with Invalid; opening a field never silently substitutes a supported value. Frequency retains three decimal places; the other fractional radio values retain two.
+
+For text, turn to select a character, press to append it, or choose Delete byte, Exact byte, Apply to draft or Cancel edit. Exact byte accepts nonzero bytes for values that cannot be entered with the ASCII picker. The screen shows the end of long drafts, an ellipsis when the beginning is clipped, and the current/maximum byte count. The renderer handles unsupported glyphs separately from the stored bytes.
+
+**Apply to draft** validates the changed fields with the shared settings validator. It does not persist anything. Select **Save** at the end of the field list to persist. Network, MQTT, Security and Radio show a consequence-specific confirmation with Cancel selected initially. General settings save directly after this explicit Save action.
+
+Back inside an editor discards that field's current edit and returns to the field list. Previously applied field drafts remain. Back from a confirmation returns to the field list. Back from a section or field list, or selecting Cancel, closes the form and discards all drafts.
+
+## Passwords and PINs
+
+Stored WiFi passwords, MQTT passwords, security passwords and PINs are never read into the form. The list shows Set or Unset. Keep removes any pending replacement; Replace starts with an empty, masked editor. Replacement text stays masked, including in long-text previews. A nonempty draft appears as Replace pending.
+
+Blank is shown as `Blank (retain*)` because it follows the existing shared save behavior: blank usually retains the saved secret. Changing a WiFi name or MQTT username can clear its saved secret when the submitted password is blank. There is no separate clear-secret flag. Review related identity fields before saving.
+
+Enabling or changing active PIN authentication requires an effective four-byte PIN. Password authentication requires an effective nonempty username and password. These are the browser's byte/whitespace rules; spaces are not trimmed. Unchanged legacy credentials are preserved. Invalid changes are refused before any persistence or runtime effects.
+
+## Failure and session changes
+
+A failed save retains the draft for an explicit retry or Cancel. A partial save also retains it and reports that durable settings may be partly changed while running settings stay unchanged. Retry before restarting. There is no transaction rollback: a later reboot can load partially saved values. Failed and partial results do not reconnect, reboot or complete security-session changes.
+
+The form closes and erases its drafts on authorization-history changes, a changed section revision, cancellation, timeout or allocation failure. The form inactivity limit is 120 seconds; an active value editor also has its existing 30-second inactivity limit. The backend checks authorization and section history again immediately before the shared device apply operation. A successful save closes the form; the shared operation owns notifications, session revocation and any required restart.
+
+## Memory and integration contract
+
+The form owns one changed-only short-key JSON document. Unmodified values are read into one bounded temporary value at a time. Shared validation uses a transient expanded request document under the same injected allocator budget. Firmware supplies PSRAM-only bounded, wiping storage; the allocator must outlive the form and both documents. Admission failure closes the form without a save. Form state is bounded to 1 KiB, and the renderer receives a separate three-row `FormView` containing no raw secrets. Every form frame is protected from public screen capture.
+
+The parent supplies logical turn/activate/Back/tick events after wake suppression and debounce. The component does not poll GPIOs, run HTTP/socket loopback, issue RF commands or access Home Assistant. All runtime reads, checks and saves belong to the device loop.

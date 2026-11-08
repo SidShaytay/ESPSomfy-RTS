@@ -154,7 +154,7 @@ static void editor_backspace_clears_tail_and_excludes_nul() {
 static void stop_lease_freezes_only_continuing_authorized_motion() {
   StopLease lease;
   StopContext c;
-  c.id=9; c.identity=123; c.members=2; c.memberIds[0]=2; c.memberIds[1]=7;
+  c.sessionGeneration=1; c.id=9; c.identity=123; c.members=2; c.memberIds[0]=2; c.memberIds[1]=7;
   c.memberIdentities[0]=22; c.memberIdentities[1]=77;
   lease.observe(c, 1, true, false);
   lease.observe(c, 3, false, true); // member two began after last authorized sample
@@ -176,7 +176,7 @@ static void stop_lease_freezes_only_continuing_authorized_motion() {
   TEST_ASSERT_EQUAL(0,lease.allowed(c));
 }
 static void stop_lease_rejects_config_target_and_security_changes() {
-  StopContext c; c.id=1; c.identity=20; c.members=1; c.memberIds[0]=1;
+  StopContext c; c.sessionGeneration=1; c.id=1; c.identity=20; c.members=1; c.memberIds[0]=1;
   c.memberIdentities[0]=20;
   for(unsigned which=0;which<5;which++) {
     StopLease lease; lease.observe(c,1,true,false); lease.observe(c,1,false,true);
@@ -240,6 +240,38 @@ static void clock_rollback_inside_session_or_grace_cannot_unlock_or_reset_thrott
   TEST_ASSERT_EQUAL(int(AuthResult::locked),int(auth.unlock(input("","1234"),200003)));
   TEST_ASSERT_EQUAL(30000,auth.retryAfter(200004));
 }
+static void grace_source_is_original_session_and_wrong_unlock_cannot_replace_it() {
+  Authorization auth;auth.configure(AuthMode::pin,"","1234");
+  auth.unlock(input("","1234"),0);const auto original=auth.generation();
+  TEST_ASSERT_EQUAL(0,auth.expiredSessionGeneration());
+  auth.allowed(120000);TEST_ASSERT_EQUAL(original,auth.expiredSessionGeneration());
+  auth.unlock(input("","bad"),120001);
+  TEST_ASSERT_NOT_EQUAL(original,auth.generation());
+  TEST_ASSERT_EQUAL(original,auth.expiredSessionGeneration());
+  auth.allowed(149999);TEST_ASSERT_EQUAL(original,auth.expiredSessionGeneration());
+  auth.allowed(150000);TEST_ASSERT_EQUAL(0,auth.expiredSessionGeneration());
+  auth.unlock(input("","1234"),160000);const auto replacement=auth.generation();
+  TEST_ASSERT_NOT_EQUAL(original,replacement);TEST_ASSERT_EQUAL(0,auth.expiredSessionGeneration());
+  auth.allowed(280000);TEST_ASSERT_EQUAL(replacement,auth.expiredSessionGeneration());
+  auth.lock();TEST_ASSERT_EQUAL(0,auth.expiredSessionGeneration());
+  auth.unlock(input("","1234"),300000);auth.allowed(420000);
+  TEST_ASSERT_NOT_EQUAL(0,auth.expiredSessionGeneration());auth.configurationChanged();
+  TEST_ASSERT_EQUAL(0,auth.expiredSessionGeneration());
+  auth.unlock(input("","1234"),500000);auth.allowed(620000);auth.allowed(619999);
+  TEST_ASSERT_EQUAL(0,auth.expiredSessionGeneration());
+}
+static void old_stop_context_cannot_borrow_an_unobserved_replacement_session() {
+  Authorization auth;auth.configure(AuthMode::pin,"","1234");auth.unlock(input("","1234"),0);
+  StopContext c;c.id=1;c.members=1;c.identity=20;c.memberIds[0]=1;c.memberIdentities[0]=20;
+  c.sessionGeneration=auth.generation();StopLease lease;lease.observe(c,1,true,false);
+  auth.allowed(120000);c.sessionGeneration=auth.expiredSessionGeneration();
+  lease.observe(c,1,false,auth.stopGraceAllowed());TEST_ASSERT_EQUAL(1,lease.allowed(c));
+  auth.unlock(input("","1234"),120001); // deliberately no lease observation of new active session
+  auth.allowed(240001);c.sessionGeneration=auth.expiredSessionGeneration();
+  lease.observe(c,1,false,auth.stopGraceAllowed());TEST_ASSERT_EQUAL(0,lease.allowed(c));
+  c.sessionGeneration=0;lease.observe(c,1,true,false);lease.observe(c,1,false,true);
+  TEST_ASSERT_EQUAL(0,lease.allowed(c)); // absent old aggregate source fails closed
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(configured_mode_and_exact_credentials);
@@ -255,5 +287,7 @@ int main() {
   RUN_TEST(stop_grace_ends_thirty_seconds_after_original_expiry);
   RUN_TEST(delayed_poll_and_backward_clock_cannot_start_or_extend_stop_grace);
   RUN_TEST(clock_rollback_inside_session_or_grace_cannot_unlock_or_reset_throttle);
+  RUN_TEST(grace_source_is_original_session_and_wrong_unlock_cannot_replace_it);
+  RUN_TEST(old_stop_context_cannot_borrow_an_unobserved_replacement_session);
   return UNITY_END();
 }

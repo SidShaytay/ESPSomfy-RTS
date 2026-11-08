@@ -1,5 +1,6 @@
 #if defined(ESPSOMFY_LOCAL_UI) || defined(LOCAL_UI_HOST_PREVIEW)
 #include "LocalUiRenderer.h"
+#include "LocalText.h"
 #include <Fonts/FreeSans9pt7b.h>
 #include <Fonts/FreeSansBold12pt7b.h>
 #include <stdio.h>
@@ -19,7 +20,9 @@ const char *notices[] = {"",
                          "Display settings saved",
                          "Display settings save failed",
                          "Unlock required", "Invalid credentials", "Too many attempts - wait",
-                         "Local unlock unavailable", "Unlocked - select action again"};
+                         "Local unlock unavailable", "Unlocked - select action again",
+                         "Command accepted", "Partially accepted - review",
+                         "Busy - retry", "Pending action cancelled", "Estimate unavailable - no draft"};
 } // namespace
 void Canvas::drawPixel(int16_t x, int16_t y, uint16_t color) {
   if(pixels && x >= 0 && x < screenWidth && y >= 0 && y < screenHeight)
@@ -43,7 +46,7 @@ void Canvas::fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color
 }
 void Canvas::text(int x, int y, const char *s, bool title, uint16_t color, int maxWidth) {
   char label[48];
-  snprintf(label, sizeof(label), "%.47s", s);
+  lcdLabel(s,label,sizeof(label));
   setFont(title ? &FreeSansBold12pt7b : &FreeSans9pt7b);
   setTextSize(1);
   setTextColor(color);
@@ -138,7 +141,7 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
     return;
   }
   if(v.screen == Screen::status) {
-    text(12, 29, "Shutters", true, white);
+    text(12, 29, "Controller", true, white);
     drawFastHLine(12, 40, 296, line);
     // Simple radio aerial and Wi-Fi bars; no unsupported battery/USB glyph.
     drawLine(22, 57, 22, 77, teal);
@@ -174,32 +177,43 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
       snprintf(label, sizeof(label), "Battery %u%%", unsigned(s.battery.percent));
       text(194, 146, label, false, s.battery.percent <= 15 ? amber : muted, 114);
     }
-    text(12, 164, "Turn: choose   Hold: details", false, muted);
-  } else if(v.screen == Screen::choose) {
-    text(12, 28, "Choose shutters", true, white);
-    const int first = v.selected >= 3 ? v.selected - 2 : 0;
-    for(int row = 0; row < 3; row++) {
-      int i = first + row, y = 40 + row * 34;
-      bool active = i == v.selected;
-      fillRoundRect(10, y, 300, 30, 5, active ? selected : bg);
-      drawRoundRect(10, y, 300, 30, 5, active ? teal : line);
-      if(active)
-        fillRoundRect(10, y, 4, 30, 2, teal);
-      if(i < 3) {
-        const auto &t = m.targets[i];
-        uint16_t color = i == 2 ? amber : muted;
-        drawRect(21, y + 7, 14, 16, color);
-        for(int yy = 11; yy < 22; yy += 4)
-          drawFastHLine(24, y + yy, 8, color);
-        if(i == 2)
-          drawRect(38, y + 7, 14, 16, amber);
-        text(i == 2 ? 62 : 48, y + 21, t.name[0] ? t.name : "Not configured", false, t.valid ? white : muted,
-             i == 2 ? 236 : 250);
-      } else
-        text(48, y + 21, i == 3 ? "Status" : "Display settings", false, white);
+    text(12, 164, "Turn: Home   Hold: details", false, muted);
+  } else if(v.screen==Screen::home || v.screen==Screen::roomKinds || v.screen==Screen::catalogue || v.screen==Screen::settings) {
+    const char *home[]={"Rooms","Devices","Groups","Settings","Display settings","Status"};
+    const bool list=v.screen==Screen::catalogue;
+    const bool roomKinds=v.screen==Screen::roomKinds;
+    const bool settings=v.screen==Screen::settings;
+    const unsigned count=list?m.page.total:roomKinds?2:settings?1:homeRows;
+    const unsigned cursor=list?m.page.cursor:v.selected<count?v.selected:0;
+    const unsigned offset=list?m.page.offset:cursor/catalogueRows*catalogueRows;
+    const char *title=v.screen==Screen::home?"Home":roomKinds?v.roomName:settings?"Settings":
+      v.catalogue==CatalogueKind::rooms?"Rooms":v.catalogue==CatalogueKind::groups?"Groups":"Devices";
+    text(12,28,title,true,white,230);
+    snprintf(label,sizeof(label),"%u/%u",count?cursor+1:0,count);text(250,27,label,false,muted,58);
+    if(list && (!m.pageValid || !count)) text(12,79,m.pageValid?"Nothing configured":"List changed - go Back",false,amber);
+    for(unsigned row=0;row<catalogueRows && offset+row<count;row++) {
+      const unsigned index=offset+row;
+      if(list && row>=m.page.count) break;
+      const int y=40+row*34;
+      const bool active=index==cursor;
+      fillRoundRect(10,y,300,30,5,active?selected:bg);
+      drawRoundRect(10,y,300,30,5,active?teal:line);
+      if(list) {
+        const auto &entry=m.page.rows[row];
+        if(v.catalogue==CatalogueKind::rooms && (entry.id==0 || entry.id==allRooms))
+          snprintf(label,sizeof(label),"%s",entry.name);
+        else snprintf(label,sizeof(label),"#%u %s",unsigned(entry.id),entry.name);
+        text(18,y+21,label,false,entry.available || v.catalogue==CatalogueKind::rooms?white:muted,210);
+        if(v.catalogue==CatalogueKind::devices) {
+          if(!entry.available) snprintf(label,sizeof(label),"Setup");
+          else if(entry.position<0) snprintf(label,sizeof(label),"--");
+          else snprintf(label,sizeof(label),"%d%%",entry.position);
+          text(245,y+21,label,false,entry.moving?amber:muted,60);
+        } else if(v.catalogue==CatalogueKind::groups) text(247,y+21,"Group",false,muted,59);
+      } else text(22,y+21,settings?"Settings unavailable":roomKinds?(index?"Groups":"Devices"):home[index],false,white,280);
     }
-    text(12, 164, v.notice == Notice::none ? "Turn: select   Press: open" : notices[int(v.notice)], false,
-         v.notice == Notice::none ? muted : teal);
+    const char *footer=v.notice!=Notice::none?notices[int(v.notice)]:list?"Press: open   Estimates only":"Turn: select   Press: open";
+    text(12,164,footer,false,v.notice==Notice::none?muted:amber);
   } else if(v.screen == Screen::brightness) {
     text(12, 28, "Display settings", true, white);
     const char *labels[] = {"Brightness", "Dim after", "Sleep after"};
@@ -220,53 +234,77 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
       }
       text(216, y + 21, label, false, active ? teal : muted, 86);
     }
-    text(12, 164, v.setting == 2 ? "Press: save   Back: save" : "Press: next   Back: save", false, muted);
+    text(12, 164, v.setting == 2 ? "Press: save   Back: cancel" : "Press: next   Back: cancel", false, muted);
+  } else if(v.screen==Screen::actions) {
+    snprintf(label,sizeof(label),"#%s%u %s",v.entity.kind==EntityKind::group?"G":"",unsigned(v.entity.id),m.target.name);
+    text(12,28,label,true,white);
+    snprintf(label,sizeof(label),"Actions %u/%u",unsigned(v.selected+1),unsigned(controlMenu(m.target.capabilities,false).count));
+    text(12,52,label,false,muted);
+    const auto menu=controlMenu(m.target.capabilities,false);
+    const unsigned offset=v.selected<3?0:v.selected-2;
+    for(unsigned row=0;row<3 && row+offset<menu.count;row++) {
+      const unsigned index=offset+row;const bool active=index==v.selected;
+      const auto action=menu.actions[index];const int y=62+row*29;
+      fillRoundRect(10,y,300,26,4,active?selected:bg);
+      text(18,y+20,controlLabel(action),false,active?teal:white,218);
+      if(action==Action::position || action==Action::tiltPosition) {
+        const int value=action==Action::position?m.target.position:m.target.tiltPosition;
+        if(value>=0) {snprintf(label,sizeof(label),"%d%%",value);text(258,y+20,label,false,muted,48);}
+      }
+    }
+    if(v.notice!=Notice::none) text(12,164,notices[int(v.notice)],false,amber);
+    else text(12,164,"Turn: choose   Back: STOP page",false,muted);
+  } else if(v.screen==Screen::value) {
+    snprintf(label,sizeof(label),"#%s%u %s",v.entity.kind==EntityKind::group?"G":"",unsigned(v.entity.id),m.target.name);
+    text(12,28,label,true,white);text(12,52,controlLabel(v.action),false,muted);
+    fillRoundRect(10,64,300,42,5,v.valueChoice?bg:selected);
+    snprintf(label,sizeof(label),controlIsStep(v.action)?"%d steps":"%d%%",int(v.draftValue));
+    text(22,94,label,true,white);
+    if(v.valueChoice) {
+      const char *choices[]={"Apply","Cancel"};
+      for(unsigned i=0;i<2;i++) {
+        const int x=12+i*152;const bool active=v.valueChoice==i+1;
+        fillRoundRect(x,114,144,30,4,active?selected:bg);
+        drawRoundRect(x,114,144,30,4,active?teal:line);
+        text(x+35,136,choices[i],false,active?teal:white,108);
+      }
+    } else text(12,135,"Turn: adjust   Push: review",false,teal);
+    text(12,164,v.notice!=Notice::none?notices[int(v.notice)]:"Back: cancel   Apply sends",false,v.notice!=Notice::none?amber:muted);
   } else {
-    const auto &t = m.targets[v.selected];
-    text(12, 28, t.name[0] ? t.name : "Not configured", true, white);
-    if(v.selected == 2) {
-      for(int i = 0; i < 2; i++) {
-        text(12, 52 + i * 21, m.targets[i].name[0] ? m.targets[i].name : "Not configured", false, muted, 145);
-        if(t.open[i] < 0)
-          snprintf(label, sizeof(label), "--");
-        else
-          snprintf(label, sizeof(label), "%d%%", t.open[i]);
-        text(168, 52 + i * 21, label, false, white, 52);
+    const auto &t=m.target;
+    snprintf(label,sizeof(label),"#%s%u %s",v.entity.kind==EntityKind::group?"G":"",unsigned(v.entity.id),t.exists?t.name:"Not configured");
+    text(12,28,label,true,white);
+    static const char *types[]={"Roller","Blind","Left curtain","Awning","Shutter","One-button garage","Garage",
+      "Right curtain","Centre curtain","Dry contact","Two-button contact","Left gate","Centre gate","Right gate",
+      "One-button left gate","One-button centre gate","One-button right gate"};
+    if(v.entity.kind==EntityKind::group) snprintf(label,sizeof(label),"Group: %u members, %u moving",unsigned(t.descriptor.memberCount),unsigned(t.movingCount));
+    else snprintf(label,sizeof(label),"%s | %s %ubit",uint8_t(t.descriptor.shadeType)<17?types[uint8_t(t.descriptor.shadeType)]:"Unknown type",
+      t.descriptor.proto==radio_proto::RTS?"RTS":t.descriptor.proto==radio_proto::RTW?"RTW":t.descriptor.proto==radio_proto::RTV?"RTV":
+      t.descriptor.proto==radio_proto::GP_Relay?"GPIO relay":"GPIO remote",unsigned(t.descriptor.bitLength));
+    text(12,52,label,false,muted);
+    if(!t.exists || !v.openedToken || t.token!=v.openedToken) snprintf(label,sizeof(label),"Target changed - reopen");
+    else if(!t.valid) snprintf(label,sizeof(label),"Unavailable / setup required");
+    else if(v.entity.kind==EntityKind::group) snprintf(label,sizeof(label),"%s",t.moving?"Estimated motion":"Estimated idle");
+    else if(t.position<0) snprintf(label,sizeof(label),"Position estimate unavailable");
+    else snprintf(label,sizeof(label),"Estimated position %d%%",t.position);
+    text(12,74,label,false,t.valid?muted:amber);
+    const auto menu=controlMenu(t.capabilities,true);
+    for(unsigned i=0;i<menu.count;i++) {
+      const int width=(296-int(menu.count-1)*8)/menu.count,x=12+i*(width+8);
+      const auto action=menu.actions[i];const bool active=action==v.action;
+      const bool enabled=t.valid && (action==Action::count || action!=Action::stop || t.moving);
+      fillRoundRect(x,85,width,52,6,active?selected:bg);drawRoundRect(x,85,width,52,6,active?teal:line);
+      const auto color=enabled?white:muted;
+      if(action==Action::stop) drawRect(x+width/2-5,94,10,10,color);
+      else if(action==Action::up || action==Action::down) {
+        const int direction=action==Action::up?-1:1,mid=x+width/2;
+        drawLine(mid-10,99-direction*4,mid,99+direction*4,color);drawLine(mid,99+direction*4,mid+10,99-direction*4,color);
       }
-      text(228, 63, "Estimated", false, amber, 80);
-    } else {
-      shutter(14, 42, t.open[0], teal);
-      if(t.open[0] < 0)
-        snprintf(label, sizeof(label), "Position unavailable");
-      else
-        snprintf(label, sizeof(label), "Estimated %d%% open", t.open[0]);
-      text(56, 64, label, false, muted, 252);
+      text(x+8,127,controlLabel(action),false,color,width-12);
     }
-    const char *actions[] = {"UP", "STOP", "DOWN"};
-    for(int i = 0; i < 3; i++) {
-      int x = 12 + i * 102;
-      bool active = i == int(v.action);
-      bool enabled = t.valid && (i != 1 || t.moving);
-      fillRoundRect(x, 85, 94, 52, 6, active ? selected : bg);
-      drawRoundRect(x, 85, 94, 52, 6, active ? teal : line);
-      uint16_t color = enabled ? white : muted;
-      if(i == 1)
-        drawRect(x + 42, 94, 10, 10, color);
-      else {
-        int dir = i == 0 ? -1 : 1;
-        drawLine(x + 37, 99 - dir * 4, x + 47, 99 + dir * 4, color);
-        drawLine(x + 47, 99 + dir * 4, x + 57, 99 - dir * 4, color);
-      }
-      text(x + (i == 2 ? 19 : i == 1 ? 23 : 32), 127, actions[i], false, color, 90);
-    }
-    if(v.notice != Notice::none)
-      text(12, 163, notices[int(v.notice)], false, amber);
-    else if(!m.controlsEnabled)
-      text(12, 163, "Preview: commands locked", false, amber);
-    else if(!m.authorized)
-      text(12,163,t.stopLease?"STOP only; unlock other actions":"Press: unlock   Back: return",false,amber);
-    else
-      text(12, 163, "Press: send   Back: return", false, muted);
+    if(v.notice!=Notice::none) text(12,163,notices[int(v.notice)],false,amber);
+    else if(!m.authorized) text(12,163,t.stopLease?"STOP only; unlock other actions":"Press: unlock   Back: return",false,amber);
+    else text(12,163,t.pendingRelayTilt?"Separate relay tilt unavailable":"Press: select   Back: return",false,t.pendingRelayTilt?amber:muted);
   }
 }
 } // namespace LocalUi

@@ -39,19 +39,35 @@ bool SomfyShadeOps::sendSensorCommand(uint8_t shadeId, int8_t windy, int8_t sunn
   shade->emitState();
   return sent;
 }
-bool SomfyShadeOps::setMyPosition(uint8_t shadeId, int8_t pos, int8_t tilt) { return somfy.getShadeById(shadeId)->setMyPosition(pos, tilt); }
+bool SomfyShadeOps::setMyPosition(uint8_t shadeId, int8_t pos, int8_t tilt) {
+  const bool accepted = somfy.getShadeById(shadeId)->setMyPosition(pos, tilt);
+  if(accepted) {
+    ++somfy.getShadeById(shadeId)->configurationRevision;
+    ++somfy.configurationRevision;
+  }
+  return accepted;
+}
 void SomfyShadeOps::setPositions(uint8_t shadeId, float pos, float tilt) {
   SomfyShade *shade = somfy.getShadeById(shadeId);
+  ++somfy.configurationRevision;
+  ++shade->configurationRevision;
   shade->setPosition(pos, tilt);
   shade->emitState();
 }
 void SomfyShadeOps::setUnpaired(uint8_t shadeId) {
+  ++somfy.configurationRevision;
   SomfyShade *shade = somfy.getShadeById(shadeId);
   shade->paired = false;
   shade->save();
   shade->configChanged();
 }
-void SomfyShadeOps::setRollingCode(uint8_t shadeId, uint16_t code) { somfy.getShadeById(shadeId)->setRollingCode(code); }
+void SomfyShadeOps::setRollingCode(uint8_t shadeId, uint16_t code) {
+  // Only an explicit correction invalidates intentions; ordinary on-air code
+  // advancement must not revoke a continuing-movement STOP allowance.
+  ++somfy.configurationRevision;
+  ++somfy.getShadeById(shadeId)->configurationRevision;
+  somfy.getShadeById(shadeId)->setRollingCode(code);
+}
 bool SomfyShadeOps::sendGroupCommand(uint8_t groupId, somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
   return somfy.getGroupById(groupId)->sendCommand(cmd, repeat, stepSize);
 }

@@ -7,6 +7,7 @@ static const char *TAG = "Somfy";
 extern SomfyShadeController somfy;
 
 void SomfyGroup::clear() {
+  ++configurationRevision;
   this->setGroupId(255);
   this->setRemoteAddress(0);
   this->repeats = 0;
