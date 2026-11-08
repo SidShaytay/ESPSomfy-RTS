@@ -9,7 +9,7 @@ using nvs_handle_t = uint32_t;
 constexpr esp_err_t ESP_OK = 0, ESP_FAIL = -1, ESP_ERR_NVS_NOT_FOUND = 1, ESP_ERR_NVS_TYPE_MISMATCH = 2;
 constexpr int NVS_READWRITE = 1, NVS_READONLY = 0;
 namespace FakeNvs {
-enum class Type { i8, u8, i16, text, blob };
+enum class Type { i8, u8, i16, text, blob, u16 };
 struct Value { Type type; std::vector<uint8_t> bytes; };
 inline std::map<std::string,Value> values;
 inline std::map<nvs_handle_t,std::string> handles;
@@ -59,6 +59,7 @@ inline esp_err_t nvs_get_##name(nvs_handle_t h,const char *key,type *value) { \
 FAKE_NVS_VALUE(i8,int8_t,i8)
 FAKE_NVS_VALUE(u8,uint8_t,u8)
 FAKE_NVS_VALUE(i16,int16_t,i16)
+FAKE_NVS_VALUE(u16,uint16_t,u16)
 #undef FAKE_NVS_VALUE
 inline esp_err_t nvs_set_str(nvs_handle_t h,const char *key,const char *value) {
   return FakeNvs::set(h,key,FakeNvs::Type::text,value,strlen(value)+1);

@@ -28,6 +28,9 @@ class RadioScheduler {
     uint32_t submit(somfy_tx_job_t &job, bool priority, uint16_t delayMs, uint32_t now);
     // Whether a normal (not priority) job would be taken right now.
     bool hasRoom() const;
+    // Read-only counter-edit admission checks; include taken/on-air work.
+    bool hasPendingFor(uint32_t remoteAddress) const;
+    bool hasRepeaterWork() const;
     // For the radio task: takes the job to send next.  False when there is
     // none due, waitMs then says how long until there is (RADIO_WAIT_FOREVER
     // when nothing waits).  A job taken goes on air through start() and
