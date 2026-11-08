@@ -11,6 +11,7 @@ void tearDown() {}
 
 static JsonDocument payload;
 static JsonDocument doc;
+static proto_error_buffer_t error;
 static settings_section_t section;
 
 static void load(const char *json) {
@@ -19,7 +20,7 @@ static void load(const char *json) {
 }
 static const char *expand(const char *json, bool hasEthernet = true) {
   load(json);
-  return expandSettingsPayload(payload.as<JsonObjectConst>(), hasEthernet, section, doc);
+  return expandSettingsPayload(payload.as<JsonObjectConst>(), hasEthernet, section, doc, error);
 }
 static const char *sectionOf(const char *json) {
   load(json);
@@ -202,8 +203,21 @@ static void test_a_route_name_belongs_to_its_section() {
   TEST_ASSERT_EQUAL_UINT16(bit(settings_part_t::security), parts());
 }
 
+static void test_independent_settings_errors_survive_interleaved_parses() {
+  JsonDocument firstPayload, secondPayload, firstOut, secondOut;
+  proto_error_buffer_t firstBuffer, secondBuffer;
+  settings_section_t firstSection, secondSection;
+  deserializeJson(firstPayload, R"({"se":"general","unknown":1})");
+  deserializeJson(secondPayload, R"({"se":"mqtt","po":0})");
+  const char *firstError = expandSettingsPayload(firstPayload.as<JsonObjectConst>(), true, firstSection, firstOut, firstBuffer);
+  const char *secondError = expandSettingsPayload(secondPayload.as<JsonObjectConst>(), true, secondSection, secondOut, secondBuffer);
+  TEST_ASSERT_EQUAL_STRING("Unknown field unknown", firstError);
+  TEST_ASSERT_EQUAL_STRING("port must be 1-65535", secondError);
+}
+
 int main(int argc, char **argv) {
   UNITY_BEGIN();
+  RUN_TEST(test_independent_settings_errors_survive_interleaved_parses);
   RUN_TEST(test_every_section_by_its_name);
   RUN_TEST(test_a_section_must_be_named);
   RUN_TEST(test_short_keys_become_the_route_names);

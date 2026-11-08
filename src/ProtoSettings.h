@@ -2,7 +2,7 @@
 #define PROTO_SETTINGS_H
 #include <stdint.h>
 #include <ArduinoJson.h>
-#include "ProtoSchema.h"
+#include "ProtoParse.h"
 
 // Socket protocol 2's settings ops (docs/PROTOCOL.md): the sections that
 // getSettings and saveSettings name, and what a save's payload becomes.  A
@@ -41,7 +41,7 @@ const char *parseSettingsSection(JsonObjectConst d, settings_section_t &section)
 // with every op, only what was sent is in it; a field the section doesn't
 // save, such as hasPassword, is refused.  Without hasEthernet the Ethernet
 // fields are refused too.  nullptr when it is good; otherwise what is wrong.
-const char *expandSettingsPayload(JsonObjectConst d, bool hasEthernet, settings_section_t &section, JsonDocument &doc);
+const char *expandSettingsPayload(JsonObjectConst d, bool hasEthernet, settings_section_t &section, JsonDocument &doc, proto_error_buffer_t &why);
 // The parts that a save's request (from expandSettingsPayload) sets, as bits
 // 1 << settings_part_t.  A route name such as hostname means another setting
 // in another section, hence the section.
