@@ -98,7 +98,7 @@ void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
   this->behaviour.onFrame(frame, internal, millis());
 }
 void SomfyShade::processWaitingFrame() { this->behaviour.onWaitingFrame(millis()); }
-void SomfyShade::processInternalCommand(somfy_commands cmd, uint8_t repeat) { this->behaviour.onGroupCommand(cmd, repeat, millis()); }
+void SomfyShade::processInternalCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) { this->behaviour.onGroupCommand(cmd, repeat, millis(), stepSize); }
 void SomfyShade::checkMovement() { this->behaviour.tick(millis()); }
 void SomfyShade::markTxPending(uint32_t ticket) { this->behaviour.onTxQueued(ticket, millis()); }
 void SomfyShade::processTxEvent(const somfy_tx_event_t &evt) { this->behaviour.onTxEvent(evt); }
