@@ -108,18 +108,6 @@ void SomfyShade::processInternalCommand(somfy_commands cmd, uint8_t repeat, uint
 void SomfyShade::checkMovement() { this->behaviour.tick(millis()); }
 void SomfyShade::markTxPending(uint32_t ticket) { this->behaviour.onTxQueued(ticket, millis()); }
 void SomfyShade::processTxEvent(const somfy_tx_event_t &evt) { this->behaviour.onTxEvent(evt); }
-bool SomfyShade::sendCommand(somfy_commands cmd) { return this->sendCommand(cmd, this->repeats); }
-bool SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
-  // This sendCommand function will always be called externally. sendCommand at the remote level
-  // is expected to be called internally when the motor needs commanded.
-  if(this->bitLength == 0) this->bitLength = somfy.transceiver.config.type;
-  return this->behaviour.sendCommand(cmd, repeat, stepSize, millis());
-}
-bool SomfyShade::sendTiltCommand(somfy_commands cmd) { return this->behaviour.sendTiltCommand(cmd, millis()); }
-bool SomfyShade::moveToTarget(float pos, float tilt) { return this->behaviour.moveToTarget(pos, tilt, millis()); }
-bool SomfyShade::moveToTiltTarget(float target) { return this->behaviour.moveToTiltTarget(target, millis()); }
-bool SomfyShade::setMyPosition(int8_t pos, int8_t tilt) { return this->behaviour.setMyPosition(pos, tilt, millis()); }
-bool SomfyShade::moveToMyPosition() { return this->behaviour.moveToMyPosition(millis()); }
 void SomfyShade::setPosition(float pos, float tilt) { this->behaviour.setPosition(pos, tilt); }
 void SomfyShade::onSaveWanted() { somfy.isDirty = true; }
 void SomfyShade::onSensorFlags() { somfy.updateGroupFlags(); }
