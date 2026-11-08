@@ -110,6 +110,33 @@ static void source_replacement_during_page_copy_fails_closed() {
   TEST_ASSERT_FALSE(cataloguePage(source,CatalogueKind::devices,0,255,page));
   TEST_ASSERT_EQUAL(0,page.count);
 }
+static void selected_stable_id_survives_reorder_and_deletion_clamps_cursor() {
+  Source source;
+  for(uint8_t i=0;i<6;i++) source.entries[i]={uint8_t(i+1),0,int8_t(i),"Name"};
+  CataloguePage page;
+  TEST_ASSERT_TRUE(cataloguePage(source,CatalogueKind::devices,1,allRooms,page,2,true));
+  TEST_ASSERT_EQUAL(1,page.cursor);
+  source.entries[1].sortOrder=10;
+  TEST_ASSERT_TRUE(cataloguePage(source,CatalogueKind::devices,1,allRooms,page,2,true));
+  TEST_ASSERT_EQUAL(5,page.cursor); TEST_ASSERT_EQUAL(3,page.offset);
+  TEST_ASSERT_EQUAL(2,page.rows[2].id);
+  source.entries[1]={};
+  TEST_ASSERT_TRUE(cataloguePage(source,CatalogueKind::devices,5,allRooms,page,2,true));
+  TEST_ASSERT_EQUAL(4,page.cursor); TEST_ASSERT_EQUAL(3,page.offset);
+  TEST_ASSERT_EQUAL(6,page.rows[1].id);
+}
+static void room_pages_include_all_and_unassigned_without_allocating_rooms() {
+  Source source; CataloguePage page;
+  TEST_ASSERT_TRUE(roomCataloguePage(source,0,page));
+  TEST_ASSERT_EQUAL(2,page.total); TEST_ASSERT_EQUAL(2,page.count);
+  TEST_ASSERT_EQUAL(allRooms,page.rows[0].id); TEST_ASSERT_EQUAL(0,page.rows[1].id);
+  for(uint8_t i=0;i<SOMFY_MAX_ROOMS;i++) source.entries[i]={uint8_t(i+1),0,int8_t(i),"Room"};
+  TEST_ASSERT_TRUE(roomCataloguePage(source,255,page));
+  TEST_ASSERT_EQUAL(18,page.total); TEST_ASSERT_EQUAL(17,page.cursor);
+  TEST_ASSERT_EQUAL(15,page.offset); TEST_ASSERT_EQUAL(16,page.rows[2].id);
+  TEST_ASSERT_TRUE(roomCataloguePage(source,0,page,9,true));
+  TEST_ASSERT_EQUAL(10,page.cursor); TEST_ASSERT_EQUAL(9,page.rows[1].id);
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(empty_and_full_pages_are_bounded);
@@ -119,5 +146,7 @@ int main() {
   RUN_TEST(group_and_room_limits_do_not_read_device_capacity);
   RUN_TEST(duplicate_id_in_another_room_is_not_a_valid_target);
   RUN_TEST(source_replacement_during_page_copy_fails_closed);
+  RUN_TEST(selected_stable_id_survives_reorder_and_deletion_clamps_cursor);
+  RUN_TEST(room_pages_include_all_and_unassigned_without_allocating_rooms);
   return UNITY_END();
 }
