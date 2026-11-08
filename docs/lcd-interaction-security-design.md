@@ -291,7 +291,7 @@ Until then record runtime heap/latency acceptance as pending, not passed by a bu
   masked credentials, confirmation defaults, error/queued/partial state and dim/wake.
   Text mockups above alone do not meet the preview acceptance criterion.
 - Existing native, JS, board-profile, status-panel, adapter/runtime/capture/renderer and
-  tooling suites; both canonical firmware builds; generic-board build isolation and
+  tooling suites; the single shared CC1101/Plus full firmware build; generic-board build isolation and
   negative compiler/package contracts. Record ELF/slot size; hardware memory and
   latency evidence stays explicitly pending. Independent review must challenge auth,
   capture races and STOP/MY with fake sinks before feature integration into main.
@@ -301,14 +301,22 @@ Until then record runtime heap/latency acceptance as pending, not passed by a bu
 The isolated authorization slice implements configured None/PIN/password checks for
 local commands and display-setting persistence, a 120-second monotonic inactivity
 session independent of estimated movement, device-wide volatile web-schedule throttling,
-credential-change revocation and exact-byte bounded masked entry. ASCII character input
+revocation on any security setting change (including inactive username/password/PIN)
+and exact-byte bounded masked entry. A private bounded cache compares all configured
+security fields without exposing their bytes or a secret fingerprint to the model. ASCII character input
 and Byte 01–FF input support the existing byte-limited credentials without substituting
 unsupported Unicode. NUL is excluded because configured fields are C strings. PIN is
 at most four bytes; username/password are at most 32 bytes each. User entry drafts wipe
 on submit, cancel, timeout and sleep; configured credential copies wipe before replacement.
+The boot/non-running model fails closed before configured security is loaded.
+Display-setting previews revert and close on authorization expiry, security changes or
+sleep; wheel input cannot continue modifying an unauthorized open draft. Existing
+authorized display-settings Back/save behavior is retained in this slice.
 Web token generation and web login behavior are unchanged.
 
-A single generic 32-member `StopLease` follows the currently focused authorized target.
+A single generic 32-member `StopLease` follows the last actual authorized target.
+Ordinary menu navigation keeps observing that target; selecting another actual target
+changes or revokes scope rather than granting a catalog-wide exception.
 Expiry freezes continuing observed member motion. Another moving, never-focused target
 gets no lease. Observed idle removes eligibility permanently until a new authorized
 session; member/target/RF/security/relevant configuration changes revoke it. All other
@@ -326,7 +334,7 @@ transition; an explicit Lock menu item remains for the later administration navi
 slice rather than being claimed available here. Wrong unlock cannot grant or expand an
 existing timed-out STOP lease.
 
-Offline evidence: 25 focused native auth/editor/controller tests passed; production
+Offline evidence: 27 focused native auth/editor/controller tests passed; production
 adapter fake-sink, credential-adapter, runtime, capture and real GFX renderer harnesses
 passed. Previews include masked PIN/32-byte username/password, byte mode and throttle.
 Visual inspection found a 32-star/count overlap, corrected by a bounded masked text area.
