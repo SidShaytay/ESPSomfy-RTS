@@ -49,6 +49,8 @@ bool SomfyShadeOps::setMyPosition(uint8_t shadeId, int8_t pos, int8_t tilt) {
 }
 void SomfyShadeOps::setPositions(uint8_t shadeId, float pos, float tilt) {
   SomfyShade *shade = somfy.getShadeById(shadeId);
+  ++somfy.configurationRevision;
+  ++shade->configurationRevision;
   shade->setPosition(pos, tilt);
   shade->emitState();
 }
