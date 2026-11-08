@@ -130,3 +130,13 @@ boundaries, rollback, idle while waiting behind another head, GPIO off-radio
 markers, 32-member shared/mixed groups and partial refusal. Runtime/renderer tests
 also exercise actual queued UI actions, protected screens and unchanged numeric
 Apply attestation. Validation remains offline; hardware/HA stages are separate.
+
+
+The final combined queue checkpoint includes reviewed main through `5a05509`.
+All 844 native cases pass with one optional private-fixture skip, and the production
+renderer/runtime/capture/adapter/auth/real-queue harnesses pass together with the
+standalone Settings flow. Shared CC1101 and generic ESP32 SDK builds pass. The
+shared build reports 112,780 bytes static RAM and 1,411,994 bytes flash. Host layout
+checks report 64 bytes per queue item, 624 bytes for the single pending slot and 288
+bytes for the snapshot; production compiler bounds remain the portable contract.
+These are compile/host results, with no controller access, RF, HA or installation.

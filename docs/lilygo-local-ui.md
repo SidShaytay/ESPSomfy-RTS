@@ -43,6 +43,8 @@ This shared settings service is groundwork for issue #25's local administration 
 | Full 320×170 RGB565 framebuffer | Explicit `MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT` | 108,800 bytes | UI lifetime |
 | Optional immutable screenshot | Same explicit PSRAM allocation | 108,866 bytes | One HTTP response; freed on completion/disconnect |
 | Four-scanline SPI bounce buffer | Internal static RAM | 2,560 bytes | UI lifetime |
+| Single pending local command with exact guard | Internal static RAM | At most 704 bytes | Model-loop lifetime |
+| Shared 32-item queue payload (all entry points) | Internal RTOS heap | At most 2,560 bytes plus RTOS bookkeeping | Application lifetime |
 | Simple fallback text canvas | Small heap allocation | 720 bytes | Display lifetime |
 | Fallback/clear pixel scanline | Internal static RAM | 640 bytes | Display lifetime |
 
