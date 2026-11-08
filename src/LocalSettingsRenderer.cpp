@@ -12,6 +12,7 @@ constexpr uint16_t background=rgb(0x111719),foreground=rgb(0xeaece8),muted=rgb(0
 const char *notice(Settings::Notice value) {
   switch(value) {
   case Settings::Notice::saved: return "Settings saved";
+  case Settings::Notice::savedRestartBlocked: return "Saved; restart blocked by uncertain storage.";
   case Settings::Notice::unchanged: return "No changes to save";
   case Settings::Notice::busy: return "Busy - retry Save when actions finish";
   case Settings::Notice::failed: return "Save failed - changes not applied";

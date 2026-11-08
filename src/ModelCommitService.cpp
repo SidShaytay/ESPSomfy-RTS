@@ -18,15 +18,25 @@ bool submitModelCommit(const proto_reply_to_t &to, ModelCommitMode mode) {
   // Only upload recovery bypasses a held RF head. Ordinary retries keep FIFO.
   return loopQueue.submit(item, mode != ModelCommitMode::save);
 }
-void runModelCommit(const loop_item_t &item) {
+ModelCommitReport applyModelCommit(const proto_reply_to_t &to,
+                                   ModelCommitMode mode) {
   ModelCommitReport report{somfy.commit()};
-  const bool requested = item.restartAfterCommit && report.file.saved();
+  const bool requested =
+      mode == ModelCommitMode::applicationRecoveryAndRestart &&
+      report.file.saved();
   report.restartDeferred = requested && loopQueue.pending() != 0;
   report.rebooting = requested && !report.restartDeferred;
-  protoSocket.replyModelCommit(item.replyTo, report);
-  protoSocket.modelPersistence(report, item.replyTo.client);
+  protoSocket.replyModelCommit(to, report);
+  protoSocket.modelPersistence(report, to.client);
   if (report.rebooting) {
     rebootDelay.rebootTime = millis() + 500;
     rebootDelay.reboot = true;
   }
+  return report;
+}
+void runModelCommit(const loop_item_t &item) {
+  applyModelCommit(item.replyTo,
+                   item.restartAfterCommit
+                       ? ModelCommitMode::applicationRecoveryAndRestart
+                       : ModelCommitMode::save);
 }
