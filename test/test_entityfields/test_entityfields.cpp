@@ -138,8 +138,49 @@ static void gpio_applicability_uses_the_reviewed_physical_protocol_mask() {
   TEST_ASSERT_TRUE(entityFieldActive(*my, radio_proto::GP_Remote));
 }
 
+static void typed_edit_contract_rejects_fixed_destination_overflows() {
+  struct Boundary { proto_field_t field; int64_t valid, invalid; };
+  const Boundary fields[] = {
+    {proto_field_t::roomId, 16, 17},
+    {proto_field_t::remoteAddress, 0xffffff, 0x1000000},
+    {proto_field_t::shadeType, 16, 17},
+    {proto_field_t::tiltType, 4, 5},
+    {proto_field_t::upTime, 4294967295LL, 4294967296LL},
+    {proto_field_t::downTime, 4294967295LL, 4294967296LL},
+    {proto_field_t::tiltTime, 4294967295LL, 4294967296LL},
+    {proto_field_t::stepSize, 65535, 65536},
+    {proto_field_t::repeats, 255, 256},
+    {proto_field_t::gpioUp, 255, 256},
+    {proto_field_t::gpioDown, 255, 256},
+    {proto_field_t::gpioMy, 255, 256},
+    {proto_field_t::proto, 9, 3},
+    {proto_field_t::bitLength, 80, 57}
+  };
+  JsonDocument input, expanded;
+  proto_error_buffer_t why = {};
+  for (const auto &boundary : fields) {
+    input.clear(); input[protoField(proto_field_t::shadeId).key] = 4;
+    input[protoField(boundary.field).key] = boundary.valid;
+    TEST_ASSERT_NULL_MESSAGE(expandEditPayload(model_edit_type_t::save_shade,
+      input.as<JsonObjectConst>(), expanded, why), protoField(boundary.field).name);
+    input[protoField(boundary.field).key] = boundary.invalid;
+    TEST_ASSERT_NOT_NULL_MESSAGE(expandEditPayload(model_edit_type_t::save_shade,
+      input.as<JsonObjectConst>(), expanded, why), protoField(boundary.field).name);
+  }
+  for (const auto order : {-129, 128}) {
+    input.clear(); input[protoField(proto_field_t::roomId).key] = 4;
+    input[protoField(proto_field_t::sortOrder).key] = order;
+    TEST_ASSERT_NOT_NULL(expandEditPayload(model_edit_type_t::save_room,
+      input.as<JsonObjectConst>(), expanded, why));
+  }
+  input.clear(); input[protoField(proto_field_t::groupId).key] = 4;
+  input[protoField(proto_field_t::proto).key] = 8;
+  TEST_ASSERT_NOT_NULL(expandEditPayload(model_edit_type_t::save_group,
+    input.as<JsonObjectConst>(), expanded, why));
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(typed_edit_contract_rejects_fixed_destination_overflows);
   RUN_TEST(gpio_applicability_uses_the_reviewed_physical_protocol_mask);
   RUN_TEST(default_backend_choices_use_operation_specific_values_and_labels);
   RUN_TEST(authoritative_edit_lists_all_have_stable_bounded_field_descriptors);
