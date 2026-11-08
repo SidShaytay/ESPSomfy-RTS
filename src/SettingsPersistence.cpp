@@ -167,3 +167,18 @@ settings_save_result_t transceiver_config_t::savePreservingInit() {
   applyBoardPins();
   return saveRadioSettings(*this,marker!=0);
 }
+
+settings_migration_result_t ConfigSettings::saveLegacyMigration() {
+  settings_migration_result_t out;
+  out.persistence=save();
+  if(!out.saved()) return out; // Never remove a failed migration's source.
+  nvs_handle_t legacy;
+  if(nvs_open("WIFI",NVS_READWRITE,&legacy)!=ESP_OK) return out;
+  const auto hostname=nvs_erase_key(legacy,"hostname");
+  const auto ssdp=nvs_erase_key(legacy,"ssdpBroadcast");
+  const auto committed=nvs_commit(legacy);
+  nvs_close(legacy);
+  out.sourceCleaned=(hostname==ESP_OK || hostname==ESP_ERR_NVS_NOT_FOUND) &&
+    (ssdp==ESP_OK || ssdp==ESP_ERR_NVS_NOT_FOUND) && committed==ESP_OK;
+  return out;
+}

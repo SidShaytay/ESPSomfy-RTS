@@ -180,10 +180,12 @@ bool ConfigSettings::load() {
     pref.begin("WIFI");
     pref.getString("hostname", this->hostname, sizeof(this->hostname));
     this->ssdpBroadcast = pref.getBool("ssdpBroadcast", true);
-    pref.remove("hostname");
-    pref.remove("ssdpBroadcast");
     pref.end();
-    this->save();    
+    const auto migrated=this->saveLegacyMigration();
+    if(!migrated.saved())
+      ESP_LOGW(TAG,"Legacy settings migration was not fully saved; source keys retained");
+    else if(!migrated.sourceCleaned)
+      ESP_LOGW(TAG,"Legacy settings saved; obsolete source cleanup incomplete");
   }
   return true;
 }
