@@ -1,0 +1,142 @@
+#if defined(ESPSOMFY_LOCAL_UI) || defined(LOCAL_UI_HOST_PREVIEW)
+#include "LocalEntityView.h"
+#include "LocalText.h"
+#include "LocalUiRenderer.h"
+#include <stdio.h>
+#include <string.h>
+namespace LocalUi {
+namespace {
+constexpr uint16_t rgb(unsigned c) {
+  return ((c >> 8) & 0xf800) | ((c >> 5) & 0x07e0) | ((c >> 3) & 0x001f);
+}
+constexpr uint16_t background = rgb(0x111719), foreground = rgb(0xeaece8),
+                   muted = rgb(0x929d9b), accent = rgb(0x66c6b5),
+                   warning = rgb(0xe5bc67), selection = rgb(0x21433f),
+                   divider = rgb(0x3a4848);
+const char *notice(EntityAdmin::Notice n) {
+  using EntityAdmin::Notice;
+  switch (n) {
+  case Notice::none:
+    return "";
+  case Notice::saved:
+    return "Model file saved";
+  case Notice::appliedNotSaved:
+    return "Applied; model file not saved";
+  case Notice::uncertain:
+    return "Applied; model file save uncertain";
+  case Notice::invalid:
+    return "Invalid value - original retained";
+  case Notice::changed:
+    return "Configuration changed - reopen form";
+  case Notice::locked:
+    return "Unlock required";
+  case Notice::expired:
+    return "Edit expired - draft discarded";
+  case Notice::noMemory:
+    return "No draft memory - draft discarded";
+  case Notice::unchanged:
+    return "No changes to save";
+  case Notice::failed:
+    return "Edit refused - changes not applied";
+  case Notice::busy:
+    return "Busy - wait and try again";
+  }
+  return "Entity unavailable";
+}
+void lines(Adafruit_GFX &canvas, const char *source, char (&first)[48],
+           char (&second)[48]) {
+  char clean[64];
+  lcdLabel(source, clean, sizeof(clean));
+  size_t count = strlen(clean);
+  if (count > 47)
+    count = 47;
+  int16_t x, y;
+  uint16_t w, h;
+  while (count) {
+    memcpy(first, clean, count);
+    first[count] = 0;
+    canvas.getTextBounds(first, 0, 0, &x, &y, &w, &h);
+    if (w <= 296)
+      break;
+    --count;
+  }
+  if (clean[count]) {
+    size_t word = count;
+    while (word && clean[word] != ' ')
+      --word;
+    if (word)
+      count = word;
+  }
+  memcpy(first, clean, count);
+  first[count] = 0;
+  const char *rest = clean + count;
+  while (*rest == ' ')
+    ++rest;
+  snprintf(second, sizeof(second), "%s", rest);
+}
+} // namespace
+void Canvas::paintEntity(const EntityAdmin::FormView &view) {
+  using EntityAdmin::Mode;
+  using EntityAdmin::Notice;
+  fillScreen(background);
+  text(12, 24, view.title[0] ? view.title : "Entity administration", true,
+       accent, 296);
+  drawFastHLine(12, 33, 296, divider);
+  if (view.mode == Mode::closed) {
+    char first[48], second[48];
+    lines(*this, notice(view.notice), first, second);
+    text(12, 78, first, false, warning, 296);
+    text(12, 104, second, false, warning, 296);
+    text(12, 161, "Press or Back: return", false, muted, 296);
+    return;
+  }
+  if (view.mode == Mode::result) {
+    text(12, 53, notice(view.notice), false,
+         view.notice == Notice::saved ? accent : warning, 296);
+    char first[48], second[48];
+    lines(*this, view.hint, first, second);
+    text(12, 74, first, false, muted, 296);
+    text(12, 94, second, false, muted, 296);
+    for (uint8_t i = 0; i < view.rowCount && i < 2; i++) {
+      const auto &r = view.rows[i];
+      int top = 104 + i * 31;
+      if (r.selected)
+        fillRoundRect(8, top, 304, 29, 4, selection);
+      text(14, top + 20, r.label, false, foreground, 284);
+    }
+    return;
+  }
+  const bool editor = view.mode == Mode::text || view.mode == Mode::adjust;
+  if (editor) {
+    text(12, 55, view.rows[0].label, false, muted, 296);
+    text(12, 84, view.rows[0].value, false, foreground, 296);
+    text(12, 115, view.rows[1].label, false, muted, 128);
+    text(146, 115, view.rows[1].value, false, accent, 160);
+    text(12, 137, view.rows[2].label, false, muted, 296);
+  } else
+    for (uint8_t i = 0; i < view.rowCount && i < 3; i++) {
+      const auto &r = view.rows[i];
+      int top = 40 + i * 33;
+      if (r.selected)
+        fillRoundRect(8, top - 2, 304, 31, 4, selection);
+      text(14, top + 18, r.label, false, foreground, r.value[0] ? 169 : 284);
+      text(186, top + 18, r.value, false, r.selected ? accent : muted, 113);
+      if (r.dirty)
+        fillCircle(304, top + 13, 2, warning);
+    }
+  if (view.mode == Mode::confirm) {
+    char first[48], second[48];
+    lines(*this, view.hint, first, second);
+    text(12, 126, first, false, warning, 296);
+    text(12, 150, second, false, warning, 296);
+    return;
+  }
+  drawFastHLine(12, 142, 296, divider);
+  text(12, 161,
+       editor                        ? view.hint
+       : view.notice == Notice::none ? view.hint
+                                     : notice(view.notice),
+       false, view.notice == Notice::none ? muted : warning, 296);
+}
+} // namespace LocalUi
+#endif
