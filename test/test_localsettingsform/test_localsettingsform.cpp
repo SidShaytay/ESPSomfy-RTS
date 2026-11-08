@@ -472,7 +472,7 @@ restoring_previous_field_after_rejection_fails_closed_on_admission() {
   TEST_ASSERT_EQUAL(0, backend.saves);
 }
 static void
-invalid_originals_stay_visible_and_cannot_be_applied_as_supported_values() {
+invalid_originals_require_explicit_replacement_before_editing() {
   struct Invalid {
     settings_section_t section;
     uint8_t index;
@@ -507,14 +507,27 @@ invalid_originals_stay_visible_and_cannot_be_applied_as_supported_values() {
           "Invalid (99)",
           form.view().rows[value.index < 3 ? value.index : 2].value);
     form.activate(1);
-    TEST_ASSERT_EQUAL(Mode::fields, form.view().mode);
+    TEST_ASSERT_EQUAL(Mode::replace, form.view().mode);
     TEST_ASSERT_EQUAL(Notice::invalid, form.view().notice);
     TEST_ASSERT_FALSE(form.view().dirty);
-    TEST_ASSERT_EQUAL(value.index, form.view().selected);
-    // Repeated pressing cannot enter an editor or persist a replacement.
+    TEST_ASSERT_EQUAL(0, form.view().selected);
+    TEST_ASSERT_EQUAL_STRING("Cancel", form.view().rows[0].label);
+    TEST_ASSERT_TRUE(form.view().protectedFrame);
+    // Repeated pressing takes the default Cancel, never seeds a replacement.
     form.activate(1);
     TEST_ASSERT_EQUAL(Mode::fields, form.view().mode);
     TEST_ASSERT_EQUAL(Notice::invalid, form.view().notice);
+    TEST_ASSERT_EQUAL(0, mem.active);
+    TEST_ASSERT_EQUAL(0, backend.saves);
+    form.activate(1);
+    form.turn(1, 1);
+    form.activate(1);
+    TEST_ASSERT_EQUAL(Mode::adjust, form.view().mode);
+    TEST_ASSERT_NULL(strstr(form.view().rows[0].value, "Invalid"));
+    TEST_ASSERT_FALSE(form.view().dirty);
+    form.back(1);
+    TEST_ASSERT_EQUAL(Mode::fields, form.view().mode);
+    TEST_ASSERT_FALSE(form.view().dirty);
     TEST_ASSERT_EQUAL(0, mem.active);
     TEST_ASSERT_EQUAL(0, backend.saves);
     TEST_ASSERT_EQUAL(value.integer, backend.overrideInteger);
@@ -525,7 +538,7 @@ invalid_originals_stay_visible_and_cannot_be_applied_as_supported_values() {
   }
 }
 static void
-invalid_original_rejection_keeps_other_changed_fields_and_valid_float_boundaries_editable() {
+invalid_original_replacement_keeps_other_drafts_and_valid_boundaries() {
   Memory mem;
   Fake backend;
   Form form(backend, mem);
@@ -538,9 +551,12 @@ invalid_original_rejection_keeps_other_changed_fields_and_valid_float_boundaries
   backend.overrideInteger = 0;
   turnTo(form, 4);
   form.activate(1);
-  TEST_ASSERT_EQUAL(Mode::fields, form.view().mode);
+  TEST_ASSERT_EQUAL(Mode::replace, form.view().mode);
   TEST_ASSERT_TRUE(form.view().dirty);
   TEST_ASSERT_EQUAL(Notice::invalid, form.view().notice);
+  form.back(1);
+  TEST_ASSERT_EQUAL(Mode::fields, form.view().mode);
+  TEST_ASSERT_TRUE(form.view().dirty);
   form.back(1);
   TEST_ASSERT_EQUAL(0, mem.active);
   backend.overrideField = proto_field_t::rxBandwidth;
@@ -563,7 +579,7 @@ static void unknown_connection_is_labelled_invalid_and_never_retargeted() {
   form.openSection(settings_section_t::network, 0);
   TEST_ASSERT_EQUAL_STRING("Invalid (99)", form.view().rows[0].value);
   form.activate(1);
-  TEST_ASSERT_EQUAL(Mode::fields, form.view().mode);
+  TEST_ASSERT_EQUAL(Mode::replace, form.view().mode);
   TEST_ASSERT_EQUAL(Notice::invalid, form.view().notice);
   TEST_ASSERT_FALSE(form.view().dirty);
   TEST_ASSERT_EQUAL(99, backend.overrideInteger);
@@ -599,6 +615,164 @@ out_of_band_discard_wipes_secret_draft_and_active_editor_even_when_locked() {
   TEST_ASSERT_EQUAL(0, mem.active);
   TEST_ASSERT_EQUAL(0, backend.saves);
 }
+static void wifi_only_connection_repairs_only_explicitly_to_wifi() {
+  for (bool repair : {false, true}) {
+    Memory mem;
+    Fake backend;
+    backend.overrideField = proto_field_t::connMode;
+    backend.overrideInteger = 99;
+    Form form(backend, mem);
+    form.openSection(settings_section_t::network, 0);
+    // An unrelated applied field never implicitly repairs the stored mode.
+    turnTo(form, 3); // roaming
+    form.activate(1);
+    form.turn(1, 1);
+    chooseNumericApply(form);
+    for (unsigned i = 0; i < 3; ++i)
+      form.turn(-1, 1);
+    TEST_ASSERT_FALSE(form.view().rows[0].readOnly);
+    form.activate(1);
+    TEST_ASSERT_EQUAL(Mode::replace, form.view().mode);
+    form.activate(1); // default Cancel
+    TEST_ASSERT_EQUAL_STRING("Invalid (99)", form.view().rows[0].value);
+    TEST_ASSERT_TRUE(form.view().dirty);
+    if (repair) {
+      form.activate(1);
+      form.turn(1, 1);
+      form.activate(1);
+      TEST_ASSERT_EQUAL(Mode::adjust, form.view().mode);
+      for (unsigned i = 0; i < 10; ++i)
+        form.turn(1, 1);
+      TEST_ASSERT_EQUAL_STRING("WiFi", form.view().rows[0].value);
+      form.activate(1);
+      form.turn(1, 1); // choice Apply
+      form.activate(1);
+      TEST_ASSERT_TRUE(form.view().rows[0].readOnly);
+    }
+    TEST_ASSERT_EQUAL(99, backend.overrideInteger);
+    TEST_ASSERT_EQUAL(0, backend.saves);
+    turnTo(form, settingsFieldCount(settings_section_t::network, false));
+    form.activate(1);
+    TEST_ASSERT_EQUAL(Mode::confirm, form.view().mode);
+    form.turn(1, 1);
+    form.activate(1);
+    TEST_ASSERT_EQUAL(1, backend.saves);
+    TEST_ASSERT_TRUE(backend.applied["roaming"].as<bool>());
+    if (repair)
+      TEST_ASSERT_EQUAL(1, backend.applied["connType"].as<int>());
+    else
+      TEST_ASSERT_TRUE(backend.applied["connType"].isNull());
+  }
+}
+static void explicit_replacement_apply_and_save_are_separate_boundaries() {
+  Memory mem;
+  Fake backend;
+  backend.overrideField = proto_field_t::port;
+  backend.overrideInteger = 0;
+  Form form(backend, mem);
+  form.openSection(settings_section_t::mqtt, 0);
+  // Keep an unrelated changed field throughout replacement and cancellation.
+  form.activate(1);
+  form.turn(1, 1);
+  chooseNumericApply(form);
+  turnTo(form, 4);
+  form.activate(1);
+  form.turn(1, 1);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(Mode::adjust, form.view().mode);
+  TEST_ASSERT_EQUAL_STRING("1", form.view().rows[0].value);
+  TEST_ASSERT_EQUAL(0, backend.overrideInteger);
+  TEST_ASSERT_EQUAL(0, backend.saves);
+  form.back(1);
+  TEST_ASSERT_TRUE(form.view().dirty);
+  TEST_ASSERT_EQUAL_STRING("Invalid (0)", form.view().rows[2].value);
+  form.activate(1);
+  form.turn(1, 1);
+  form.activate(1);
+  chooseNumericApply(form);
+  TEST_ASSERT_EQUAL(Mode::fields, form.view().mode);
+  TEST_ASSERT_EQUAL_STRING("1", form.view().rows[2].value);
+  TEST_ASSERT_EQUAL(0, backend.overrideInteger);
+  TEST_ASSERT_EQUAL(0, backend.saves);
+  turnTo(form, settingsFieldCount(settings_section_t::mqtt, false) - 4);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(Mode::confirm, form.view().mode);
+  TEST_ASSERT_EQUAL(0, form.view().selected);
+  TEST_ASSERT_EQUAL(0, backend.saves);
+  form.turn(1, 1);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(1, backend.saves);
+  TEST_ASSERT_EQUAL(1, backend.applied["port"].as<int>());
+  TEST_ASSERT_TRUE(backend.applied["enabled"].as<bool>());
+  TEST_ASSERT_EQUAL(2, backend.applied.size());
+}
+static void replacement_confirmation_is_discarded_on_timeout_auth_or_revision_change() {
+  for (unsigned reason = 0; reason < 3; ++reason) {
+    Memory mem;
+    Fake backend;
+    Form form(backend, mem);
+    form.openSection(settings_section_t::mqtt, 0);
+    form.activate(1);
+    form.turn(1, 1);
+    chooseNumericApply(form);
+    backend.overrideField = proto_field_t::port;
+    backend.overrideInteger = 0;
+    turnTo(form, 4);
+    form.activate(1);
+    TEST_ASSERT_EQUAL(Mode::replace, form.view().mode);
+    TEST_ASSERT_TRUE(mem.active > 0);
+    if (reason == 0)
+      form.tick(120001);
+    else if (reason == 1) {
+      ++backend.auth.configurationGeneration;
+      form.activate(2);
+    } else {
+      backend.revisions.completed(settings_section_t::mqtt);
+      form.activate(2);
+    }
+    TEST_ASSERT_TRUE(form.closed());
+    TEST_ASSERT_EQUAL(reason == 0 ? Notice::expired : reason == 1 ? Notice::locked : Notice::changed,
+                      form.view().notice);
+    TEST_ASSERT_EQUAL(0, mem.active);
+    TEST_ASSERT_EQUAL(0, backend.saves);
+    TEST_ASSERT_FALSE(form.view().dirty);
+  }
+}
+static void invalid_replacement_choices_nonfinite_and_readonly_stay_bounded() {
+  for (bool numeric : {false, true}) {
+    Memory mem;
+    Fake backend;
+    backend.overrideField = numeric ? proto_field_t::frequency : proto_field_t::proto;
+    backend.overrideInteger = 99;
+    backend.overrideNumber = NAN;
+    Form form(backend, mem);
+    form.openSection(settings_section_t::radio, 0);
+    turnTo(form, numeric ? 9 : 1);
+    form.activate(1);
+    form.turn(1, 1);
+    form.activate(1);
+    TEST_ASSERT_EQUAL(Mode::adjust, form.view().mode);
+    TEST_ASSERT_EQUAL_STRING(numeric ? "300.000" : "RTS", form.view().rows[0].value);
+    TEST_ASSERT_FALSE(form.view().dirty);
+    form.tick(30001);
+    TEST_ASSERT_TRUE(form.closed());
+    TEST_ASSERT_EQUAL(Notice::expired, form.view().notice);
+    TEST_ASSERT_EQUAL(0, mem.active);
+    TEST_ASSERT_EQUAL(0, backend.saves);
+  }
+  Memory mem;
+  Fake backend;
+  backend.overrideField = proto_field_t::TXPin;
+  backend.overrideInteger = 999;
+  Form form(backend, mem);
+  form.openSection(settings_section_t::radio, 0);
+  turnTo(form, 3);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(Mode::fields, form.view().mode);
+  TEST_ASSERT_EQUAL(Notice::readOnly, form.view().notice);
+  TEST_ASSERT_FALSE(form.view().dirty);
+  TEST_ASSERT_EQUAL(0, backend.saves);
+}
 static void empty_save_closes_without_storage_or_allocating_a_request() {
   for(uint8_t i=0;i<5;i++) {
     Memory memory;Fake backend;Form form(backend,memory);
@@ -615,6 +789,10 @@ static void empty_save_closes_without_storage_or_allocating_a_request() {
 }
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(wifi_only_connection_repairs_only_explicitly_to_wifi);
+  RUN_TEST(replacement_confirmation_is_discarded_on_timeout_auth_or_revision_change);
+  RUN_TEST(explicit_replacement_apply_and_save_are_separate_boundaries);
+  RUN_TEST(invalid_replacement_choices_nonfinite_and_readonly_stay_bounded);
   RUN_TEST(empty_save_closes_without_storage_or_allocating_a_request);
   RUN_TEST(rotation_and_field_apply_do_not_persist_until_explicit_save);
   RUN_TEST(cancel_auth_revision_and_timeout_close_and_release_drafts);
@@ -636,9 +814,9 @@ int main() {
   RUN_TEST(every_authoritative_section_field_is_reachable_with_board_filter);
   RUN_TEST(editor_timeout_and_auth_history_are_checked_on_input_without_tick);
   RUN_TEST(
-      invalid_originals_stay_visible_and_cannot_be_applied_as_supported_values);
+      invalid_originals_require_explicit_replacement_before_editing);
   RUN_TEST(
-      invalid_original_rejection_keeps_other_changed_fields_and_valid_float_boundaries_editable);
+      invalid_original_replacement_keeps_other_drafts_and_valid_boundaries);
   RUN_TEST(unknown_connection_is_labelled_invalid_and_never_retargeted);
   RUN_TEST(
       out_of_band_discard_wipes_secret_draft_and_active_editor_even_when_locked);

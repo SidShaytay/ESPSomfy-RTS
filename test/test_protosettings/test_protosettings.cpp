@@ -215,8 +215,26 @@ static void test_independent_settings_errors_survive_interleaved_parses() {
   TEST_ASSERT_EQUAL_STRING("port must be 1-65535", secondError);
 }
 
+static void test_connection_choices_match_supported_hardware_before_expansion() {
+  const auto *wifi = settingsFieldAt(settings_section_t::network, 0, false);
+  TEST_ASSERT_EQUAL(proto_field_t::connMode, wifi->field);
+  TEST_ASSERT_EQUAL(1, wifi->lo);
+  TEST_ASSERT_EQUAL(1, wifi->hi);
+  TEST_ASSERT_EQUAL(1, wifi->choiceCount);
+  TEST_ASSERT_EQUAL(1, wifi->choices[0]);
+  TEST_ASSERT_GOOD(expand(R"({"se":"network","cn":1})", false));
+  TEST_ASSERT_NOT_NULL(expand(R"({"se":"network","cn":2})", false));
+  TEST_ASSERT_NOT_NULL(expand(R"({"se":"network","cn":3})", false));
+  TEST_ASSERT_GOOD(expand(R"({"se":"network","cn":2})", true));
+  TEST_ASSERT_GOOD(expand(R"({"se":"network","cn":3})", true));
+  const auto *ethernet = settingsFieldAt(settings_section_t::network, 0, true);
+  TEST_ASSERT_EQUAL(1, ethernet->lo);
+  TEST_ASSERT_EQUAL(3, ethernet->hi);
+}
+
 int main(int argc, char **argv) {
   UNITY_BEGIN();
+  RUN_TEST(test_connection_choices_match_supported_hardware_before_expansion);
   RUN_TEST(test_independent_settings_errors_survive_interleaved_parses);
   RUN_TEST(test_every_section_by_its_name);
   RUN_TEST(test_a_section_must_be_named);

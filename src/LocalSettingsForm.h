@@ -47,11 +47,12 @@ class Form {
   bool guard(uint64_t now);
   void close(Notice notice);
   void render();
-  void beginField(uint64_t now, bool replaceSecret = false);
+  enum class FieldStart : uint8_t { existing, replaceSecret, replaceInvalid };
+  void beginField(uint64_t now, FieldStart start = FieldStart::existing);
   void applyField(uint64_t now);
   void save(uint64_t now);
   bool readValue(const settings_field_t &, settings_value_t &);
-  bool readOnly(const settings_field_t &) const;
+  bool readOnly(const settings_field_t &);
   uint8_t count() const;
   void touch(uint64_t now);
 
