@@ -13,11 +13,11 @@ enum class Type { i8, u8, i16, text, blob };
 struct Value { Type type; std::vector<uint8_t> bytes; };
 inline std::map<std::string,Value> values;
 inline std::map<nvs_handle_t,std::string> handles;
-inline int opens, sets, commits, reads, closes;
+inline int opens, sets, commits, reads, closes, erases;
 inline int failOpen, failSet, failCommit, failRead, corruptRead;
 inline void reset() {
   values.clear(); handles.clear();
-  opens=sets=commits=reads=closes=0;
+  opens=sets=commits=reads=closes=erases=0;
   failOpen=failSet=failCommit=failRead=corruptRead=0;
 }
 inline esp_err_t set(nvs_handle_t h,const char *key,Type type,const void *data,size_t size) {
@@ -71,4 +71,10 @@ inline esp_err_t nvs_set_blob(nvs_handle_t h,const char *key,const void *value,s
 }
 inline esp_err_t nvs_get_blob(nvs_handle_t h,const char *key,void *value,size_t *size) {
   return FakeNvs::get(h,key,FakeNvs::Type::blob,value,size);
+}
+
+inline esp_err_t nvs_erase_key(nvs_handle_t handle,const char *key) {
+  ++FakeNvs::erases;
+  if(!FakeNvs::handles.count(handle)) return ESP_FAIL;
+  return FakeNvs::values.erase(FakeNvs::handles.at(handle)+"/"+key) ? ESP_OK : ESP_ERR_NVS_NOT_FOUND;
 }

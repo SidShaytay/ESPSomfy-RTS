@@ -126,8 +126,55 @@ static void test_partial_write_blocks_restart_until_that_full_namespace_is_verif
   TEST_ASSERT_TRUE(wifi.save().saved());
   TEST_ASSERT_TRUE(settingsDurability().status().restartAllowed());
 }
+static void legacy_migration_preserves_source_on_first_set_and_partial_failures() {
+  for(int failure=0;failure<2;failure++) {
+    FakeNvs::reset();settingsDurability()=SettingsDurability{};
+    nvs_handle_t h;TEST_ASSERT_EQUAL(ESP_OK,nvs_open("WIFI",NVS_READWRITE,&h));
+    TEST_ASSERT_EQUAL(ESP_OK,nvs_set_str(h,"hostname","legacy running"));
+    TEST_ASSERT_EQUAL(ESP_OK,nvs_set_u8(h,"ssdpBroadcast",1));nvs_close(h);
+    const auto source=FakeNvs::values;
+    if(failure==0) FakeNvs::failSet=FakeNvs::sets+1;
+    else FakeNvs::failCommit=FakeNvs::commits+1;
+    ConfigSettings current;strcpy(current.hostname,"legacy running");current.connType=conn_types_t::wifi;
+    const auto result=current.saveLegacyMigration();
+    TEST_ASSERT_FALSE(result.saved());TEST_ASSERT_EQUAL(0,FakeNvs::erases);
+    TEST_ASSERT_TRUE(FakeNvs::values.at("WIFI/hostname").bytes==source.at("WIFI/hostname").bytes);
+    TEST_ASSERT_TRUE(FakeNvs::values.at("WIFI/ssdpBroadcast").bytes==source.at("WIFI/ssdpBroadcast").bytes);
+    TEST_ASSERT_EQUAL(failure==0,settingsDurability().status().restartAllowed());
+  }
+}
+static void legacy_cleanup_follows_verified_cfg_and_preserves_active_wifi_keys() {
+  nvs_handle_t h;TEST_ASSERT_EQUAL(ESP_OK,nvs_open("WIFI",NVS_READWRITE,&h));
+  TEST_ASSERT_EQUAL(ESP_OK,nvs_set_str(h,"hostname","legacy running"));
+  TEST_ASSERT_EQUAL(ESP_OK,nvs_set_u8(h,"ssdpBroadcast",1));
+  TEST_ASSERT_EQUAL(ESP_OK,nvs_set_str(h,"ssid","active network"));nvs_close(h);
+  ConfigSettings current;strcpy(current.hostname,"legacy running");current.connType=conn_types_t::wifi;
+  const auto migrated=current.saveLegacyMigration();
+  TEST_ASSERT_TRUE(migrated.saved());TEST_ASSERT_TRUE(migrated.sourceCleaned);
+  TEST_ASSERT_FALSE(FakeNvs::values.count("WIFI/hostname"));TEST_ASSERT_FALSE(FakeNvs::values.count("WIFI/ssdpBroadcast"));
+  TEST_ASSERT_EQUAL_STRING("active network",reinterpret_cast<const char *>(FakeNvs::values.at("WIFI/ssid").bytes.data()));
+  TEST_ASSERT_EQUAL_STRING("legacy running",reinterpret_cast<const char *>(FakeNvs::values.at("CFG/hostname").bytes.data()));
+  TEST_ASSERT_TRUE(settingsDurability().status().restartAllowed());
+}
+static void optional_legacy_cleanup_failure_does_not_invalidate_verified_cfg() {
+  for(int failure=0;failure<2;failure++) {
+    FakeNvs::reset();settingsDurability()=SettingsDurability{};
+    nvs_handle_t h;TEST_ASSERT_EQUAL(ESP_OK,nvs_open("WIFI",NVS_READWRITE,&h));
+    TEST_ASSERT_EQUAL(ESP_OK,nvs_set_str(h,"hostname","legacy"));nvs_close(h);
+    if(failure==0) FakeNvs::failOpen=FakeNvs::opens+2;
+    else FakeNvs::failCommit=FakeNvs::commits+5;
+    ConfigSettings current;current.connType=conn_types_t::wifi;
+    const auto result=current.saveLegacyMigration();
+    TEST_ASSERT_TRUE(result.saved());TEST_ASSERT_FALSE(result.sourceCleaned);
+    TEST_ASSERT_TRUE(settingsDurability().status().restartAllowed());
+    TEST_ASSERT_TRUE(FakeNvs::values.count("CFG/connType"));
+  }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(optional_legacy_cleanup_failure_does_not_invalidate_verified_cfg);
+  RUN_TEST(legacy_migration_preserves_source_on_first_set_and_partial_failures);
+  RUN_TEST(legacy_cleanup_follows_verified_cfg_and_preserves_active_wifi_keys);
   RUN_TEST(test_partial_write_blocks_restart_until_that_full_namespace_is_verified);
   RUN_TEST(test_open_failure_is_not_saved);
   RUN_TEST(test_first_write_failure_is_not_saved);
