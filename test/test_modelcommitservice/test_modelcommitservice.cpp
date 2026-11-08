@@ -173,8 +173,28 @@ pending_edit_alone_also_prevents_restart_and_no_authority_survives_retry() {
   TEST_ASSERT_FALSE(report.restartDeferred);
   TEST_ASSERT_FALSE(report.rebooting);
 }
+static void local_commit_returns_the_notified_file_result_without_restart() {
+  for (const auto state : {ModelCommitState::saved, ModelCommitState::failed,
+                           ModelCommitState::uncertain}) {
+    events.clear();
+    outcome = {state, ModelCommitStage::verifyRead};
+    const auto actual = applyModelCommit();
+    TEST_ASSERT_EQUAL(state, actual.file.state);
+    TEST_ASSERT_EQUAL(outcome.stage, actual.file.stage);
+    TEST_ASSERT_EQUAL(actual.file.state, report.file.state);
+    TEST_ASSERT_FALSE(actual.rebooting);
+    TEST_ASSERT_FALSE(actual.restartDeferred);
+    TEST_ASSERT_FALSE(rebootDelay.reboot);
+    TEST_ASSERT_EQUAL(3, events.size());
+    TEST_ASSERT_EQUAL_STRING("commit", events[0].c_str());
+    TEST_ASSERT_EQUAL_STRING("reply", events[1].c_str());
+    TEST_ASSERT_EQUAL_STRING("event", events[2].c_str());
+  }
+  TEST_ASSERT_EQUAL(3, commits);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(local_commit_returns_the_notified_file_result_without_restart);
   RUN_TEST(admission_has_no_model_effect_and_commit_item_cannot_use_radio);
   RUN_TEST(
       failed_or_uncertain_commit_never_restarts_and_retry_does_not_keep_restart_authority);
