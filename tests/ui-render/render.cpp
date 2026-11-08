@@ -88,6 +88,17 @@ int main(int argc, char **argv) {
   c.paint(m, v, s);
   save(argv[1], "brightness", buffer);
   v.dimSeconds=v.offSeconds=0;v.setting=2;c.paint(m,v,s);save(argv[1],"no-timeouts",buffer);
+  v.screen=Screen::unlock; v.credentialMaximum=4; v.credentialLength=4;
+  v.credentialChoice=CredentialEditor::doneChoice;
+  c.paint(m,v,s); save(argv[1],"unlock-pin",buffer);
+  auto maskedPin=buffer;
+  v.credentialMaximum=32; v.credentialLength=32; v.credentialUser=true;
+  c.paint(m,v,s); save(argv[1],"unlock-username",buffer);
+  assert(buffer!=maskedPin);
+  v.credentialUser=false; v.credentialByte=true; v.credentialChoice=0xc3;
+  c.paint(m,v,s); save(argv[1],"unlock-byte",buffer);
+  v.retryAfterMs=30000; v.notice=Notice::unlockWait;
+  c.paint(m,v,s); save(argv[1],"unlock-throttled",buffer);
   assert(buffer.front() == 0xdead && buffer.back() == 0xdead);
   puts("Real GFX renderer produced eight 320x170 screens with buffer bounds intact.");
 }

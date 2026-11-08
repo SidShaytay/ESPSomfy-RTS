@@ -21,11 +21,36 @@ void Controller::setPreferences(const DisplayPreferences &p) {
       state.offSeconds = value;
   }
 }
+void Controller::editorView() {
+  state.credentialChoice = editor.selected();
+  state.credentialLength = editor.length();
+  state.credentialMaximum = editor.maximum();
+  state.credentialUser = editor.usernameField();
+  state.credentialByte = editor.byteMode();
+}
+void Controller::unlockResult(uint32_t now, AuthResult result) {
+  editor.cancel();
+  state.action = Action::stop;
+  if(result == AuthResult::unlocked) {
+    state.screen = afterUnlock;
+    state.notice = Notice::unlocked;
+  } else {
+    editor.begin(editorMode);
+    state.notice = result == AuthResult::locked ? Notice::unlockWait :
+                   result == AuthResult::unavailable ? Notice::unlockUnavailable : Notice::unlockWrong;
+  }
+  editorActivity = noticeSince = now;
+  editorView();
+}
 void Controller::goBack() {
   hasCommand = false;
   state.notice = Notice::none;
   state.action = Action::stop;
-  if(state.screen == Screen::brightness) {
+  if(state.screen == Screen::unlock) {
+    editor.cancel();
+    editorView();
+    state.screen = afterUnlock;
+  } else if(state.screen == Screen::brightness) {
     savePending = true;
     state.screen = Screen::choose;
   } else if(state.screen == Screen::control)
@@ -38,7 +63,23 @@ void Controller::touch(uint32_t now) {
   asleep = dimmed = false;
 }
 void Controller::shortPress(uint32_t now, const Model &m, bool visible) {
+  auto beginUnlock = [&](Screen returning) {
+    afterUnlock = returning;
+    editorMode = m.authMode;
+    editor.begin(editorMode);
+    editorActivity = now;
+    state.screen = Screen::unlock;
+    state.action = Action::stop;
+    state.notice = Notice::unlockRequired;
+    editorView();
+  };
   switch(state.screen) {
+  case Screen::unlock: {
+    const auto result = editor.press();
+    if(result == EditorResult::cancelled) state.screen = afterUnlock;
+    editorView();
+    break;
+  }
   case Screen::status:
     state.screen = Screen::choose;
     state.selected = 0;
@@ -56,6 +97,7 @@ void Controller::shortPress(uint32_t now, const Model &m, bool visible) {
     break;
   case Screen::choose:
     if(state.selected == 4) {
+      if(!m.authorized) { beginUnlock(Screen::choose); break; }
       state.screen = Screen::brightness;
       state.setting = 0;
       break;
@@ -67,14 +109,19 @@ void Controller::shortPress(uint32_t now, const Model &m, bool visible) {
     state.screen = Screen::control;
     state.action = Action::stop;
     openedIdentity = m.targets[state.selected].identity;
+    openedConfiguration = m.targets[state.selected].configuration;
     for(int i = 0; i < 2; i++)
       openedMembers[i] = m.targets[state.selected].members[i];
     break;
   case Screen::control: {
     const auto &t = m.targets[state.selected];
-    if(!t.valid || t.identity != openedIdentity || t.members[0] != openedMembers[0] ||
+    if(!t.valid || t.identity != openedIdentity || t.configuration != openedConfiguration || t.members[0] != openedMembers[0] ||
        t.members[1] != openedMembers[1])
       state.notice = Notice::changed;
+    else if(!m.authorized && !(state.action == Action::stop && t.stopLease)) {
+      beginUnlock(Screen::control);
+      break;
+    }
     else if(!visible && state.action != Action::stop)
       state.notice = Notice::wait;
     else if(state.action == Action::stop && !t.moving)
@@ -85,6 +132,8 @@ void Controller::shortPress(uint32_t now, const Model &m, bool visible) {
       state.notice = Notice::refused;
     else {
       pending = {state.selected, state.action, t.identity};
+      pending.authGeneration = m.authGeneration;
+      pending.configuration = t.configuration;
       for(int i = 0; i < 2; i++)
         pending.members[i] = t.members[i];
       hasCommand = true;
@@ -108,6 +157,14 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
     backConsumed = backPressed;
     backSince = now;
   }
+  state.retryAfterMs = m.retryAfterMs;
+  if(state.screen == Screen::unlock &&
+     (m.authMode != editorMode || uint32_t(now - editorActivity) >= 30000)) {
+    goBack();
+    state.notice = Notice::unlockRequired;
+    noticeSince = now;
+    consumed = true;
+  }
   // Stay awake while ANY configured target is estimated moving, even when the
   // user navigates away. A held button never extends this timer by itself.
   bool moving = false;
@@ -130,6 +187,8 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
     if(backStable) {
       const bool waking = asleep || dimmed;
       touch(now);
+      authActivity = true;
+      editorActivity = now;
       if(!backConsumed && !waking)
         goBack();
       backConsumed = true;
@@ -157,6 +216,8 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
       if(asleep || dimmed)
         consumed = true;
       touch(now);
+      authActivity = true;
+      editorActivity = now;
     } else {
       if(!consumed && !held)
         shortPress(now, m, visible);
@@ -174,6 +235,8 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
   if(turn) {
     const bool waking = asleep || dimmed;
     touch(now);
+    authActivity = true;
+    editorActivity = now;
     if(stable || raw) {
       consumed = true;
       return;
@@ -181,7 +244,10 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
     if(waking)
       return;
     state.notice = Notice::none;
-    if(state.screen == Screen::details) {
+    if(state.screen == Screen::unlock) {
+      editor.turn(turn);
+      editorView();
+    } else if(state.screen == Screen::details) {
       int offset = int(state.detailsOffset) + (turn > 0 ? 1 : -1);
       const int last = detailsRowCount - detailsVisibleRows;
       state.detailsOffset = offset < 0 ? 0 : offset > last ? last : offset;
@@ -212,6 +278,7 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
   }
   // Inactivity returns to status but never navigates away during estimated motion.
   if(!moving && uint32_t(now - activity) >= (state.offSeconds ? uint32_t(state.offSeconds) * 1000 : 30000)) {
+    if(state.screen == Screen::unlock) { editor.cancel(); editorView(); }
     state.screen = Screen::status;
     state.action = Action::stop;
   }

@@ -7,3 +7,7 @@ trap 'rm -rf -- "$scratch"' EXIT
   -I"$repo/tests/ui-adapter" -I"$repo/test/stubs" -I"$repo/src" \
   "$repo/tests/ui-adapter/adapter-test.cpp" -o "$scratch/adapter"
 "$scratch/adapter"
+"${CXX:-c++}" -std=c++17 -O2 -DESPSOMFY_LOCAL_UI \
+  -I"$repo/tests/ui-adapter" -I"$repo/test/stubs" -I"$repo/src" \
+  "$repo/tests/ui-adapter/authorization-test.cpp" -o "$scratch/authorization"
+"$scratch/authorization"
