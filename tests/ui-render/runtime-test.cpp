@@ -7,8 +7,33 @@
 #include <vector>
 #include <string.h>
 #include <stdio.h>
+#include <map>
+#include "DeviceOps.h"
 bool hasPsram=true,allocateOK=true;
 void *allocated=nullptr;
+bool settingsAllocateOK=true;
+std::map<void *,size_t> settingsAllocations;
+uint64_t authTestNow=0;
+static unsigned settingsSaves=0;
+static uint64_t settingsRevision=1;
+uint64_t deviceSettingsRevision(settings_section_t section) {return uint8_t(section)<5?settingsRevision:0;}
+bool readDeviceSettings(settings_section_t section,SettingsSnapshotSink &sink) {
+  for(uint8_t i=0;i<settingsFieldCount(section,false);i++) {
+    const auto &field=*settingsFieldAt(section,i,false);
+    settings_value_t value;value.kind=field.schema().kind;
+    value.integer=field.lo;value.number=float(field.lo)/100;
+    if(field.field==proto_field_t::hostname) strcpy(value.text,"lcd-host");
+    if(field.field==proto_field_t::ntpServer) strcpy(value.text,"pool.ntp.org");
+    if(field.field==proto_field_t::posixZone) strcpy(value.text,"UTC0");
+    if(field.secret()) {value.kind='b';value.boolean=true;sink.field(field.presenceField(),value);}
+    else sink.field(field.field,value);
+  }
+  return true;
+}
+settings_apply_result_t applyDeviceSettings(settings_section_t section,JsonObject request,uint32_t origin) {
+  assert(section==settings_section_t::general && origin==0 && request["ssdpBroadcast"].as<bool>());
+  ++settingsSaves;++settingsRevision;return {};
+}
 int testPins[64]={};uint32_t testNow=0;
 SomfyShadeController somfy;
 static LocalUi::Authorization authorization;
@@ -40,7 +65,20 @@ static bool send(uint8_t y,uint8_t rows,const uint8_t *data,size_t bytes){
   if(busBusy)return false;++bands;return true;
 }
 static void light(uint8_t value){assert(value==0 || value==4 || value==32);}
-int main(){
+static void saveFrame(const char *directory,const char *name) {
+  if(!directory) return;
+  char path[512];snprintf(path,sizeof(path),"%s/%s.ppm",directory,name);
+  FILE *file=fopen(path,"wb");assert(file && allocated);
+  fprintf(file,"P6\n320 170\n255\n");
+  const auto *pixels=static_cast<const uint16_t *>(allocated);
+  for(size_t i=0;i<320*170;i++) {
+    const auto p=pixels[i];const uint8_t rgb[]={uint8_t((p>>11)*255/31),uint8_t(((p>>5)&63)*255/63),uint8_t((p&31)*255/31)};
+    fwrite(rgb,1,3,file);
+  }
+  fclose(file);
+}
+int main(int argc,char **argv){
+  const char *preview=argc>1?argv[1]:nullptr;
   using namespace LocalUi;
   authorization.configure(AuthMode::none,"","");
   auto &one=somfy.shades[13];one.id=7;one.address=700;one.shadeType=shade_types::shutter;one.bitLength=56;one.idle=false;strcpy(one.name,"Bedroom");
@@ -49,8 +87,9 @@ int main(){
   StatusDisplay::Snapshot status;status.running=true;status.link=StatusDisplay::Link::connected;
   status.web=StatusDisplay::Web::listening;status.radio=StatusDisplay::Radio::ready;
   Runtime ui;ui.begin();assert(ui.failure()==GraphicsFailure::none && allocated);
+  Runtime *active=&ui;
   int ab=3;
-  auto tick=[&](bool pressed=false,unsigned dt=50){testNow+=dt;ui.tick(testNow,status,pressed,send,light);};
+  auto tick=[&](bool pressed=false,unsigned dt=50){testNow+=dt;authTestNow=testNow;active->tick(testNow,status,pressed,send,light);};
   auto idle=[&](unsigned duration=140){for(unsigned t=0;t<duration;t+=2)tick(false,2);};
   auto rotate=[&](int direction){
     const int middle=direction>0?(ab==3?1:2):(ab==3?2:1);
@@ -108,8 +147,30 @@ int main(){
   busBusy=true;rotate(-1);click();assert(submitted.size()==beforeDraft);
   busBusy=false;idle();click();assert(submitted.size()==beforeDraft+1);
   assert(submitted.back().target==expected && submitted.back().type==shade_request_type_t::shade_command);
+  one.idle=two.idle=true; // Settings teardown case tests idle sleep.
+  free(allocated);allocated=nullptr;
+  authorization.configure(AuthMode::none,"","");
+  Runtime settingsUi;active=&settingsUi;settingsUi.begin();ab=3;testPins[4]=testPins[5]=1;idle();
+  const auto rfBeforeSettings=submitted.size();
+  rotate(1);idle();for(unsigned i=0;i<3;i++) {rotate(1);idle();}click();idle(); // Home Settings
+  assert(lastQuery.screen==Screen::settings && captureProtected);
+  click();idle();saveFrame(preview,"runtime-settings-general"); // Actual form/runtime frame
+  busBusy=true;rotate(1);click();assert(settingsSaves==0); // unseen field cannot open
+  busBusy=false;idle();click();idle(); // Broadcast editor
+  rotate(1);idle();click();idle(); // true -> numeric/boolean actions
+  rotate(1);idle();click();idle(); // Apply to draft
+  assert(Settings::runtimeMemory().used()>0 && settingsSaves==0);
+  busBusy=true;for(unsigned i=0;i<3;i++) rotate(1);click();assert(settingsSaves==0); // unseen Save blocked
+  busBusy=false;idle();click();idle();assert(settingsSaves==1 && captureProtected);saveFrame(preview,"runtime-settings-saved");
+  assert(Settings::runtimeMemory().used()==0 && settingsAllocations.empty());
+  back();idle();assert(lastQuery.screen==Screen::home && !captureProtected);
+  click();idle();click();idle();rotate(1);idle();click();idle();rotate(1);idle();click();idle();rotate(1);idle();click();idle();
+  assert(Settings::runtimeMemory().used()>0);
+  testNow+=21000;authTestNow=testNow;settingsUi.tick(testNow,status,false,send,light);idle();
+  assert(Settings::runtimeMemory().used()==0 && settingsAllocations.empty() && lastQuery.screen==Screen::status);
+  assert(submitted.size()==rfBeforeSettings);
   free(allocated);allocated=nullptr;hasPsram=false;
   Runtime missing;missing.begin();assert(missing.failure()==GraphicsFailure::missing && !missing.tick(testNow,status,false,send,light));
   hasPsram=true;allocateOK=false;Runtime failed;failed.begin();assert(failed.failure()==GraphicsFailure::allocation && !failed.tick(testNow,status,false,send,light));
-  puts("Production runtime/adapter: dynamic navigation, presented target/STOP, context change, unlock, capture transitions, 30 s lease and fallback passed.");
+  puts("Production runtime/adapter: dynamic navigation, presented target/STOP, context change, unlock, capture transitions, 30 s lease, standalone settings/presentation/wipe and fallback passed.");
 }

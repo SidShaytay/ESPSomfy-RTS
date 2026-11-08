@@ -3,12 +3,16 @@
 #include "LocalUi.h"
 #include "LocalUiMemory.h"
 #include "LocalUiRenderer.h"
+#include "LocalSettingsRuntime.h"
 namespace LocalUi {
 class Runtime {
   GraphicsMemory memory;
   Canvas canvas;
   Controller controller;
   Encoder encoder;
+  Settings::Form settingsForm{Settings::runtimeBackend(),Settings::runtimeMemory()};
+  Settings::FormView frameSettings, presentedSettings;
+  bool settingsActive=false, presentedSettingsValid=false;
   uint32_t bandHashes[43] = {};
   uint64_t validBands = 0;
   uint32_t scene = 0, lastBand = 0, revision = 0;
