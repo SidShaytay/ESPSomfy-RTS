@@ -6,6 +6,9 @@
 #include "LocalSettingsRuntime.h"
 namespace LocalUi {
 class Runtime {
+#ifdef UI_RUNTIME_HOST_TEST
+  friend struct RuntimeTestAccess;
+#endif
   GraphicsMemory memory;
   Canvas canvas;
   Controller controller;
@@ -17,7 +20,7 @@ class Runtime {
   uint64_t validBands = 0;
   uint32_t scene = 0, lastBand = 0, revision = 0;
   uint8_t bandIndex = 43;
-  bool attempted = false, hasPresented = false, wasSleeping = false;
+  bool attempted = false, hasPresented = false, wasSleeping = false, graphicsMissing = false;
   View frameView, presentedView;
   uint64_t frameTargetToken=0,presentedTargetToken=0,framePageToken=0,presentedPageToken=0,stopPresentedToken=0;
   EntityRef stopPresentedRef;
