@@ -150,11 +150,13 @@ The settings are in five sections. `getSettings` and `saveSettings` name one in 
 
   A bad request also comes for a field the section doesn't save (a `has*` field, `radioInit`, a field of another section, Ethernet on a device without it), and for a save with no fields.
 - One save runs at a time, whichever client sent it: while one is waiting, another gets busy.
-- The reply comes once the settings are saved and applied, as their route applies them. A saved time zone takes effect at once, where the route waited for a reboot.
+- A successful reply comes only after every requested settings part has passed NVS open/write/commit/readback checks and the running values have been updated. A saved time zone takes effect at once.
+- A persistence failure returns the existing `internal` error code with a description distinguishing failed and possibly partial storage. Running values stay unchanged; there is no reconnect, automatic reboot, new security token or client closure for that failed save. Updates retain the existing namespaces and key types and do not clear a namespace before writing.
+- These saves are not durable transactions. A failed commit/readback or a later part failing can leave some new keys in storage while the running values remain old. Retry the complete intended settings before restarting; a restart may load partially saved values. Do not infer rollback or successful persistence from a later `getSettings`, which reads running memory. Browser backup/restore is a separate existing workflow and does not acquire transactional restore guarantees from this change.
   - `rebooting` 1 means the device restarts a second later for them. That happens for a new `connMode`, for a new SSID or passphrase while on WiFi with nobody on the soft AP, and for Ethernet settings while on Ethernet.
   - A security save's reply has the client's new token in `apiKey`, or none under None.
-- The other clients get `settingsChanged` with the section.
-- A security save that leaves the device Secured, or changes its mode, closes every client instead, the one that saved it too, once its reply has gone. Under Secured the tokens may no longer be good, and a client that connected under None had none. The saver connects again with the token from its reply; the others log in when theirs is refused. A save from None to None closes nobody.
+- After a successful save, the other clients get `settingsChanged` with the section.
+- A successful security save that leaves the device Secured, or changes its mode, closes every client instead, the one that saved it too, once its reply has gone. Under Secured the tokens may no longer be good, and a client that connected under None had none. The saver connects again with the token from its reply; the others log in when theirs is refused. A save from None to None closes nobody.
 - Where a section differs from its routes:
   - `/connectwifi` refused an SSID the device couldn't hear; the save doesn't check. The check stalled the device for a scan, and a hidden network can't be heard anyway. A client offers the networks from `scanWifi`.
   - `/modulesettings` and `/networksettings` also sent `fwVersion` and `chipModel`, which are in the header (`fw`, `chipModel`). Their `connType` is `connMode` in `network`, and `/networksettings`' hostname and `ssdpBroadcast` are in `general`.
