@@ -6,7 +6,16 @@ static const char *TAG = "Somfy";
 
 extern SomfyShadeController somfy;
 
+void SomfyShade::onChanged(uint16_t bits) {
+  this->changed |= bits;
+  if(bits & (SHADE_CHANGED_MY_POS | SHADE_CHANGED_MY_TILT_POS)) {
+    ++configurationRevision;
+    ++somfy.configurationRevision;
+  }
+}
+
 void SomfyShade::clear() {
+  ++configurationRevision;
   this->setShadeId(255);
   this->setRemoteAddress(0);
   this->behaviour.clear();

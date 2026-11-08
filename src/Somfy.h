@@ -94,6 +94,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     bool light = false;
     SomfyLinkedRemote linkedRemotes[SOMFY_MAX_LINKED_REMOTES];
     bool paired = false;
+    uint64_t configurationRevision = 1;
     int8_t validateJSON(JsonObject &obj);
     int8_t fromJSON(JsonObject &obj);
     
@@ -136,7 +137,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     // What changed since the fan-out last sent the shade (SHADE_CHANGED_* bits).
     uint16_t changed = 0;
     // A setting changed: protocol 2 clients get the whole shade.
-    void configChanged() { this->changed |= SHADE_CHANGED_CONFIG; }
+    void configChanged() { ++configurationRevision; this->changed |= SHADE_CHANGED_CONFIG; }
     void emitCommand(somfy_commands cmd, const char *source, uint32_t sourceAddress);
     // False when the radio refused a command it sent.
     bool setMyPosition(int8_t pos, int8_t tilt = -1);
@@ -168,7 +169,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     // MotorLink: the radio or GPIO path every remote sends through.
     send_result_t send(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority) override;
     // ShadeEvents
-    void onChanged(uint16_t bits) override { this->changed |= bits; }
+    void onChanged(uint16_t bits) override;
     void onCommand(somfy_commands cmd, const char *source, uint32_t sourceAddress) override { this->emitCommand(cmd, source, sourceAddress); }
     void onSaveWanted() override;
     void onSensorFlags() override;
@@ -178,6 +179,7 @@ class SomfyGroup : public SomfyRemote {
   protected:
     uint8_t groupId = 255;
   public:
+    uint64_t configurationRevision = 1;
     uint8_t roomId = 0;
     int8_t sortOrder = 0;
     group_types groupType = group_types::channel;
@@ -209,7 +211,7 @@ class SomfyGroup : public SomfyRemote {
     // What changed since the fan-out last sent the group (GROUP_CHANGED_* bits).
     uint8_t changed = 0;
     // A setting or its shades changed: protocol 2 clients get the whole group.
-    void configChanged() { this->changed |= GROUP_CHANGED_CONFIG; }
+    void configChanged() { ++configurationRevision; this->changed |= GROUP_CHANGED_CONFIG; }
     bool sendCommand(somfy_commands cmd);
     bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
     int8_t p_direction(int8_t dir);
@@ -225,6 +227,10 @@ class SomfyShadeController {
     uint32_t lastCommit = 0;
   public:
     bool isDirty = false;
+    // Loop-owned configuration history. Reusing an ID/address after an edit
+    // must invalidate older client intentions; ordinary motion does not.
+    uint64_t configurationRevision = 1;
+    uint64_t restoreRevision = 1;
     uint32_t startingAddress;
     uint8_t getNextRoomId();
     uint8_t getNextShadeId();
