@@ -93,7 +93,8 @@ void Canvas::paintSettings(const Settings::FormView &view) {
     text(186,top+18,row.value,false,row.selected?accent:muted,113);
     if(row.dirty) fillCircle(304,top+13,2,warning);
   }
-  if((view.mode==Settings::Mode::confirm || view.mode==Settings::Mode::secret)) {
+  if((view.mode==Settings::Mode::confirm || view.mode==Settings::Mode::secret ||
+      view.mode==Settings::Mode::replace)) {
     char first[48],second[48];warningLines(*this,view.hint,first,second);
     text(12,126,first,false,warning,296);text(12,150,second,false,warning,296);
     return;

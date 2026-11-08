@@ -110,9 +110,11 @@ struct pin_users_t {
 #define PIN_CONFLICT_RADIO -10
 #define PIN_CONFLICT_ETHERNET -11
 #define PIN_CONFLICT_SHADE -12
-// Whether a shade of type driven over proto may use these pins (255 for none):
-// 0, or which of the radio, the Ethernet PHY or another shade already uses one.
-// Only the pins the shade type and protocol actually drive are checked.
-int8_t gpioPinConflict(shade_types type, radio_proto proto, uint8_t upPin, uint8_t downPin, uint8_t myPin,
-    const pin_users_t &radio, const pin_users_t &ethernet, const pin_users_t &otherShades);
+#define PIN_CONFLICT_DUPLICATE -13
+#define PIN_INVALID_OUTPUT -14
+// Every physically touched pad is checked, including setup/deassertion pads
+// omitted by logical commands. 255 means unset and is never an SDK GPIO call.
+int8_t gpioPinConflict(radio_proto proto,uint8_t upPin,uint8_t downPin,uint8_t myPin,
+    const pin_users_t &radio,const pin_users_t &ethernet,const pin_users_t &otherShades,
+    const pin_users_t &invalidOutputs);
 #endif

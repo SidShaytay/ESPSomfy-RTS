@@ -199,6 +199,7 @@ DispatchResult validateControl(Target &target,uint32_t &moving) {
 }
 } // namespace
 bool localControlsFrozen() { return controlsFrozen; }
+CatalogueSource &runtimeCatalogue() {static RuntimeCatalogue source;return source;}
 void invalidateControlPresentation() {
   presentedRef={};presentedToken=0;
   focusedContext={};focusedToken=0;hasFocus=false;

@@ -124,8 +124,10 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
         snprintf(label, sizeof(label), "Firmware: %s", s.firmwareVersion[0] ? s.firmwareVersion : "unavailable");
       else if(index == 1)
         snprintf(label, sizeof(label), "Application: %s", s.applicationVersion[0] ? s.applicationVersion : "unavailable");
-      else
+      else if(index<10)
         snprintf(label, sizeof(label), "%s", page.lines[index - 2]);
+      else
+        StatusDisplay::formatHealthLine(s.health,index-10,label,sizeof(label));
       text(12, 58 + row * 18, label, false, index < 2 ? white : muted);
     }
     snprintf(label, sizeof(label), "Turn: scroll   Back   %u-%u/%u", offset + 1,
@@ -179,7 +181,8 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
     }
     text(12, 164, "Turn: Home   Hold: details", false, muted);
   } else if(v.screen==Screen::home || v.screen==Screen::roomKinds || v.screen==Screen::catalogue || v.screen==Screen::settings) {
-    const char *home[]={"Rooms","Devices","Groups","Settings","Display settings","Status"};
+    const char *home[]={"Rooms","Devices","Groups","Settings","Display settings","Status","Administration"};
+    static_assert(sizeof(home)/sizeof(*home)==homeRows,"Every Home entry needs a label");
     const bool list=v.screen==Screen::catalogue;
     const bool roomKinds=v.screen==Screen::roomKinds;
     const bool settings=v.screen==Screen::settings;

@@ -7,11 +7,14 @@
 #include <esp_ota_ops.h>
 #include "BoardProfile.h"
 #include "StatusBuild.h"
+#include "Utils.h"
+#include <esp_heap_caps.h>
 #include <Wire.h>
 extern SomfyShadeController somfy;
 extern ESPNetwork net;
 extern Web webServer;
 extern ConfigSettings settings;
+extern LoopStats loopStats;
 namespace StatusPanel {
 namespace {
 BatteryGauge::Monitor gauge;
@@ -43,6 +46,19 @@ StatusDisplay::Snapshot snapshot(bool running) {
   using namespace StatusDisplay;
   Snapshot s;
   s.running = running;
+  s.health.sampled=true;
+  constexpr uint32_t internalCaps=MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT;
+  constexpr uint32_t psramCaps=MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT;
+  s.health.internalFreeBytes=heap_caps_get_free_size(internalCaps);
+  s.health.internalMinimumBytes=heap_caps_get_minimum_free_size(internalCaps);
+  s.health.internalLargestBytes=heap_caps_get_largest_free_block(internalCaps);
+  s.health.psramPresent=heap_caps_get_total_size(psramCaps)!=0;
+  if(s.health.psramPresent) s.health.psramFreeBytes=heap_caps_get_free_size(psramCaps);
+  s.health.loopSampled=loopStats.hasPublished();
+  if(s.health.loopSampled) {
+    s.health.loopRate=loopStats.publishedRate();
+    s.health.loopMaxUs=loopStats.publishedMaxUs();
+  }
   s.battery = gauge.reading();
   snprintf(s.firmwareVersion, sizeof(s.firmwareVersion), "%s", FW_VERSION);
   snprintf(s.applicationVersion, sizeof(s.applicationVersion), "%s", settings.appVersion.name);

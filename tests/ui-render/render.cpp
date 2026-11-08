@@ -40,6 +40,22 @@ int main(int argc,char **argv) {
   strcpy(m.page.rows[0].name,"\xc3\xa9\n");canvas.paint(m,v,s);const auto fallback=buffer;
   strcpy(m.page.rows[0].name,"??");canvas.paint(m,v,s);assert(buffer==fallback); // one glyph per codepoint; no newline layout effect
   strcpy(m.page.rows[0].name,"\xe5\xb8\x98\xc3\xa9 longue porte");canvas.paint(m,v,s);save(argv[1],"catalogue-fallback",buffer);
+  // Existing Status hold -> Details scroll reaches all four Health rows.
+  v.screen=Screen::details;v.detailsOffset=detailsRowCount-detailsVisibleRows;
+  s.health={true,true,true,65536,32768,16384,6u*1024*1024,400,12345};
+  canvas.paint(m,v,s);save(argv[1],"details-health",buffer);
+  const auto populatedHealth=buffer;
+  s.health={};canvas.paint(m,v,s);assert(buffer!=populatedHealth);save(argv[1],"details-health-unavailable",buffer);
+  s.health.sampled=s.health.psramPresent=s.health.loopSampled=true;
+  canvas.paint(m,v,s);save(argv[1],"details-health-zero",buffer);
+  s.health.internalFreeBytes=s.health.internalMinimumBytes=s.health.internalLargestBytes=s.health.psramFreeBytes=s.health.loopRate=s.health.loopMaxUs=UINT32_MAX;
+  canvas.paint(m,v,s);save(argv[1],"details-health-max",buffer);
+  for(uint8_t row=0;row<4;row++) {
+    char text[96];StatusDisplay::formatHealthLine(s.health,row,text,sizeof(text));
+    int16_t x,y;uint16_t width,height;canvas.getTextBounds(text,0,0,&x,&y,&width,&height);
+    if(strlen(text)>=48 || width>296) fprintf(stderr,"Health row %u exceeds bounds (%u px): %s\n",unsigned(row),unsigned(width),text);
+    assert(strlen(text)<48 && width<=296);
+  }
   m.page.count=m.page.total=0;canvas.paint(m,v,s);save(argv[1],"devices-empty",buffer);
   v.catalogue=CatalogueKind::rooms;m.page.total=18;m.page.count=3;m.page.offset=15;m.page.cursor=17;
   for(uint8_t i=0;i<3;i++)m.page.rows[i]={uint8_t(14+i),0,0,"Repeated room"};

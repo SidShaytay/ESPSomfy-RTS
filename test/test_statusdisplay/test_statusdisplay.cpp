@@ -84,4 +84,26 @@ static void battery_readings_and_failures_are_explicit() {
   format(s, p);
   TEST_ASSERT_EQUAL_STRING("LCD: PSRAM alloc failed", p.lines[1]);
 }
-int main() { UNITY_BEGIN(); RUN_TEST(battery_readings_and_failures_are_explicit); RUN_TEST(states); RUN_TEST(lifecycle); RUN_TEST(failure); RUN_TEST(busy_and_wrap); RUN_TEST(disabled_fallback_timeouts_keep_the_status_awake); return UNITY_END(); }
+static void health_distinguishes_unavailable_and_valid_zero_with_explicit_units() {
+  Health h;char line[96];
+  formatHealthLine(h,0,line,sizeof(line));TEST_ASSERT_EQUAL_STRING("Internal: unavailable",line);
+  formatHealthLine(h,2,line,sizeof(line));TEST_ASSERT_EQUAL_STRING("PSRAM: unavailable",line);
+  h.sampled=true;
+  formatHealthLine(h,0,line,sizeof(line));TEST_ASSERT_EQUAL_STRING("Internal: 0 KiB (low 0)",line);
+  formatHealthLine(h,1,line,sizeof(line));TEST_ASSERT_EQUAL_STRING("Largest block: 0 KiB",line);
+  formatHealthLine(h,2,line,sizeof(line));TEST_ASSERT_EQUAL_STRING("PSRAM: not present",line);
+  h.psramPresent=true;formatHealthLine(h,2,line,sizeof(line));TEST_ASSERT_EQUAL_STRING("PSRAM free: 0 KiB",line);
+  formatHealthLine(h,3,line,sizeof(line));TEST_ASSERT_EQUAL_STRING("Loop: awaiting sample",line);
+  h.loopSampled=true;formatHealthLine(h,3,line,sizeof(line));TEST_ASSERT_EQUAL_STRING("Loop: 0/s max 0.000 ms",line);
+}
+static void health_units_and_maximum_values_are_bounded() {
+  Health h;h.sampled=h.psramPresent=h.loopSampled=true;
+  h.internalFreeBytes=65536;h.internalMinimumBytes=32768;h.internalLargestBytes=16384;h.psramFreeBytes=6u*1024*1024;h.loopRate=400;h.loopMaxUs=12345;
+  char line[96];formatHealthLine(h,0,line,sizeof(line));TEST_ASSERT_EQUAL_STRING("Internal: 64 KiB (low 32)",line);
+  formatHealthLine(h,3,line,sizeof(line));TEST_ASSERT_EQUAL_STRING("Loop: 400/s max 12.345 ms",line);
+  h.internalFreeBytes=h.internalMinimumBytes=h.internalLargestBytes=h.psramFreeBytes=h.loopRate=h.loopMaxUs=UINT32_MAX;
+  formatHealthLine(h,3,line,sizeof(line));TEST_ASSERT_EQUAL_STRING("Loop: 4294967k/s max 4294.967 s",line);
+  for(uint8_t row=0;row<4;row++) {formatHealthLine(h,row,line,sizeof(line));TEST_ASSERT_LESS_THAN(60,strlen(line));}
+  char bounded[5]={'x','x','x','x','!'};formatHealthLine(h,0,bounded,4);TEST_ASSERT_EQUAL('!',bounded[4]);TEST_ASSERT_EQUAL(0,bounded[3]);
+}
+int main() { UNITY_BEGIN(); RUN_TEST(health_distinguishes_unavailable_and_valid_zero_with_explicit_units); RUN_TEST(health_units_and_maximum_values_are_bounded); RUN_TEST(battery_readings_and_failures_are_explicit); RUN_TEST(states); RUN_TEST(lifecycle); RUN_TEST(failure); RUN_TEST(busy_and_wrap); RUN_TEST(disabled_fallback_timeouts_keep_the_status_awake); return UNITY_END(); }

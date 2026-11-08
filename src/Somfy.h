@@ -96,6 +96,8 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     SomfyLinkedRemote linkedRemotes[SOMFY_MAX_LINKED_REMOTES];
     bool paired = false;
     uint64_t configurationRevision = 1;
+    // Read-only admission; shared by projected edits and all live GPIO paths.
+    int8_t validateGPIOs(radio_proto protocol,uint8_t upPin,uint8_t downPin,uint8_t myPin);
     int8_t validateJSON(JsonObject &obj);
     int8_t fromJSON(JsonObject &obj);
     
@@ -155,6 +157,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     ModelCommitResult commit();
     void clear();
     int8_t transformPosition(float fpos);
+    void configureGPIOs();
     void setGPIOs();
     void triggerGPIOs(somfy_frame_t &frame);
     bool usesPin(uint8_t pin);
@@ -252,6 +255,7 @@ class SomfyShadeController {
     ModelCommitResult deleteRoom(uint8_t roomId);
     ModelCommitResult deleteShade(uint8_t shadeId);
     ModelCommitResult deleteGroup(uint8_t groupId);
+    void configureGPIOs();
     bool begin();
     void loop();
     void end();

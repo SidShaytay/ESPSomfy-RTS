@@ -48,4 +48,6 @@ struct SomfyShadeController {
   SomfyShade *getShadeById(uint8_t id){for(auto &s:shades)if(s.id==id)return &s;return nullptr;}
   SomfyGroup *getGroupById(uint8_t id){for(auto &g:groups)if(g.id==id)return &g;return nullptr;}
   SomfyRoom *getRoomById(uint8_t id){for(auto &r:rooms)if(r.roomId==id)return &r;return nullptr;}
+  uint8_t getNextRoomId(){for(uint8_t id=1;id<=16;id++)if(!getRoomById(id))return id;return 0;}
+  int8_t getMaxRoomOrder(){int8_t value=-1;for(const auto &r:rooms)if(r.roomId&&r.sortOrder>value)value=r.sortOrder;return value;}
 };

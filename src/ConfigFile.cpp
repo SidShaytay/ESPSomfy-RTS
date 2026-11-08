@@ -311,12 +311,9 @@ void ShadeConfigFile::readShade(SomfyShade *shade) {
   shade->gpioMy = rec.gpioMy;
   shade->gpioFlags = rec.gpioFlags;
   shade->roomId = rec.roomId;
-  if(shade->proto == radio_proto::GP_Relay || shade->proto == radio_proto::GP_Remote) {
-    if(!BoardProfile::usesPin(shade->gpioUp)) pinMode(shade->gpioUp, OUTPUT);
-    if(!BoardProfile::usesPin(shade->gpioDown)) pinMode(shade->gpioDown, OUTPUT);
-  }
-  if(shade->proto == radio_proto::GP_Remote && !BoardProfile::usesPin(shade->gpioMy))
-    pinMode(shade->gpioMy, OUTPUT);
+  // GPIO setup waits until every model record and final hardware settings
+  // are loaded; per-record setup could inspect stale other-shade ownership.
+
 }
 void ShadeConfigFile::readGroup(SomfyGroup *group) {
   group_record_t rec = groupRecord(group);
@@ -653,6 +650,7 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
 #endif
   }
   if(opts.mqtt) settings.MQTT.save();
+  if(opts.shades) s->configureGPIOs();
   return true;
 }
 bool ShadeConfigFile::loadFile(SomfyShadeController *s, const char *filename) {

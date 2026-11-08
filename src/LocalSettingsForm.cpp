@@ -137,19 +137,53 @@ const char *title(settings_section_t s) {
   }
   return "Settings";
 }
+int32_t fieldScale(const settings_field_t &f) {
+  return f.schema().kind == 'n'
+             ? (f.field == proto_field_t::frequency ? 1000 : 100)
+             : 1;
+}
+int64_t fieldBound(const settings_field_t &f, int32_t bound) {
+  return int64_t(bound) * (fieldScale(f) == 1000 ? 10 : 1);
+}
+bool numericOriginal(const settings_field_t &f, const settings_value_t &v,
+                     int64_t &candidate) {
+  const int64_t low = fieldBound(f, f.lo), high = fieldBound(f, f.hi);
+  if (v.kind == 'n') {
+    const long double scaled = static_cast<long double>(v.number) * fieldScale(f);
+    if (!isfinite(scaled))
+      return false;
+    // Round to the displayed resolution, then bound-check before conversion.
+    const long double rounded = roundl(scaled);
+    if (rounded < static_cast<long double>(low) ||
+        rounded > static_cast<long double>(high))
+      return false;
+    candidate = int64_t(rounded);
+  } else {
+    candidate = v.integer;
+    if (candidate < low || candidate > high)
+      return false;
+  }
+  if (f.choiceCount) {
+    for (uint8_t i = 0; i < f.choiceCount; ++i)
+      if (f.choices[i] == candidate)
+        return true;
+    return false;
+  }
+  return true;
+}
 void format(const settings_field_t &f, const settings_value_t &v, char *out,
             size_t size) {
   if (f.secret()) {
     copy(out, size, v.boolean ? "Set" : "Unset");
     return;
   }
-  if (v.kind == 'i') {
-    bool listed = !f.choiceCount;
-    for (uint8_t i = 0; i < f.choiceCount; i++)
-      if (f.choices[i] == v.integer)
-        listed = true;
-    if (v.integer < f.lo || v.integer > f.hi || !listed) {
-      snprintf(out, size, "Invalid (%ld)", long(v.integer));
+  if (v.kind == 'i' || v.kind == 'n') {
+    int64_t candidate = 0;
+    if (!numericOriginal(f, v, candidate)) {
+      if (v.kind == 'n')
+        snprintf(out, size, "Invalid (%g)", double(v.number));
+      else
+        snprintf(out, size, "Invalid (%ld)", long(v.integer));
       return;
     }
   }
@@ -262,9 +296,14 @@ bool Form::openSection(settings_section_t s, uint64_t now) {
   render();
   return !closed();
 }
-bool Form::readOnly(const settings_field_t &f) const {
-  if (f.field == proto_field_t::connMode && !backend.hasEthernet())
-    return true;
+bool Form::readOnly(const settings_field_t &f) {
+  if (f.field == proto_field_t::connMode && !backend.hasEthernet()) {
+    settings_value_t value;
+    int64_t candidate = 0;
+    const bool fixed = !readValue(f, value) || numericOriginal(f, value, candidate);
+    wipe(&value, sizeof(value));
+    return fixed;
+  }
   if (!backend.fixedRadioPins())
     return false;
   return f.field == proto_field_t::TXPin || f.field == proto_field_t::RXPin ||
@@ -314,6 +353,13 @@ void Form::render() {
     menus[1] = "Replace";
     copy(frame.hint, sizeof(frame.hint),
          "Blank retains saved secret; identity changes can clear it.");
+  } else if (mode == Mode::replace) {
+    copy(frame.title, sizeof(frame.title), label(editingField->field));
+    frame.total = 2;
+    menus[0] = "Cancel";
+    menus[1] = "Replace invalid value";
+    copy(frame.hint, sizeof(frame.hint),
+         "Original kept until Apply; Save persists replacement.");
   } else if (mode == Mode::actions) {
     const bool numeric = editor.kind() == ValueKind::integer ||
                          editor.kind() == ValueKind::fixed2;
@@ -382,16 +428,18 @@ void Form::render() {
     return;
   } else
     return;
-  if (notice == Notice::partial)
+  const bool consequenceHint = mode == Mode::secret || mode == Mode::confirm ||
+                               mode == Mode::replace;
+  if (notice == Notice::partial && !consequenceHint)
     copy(frame.hint, sizeof(frame.hint),
          "May be partly stored; running unchanged. Retry before restart.");
-  else if (notice == Notice::failed)
+  else if (notice == Notice::failed && !consequenceHint)
     copy(frame.hint, sizeof(frame.hint),
          "Not saved; running unchanged. Retry or Cancel.");
-  else if (notice == Notice::busy)
+  else if (notice == Notice::busy && !consequenceHint)
     copy(frame.hint, sizeof(frame.hint),
          "Actions queued. Retry Save when clear, or Cancel.");
-  else if (notice == Notice::invalid)
+  else if (notice == Notice::invalid && !consequenceHint)
     copy(frame.hint, sizeof(frame.hint),
          "Value refused. Revise the draft or Cancel.");
   frame.selected = selected;
@@ -439,7 +487,7 @@ void Form::render() {
     }
   }
 }
-void Form::beginField(uint64_t now, bool replace) {
+void Form::beginField(uint64_t now, FieldStart start) {
   editingField = settingsFieldAt(section, fieldIndex, backend.hasEthernet());
   if (!editingField)
     return;
@@ -451,7 +499,7 @@ void Form::beginField(uint64_t now, bool replace) {
   selected = 0;
   stepPower = 0;
   scale = 1;
-  if (editingField->secret() && !replace) {
+  if (editingField->secret() && start != FieldStart::replaceSecret) {
     frame.mode = Mode::secret;
     render();
     return;
@@ -462,6 +510,22 @@ void Form::beginField(uint64_t now, bool replace) {
     return;
   }
   const auto &f = *editingField;
+  scale = fieldScale(f);
+  const int64_t low = fieldBound(f, f.lo), high = fieldBound(f, f.hi);
+  int64_t candidate = 0;
+  if (f.schema().kind == 'i' || f.schema().kind == 'n') {
+    if (start == FieldStart::replaceInvalid) {
+      // Seeding is explicit and changes no draft until Apply.
+      candidate = f.choiceCount ? f.choices[0] : (low <= 0 && high >= 0 ? 0 : low);
+    } else if (!numericOriginal(f, v, candidate)) {
+      wipe(&v, sizeof(v));
+      editor.cancel();
+      frame.mode = Mode::replace;
+      frame.notice = Notice::invalid;
+      render();
+      return;
+    }
+  }
   bool ok = false;
   if (f.schema().kind == 's') {
     ok = editor.beginText(f.secret() ? "" : v.text, f.hi, TextEncoding::bytes,
@@ -472,29 +536,12 @@ void Form::beginField(uint64_t now, bool replace) {
     frame.mode = Mode::adjust;
   } else if (f.choiceCount) {
     uint8_t index = 0;
-    while (index < f.choiceCount && f.choices[index] != v.integer)
+    while (index < f.choiceCount && f.choices[index] != candidate)
       ++index;
     ok = index < f.choiceCount && editor.beginChoice(index, f.choiceCount, now);
     frame.mode = Mode::adjust;
   } else {
-    scale = f.schema().kind == 'n'
-                ? (f.field == proto_field_t::frequency ? 1000 : 100)
-                : 1;
-    const int64_t low = int64_t(f.lo) * (scale == 1000 ? 10 : 1),
-                  high = int64_t(f.hi) * (scale == 1000 ? 10 : 1);
-    if (f.schema().kind == 'n') {
-      // Round only to the editor's explicit decimal resolution. Check finite
-      // bounds before converting to an integer; corrupt source values never
-      // select a different supported value or reach an overflowing llround.
-      const long double scaled = static_cast<long double>(v.number) * scale;
-      if (isfinite(scaled)) {
-        const long double rounded = roundl(scaled);
-        if (rounded >= static_cast<long double>(low) &&
-            rounded <= static_cast<long double>(high))
-          ok = editor.beginInteger(int64_t(rounded), low, high, 1, now);
-      }
-    } else
-      ok = editor.beginInteger(v.integer, low, high, 1, now);
+    ok = editor.beginInteger(candidate, low, high, 1, now);
     frame.mode = Mode::adjust;
   }
   wipe(&v, sizeof(v));
@@ -704,9 +751,18 @@ void Form::activate(uint64_t now) {
       frame.notice = Notice::kept;
       editingField = nullptr;
     } else {
-      beginField(now, true);
+      beginField(now, FieldStart::replaceSecret);
       return;
     }
+    break;
+  case Mode::replace:
+    if (selected) {
+      beginField(now, FieldStart::replaceInvalid);
+      return;
+    }
+    frame.mode = Mode::fields;
+    selected = fieldIndex;
+    editingField = nullptr;
     break;
   case Mode::adjust:
     frame.mode = Mode::actions;
@@ -768,7 +824,8 @@ void Form::back(uint64_t now) {
     return;
   touch(now);
   if (frame.mode == Mode::text || frame.mode == Mode::adjust ||
-      frame.mode == Mode::actions || frame.mode == Mode::secret) {
+      frame.mode == Mode::actions || frame.mode == Mode::secret ||
+      frame.mode == Mode::replace) {
     editor.cancel();
     frame.mode = Mode::fields;
     selected = fieldIndex;

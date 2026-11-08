@@ -10,11 +10,15 @@
 #include <map>
 #include "DeviceOps.h"
 #include "LoopQueue.h"
+#include "LocalEntityRuntime.h"
+#include "SomfyEditor.h"
+#include "ModelCommitService.h"
 namespace LocalUi {
 struct RuntimeTestAccess {
   static uint16_t *losePixels(Runtime &ui) {auto *pixels=ui.memory.pixels;ui.memory.pixels=nullptr;return pixels;}
   static void restorePixels(Runtime &ui,uint16_t *pixels) {ui.memory.pixels=pixels;}
   static const View &view(const Runtime &ui) {return ui.controller.view();}
+  static const EntityAdmin::FormView &administration(const Runtime &ui) {return ui.administration.view();}
   static bool noPresentation(const Runtime &ui) {
     return !ui.hasPresented && !ui.presentedSettingsValid && !ui.stopPresentedToken && !ui.validBands;
   }
@@ -26,6 +30,8 @@ bool settingsAllocateOK=true;
 std::map<void *,size_t> settingsAllocations;
 uint64_t authTestNow=0;
 static unsigned settingsSaves=0;
+static unsigned entityEdits=0,entityCommits=0;
+static ModelCommitState entitySaveState=ModelCommitState::saved;
 static uint64_t settingsRevision=1;
 uint64_t deviceSettingsRevision(settings_section_t section) {return uint8_t(section)<5?settingsRevision:0;}
 bool readDeviceSettings(settings_section_t section,SettingsSnapshotSink &sink) {
@@ -47,6 +53,28 @@ settings_apply_result_t applyDeviceSettings(settings_section_t section,JsonObjec
 }
 int testPins[64]={};uint32_t testNow=0;
 SomfyShadeController somfy;
+edit_result_t applyModelEdit(model_edit_t &edit) {
+  auto object=edit.doc.as<JsonObject>();
+  uint8_t id=object["roomId"]|0;auto *room=id?somfy.getRoomById(id):nullptr;
+  if(edit.type==model_edit_type_t::add_room) {
+    id=somfy.getNextRoomId();assert(id);
+    for(auto &candidate:somfy.rooms)if(!candidate.roomId){room=&candidate;room->roomId=id;room->sortOrder=somfy.getMaxRoomOrder()+1;break;}
+  }
+  assert(room);
+  if(edit.type==model_edit_type_t::delete_room)*room={};
+  else {
+    assert(edit.type==model_edit_type_t::add_room || edit.type==model_edit_type_t::save_room);
+    if(!object["name"].isNull())snprintf(room->name,sizeof(room->name),"%s",object["name"].as<const char *>());
+    if(!object["sortOrder"].isNull())room->sortOrder=object["sortOrder"].as<int8_t>();
+  }
+  ++entityEdits;++somfy.configurationRevision;
+  edit_result_t result;result.applied=true;result.ok=entitySaveState==ModelCommitState::saved;
+  result.id=id;result.persistence={entitySaveState,ModelCommitStage::none};return result;
+}
+ModelCommitReport applyModelCommit(const proto_reply_to_t &,ModelCommitMode) {
+  ++entityCommits;return {{ModelCommitState::saved,ModelCommitStage::none}};
+}
+#include "../../src/LocalEntityRuntime.cpp"
 static LocalUi::Authorization authorization;
 static LocalUi::View lastQuery;
 static std::vector<shade_request_t> submitted;
@@ -113,6 +141,17 @@ int main(int argc,char **argv){
   busBusy=true;idle(20);assert(bands==0 && captureProtected);
   busBusy=false;idle();assert(bands==43 && !captureProtected);
   const auto unchanged=bands;idle();assert(bands==unchanged);
+  // Health is reachable through the actual held Status input, not a test-only page.
+  status.health={true,true,true,65536,32768,16384,6u*1024*1024,400,12345};
+  ++status.uptimeSeconds;idle();assert(bands==unchanged); // other pages retain minute cadence
+  tick(true);tick(true);tick(true,850);tick(false);tick(false);idle();
+  assert(lastQuery.screen==Screen::details);
+  for(unsigned i=0;i<detailsRowCount;i++){rotate(1);idle();}
+  assert(RuntimeTestAccess::view(ui).detailsOffset==detailsRowCount-detailsVisibleRows);
+  saveFrame(preview,"runtime-health");const auto healthBands=bands;
+  status.health.internalFreeBytes+=1024;++status.uptimeSeconds;idle();
+  assert(bands>healthBands && submitted.empty());
+  saveFrame(preview,"runtime-health-updated");back();idle();assert(lastQuery.screen==Screen::status);
   rotate(1);idle();rotate(1);idle();click();idle(); // Home -> Devices
   assert(lastQuery.screen==Screen::catalogue);
   busBusy=true;click();idle(10);assert(lastQuery.screen==Screen::control);
@@ -232,6 +271,60 @@ int main(int argc,char **argv){
   somfy.transceiver.room=false;rotate(-1);idle();click();
   assert(localControlPending() && lastLocalToken>oldIntentToken);
   back();somfy.transceiver.room=true;idle();assert(!localControlPending() && submitted.size()==beforeGraphicsCommand);
+  // Actual encoder -> Administration -> Room form -> shared local backend.
+  somfy.rooms[5]={4,0,"Office"};somfy.rooms[9]={12,1,"Office"};++somfy.configurationRevision;
+  back();idle(); // catalogue -> Home (Devices)
+  for(unsigned i=0;i<4;i++){rotate(1);idle();} // Status entry
+  busBusy=true;rotate(1);click();assert(lastQuery.screen==Screen::home);
+  busBusy=false;idle();click();
+  assert(lastQuery.screen==Screen::administration && captureProtected);
+  busBusy=true;click();assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Administration"));
+  busBusy=false;idle();click();idle();
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Rooms"));
+  busBusy=true;rotate(1);click();assert(entityEdits==0 && !strcmp(RuntimeTestAccess::administration(settingsUi).title,"Rooms"));
+  busBusy=false;idle();click();idle();saveFrame(preview,"runtime-room-edit");
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Edit Room 4"));
+  rotate(1);idle();click();idle();rotate(1);idle();click();idle();rotate(-1);idle();click();idle();
+  assert(Settings::runtimeMemory().used()>0 && entityEdits==0);
+  busBusy=true;rotate(1);click();assert(entityEdits==0); // unseen Save never edits
+  busBusy=false;idle();entitySaveState=ModelCommitState::failed;click();idle();
+  assert(entityEdits==1 && RuntimeTestAccess::administration(settingsUi).notice==EntityAdmin::Notice::appliedNotSaved);
+  assert(RuntimeTestAccess::administration(settingsUi).id==4 && Settings::runtimeMemory().used()==0);
+  saveFrame(preview,"runtime-room-save-failed");
+  rotate(1);idle();click();idle();assert(entityCommits==1 && entityEdits==1);
+  click();idle();assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Rooms"));
+  click();idle();for(unsigned i=0;i<4;i++){rotate(1);idle();}click();idle(); // Delete confirmation
+  assert(RuntimeTestAccess::administration(settingsUi).mode==EntityAdmin::Mode::confirm);
+  click();idle();assert(entityEdits==1 && somfy.getRoomById(4)); // default Cancel
+  click();idle();rotate(1);idle();entitySaveState=ModelCommitState::saved;click();idle();
+  assert(entityEdits==2 && !somfy.getRoomById(4));click();idle();
+  // Add is also an explicit field Apply then Save, with a fresh stable ID.
+  assert(RuntimeTestAccess::administration(settingsUi).id==0);click();idle();
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Add Room 1"));
+  rotate(1);idle();click();idle();rotate(1);idle();click();idle();rotate(-1);idle();click();idle();
+  assert(entityEdits==2);rotate(1);idle();click();idle();
+  assert(entityEdits==3 && somfy.getRoomById(1));saveFrame(preview,"runtime-room-added");
+  click();idle();assert(RuntimeTestAccess::administration(settingsUi).id==1);
+  back();idle();back();idle();assert(lastQuery.screen==Screen::home);
+  assert(Settings::runtimeMemory().used()==0 && submitted.size()==beforeGraphicsCommand);
+  rotate(-1);idle();click();idle();assert(lastQuery.screen==Screen::status);
+  auto openRoomDraft=[&] {
+    rotate(1);idle();for(unsigned i=0;i<administrationHomeIndex;i++){rotate(1);idle();}
+    click();idle();click();idle();rotate(1);idle();click();idle();
+    assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Edit Room 12"));
+    rotate(1);idle();click();idle();rotate(1);idle();click();idle();rotate(-1);idle();click();idle();
+    assert(Settings::runtimeMemory().used()>0 && entityEdits==3);
+  };
+  openRoomDraft();savedPixels=RuntimeTestAccess::losePixels(settingsUi);
+  assert(!settingsUi.tick(testNow,status,false,send,light));
+  assert(Settings::runtimeMemory().used()==0 && settingsAllocations.empty() && entityEdits==3);
+  RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();
+  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status && !captureProtected);
+  openRoomDraft();testNow+=21000;authTestNow=testNow;
+  settingsUi.tick(testNow,status,false,send,light);
+  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status);
+  assert(Settings::runtimeMemory().used()==0 && settingsAllocations.empty() && entityEdits==3);
+  assert(somfy.getRoomById(12)->sortOrder==1 && submitted.size()==beforeGraphicsCommand);
   free(allocated);allocated=nullptr;hasPsram=false;
   Runtime missing;missing.begin();assert(missing.failure()==GraphicsFailure::missing && !missing.tick(testNow,status,false,send,light));
   hasPsram=true;allocateOK=false;Runtime failed;failed.begin();assert(failed.failure()==GraphicsFailure::allocation && !failed.tick(testNow,status,false,send,light));

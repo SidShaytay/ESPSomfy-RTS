@@ -3,6 +3,33 @@
 #include <string.h>
 
 namespace StatusDisplay {
+void formatHealthLine(const Health &h,uint8_t row,char *out,size_t size) {
+  switch(row) {
+    case 0:
+      if(!h.sampled) snprintf(out,size,"Internal: unavailable");
+      else snprintf(out,size,"Internal: %lu KiB (low %lu)",static_cast<unsigned long>(h.internalFreeBytes/1024),static_cast<unsigned long>(h.internalMinimumBytes/1024));
+      break;
+    case 1:
+      if(!h.sampled) snprintf(out,size,"Largest block: unavailable");
+      else snprintf(out,size,"Largest block: %lu KiB",static_cast<unsigned long>(h.internalLargestBytes/1024));
+      break;
+    case 2:
+      if(!h.sampled) snprintf(out,size,"PSRAM: unavailable");
+      else if(!h.psramPresent) snprintf(out,size,"PSRAM: not present");
+      else snprintf(out,size,"PSRAM free: %lu KiB",static_cast<unsigned long>(h.psramFreeBytes/1024));
+      break;
+    case 3:
+      if(!h.loopSampled) snprintf(out,size,"Loop: awaiting sample");
+      else {
+        const bool kiloRate=h.loopRate>=10000,seconds=h.loopMaxUs>=1000000;
+        const uint32_t scale=seconds?1000000:1000;
+        snprintf(out,size,"Loop: %lu%s/s max %lu.%03lu %s",static_cast<unsigned long>(h.loopRate/(kiloRate?1000:1)),kiloRate?"k":"",
+          static_cast<unsigned long>(h.loopMaxUs/scale),static_cast<unsigned long>((h.loopMaxUs%scale)/(seconds?1000:1)),seconds?"s":"ms");
+      }
+      break;
+    default: if(size) out[0]=0;break;
+  }
+}
 void format(const Snapshot &s, Page &p) {
   snprintf(p.lines[0], sizeof(p.lines[0]), "%s up %luh %02um", s.running ? "RUN" : "BOOT",
     (unsigned long)(s.uptimeSeconds / 3600 % 1000000), (unsigned)(s.uptimeSeconds / 60 % 60));

@@ -15,62 +15,6 @@ extern SomfyShadeController somfy;
 extern ConfigSettings settings;
 extern LoopQueue loopQueue;
 
-int8_t SomfyShade::validateJSON(JsonObject &obj) {
-  int8_t ret = 0;
-  shade_types type = this->shadeType;
-  if(!obj["shadeType"].isNull()) {
-    if(obj["shadeType"].is<const char *>()) {
-      if(strncmp(obj["shadeType"].as<const char *>(), "roller", 7) == 0)
-        type = shade_types::roller;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "ldrapery", 9) == 0)
-        type = shade_types::ldrapery;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "rdrapery", 9) == 0)
-        type = shade_types::rdrapery;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "cdrapery", 9) == 0)
-        type = shade_types::cdrapery;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "garage1", 7) == 0)
-        type = shade_types::garage1;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "garage3", 7) == 0)
-        type = shade_types::garage3;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "blind", 5) == 0)
-        type = shade_types::blind;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "awning", 7) == 0)
-        type = shade_types::awning;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "shutter", 8) == 0)
-        type = shade_types::shutter;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "drycontact2", 12) == 0)
-        type = shade_types::drycontact2;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "drycontact", 11) == 0)
-        type = shade_types::drycontact;
-    }
-    else {
-      type = static_cast<shade_types>(obj["shadeType"].as<uint8_t>());
-    }
-  }
-  // The pins and protocol the shade is about to have.
-  const radio_proto proto = !obj["proto"].isNull() ? static_cast<radio_proto>(obj["proto"].as<uint8_t>()) : this->proto;
-  const uint8_t upPin = !obj["gpioUp"].isNull() ? obj["gpioUp"].as<uint8_t>() : this->gpioUp;
-  const uint8_t downPin = !obj["gpioDown"].isNull() ? obj["gpioDown"].as<uint8_t>() : this->gpioDown;
-  const uint8_t myPin = !obj["gpioMy"].isNull() ? obj["gpioMy"].as<uint8_t>() : this->gpioMy;
-  pin_users_t radio, ethernet, others;
-  radio.uses = [](uint8_t pin, void *) { return somfy.transceiver.usesPin(pin); };
-#if HAS_ETHERNET
-  if(settings.connType == conn_types_t::ethernet || settings.connType == conn_types_t::ethernetpref)
-    ethernet.uses = [](uint8_t pin, void *) { return settings.Ethernet.usesPin(pin); };
-#endif
-  others.ctx = this;
-  others.uses = [](uint8_t pin, void *ctx) {
-    const uint8_t self = static_cast<SomfyShade *>(ctx)->getShadeId();
-    for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
-      SomfyShade &shade = somfy.shades[i];
-      if(shade.getShadeId() == self || shade.getShadeId() == 255) continue;
-      if(shade.usesPin(pin)) return true;
-    }
-    return false;
-  };
-  ret = gpioPinConflict(type, proto, upPin, downPin, myPin, radio, ethernet, others);
-  return ret;
-}
 int8_t SomfyShade::fromJSON(JsonObject &obj) {
   int8_t err = this->validateJSON(obj);
   if(err == 0) {
@@ -158,13 +102,11 @@ int8_t SomfyShade::fromJSON(JsonObject &obj) {
     if(this->proto == radio_proto::GP_Remote || this->proto == radio_proto::GP_Relay) {
       if(!obj["gpioUp"].isNull()) this->gpioUp = obj["gpioUp"];
       if(!obj["gpioDown"].isNull()) this->gpioDown = obj["gpioDown"];
-      if(!BoardProfile::usesPin(this->gpioUp)) pinMode(this->gpioUp, OUTPUT);
-      if(!BoardProfile::usesPin(this->gpioDown)) pinMode(this->gpioDown, OUTPUT);
     }
     if(this->proto == radio_proto::GP_Remote) {
       if(!obj["gpioMy"].isNull()) this->gpioMy = obj["gpioMy"];
-      if(!BoardProfile::usesPin(this->gpioMy)) pinMode(this->gpioMy, OUTPUT);
     }
+    this->configureGPIOs();
   }
   return err;
 }

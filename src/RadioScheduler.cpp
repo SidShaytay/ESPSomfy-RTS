@@ -43,6 +43,18 @@ uint32_t RadioScheduler::submit(somfy_tx_job_t &job, bool priority, uint16_t del
   this->count++;
   return job.ticket;
 }
+bool RadioScheduler::hasPendingFor(uint32_t remoteAddress) const {
+  if(this->taken && this->takenJob.frame.remoteAddress == remoteAddress) return true;
+  for(uint8_t i=0;i<this->count;++i)
+    if(this->jobs[i].frame.remoteAddress == remoteAddress) return true;
+  return false;
+}
+bool RadioScheduler::hasRepeaterWork() const {
+  if(this->taken && this->takenJob.repeater) return true;
+  for(uint8_t i=0;i<this->count;++i)
+    if(this->jobs[i].repeater) return true;
+  return false;
+}
 bool RadioScheduler::hasRoom() const {
   return !this->suspendMask && admits(TX_JOB_QUEUE_SIZE - this->count, false) && this->outcomesFit();
 }

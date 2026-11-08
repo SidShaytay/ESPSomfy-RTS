@@ -13,7 +13,7 @@ for board in ESPSOMFY_LILYGO_T_EMBED_CC1101; do
   "$compiler" "${common[@]}" -D"$board" -DCONFIG_IDF_TARGET_ESP32S3 -DESPSOMFY_LOCAL_UI "${sources[@]}" -o "$scratch/ui-build-test"
   "$scratch/ui-build-test"
   "$compiler" "${common[@]}" -D"$board" -DCONFIG_IDF_TARGET_ESP32S3 \
-    "$repo/tests/board-profile/shade-gpio-test.cpp" "$repo/src/BoardProfile.cpp" -o "$scratch/shade-gpio-test"
+    "$repo/tests/board-profile/shade-gpio-test.cpp" "$repo/src/ModelEditor.cpp" "$repo/src/BoardProfile.cpp" -o "$scratch/shade-gpio-test"
   "$scratch/shade-gpio-test"
 done
 "$compiler" "${common[@]}" "${sources[@]}" -o "$scratch/generic-test"

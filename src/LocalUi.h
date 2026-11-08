@@ -7,8 +7,9 @@
 #include "LocalControlMenu.h"
 #include "LocalValueEditor.h"
 namespace LocalUi {
-constexpr uint8_t detailsRowCount=10, detailsVisibleRows=6, homeRows=6;
-enum class Screen : uint8_t { status, home, catalogue, roomKinds, control, actions, value, details, brightness, unlock, settings };
+constexpr uint8_t detailsRowCount=14, detailsVisibleRows=6;
+constexpr uint8_t homeRows=7, administrationHomeIndex=6;
+enum class Screen : uint8_t { status, home, catalogue, roomKinds, control, actions, value, details, brightness, unlock, settings, administration };
 using Action=ControlAction;
 enum class Notice : uint8_t { none, preview, queued, refused, idle, changed, wait, saved, saveFailed,
   unlockRequired, unlockWrong, unlockWait, unlockUnavailable, unlocked, done, partial, busy, cancelled, valueUnavailable, expired, stopNotQueued };
@@ -40,7 +41,7 @@ struct DisplayPreferences {
   uint8_t brightness=32;
   uint16_t dimSeconds=10, offSeconds=20;
 };
-struct SettingsInput { int8_t turn=0; bool activate=false, back=false; };
+struct FormInput { int8_t turn=0; bool activate=false, back=false; };
 struct View {
   Screen screen=Screen::status;
   uint8_t selected=0, cursor=0, anchorId=0;
@@ -85,7 +86,7 @@ class Controller {
   uint32_t chosenIdentity=0;
   uint64_t chosenRevision=0, chosenModelRevision=0, chosenRestoreRevision=0;
   bool bindTarget=false, authorizeAfterUnlock=false, authActivity=false, cancelPending=false;
-  SettingsInput settingsInput;
+  FormInput formInput;
   void editorView();
   void valueView();
   void cancelValue();
@@ -113,11 +114,14 @@ public:
   void unlockResult(uint32_t now,AuthResult);
   bool takeCredentials(Credentials &out) { return editor.take(out); }
   bool takeActivity() { const bool touched=authActivity; authActivity=false; return touched; }
-  bool takeSettingsInput(SettingsInput &out) {
-    if(!settingsInput.turn && !settingsInput.activate && !settingsInput.back) return false;
-    out=settingsInput; settingsInput={}; return true;
+  bool takeFormInput(FormInput &out) {
+    if(!formInput.turn && !formInput.activate && !formInput.back) return false;
+    out=formInput; formInput={}; return true;
   }
-  void closeSettings() { settingsInput={}; state.screen=Screen::home; state.selected=3; }
+  void closeForm() {
+    formInput={};state.selected=state.screen==Screen::administration?administrationHomeIndex:3;
+    state.screen=Screen::home;
+  }
   void setBrightness(uint8_t value);
   uint8_t preference() const { return state.level; }
   DisplayPreferences preferences() const { return {state.level,state.dimSeconds,state.offSeconds}; }
