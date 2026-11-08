@@ -6,6 +6,7 @@
 #include "DeviceOps.h"
 #include "SettingsApply.h"
 #include "SettingsCompletion.h"
+#include "SettingsDurability.h"
 #include "ConfigSettings.h"
 #include "ESPNetwork.h"
 #include "MqttConnection.h"
@@ -109,6 +110,7 @@ static void runSave(const proto_reply_to_t &to, settings_save_t *save) {
   ProtoWriter w = protoSocket.beginReply(to);
   w.add(proto_field_t::apiKey, token);
   w.add(proto_field_t::rebooting, reboot);
+  if(result.restartBlocked) w.add(proto_field_t::desc,settingsDurabilityDescription());
   protoSocket.endReply(to);
   ESP_LOGI(TAG, "Socket [%lu] saved the %s settings%s", (unsigned long)to.client, settingsSectionName(section), reboot ? ", rebooting" : "");
   // Completion is shared with local saves. closeAll(origin) defers this

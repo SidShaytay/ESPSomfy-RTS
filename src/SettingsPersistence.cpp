@@ -2,12 +2,14 @@
 #include <string.h>
 #include "ConfigSettings.h"
 #include "Secrets.h"
+#include "SettingsDurability.h"
 #include "Transceiver.h"
 
 namespace {
 // Keep the existing Preferences namespaces and NVS key types, including the
 // historical signed MQTT port. No namespace clear and no new storage format.
 class SettingsWriter {
+  SettingsNamespace space;
   nvs_handle_t handle = 0;
   bool opened = false, written = false;
   settings_save_result_t outcome;
@@ -29,11 +31,11 @@ class SettingsWriter {
     if(get(handle,key,&check) != ESP_OK || check != value) failed(key);
   }
 public:
-  explicit SettingsWriter(const char *space) {
-    opened = nvs_open(space,NVS_READWRITE,&handle) == ESP_OK;
-    if(!opened) failed(space);
+  explicit SettingsWriter(SettingsNamespace id,const char *name) : space(id) {
+    opened = nvs_open(name,NVS_READWRITE,&handle) == ESP_OK;
+    if(!opened) failed(name);
   }
-  ~SettingsWriter() { if(opened) nvs_close(handle); }
+  ~SettingsWriter() { if(opened) nvs_close(handle);settingsDurability().fullSave(space,outcome); }
   settings_save_result_t result() const { return outcome; }
   void text(const char *key, const char *value) {
     if(!outcome.saved()) return;
@@ -61,7 +63,7 @@ public:
 }
 
 settings_save_result_t ConfigSettings::save() {
-  SettingsWriter out("CFG");
+  SettingsWriter out(SettingsNamespace::cfg,"CFG");
   out.text("hostname", hostname);
   out.flag("ssdpBroadcast", ssdpBroadcast);
   out.i8("connType", static_cast<uint8_t>(connType));
@@ -69,7 +71,7 @@ settings_save_result_t ConfigSettings::save() {
   return out.result();
 }
 settings_save_result_t MQTTSettings::save() {
-  SettingsWriter out("MQTT");
+  SettingsWriter out(SettingsNamespace::mqtt,"MQTT");
   out.text("protocol", protocol);
   out.text("hostname", hostname);
   out.i16("port", static_cast<int16_t>(port));
@@ -82,13 +84,13 @@ settings_save_result_t MQTTSettings::save() {
   return out.result();
 }
 settings_save_result_t NTPSettings::save() {
-  SettingsWriter out("NTP");
+  SettingsWriter out(SettingsNamespace::ntp,"NTP");
   out.text("ntpServer", ntpServer);
   out.text("posixZone", posixZone);
   return out.result();
 }
 settings_save_result_t IPSettings::save() {
-  SettingsWriter out("IP");
+  SettingsWriter out(SettingsNamespace::ip,"IP");
   out.flag("dhcp", dhcp);
   out.text("ip", ip.toString().c_str());
   out.text("gateway", gateway.toString().c_str());
@@ -98,7 +100,7 @@ settings_save_result_t IPSettings::save() {
   return out.result();
 }
 settings_save_result_t SecuritySettings::save() {
-  SettingsWriter out("SEC");
+  SettingsWriter out(SettingsNamespace::security,"SEC");
   out.i8("type", static_cast<uint8_t>(type));
   out.text("username", username);
   out.text("password", password);
@@ -106,7 +108,7 @@ settings_save_result_t SecuritySettings::save() {
   return out.result();
 }
 settings_save_result_t WifiSettings::save() {
-  SettingsWriter out("WIFI");
+  SettingsWriter out(SettingsNamespace::wifi,"WIFI");
   out.text("ssid", ssid);
   out.text("passphrase", passphrase);
   out.flag("roaming", roaming);
@@ -115,7 +117,7 @@ settings_save_result_t WifiSettings::save() {
 }
 #if HAS_ETHERNET
 settings_save_result_t EthernetSettings::save() {
-  SettingsWriter out("ETH");
+  SettingsWriter out(SettingsNamespace::ethernet,"ETH");
   out.i8("boardType", boardType);
   out.i8("phyAddress", phyAddress);
   out.i8("phyType", phyType);
@@ -128,7 +130,7 @@ settings_save_result_t EthernetSettings::save() {
 #endif
 settings_save_result_t transceiver_config_t::save() {
   applyBoardPins();
-  SettingsWriter out("CC1101");
+  SettingsWriter out(SettingsNamespace::radio,"CC1101");
   out.u8("type", type);
   out.u8("TXPin", TXPin);
   out.u8("RXPin", RXPin);
