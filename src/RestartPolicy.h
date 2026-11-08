@@ -14,7 +14,6 @@ class RestartPolicy {
   RestartReason refusal(const RestartObservation &observation) const;
 public:
   RestartSnapshot snapshot() const { return value; }
-  RestartResult request(uint32_t delayMs,uint64_t now,const RestartObservation &observation);
   RestartSubmission submit(uint32_t delayMs,const RestartObservation &published);
   bool admitQueued(uint64_t now,const RestartObservation &observation,uint64_t expectedGeneration);
   void observe(uint64_t now,const RestartObservation &observation);

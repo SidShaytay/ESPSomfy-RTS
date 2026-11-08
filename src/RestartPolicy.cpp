@@ -10,7 +10,7 @@ const char *restartReason(RestartReason reason) {
     "Operations remain queued; resolve them, then explicitly Restart.",
     "A restart request is already pending.","Restart request expired after state changed; explicitly request Restart again.",
     "Restart cancelled.","Restart history is exhausted.","Monotonic restart clock moved backward.",
-    "Invalid restart request.","Restart admission is not ready."};
+    "Invalid restart request.","Restart admission is not ready.","Storage or update I/O is active; explicitly request Restart again when finished."};
   const auto index=static_cast<unsigned>(reason);
   return index<sizeof(text)/sizeof(*text) ? text[index] : "Restart refused.";
 }
@@ -28,15 +28,6 @@ void RestartPolicy::observe(uint64_t now,const RestartObservation &o) {
   const auto reason=refusal(o);
   if(reason!=RestartReason::none) cancel(reason);
   else if(value.settingsEpoch!=o.settingsEpoch || value.modelEpoch!=o.modelEpoch) cancel(RestartReason::stale);
-}
-RestartResult RestartPolicy::request(uint32_t delayMs,uint64_t now,const RestartObservation &o) {
-  observe(now,o);
-  if(now<highWater) return {false,RestartReason::clock};
-  if(value.pending()) return {false,RestartReason::pending};
-  const auto reason=generation==UINT64_MAX ? RestartReason::exhausted : (validDelay(delayMs,now) ? refusal(o) : RestartReason::invalidRequest);
-  if(reason!=RestartReason::none) { value.phase=RestartPhase::refused;value.reason=reason;return {false,reason}; }
-  value={RestartPhase::admitted,RestartReason::none,o.settingsEpoch,o.modelEpoch,++generation};
-  deadline=now+delayMs;return {true,RestartReason::none};
 }
 RestartSubmission RestartPolicy::submit(uint32_t delayMs,const RestartObservation &o) {
   if(value.pending()) return RestartSubmission::busy;
