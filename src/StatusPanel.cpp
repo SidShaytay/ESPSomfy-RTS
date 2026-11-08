@@ -1,6 +1,6 @@
 #include "StatusPanel.h"
 #ifdef ESPSOMFY_STATUS_DISPLAY
-#if !defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS) && !defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+#if !defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
 #error "Status LCD requires an exact supported LILYGO board profile"
 #endif
 #include <Arduino.h>

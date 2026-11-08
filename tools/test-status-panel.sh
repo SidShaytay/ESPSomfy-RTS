@@ -4,7 +4,7 @@ ulimit -c 0
 repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 scratch="$(mktemp -d)"
 trap 'rm -rf -- "$scratch"' EXIT
-for board in ESPSOMFY_LILYGO_T_EMBED_CC1101 ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS; do
+for board in ESPSOMFY_LILYGO_T_EMBED_CC1101; do
 "${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror \
   -DESPSOMFY_STATUS_DISPLAY -D"$board" -DCONFIG_IDF_TARGET_ESP32S3 \
   -I"$repo/tests/status-panel" -I"$repo/src" \
