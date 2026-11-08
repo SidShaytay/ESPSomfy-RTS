@@ -25,6 +25,7 @@ enum class CheckResult : uint8_t { compatible, schema, hardware, assets, artifac
 CheckResult check(const Manifest &manifest, const char *installedApp);
 const char *reason(CheckResult result);
 const char *validate(const Manifest &manifest, const char *installedApp);
+bool stableVersion(const char *version);
 bool newer(const char *available, const char *installed);
 bool allowedUrl(const char *url);
 std::string identity(const Manifest &manifest);

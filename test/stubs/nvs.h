@@ -6,18 +6,18 @@
 #include <vector>
 using esp_err_t = int;
 using nvs_handle_t = uint32_t;
-constexpr esp_err_t ESP_OK = 0, ESP_FAIL = -1, ESP_ERR_NVS_NOT_FOUND = 1;
-constexpr int NVS_READWRITE = 1;
+constexpr esp_err_t ESP_OK = 0, ESP_FAIL = -1, ESP_ERR_NVS_NOT_FOUND = 1, ESP_ERR_NVS_TYPE_MISMATCH = 2;
+constexpr int NVS_READWRITE = 1, NVS_READONLY = 0;
 namespace FakeNvs {
 enum class Type { i8, u8, i16, text, blob };
 struct Value { Type type; std::vector<uint8_t> bytes; };
 inline std::map<std::string,Value> values;
 inline std::map<nvs_handle_t,std::string> handles;
-inline int opens, sets, commits, reads, closes;
+inline int opens, sets, commits, reads, closes, erases;
 inline int failOpen, failSet, failCommit, failRead, corruptRead;
 inline void reset() {
   values.clear(); handles.clear();
-  opens=sets=commits=reads=closes=0;
+  opens=sets=commits=reads=closes=erases=0;
   failOpen=failSet=failCommit=failRead=corruptRead=0;
 }
 inline esp_err_t set(nvs_handle_t h,const char *key,Type type,const void *data,size_t size) {
@@ -29,7 +29,8 @@ inline esp_err_t set(nvs_handle_t h,const char *key,Type type,const void *data,s
 inline esp_err_t get(nvs_handle_t h,const char *key,Type type,void *data,size_t *size) {
   if(++reads == failRead || !handles.count(h)) return ESP_FAIL;
   auto it=values.find(handles[h]+"/"+key);
-  if(it==values.end() || it->second.type!=type) return ESP_ERR_NVS_NOT_FOUND;
+  if(it==values.end()) return ESP_ERR_NVS_NOT_FOUND;
+  if(it->second.type!=type) return ESP_ERR_NVS_TYPE_MISMATCH;
   size_t len=it->second.bytes.size();
   if(data && *size<len) return ESP_FAIL;
   if(data) {
@@ -70,4 +71,10 @@ inline esp_err_t nvs_set_blob(nvs_handle_t h,const char *key,const void *value,s
 }
 inline esp_err_t nvs_get_blob(nvs_handle_t h,const char *key,void *value,size_t *size) {
   return FakeNvs::get(h,key,FakeNvs::Type::blob,value,size);
+}
+
+inline esp_err_t nvs_erase_key(nvs_handle_t handle,const char *key) {
+  ++FakeNvs::erases;
+  if(!FakeNvs::handles.count(handle)) return ESP_FAIL;
+  return FakeNvs::values.erase(FakeNvs::handles.at(handle)+"/"+key) ? ESP_OK : ESP_ERR_NVS_NOT_FOUND;
 }

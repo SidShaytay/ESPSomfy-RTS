@@ -1,5 +1,6 @@
 #include "SettingsApply.h"
 #include "Secrets.h"
+#include "SettingsDurability.h"
 
 namespace {
 struct SettingsDraft {
@@ -56,6 +57,7 @@ const char *settingsApplyFailureDescription(const settings_apply_result_t &resul
     case settings_apply_refusal_t::passwordRequired: return "Password security requires a password; nothing was saved.";
     case settings_apply_refusal_t::unauthorized: return "Unlock again before saving; nothing was saved.";
     case settings_apply_refusal_t::stale: return "Settings changed; reopen the form before saving.";
+    case settings_apply_refusal_t::busy: return "Actions are queued; retry Save when they finish. Nothing was saved.";
     default: return settingsSaveFailureDescription(result.persistence.state);
   }
 }
@@ -67,6 +69,7 @@ settings_apply_result_t applySettings(ConfigSettings &current, settings_section_
     out.persistence = effects.saveRadio(request);
     if(out.saved()) {
       out.persistedParts = parts;
+      out.restartBlocked=!settingsDurability().status().restartAllowed();
       effects.completed(section,false);
     }
     return out;
@@ -90,7 +93,11 @@ settings_apply_result_t applySettings(ConfigSettings &current, settings_section_
     if(!settingsSets(parts,part)) return true;
     out.persistence = value.save();
     if(!out.saved()) {
-      if(out.persistedParts) out.persistence.state = settings_save_state_t::partial;
+      if(out.persistedParts) {
+        out.persistence.state = settings_save_state_t::partial;
+        // Earlier complete draft writes differ from unchanged running values.
+        settingsDurability().markUncertain(settingsNamespaces(out.persistedParts));
+      }
       return false;
     }
     out.persistedParts |= 1u << static_cast<uint8_t>(part);
@@ -132,6 +139,8 @@ settings_apply_result_t applySettings(ConfigSettings &current, settings_section_
 #if HAS_ETHERNET
   if(settingsSets(parts,settings_part_t::ethernet) && (current.connType==conn_types_t::ethernet || current.connType==conn_types_t::ethernetpref)) out.reboot=true;
 #endif
+  out.restartBlocked=!settingsDurability().status().restartAllowed();
+  if(out.restartBlocked) out.reboot=false;
   effects.completed(section,out.reboot);
   return out;
 }

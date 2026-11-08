@@ -26,6 +26,8 @@ Enabling or changing active PIN authentication requires an effective four-byte P
 
 A failed save retains the draft for an explicit retry or Cancel. A partial save also retains it and reports that durable settings may be partly changed while running settings stay unchanged. Retry before restarting. There is no transaction rollback: a later reboot can load partially saved values. Failed and partial results do not reconnect, reboot or complete security-session changes.
 
+If an earlier action is still queued, Save reports **Busy** and keeps the draft. Wait for those actions to finish, then select Save again or Cancel. The form does not save automatically when the queue clears.
+
 The form closes and erases its drafts on authorization-history changes, a changed section revision, cancellation, timeout or allocation failure. The form inactivity limit is 120 seconds; an active value editor also has its existing 30-second inactivity limit. The backend checks authorization and section history again immediately before the shared device apply operation. A successful save closes the form; the shared operation owns notifications, session revocation and any required restart.
 
 ## Memory and integration contract

@@ -36,6 +36,7 @@ int main(int argc,char **argv) {
   view.rows[0].selected=false;view.rows[1].selected=true;view.selected=1;view.rows[0].dirty=true;
   canvas.paintSettings(view);assert(pixels!=first);save(std::string(argv[1])+"/settings-secret.ppm",pixels);
   view.notice=Settings::Notice::partial;strcpy(view.hint,"May be partly stored; running unchanged. Retry before restart.");canvas.paintSettings(view);save(std::string(argv[1])+"/settings-partial.ppm",pixels);
+  view.notice=Settings::Notice::busy;canvas.paintSettings(view);save(std::string(argv[1])+"/settings-busy.ppm",pixels);
   assert(view.protectedFrame);
   view.notice=Settings::Notice::none;view.mode=Settings::Mode::confirm;view.rowCount=2;
   strcpy(view.hint,"Changes authentication; may close sessions.");
