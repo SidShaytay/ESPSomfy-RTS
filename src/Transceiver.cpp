@@ -433,6 +433,7 @@ settings_save_result_t Transceiver::setConfig(const transceiver_config_t &cfg) {
   const auto result = next.save();
   if(!result.saved()) return result;
   if(this->config.enabled && this->config.TXPin != next.TXPin) pinMode(this->config.TXPin, INPUT);
+  ++configurationRevision;
   this->config = next;
   this->config.apply();
   return result;
