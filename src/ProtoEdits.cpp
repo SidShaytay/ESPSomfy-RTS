@@ -149,15 +149,15 @@ const char *expandEditPayload(model_edit_type_t type, JsonObjectConst d, JsonDoc
       snprintf(why, sizeof(why), "%s is not a %s", f.name, protoKindName(f.kind));
       return why;
     }
-    if(const auto *bounds=entityField(field)) {
+    if(field == proto_field_t::bitLength &&
+       (!kv.value().is<uint8_t>() || !supportedBitLength(kv.value().as<uint8_t>())))
+      return "bitLength must be 56 or 80";
+    if(const auto *bounds=entityField(type,field)) {
       if(!validEntityValue(*bounds,kv.value())) {
         snprintf(why,sizeof(why),"%s is outside its supported bounds",f.name);
         return why;
       }
     }
-    if(field == proto_field_t::bitLength &&
-       (!kv.value().is<uint8_t>() || !supportedBitLength(kv.value().as<uint8_t>())))
-      return "bitLength must be 56 or 80";
   }
   // A left-out field is not given, so it can't stand for unpaired.
   if(type == model_edit_type_t::set_paired && obj["paired"].isNull()) return "paired is missing";

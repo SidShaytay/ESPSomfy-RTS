@@ -24,6 +24,9 @@ struct ApplyResult {
   edit_result_t edit;
   Admission admission = Admission::accepted;
   proto_field_t field = proto_field_t::count;
+  // Owned canonical explanation for a correctable refusal; never a stack
+  // pointer, user-supplied text, path, identity or credential value.
+  char reason[64] = {};
 };
 struct CommitResult {
   ModelCommitResult file;
