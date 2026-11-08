@@ -1,11 +1,14 @@
 #include <assert.h>
 #include <stdio.h>
 #include <initializer_list>
+#include <set>
+#include <vector>
 #include "BoardProfile.h"
 #include <driver/gpio.h>
 #include "SomfyFrame.h"
 #include "ShadeSettings.h"
 #include "ShadeBehaviour.h"
+#include "ModelEditor.h"
 
 // Substitute model/storage and the base frame dispatcher. Production MotorLink
 // and GPIO methods below observe the actual board policy; no hardware is used.
@@ -17,6 +20,9 @@ struct SomfyRemote {
   send_result_t sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority, bool hearsItself);
 };
 struct SomfyShade : SomfyRemote, ShadeSettings {
+  uint8_t id=255;
+  uint8_t getShadeId(){return id;}
+  int8_t validateGPIOs(radio_proto,uint8_t,uint8_t,uint8_t);
   radio_proto proto = radio_proto::GP_Relay;
   uint8_t gpioFlags = 0;
   int8_t gpioDir = 0;
@@ -26,10 +32,21 @@ struct SomfyShade : SomfyRemote, ShadeSettings {
   const State &state() const { return position; }
   bool isToggle() { return isToggleShade(shadeType); }
   send_result_t send(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority);
+  void configureGPIOs();
   void setGPIOs();
   void triggerGPIOs(somfy_frame_t &frame);
   bool usesPin(uint8_t pin);
 };
+#define SHADE_GPIO_ADMISSION_HOST_TEST
+#define HAS_ETHERNET 0
+struct SomfyShadeController {
+  SomfyShade shades[2];
+  void configureGPIOs();
+  struct Radio {bool usesPin(uint8_t pin){return BoardProfile::usesPin(pin);}} transceiver;
+} somfy;
+struct ConfigSettings {} settings;
+const char *modelCommitFailureDescription(ModelCommitState){return "Not exercised";}
+#include "ShadeGpioAdmission.cpp"
 #include "ShadeGpio.cpp"
 #include "ShadeTransport.cpp"
 
@@ -51,10 +68,12 @@ send_result_t SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, 
 TestSerial Serial;
 TestESP ESP;
 static unsigned int writes = 0;
+static std::set<uint8_t> touched;
+static std::vector<uint8_t> configured;
 static int levels[49] = {};
 int gpio_set_level(gpio_num_t pin, uint32_t value) { levels[pin] = value; return 0; }
-void pinMode(uint8_t, uint8_t) {}
-void digitalWrite(uint8_t pin, uint8_t value) { writes++; levels[pin] = value; }
+void pinMode(uint8_t pin, uint8_t mode) { assert(GPIO_IS_VALID_OUTPUT_GPIO(pin));assert(mode==OUTPUT);configured.push_back(pin);touched.insert(pin); }
+void digitalWrite(uint8_t pin, uint8_t value) { assert(GPIO_IS_VALID_OUTPUT_GPIO(pin));writes++; touched.insert(pin);levels[pin] = value; }
 int digitalRead(uint8_t pin) { return levels[pin]; }
 static unsigned long clockNow = 100;
 unsigned long millis() { return clockNow; }
@@ -150,5 +169,73 @@ int main() {
       assert(writes == before);
     }
   }
+  // Legacy duplicate or unset assignments must not reach an SDK pin call.
+  shade.proto=radio_proto::GP_Relay;shade.gpioUp=17;shade.gpioDown=17;shade.gpioMy=42;
+  unchanged=writes;shade.setGPIOs();assert(writes==unchanged);
+  shade.proto=radio_proto::GP_Remote;shade.gpioUp=shade.gpioDown=shade.gpioMy=255;
+  shade.gpioRelease=0;shade.setGPIOs();shade.triggerGPIOs(frame);assert(writes==unchanged);
+  // Setup, release and all existing category/command paths share the same
+  // conservative physical admission. No reserved/invalid/duplicate call leaks.
+  const somfy_commands commands[]={somfy_commands::Up,somfy_commands::Down,somfy_commands::My,
+    somfy_commands::Toggle,somfy_commands::MyUp,somfy_commands::MyDown,somfy_commands::MyUpDown};
+  for(auto protocol:{radio_proto::GP_Remote,radio_proto::GP_Relay})for(unsigned category=0;category<=16;category++) {
+    shade.proto=protocol;shade.shadeType=static_cast<shade_types>(category);
+    shade.gpioUp=17;shade.gpioDown=40;shade.gpioMy=42;shade.gpioRelease=0;
+    configured.clear();touched.clear();shade.configureGPIOs();
+    assert(configured.size()==(protocol==radio_proto::GP_Remote?3u:2u));
+    assert(configured[0]==17 && configured[1]==40);
+    if(protocol==radio_proto::GP_Remote)assert(configured[2]==42);
+    for(auto command:commands){frame.cmd=command;shade.triggerGPIOs(frame);}
+    clockNow=10000;shade.setGPIOs();clockNow=100;
+    assert(shade.usesPin(17) && shade.usesPin(40));
+    assert(shade.usesPin(42)==(protocol==radio_proto::GP_Remote));
+    assert(!shade.usesPin(255));
+    assert(touched.size()==(protocol==radio_proto::GP_Remote?3u:2u));
+    for(unsigned slot=0;slot<(protocol==radio_proto::GP_Remote?3u:2u);slot++) {
+      for(uint8_t bad:{uint8_t(15),uint8_t(22),uint8_t(46),uint8_t(99),uint8_t(17)}) {
+        shade.gpioUp=17;shade.gpioDown=40;shade.gpioMy=42;
+        if(slot==0)shade.gpioUp=bad==17?40:bad;
+        if(slot==1)shade.gpioDown=bad;
+        if(slot==2)shade.gpioMy=bad;
+        const auto beforeBad=writes;configured.clear();shade.configureGPIOs();
+        shade.setGPIOs();shade.triggerGPIOs(frame);
+        assert(writes==beforeBad && configured.empty());
+        assert((slot==0?shade.gpioUp:slot==1?shade.gpioDown:shade.gpioMy)==(slot==0 && bad==17?40:bad));
+      }
+    }
+    shade.gpioUp=shade.gpioDown=shade.gpioMy=255;
+    const auto beforeNone=writes;configured.clear();shade.configureGPIOs();shade.setGPIOs();shade.triggerGPIOs(frame);
+    assert(writes==beforeNone && configured.empty());
+  }
+  shade.proto=radio_proto::GP_Remote;shade.gpioUp=17;shade.gpioDown=40;shade.gpioMy=42;
+  auto &other=somfy.shades[0];other.id=7;other.proto=radio_proto::GP_Remote;
+  other.gpioUp=17;other.gpioDown=255;other.gpioMy=255;
+  unchanged=writes;configured.clear();shade.configureGPIOs();shade.triggerGPIOs(frame);shade.setGPIOs();
+  assert(writes==unchanged && configured.empty());
+  other.id=255;shade.configureGPIOs();assert(configured.size()==3);
+  shade.shadeType=shade_types::roller;shade.gpioUp=17;shade.gpioDown=shade.gpioMy=255;shade.gpioRelease=0;
+  configured.clear();shade.configureGPIOs();assert(configured.size()==1 && configured[0]==17);
+  frame.cmd=somfy_commands::Up;unchanged=writes;shade.triggerGPIOs(frame);
+  assert(writes==unchanged+1 && levels[17]==HIGH);
+  clockNow=10000;unchanged=writes;shade.setGPIOs();assert(writes==unchanged+1 && levels[17]==LOW);
+  // Preserve existing lift/integrated/tilt-only relay direction and polarity.
+  shade.proto=radio_proto::GP_Relay;shade.shadeType=shade_types::blind;
+  shade.gpioUp=17;shade.gpioDown=40;shade.gpioMy=255;
+  for(unsigned tilt=0;tilt<=4;tilt++)for(unsigned low=0;low<2;low++) {
+    shade.tiltType=static_cast<tilt_types>(tilt);shade.gpioFlags=low;
+    const int on=low?LOW:HIGH,off=low?HIGH:LOW;
+    shade.position.direction=1;shade.position.tiltDirection=-1;shade.setGPIOs();
+    assert(levels[17]==(tilt==3?on:off) && levels[40]==(tilt==3?off:on));
+    shade.position.direction=0;shade.setGPIOs();
+    assert(levels[17]==((tilt==2 || tilt==3)?on:off) && levels[40]==off);
+  }
+  // Model completion sees final ownership, not the previous per-record owner.
+  auto &loaded=somfy.shades[0];loaded.id=7;loaded.proto=radio_proto::GP_Remote;
+  loaded.gpioUp=17;loaded.gpioDown=40;loaded.gpioMy=42;
+  auto &second=somfy.shades[1];second.id=8;second.proto=radio_proto::GP_Remote;
+  second.gpioUp=17;second.gpioDown=second.gpioMy=255;
+  configured.clear();somfy.configureGPIOs();assert(configured.empty());
+  second.gpioUp=255;configured.clear();somfy.configureGPIOs();assert(configured.size()==3);
+  assert(configured[0]==17 && configured[1]==40 && configured[2]==42);
   puts("Reserved shade GPIO checks passed");
 }

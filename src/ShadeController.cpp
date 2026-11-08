@@ -62,6 +62,7 @@ bool SomfyShadeController::begin() {
     ESP_LOGI(TAG, "Starting clean");
   }
   this->transceiver.begin();
+  this->configureGPIOs();
 
   // Set the radio type for shades that have yet to be specified.
   bool saveFlag = false;
