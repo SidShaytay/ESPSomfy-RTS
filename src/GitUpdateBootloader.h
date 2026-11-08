@@ -1,6 +1,6 @@
 #pragma once
 #include "GitUpdateAttestation.h"
-UpdateAttestation gitUpdateBootloaderStatus();
+UpdateAttestation gitUpdateBootloaderStatus(UpdateAttestationControl control={});
 
 // Compare installed raw bootloader bytes with this build's generated pinned
 // rollback-enabled bootloader. Cached: the updater never writes the bootloader.
