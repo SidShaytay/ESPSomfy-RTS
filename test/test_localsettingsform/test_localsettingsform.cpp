@@ -5,11 +5,13 @@
 #include <unity.h>
 using namespace LocalUi::Settings;
 struct Memory : ArduinoJson::Allocator {
-  bool fail = false;
+  bool fail = false, failedAdmission = false;
   unsigned active = 0, allocations = 0, failAfter = ~0u;
   void *allocate(size_t n) override {
-    if (fail || ++allocations > failAfter)
+    if (fail || ++allocations > failAfter) {
+      failedAdmission = true;
       return nullptr;
+    }
     void *p = malloc(n);
     if (p)
       ++active;
@@ -402,6 +404,37 @@ editor_timeout_and_auth_history_are_checked_on_input_without_tick() {
   TEST_ASSERT_TRUE(form.closed());
   TEST_ASSERT_EQUAL(Notice::locked, form.view().notice);
 }
+static void
+restoring_previous_field_after_rejection_fails_closed_on_admission() {
+  Memory mem;
+  Fake backend;
+  Form form(backend, mem);
+  form.openSection(settings_section_t::network, 0);
+  turnTo(form, 6);
+  form.activate(1);
+  textApply(form, "192.168.123.123");
+  TEST_ASSERT_TRUE(form.view().dirty);
+  form.activate(1);
+  unsigned selected = 0;
+  pickerSelect(form, selected, 95);
+  for (unsigned i = 0; i < 15; i++)
+    form.activate(1);
+  const char *invalid = "999.1.1.1";
+  for (const char *p = invalid; *p; p++) {
+    pickerSelect(form, selected, unsigned(*p) - 32);
+    form.activate(1);
+  }
+  pickerSelect(form, selected, 97);
+  // New value, section name, expanded object and expanded value fit.
+  // Restoring the previous IP after rejection is the next allocation.
+  mem.failAfter = mem.allocations + 4;
+  form.activate(1);
+  TEST_ASSERT_TRUE(mem.failedAdmission);
+  TEST_ASSERT_TRUE(form.closed());
+  TEST_ASSERT_EQUAL(Notice::noMemory, form.view().notice);
+  TEST_ASSERT_EQUAL(0, mem.active);
+  TEST_ASSERT_EQUAL(0, backend.saves);
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(rotation_and_field_apply_do_not_persist_until_explicit_save);
@@ -417,6 +450,7 @@ int main() {
   RUN_TEST(
       numeric_coarse_steps_reach_bounds_and_frequency_preserves_third_decimal);
   RUN_TEST(late_backend_recheck_and_failed_persistence_never_claim_saved);
+  RUN_TEST(restoring_previous_field_after_rejection_fails_closed_on_admission);
   RUN_TEST(validation_and_save_transient_admission_fail_closed);
   RUN_TEST(every_authoritative_section_field_is_reachable_with_board_filter);
   RUN_TEST(editor_timeout_and_auth_history_are_checked_on_input_without_tick);

@@ -564,6 +564,13 @@ void Form::applyField(uint64_t now) {
     frame.notice = Notice::invalid;
   } else
     frame.notice = Notice::none;
+  // Reinstating an older, longer string can itself need storage. Treat this
+  // admission failure exactly like failure while building the candidate.
+  if (changes.overflowed()) {
+    wipe(&previous, sizeof(previous));
+    close(Notice::noMemory);
+    return;
+  }
   wipe(&previous, sizeof(previous));
   frame.mode = Mode::fields;
   selected = fieldIndex;
