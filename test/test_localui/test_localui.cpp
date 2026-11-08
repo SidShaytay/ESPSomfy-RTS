@@ -277,8 +277,19 @@ static void graphics_discard_restarts_debounce_and_suppresses_held_recovery_inpu
     d.click();TEST_ASSERT_EQUAL(int(Screen::home),int(d.c.view().screen)); // fresh gesture works after release
   }
 }
+static void status_hold_details_scroll_reaches_health_bottom_without_commands() {
+  Drive d;d.tick();d.tick(0,true);d.tick(0,true);d.tick(0,true,true,false,850);d.tick();d.tick();
+  TEST_ASSERT_EQUAL(Screen::details,d.c.view().screen);
+  for(unsigned i=0;i<40;i++) d.tick(1);
+  TEST_ASSERT_EQUAL(detailsRowCount-detailsVisibleRows,d.c.view().detailsOffset);
+  TEST_ASSERT_GREATER_OR_EQUAL(14,detailsRowCount);
+  Command command;TEST_ASSERT_FALSE(d.c.take(command));
+  d.back();TEST_ASSERT_EQUAL(Screen::status,d.c.view().screen);TEST_ASSERT_FALSE(d.c.take(command));
+}
 int main() {
-  UNITY_BEGIN();RUN_TEST(stable_catalogue_selection_binds_id_not_slot);
+  UNITY_BEGIN();
+  RUN_TEST(status_hold_details_scroll_reaches_health_bottom_without_commands);
+  RUN_TEST(stable_catalogue_selection_binds_id_not_slot);
   RUN_TEST(never_presented_catalogue_or_stop_emits_no_intent);
   RUN_TEST(empty_full_and_live_reordered_catalogues_are_bounded);
   RUN_TEST(target_replacement_between_row_and_focus_is_not_rebound);

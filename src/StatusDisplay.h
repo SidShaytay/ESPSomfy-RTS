@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include <stddef.h>
 #include "BatteryGauge.h"
 
 // Read-only values only: no controller, command queue or credentials cross this boundary.
@@ -7,7 +8,14 @@ namespace StatusDisplay {
 enum class Link { disconnected, connecting, connected, accessPoint };
 enum class Web { starting, listening, error };
 enum class Radio { initializing, ready, unavailable };
+struct Health {
+  bool sampled=false,psramPresent=false,loopSampled=false;
+  uint32_t internalFreeBytes=0,internalMinimumBytes=0,internalLargestBytes=0,psramFreeBytes=0;
+  uint32_t loopRate=0,loopMaxUs=0;
+};
+static_assert(sizeof(Health)<=32,"Keep LCD health metadata bounded");
 struct Snapshot {
+  Health health;
   uint8_t graphicsFailure = 0; // 1: PSRAM missing, 2: allocation failed
   BatteryGauge::Reading battery;
   bool running = false;
@@ -23,6 +31,7 @@ struct Snapshot {
 };
 struct Page { char lines[9][27] = {}; };
 void format(const Snapshot &snapshot, Page &page);
+void formatHealthLine(const Health &health,uint8_t row,char *out,size_t size);
 enum class Result { pending, ready, failed };
 struct Output {
   virtual ~Output() = default;

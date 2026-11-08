@@ -124,8 +124,10 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
         snprintf(label, sizeof(label), "Firmware: %s", s.firmwareVersion[0] ? s.firmwareVersion : "unavailable");
       else if(index == 1)
         snprintf(label, sizeof(label), "Application: %s", s.applicationVersion[0] ? s.applicationVersion : "unavailable");
-      else
+      else if(index<10)
         snprintf(label, sizeof(label), "%s", page.lines[index - 2]);
+      else
+        StatusDisplay::formatHealthLine(s.health,index-10,label,sizeof(label));
       text(12, 58 + row * 18, label, false, index < 2 ? white : muted);
     }
     snprintf(label, sizeof(label), "Turn: scroll   Back   %u-%u/%u", offset + 1,

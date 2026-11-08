@@ -391,10 +391,16 @@ static void test_loopStats_window_across_millis_wrap() {
   // 0x200 ms before the wrap plus 0x200 after it is 1024 ms.
   TEST_ASSERT_EQUAL_UINT32(1000, stats.rate(0x00000200));
 }
+static void loop_stats_publication_availability_does_not_use_zero_as_a_sentinel() {
+  LoopStats stats;TEST_ASSERT_FALSE(stats.hasPublished());
+  stats.publish(0);TEST_ASSERT_TRUE(stats.hasPublished());
+  TEST_ASSERT_EQUAL(0,stats.publishedRate());TEST_ASSERT_EQUAL(0,stats.publishedMaxUs());
+}
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(loop_stats_publication_availability_does_not_use_zero_as_a_sentinel);
   RUN_TEST(test_trim_strips_whitespace_and_quotes);
   RUN_TEST(test_trim_keeps_clean_string);
   RUN_TEST(test_trim_all_whitespace_becomes_empty);

@@ -23,7 +23,7 @@ uint32_t sceneHash(const Model &m,const View &v,const StatusDisplay::Snapshot &s
     uint32_t(m.target.position),uint32_t(m.target.tiltPosition),m.target.descriptor.memberCount,m.target.movingCount,
     uint32_t(m.target.descriptor.shadeType),uint32_t(m.target.descriptor.proto),m.target.descriptor.bitLength,
     s.running,uint32_t(s.battery.state),s.battery.percent,s.battery.millivolts,uint32_t(s.link),uint32_t(s.web),
-    uint32_t(s.radio),uint32_t(s.frequency*100),uint32_t(s.uptimeSeconds/60)};
+    uint32_t(s.radio),uint32_t(s.frequency*100),uint32_t(v.screen==Screen::details?s.uptimeSeconds:s.uptimeSeconds/60)};
   uint32_t h=hash(values,sizeof(values));
   for(const auto &entry:m.page.rows) {
     const int32_t values[]={entry.id,entry.position,entry.available,entry.moving};
