@@ -30,6 +30,7 @@ struct Fake : Backend {
   unsigned applies = 0, commits = 0;
   bool late = false, busy = false;
   int originalOrder = 0;
+  const char *originalName = "Room";
   ModelCommitState outcome = ModelCommitState::saved;
   JsonDocument received;
   model_edit_type_t receivedType;
@@ -43,7 +44,7 @@ struct Fake : Backend {
     v = {};
     v.kind = protoField(f).kind;
     if (f == proto_field_t::name)
-      strcpy(v.text, "Room");
+      strcpy(v.text, originalName);
     else
       v.integer = originalOrder;
     return true;
@@ -246,8 +247,101 @@ static void timeout_and_out_of_band_discard_wipe_active_editor_and_draft() {
     TEST_ASSERT_EQUAL(0, backend.applies);
   }
 }
+static void
+add_order_128_requires_explicit_replacement_without_losing_name_draft() {
+  Memory memory;
+  Fake backend;
+  backend.originalOrder = 128;
+  Form form(backend, memory);
+  TEST_ASSERT_TRUE(form.open(Kind::room, 0, 0));
+  form.activate(1);
+  form.activate(1);
+  turn(form, 97);
+  form.activate(1); // append space; Apply name
+  turn(form, 2);
+  form.activate(1); // name-only Save must not wrap offered order
+  TEST_ASSERT_EQUAL(0, backend.applies);
+  TEST_ASSERT_EQUAL(Mode::fields, form.view().mode);
+  TEST_ASSERT_EQUAL(1, form.view().selected);
+  TEST_ASSERT_TRUE(form.view().dirty);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(Mode::replace, form.view().mode);
+  form.activate(1); // Cancel is default
+  TEST_ASSERT_EQUAL(Mode::fields, form.view().mode);
+  TEST_ASSERT_TRUE(form.view().dirty);
+  form.activate(1);
+  form.turn(1, 1);
+  form.activate(1); // explicit Replace
+  TEST_ASSERT_EQUAL(Mode::adjust, form.view().mode);
+  form.back(1); // field cancellation still preserves original and name draft
+  TEST_ASSERT_NOT_NULL(strstr(form.view().rows[1].value, "Invalid"));
+  form.activate(1);
+  form.turn(1, 1);
+  form.activate(1);
+  form.turn(1, 1);
+  form.activate(1);
+  form.turn(-1, 1);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(0, backend.applies);
+  turn(form, 1);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(1, backend.applies);
+  TEST_ASSERT_EQUAL(1, backend.received["sortOrder"].as<int>());
+  TEST_ASSERT_EQUAL_STRING("Room ",
+                           backend.received["name"].as<const char *>());
+}
+static void malformed_utf8_name_has_separate_cancel_or_replace_flow() {
+  Memory memory;
+  Fake backend;
+  backend.originalName = "\xff";
+  Form form(backend, memory);
+  TEST_ASSERT_TRUE(form.open(Kind::room, 4, 0));
+  editOrder(form);
+  form.turn(-1, 1);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(Mode::replace, form.view().mode);
+  TEST_ASSERT_TRUE(form.view().dirty);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(Mode::fields, form.view().mode);
+  TEST_ASSERT_EQUAL_STRING("Invalid UTF-8", form.view().rows[0].value);
+  form.activate(1);
+  form.turn(1, 1);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(Mode::text, form.view().mode);
+  TEST_ASSERT_EQUAL_STRING("", form.view().rows[0].value);
+  turn(form, 33);
+  form.activate(1);
+  turn(form, 64);
+  form.activate(1); // A, then explicit Apply
+  TEST_ASSERT_EQUAL(0, backend.applies);
+  turn(form, 2);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(1, backend.applies);
+  TEST_ASSERT_EQUAL_STRING("A", backend.received["name"].as<const char *>());
+  TEST_ASSERT_EQUAL(1, backend.received["sortOrder"].as<int>());
+}
+static void
+unrelated_edit_preserves_malformed_legacy_name_without_replacement() {
+  Memory memory;
+  Fake backend;
+  backend.originalName = "\xff";
+  Form form(backend, memory);
+  TEST_ASSERT_TRUE(form.open(Kind::room, 4, 0));
+  editOrder(form);
+  form.turn(1, 1);
+  form.activate(1);
+  TEST_ASSERT_EQUAL(1, backend.applies);
+  TEST_ASSERT_TRUE(backend.received["name"].isNull());
+  TEST_ASSERT_EQUAL(1, backend.received["sortOrder"].as<int>());
+  TEST_ASSERT_EQUAL_UINT8(255,
+                          static_cast<unsigned char>(backend.originalName[0]));
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(unrelated_edit_preserves_malformed_legacy_name_without_replacement);
+  RUN_TEST(
+      add_order_128_requires_explicit_replacement_without_losing_name_draft);
+  RUN_TEST(malformed_utf8_name_has_separate_cancel_or_replace_flow);
   RUN_TEST(invalid_original_never_normalizes_and_busy_retains_draft);
   RUN_TEST(timeout_and_out_of_band_discard_wipe_active_editor_and_draft);
   RUN_TEST(room_rotation_apply_and_save_are_separate);

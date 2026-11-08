@@ -50,6 +50,16 @@ int main(int argc, char **argv) {
   save(canvas, pixels.data(), view, argv[1],
        "entity-room-confirm-stale-notice");
   assert(before == pixels); // The action-specific warning always wins.
+  view.mode = EntityAdmin::Mode::replace;
+  strcpy(view.title, "Room 9: Sort order");
+  strcpy(view.rows[1].label, "Replace invalid value");
+  strcpy(view.hint, "Original kept until Apply; Save persists replacement.");
+  save(canvas, pixels.data(), view, argv[1], "entity-room-replace-invalid");
+  const auto replacement = pixels;
+  view.notice = EntityAdmin::Notice::failed;
+  save(canvas, pixels.data(), view, argv[1],
+       "entity-room-replace-stale-notice");
+  assert(replacement == pixels);
   view.mode = EntityAdmin::Mode::result;
   view.notice = EntityAdmin::Notice::appliedNotSaved;
   strcpy(view.title, "Room 9 file result");

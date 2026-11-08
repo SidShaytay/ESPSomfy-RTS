@@ -10,7 +10,8 @@ enum class Mode : uint8_t {
   text,
   actions,
   confirm,
-  result
+  result,
+  replace
 };
 enum class Notice : uint8_t {
   none,
