@@ -149,6 +149,7 @@ int main(){
   security.allowed=false;security.stopGrace=true;security.expiredSessionGeneration=originalSession;++security.generation;
   snapshotModel(true,view);++security.generation; // wrong unlock changes revision, not grace source
   assert(dispatch(originalStop)==DispatchResult::done);
+  assert(dispatch(command(view,Action::my))==DispatchResult::denied); // valid source is STOP-only
   security.allowed=true;security.stopGrace=false;security.expiredSessionGeneration=0;++security.generation;
   const auto replacementSession=security.generation; // no snapshot/open/present between unlock and later expiry
   security.allowed=false;security.stopGrace=true;security.expiredSessionGeneration=replacementSession;++security.generation;
