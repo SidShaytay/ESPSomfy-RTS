@@ -85,10 +85,12 @@ struct SomfyShadeController {
   uint8_t getNextShadeId() { return 8; }
   uint8_t getNextGroupId() { return 10; }
   uint32_t getNextRemoteAddress(uint8_t id) { return 1000 + id; }
-  int maxRoomOrder = 5;
+  int maxRoomOrder = 5, maxShadeOrder = 5, maxGroupOrder = 5;
   Room *getRoomById(uint8_t id) { return id == 4 ? &room : nullptr; }
   uint8_t getNextRoomId() { return 9; }
   int getMaxRoomOrder() { return maxRoomOrder; }
+  int getMaxShadeOrder() { return maxShadeOrder; }
+  int getMaxGroupOrder() { return maxGroupOrder; }
 } somfy;
 LoopQueue loopQueue;
 static bool restartScheduled = false;
@@ -101,6 +103,9 @@ static model_edit_type_t expectedType = model_edit_type_t::save_room;
 edit_result_t applyModelEdit(model_edit_t &edit) {
   ++applies;
   TEST_ASSERT_EQUAL_PTR(expectedAllocator, edit.doc.allocator());
+  if (expectedType == model_edit_type_t::add_group)
+    return edit_result_t::completed(
+        10, {ModelCommitState::saved, ModelCommitStage::none});
   if (expectedType == model_edit_type_t::delete_group) {
     ++somfy.configurationRevision;
     somfy.group.id = 255;
@@ -187,7 +192,7 @@ void setUp() {
   somfy.groups[1] = {};
   somfy.groups[1].id = 255;
   somfy.transceiver.configurationRevision = 1;
-  somfy.maxRoomOrder = 5;
+  somfy.maxRoomOrder = somfy.maxShadeOrder = somfy.maxGroupOrder = 5;
   expectedName = "New room";
   expectedType = model_edit_type_t::save_room;
   uint8_t prepared;
@@ -520,8 +525,33 @@ static void allocation_failure_in_materialized_defaults_has_no_effects() {
   TEST_ASSERT_EQUAL(0, applies);
   TEST_ASSERT_EQUAL(1, somfy.configurationRevision);
 }
+static void hidden_new_sort_order_cannot_wrap_on_device_or_group_add() {
+  auto &b = runtimeBackend();
+  somfy.maxShadeOrder = somfy.maxGroupOrder = 127;
+  for (const auto kind : {Kind::shade, Kind::group}) {
+    uint8_t id;
+    TEST_ASSERT_TRUE(b.prepare(kind, 0, id));
+    Memory memory;
+    expectedAllocator = &memory;
+    expectedType = kind == Kind::shade ? model_edit_type_t::add_shade
+                                       : model_edit_type_t::add_group;
+    JsonDocument doc(&memory);
+    doc["name"] = "Offered";
+    const auto result = b.apply(expectedType, doc, {true, 1, 1}, 1);
+    TEST_ASSERT_EQUAL(Admission::invalid, result.admission);
+    TEST_ASSERT_EQUAL(proto_field_t::count, result.field);
+    TEST_ASSERT_EQUAL_STRING(kind == Kind::shade
+                                 ? "Reorder devices before adding"
+                                 : "Reorder groups before adding",
+                             result.reason);
+    TEST_ASSERT_EQUAL(0, applies);
+    TEST_ASSERT_EQUAL(1, somfy.configurationRevision);
+    TEST_ASSERT_EQUAL_STRING("Offered", doc["name"].as<const char *>());
+  }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(hidden_new_sort_order_cannot_wrap_on_device_or_group_add);
   RUN_TEST(applied_delete_failure_adopts_tombstone_for_file_only_retry);
   RUN_TEST(allocation_failure_in_materialized_defaults_has_no_effects);
   RUN_TEST(mutation_requires_idle_members_but_file_retry_does_not);
