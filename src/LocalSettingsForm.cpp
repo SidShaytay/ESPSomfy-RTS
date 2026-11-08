@@ -680,6 +680,10 @@ void Form::activate(uint64_t now) {
       close(Notice::none);
       return;
     }
+    if (!changes.size()) {
+      close(Notice::unchanged);
+      return;
+    }
     if (section == settings_section_t::general) {
       save(now);
       return;

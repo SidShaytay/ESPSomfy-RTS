@@ -22,7 +22,7 @@ const char *notices[] = {"",
                          "Unlock required", "Invalid credentials", "Too many attempts - wait",
                          "Local unlock unavailable", "Unlocked - select action again",
                          "Command accepted", "Partially accepted - review",
-                         "Busy - retry", "Pending action cancelled"};
+                         "Busy - retry", "Pending action cancelled", "Estimate unavailable - no draft"};
 } // namespace
 void Canvas::drawPixel(int16_t x, int16_t y, uint16_t color) {
   if(pixels && x >= 0 && x < screenWidth && y >= 0 && y < screenHeight)
@@ -235,6 +235,41 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
       text(216, y + 21, label, false, active ? teal : muted, 86);
     }
     text(12, 164, v.setting == 2 ? "Press: save   Back: cancel" : "Press: next   Back: cancel", false, muted);
+  } else if(v.screen==Screen::actions) {
+    snprintf(label,sizeof(label),"#%s%u %s",v.entity.kind==EntityKind::group?"G":"",unsigned(v.entity.id),m.target.name);
+    text(12,28,label,true,white);
+    snprintf(label,sizeof(label),"Actions %u/%u",unsigned(v.selected+1),unsigned(controlMenu(m.target.capabilities,false).count));
+    text(12,52,label,false,muted);
+    const auto menu=controlMenu(m.target.capabilities,false);
+    const unsigned offset=v.selected<3?0:v.selected-2;
+    for(unsigned row=0;row<3 && row+offset<menu.count;row++) {
+      const unsigned index=offset+row;const bool active=index==v.selected;
+      const auto action=menu.actions[index];const int y=62+row*29;
+      fillRoundRect(10,y,300,26,4,active?selected:bg);
+      text(18,y+20,controlLabel(action),false,active?teal:white,218);
+      if(action==Action::position || action==Action::tiltPosition) {
+        const int value=action==Action::position?m.target.position:m.target.tiltPosition;
+        if(value>=0) {snprintf(label,sizeof(label),"%d%%",value);text(258,y+20,label,false,muted,48);}
+      }
+    }
+    if(v.notice!=Notice::none) text(12,164,notices[int(v.notice)],false,amber);
+    else text(12,164,"Turn: choose   Back: STOP page",false,muted);
+  } else if(v.screen==Screen::value) {
+    snprintf(label,sizeof(label),"#%s%u %s",v.entity.kind==EntityKind::group?"G":"",unsigned(v.entity.id),m.target.name);
+    text(12,28,label,true,white);text(12,52,controlLabel(v.action),false,muted);
+    fillRoundRect(10,64,300,42,5,v.valueChoice?bg:selected);
+    snprintf(label,sizeof(label),controlIsStep(v.action)?"%d steps":"%d%%",int(v.draftValue));
+    text(22,94,label,true,white);
+    if(v.valueChoice) {
+      const char *choices[]={"Apply","Cancel"};
+      for(unsigned i=0;i<2;i++) {
+        const int x=12+i*152;const bool active=v.valueChoice==i+1;
+        fillRoundRect(x,114,144,30,4,active?selected:bg);
+        drawRoundRect(x,114,144,30,4,active?teal:line);
+        text(x+35,136,choices[i],false,active?teal:white,108);
+      }
+    } else text(12,135,"Turn: adjust   Push: review",false,teal);
+    text(12,164,v.notice!=Notice::none?notices[int(v.notice)]:"Back: cancel   Apply sends",false,v.notice!=Notice::none?amber:muted);
   } else {
     const auto &t=m.target;
     snprintf(label,sizeof(label),"#%s%u %s",v.entity.kind==EntityKind::group?"G":"",unsigned(v.entity.id),t.exists?t.name:"Not configured");
@@ -253,20 +288,23 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
     else if(t.position<0) snprintf(label,sizeof(label),"Position estimate unavailable");
     else snprintf(label,sizeof(label),"Estimated position %d%%",t.position);
     text(12,74,label,false,t.valid?muted:amber);
-    const char *actions[]={"UP","STOP","DOWN"};
-    for(int i=0;i<3;i++) {
-      const int x=12+i*102;
-      const bool active=i==int(v.action);
-      const bool enabled=t.valid && (t.capabilities&(uint32_t(1)<<i)) && (i!=1 || t.moving);
-      fillRoundRect(x,85,94,52,6,active?selected:bg);drawRoundRect(x,85,94,52,6,active?teal:line);
+    const auto menu=controlMenu(t.capabilities,true);
+    for(unsigned i=0;i<menu.count;i++) {
+      const int width=(296-int(menu.count-1)*8)/menu.count,x=12+i*(width+8);
+      const auto action=menu.actions[i];const bool active=action==v.action;
+      const bool enabled=t.valid && (action==Action::count || action!=Action::stop || t.moving);
+      fillRoundRect(x,85,width,52,6,active?selected:bg);drawRoundRect(x,85,width,52,6,active?teal:line);
       const auto color=enabled?white:muted;
-      if(i==1) drawRect(x+42,94,10,10,color);
-      else { const int direction=i==0?-1:1;drawLine(x+37,99-direction*4,x+47,99+direction*4,color);drawLine(x+47,99+direction*4,x+57,99-direction*4,color); }
-      text(x+(i==2?19:i==1?23:32),127,actions[i],false,color,90);
+      if(action==Action::stop) drawRect(x+width/2-5,94,10,10,color);
+      else if(action==Action::up || action==Action::down) {
+        const int direction=action==Action::up?-1:1,mid=x+width/2;
+        drawLine(mid-10,99-direction*4,mid,99+direction*4,color);drawLine(mid,99+direction*4,mid+10,99-direction*4,color);
+      }
+      text(x+8,127,controlLabel(action),false,color,width-12);
     }
     if(v.notice!=Notice::none) text(12,163,notices[int(v.notice)],false,amber);
     else if(!m.authorized) text(12,163,t.stopLease?"STOP only; unlock other actions":"Press: unlock   Back: return",false,amber);
-    else text(12,163,"Press: send   Back: return",false,muted);
+    else text(12,163,t.pendingRelayTilt?"Separate relay tilt unavailable":"Press: select   Back: return",false,t.pendingRelayTilt?amber:muted);
   }
 }
 } // namespace LocalUi

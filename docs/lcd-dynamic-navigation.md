@@ -48,3 +48,42 @@ Validation uses synthetic catalogues and the production controller, renderer,
 runtime and adapter with fake request sinks. No controller, RF, motors or Home
 Assistant were accessed. Generated previews are reproducible with
 `tools/preview-local-ui.sh` and are not committed.
+
+## Capability menus checkpoint
+
+The next reviewed increment adds primary capability buttons and a three-row More
+menu. It covers supported position/tilt targets, tilt direction/STOP, explicit MY,
+80-bit Favorite and step commands, Toggle and sun flags through the existing typed
+request policy. No light opcode or GPIO relay tilt remapping is introduced.
+
+Numeric movement drafts use the shared bounded ValueEditor. Push enters a review
+with Cancel selected; Apply must itself finish reaching the LCD before it can
+submit the chosen number. Back, Cancel, timeout, target change and authorization
+replacement discard without a request. Unknown estimates do not acquire a silent
+zero/default target. Ordinary same-target STOP remains one Back away; tilt STOP
+never inherits the authorization-expiry grace exception.
+
+Offline evidence: 781 native cases passed with one optional private-fixture skip;
+production renderer/runtime/capture and adapter/auth harnesses passed. Removing the
+numeric presented-value/choice guard reproduces an unintended submission with SPI
+blocked, and the regression fails; restoring it passes. The shared CC1101 firmware
+build uses 110,684 bytes static RAM and 1,386,362 bytes flash. The separate pending
+intent/LoopQueue integration still follows this checkpoint before full everyday
+control completion is claimed. No hardware or HA acceptance is implied.
+
+## Authorization session source
+
+STOP grace is also bound to the original authorized session generation captured
+before inactivity revocation. Failed unlocks may advance the current revision but
+preserve that original source and deadline. Successful unlock, explicit lock,
+security configuration replacement, clock rollback or the grace deadline clears the source.
+An old focus or submitted command cannot borrow a later session's grace, even if
+that replacement session both began and expired between adapter observations.
+Missing source metadata fails closed. The same source ticket is available to the
+subsequent queued-intent admission layer; no additional credential is stored.
+
+The session-source foundation passed 787 native cases with one optional fixture
+skip, the production UI/capture/adapter/auth harnesses, and shared CC1101 plus
+generic ESP32 firmware builds. Independent mutations removing either the lease's
+session comparison or the command's source check fail their corresponding
+regressions. All sources were restored before the passing checks.

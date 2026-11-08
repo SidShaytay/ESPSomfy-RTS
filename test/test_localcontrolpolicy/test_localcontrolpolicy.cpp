@@ -1,6 +1,8 @@
 #include <unity.h>
 #include "LocalControlPolicy.h"
+#include "LocalControlMenu.h"
 #include <limits.h>
+#include <string.h>
 using namespace LocalUi;
 void setUp() {}
 void tearDown() {}
@@ -161,6 +163,25 @@ static void groups_intersect_members_but_use_any_sensor_and_no_position_or_tilt(
   group.commonActions=allControlActions;group.proto=radio_proto::GP_Remote;
   TEST_ASSERT_EQUAL(0,controlCapabilities(group));
 }
+static void capability_menu_covers_each_supported_action_once_without_hidden_fallback() {
+  for(unsigned type=0;type<=unsigned(shade_types::rgate1);type++)
+    for(unsigned tilt=0;tilt<=unsigned(tilt_types::euromode);tilt++) {
+      ControlDescriptor d;d.paired=true;d.bitLength=80;d.sunSensor=true;
+      d.shadeType=shade_types(type);d.tiltType=tilt_types(tilt);
+      const auto mask=controlCapabilities(d);ControlMask seen=0;
+      const auto primary=controlMenu(mask,true),extras=controlMenu(mask,false);
+      TEST_ASSERT_TRUE(primary.count<=4);
+      const ControlMenu *menus[]={&primary,&extras};
+      for(const auto *menu:menus) for(uint8_t i=0;i<menu->count;i++) {
+        const auto action=menu->actions[i];
+        if(action==ControlAction::count) {TEST_ASSERT_TRUE(extras.count>0);continue;}
+        TEST_ASSERT_FALSE(seen&controlActionBit(action));seen|=controlActionBit(action);
+        TEST_ASSERT_TRUE(strlen(controlLabel(action))>0);
+      }
+      TEST_ASSERT_EQUAL(mask,seen);
+      TEST_ASSERT_TRUE(mask&controlActionBit(defaultControlAction(mask)));
+    }
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(all_types_protocols_bits_and_tilt_modes_have_expected_capabilities);
@@ -170,5 +191,6 @@ int main() {
   RUN_TEST(direct_actions_use_existing_typed_request_opcodes);
   RUN_TEST(steps_require_one_to_127_and_unused_arguments_are_rejected);
   RUN_TEST(groups_intersect_members_but_use_any_sensor_and_no_position_or_tilt);
+  RUN_TEST(capability_menu_covers_each_supported_action_once_without_hidden_fallback);
   return UNITY_END();
 }

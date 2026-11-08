@@ -8,7 +8,7 @@
 SomfyShadeController somfy;
 static LocalUi::SecuritySnapshot security{LocalUi::AuthMode::none,true,false,2,3,0};
 LocalUi::SecuritySnapshot LocalUi::pollAuthorization(){return security;}
-void LocalUi::lockAuthorization(){++security.generation;security.stopGrace=false;if(security.mode!=LocalUi::AuthMode::none)security.allowed=false;}
+void LocalUi::lockAuthorization(){++security.generation;security.stopGrace=false;security.expiredSessionGeneration=0;if(security.mode!=LocalUi::AuthMode::none)security.allowed=false;}
 static std::vector<shade_request_t> submitted;
 static unsigned refuseAt=0;
 struct RecordingRequests {
@@ -26,7 +26,7 @@ static SomfyShade &device(uint8_t slot,uint8_t id,uint32_t address){
   auto &s=somfy.shades[slot];s.id=id;s.address=address;s.shadeType=shade_types::shutter;s.bitLength=56;
   return s;
 }
-static Command command(const View &view,Action action){return {view.entity,view.openedToken,action,-1,0,security.generation};}
+static Command command(const View &view,Action action){return {view.entity,view.openedToken,action,-1,0,security.allowed?security.generation:security.expiredSessionGeneration};}
 static Model open(View &view,EntityRef ref,bool authorized=true){
   view.entity=ref;view.screen=Screen::control;view.openedToken=0;
   auto m=snapshotModel(true,view);view.openedToken=m.target.token;
@@ -58,11 +58,11 @@ int main(){
   assert(dispatch(original)==DispatchResult::stale);
   // Same ID/RF after re-pair/config does not silently grant a new context lease.
   model=snapshotModel(true,view);assert(model.target.token!=view.openedToken);
-  security.allowed=false;security.stopGrace=true;++security.generation;
+  security.expiredSessionGeneration=security.generation;security.allowed=false;security.stopGrace=true;++security.generation;
   view.openedToken=model.target.token;view.authorizedSelection=false;
   markControlPresented(view.entity,view.openedToken,false,security.generation);
   snapshotModel(true,view); assert(dispatch(command(view,Action::stop))==DispatchResult::denied);
-  security.allowed=true;security.stopGrace=false;++security.generation;
+  security.allowed=true;security.stopGrace=false;security.expiredSessionGeneration=0;++security.generation;
   open(view,{EntityKind::device,7});
   const auto token=view.openedToken;
   SomfyShadeOps ops;
@@ -89,14 +89,14 @@ int main(){
   one.idle=true;beforeGroup=submitted.size();assert(dispatch(command(view,Action::stop))==DispatchResult::idle);
   assert(submitted.size()==beforeGroup);
   one.idle=two.idle=false;open(view,{EntityKind::group,11});
-  security.allowed=false;security.stopGrace=true;++security.generation;view.screen=Screen::home;
+  security.expiredSessionGeneration=security.generation;security.allowed=false;security.stopGrace=true;++security.generation;view.screen=Screen::home;
   assert(snapshotModel(true,view).target.stopLease);
   one.idle=true;snapshotModel(true,view);one.idle=false;
   beforeGroup=submitted.size();assert(dispatch(command(view,Action::stop))==DispatchResult::done);
   assert(submitted.size()==beforeGroup+1 && submitted.back().id==22 && submitted.back().type==shade_request_type_t::shade_command);
   two.idle=true;snapshotModel(true,view);two.idle=false;
   assert(dispatch(command(view,Action::stop))==DispatchResult::denied);
-  security.allowed=true;security.stopGrace=false;++security.generation;
+  security.allowed=true;security.stopGrace=false;security.expiredSessionGeneration=0;++security.generation;
   open(view,{EntityKind::group,11});const auto beforeMembership=command(view,Action::up);
   group.linkedShades[1]=0;++group.configurationRevision;++somfy.configurationRevision;
   assert(dispatch(beforeMembership)==DispatchResult::stale);
@@ -107,5 +107,60 @@ int main(){
   setLocalControlsFrozen(false);
   assert(dispatch(beforeFreeze)==DispatchResult::denied); // complete freeze period invalidates old intent
   assert(submitted.size()==beforeGroup);
+  // Everyday actions preserve typed domain operations and their exact arguments.
+  one.bitLength=80;one.tiltType=tilt_types::tiltmotor;one.sunSensor=true;one.value.tiltDirection=1;
+  ++one.configurationRevision;++somfy.configurationRevision;open(view,{EntityKind::device,7});
+  for(unsigned i=0;i<unsigned(Action::count);i++) {
+    const auto action=Action(i);if(action==Action::toggle) continue;
+    auto request=command(view,action);
+    if(action==Action::position || action==Action::tiltPosition) request.value=42;
+    if(action==Action::stepUp || action==Action::stepDown) request.step=7;
+    const auto count=submitted.size();assert(dispatch(request)==DispatchResult::done && submitted.size()==count+1);
+    const auto &sent=submitted.back();assert(sent.id==7);
+    if(action==Action::position) assert(sent.type==shade_request_type_t::shade_command && sent.target==42);
+    if(action==Action::tiltPosition) assert(sent.type==shade_request_type_t::tilt_command && sent.target==42);
+    if(action==Action::tiltUp || action==Action::tiltStop || action==Action::tiltDown) assert(sent.type==shade_request_type_t::tilt_command);
+    if(action==Action::my) assert(sent.command==somfy_commands::My);
+    if(action==Action::favourite) assert(sent.command==somfy_commands::Favorite);
+    if(action==Action::stepUp || action==Action::stepDown) assert(sent.stepSize==7);
+    if(action==Action::sunOn) assert(sent.command==sunFlagCommand(true));
+    if(action==Action::sunOff) assert(sent.command==sunFlagCommand(false));
+  }
+  auto invalid=command(view,Action::position);invalid.value=101;beforeGroup=submitted.size();
+  assert(dispatch(invalid)==DispatchResult::refused && submitted.size()==beforeGroup);
+  assert(dispatch(command(view,Action::count))==DispatchResult::refused && submitted.size()==beforeGroup);
+  one.proto=radio_proto::GP_Relay;++one.configurationRevision;++somfy.configurationRevision;
+  model=open(view,{EntityKind::device,7});assert(model.target.pendingRelayTilt);
+  assert(model.target.capabilities&controlActionBit(Action::up));
+  assert(!(model.target.capabilities&controlActionBit(Action::tiltPosition)));
+  assert(dispatch(command(view,Action::up))==DispatchResult::done);
+  assert(dispatch(command(view,Action::tiltUp))==DispatchResult::refused);
+  one.proto=radio_proto::GP_Remote;++one.configurationRevision;++somfy.configurationRevision;
+  model=open(view,{EntityKind::device,7});assert(model.target.capabilities&controlActionBit(Action::tiltPosition));
+  auto tilt=command(view,Action::tiltPosition);tilt.value=63;assert(dispatch(tilt)==DispatchResult::done);
+  one.shadeType=shade_types::garage1;++one.configurationRevision;++somfy.configurationRevision;
+  model=open(view,{EntityKind::device,7});assert(model.target.capabilities==controlActionBit(Action::toggle));
+  assert(dispatch(command(view,Action::toggle))==DispatchResult::done && submitted.back().command==somfy_commands::Toggle);
+  // An old intent/lease must not borrow a later expired session's grace, even
+  // when no adapter observation happened during that replacement session.
+  one.shadeType=shade_types::shutter;one.proto=radio_proto::RTS;one.tiltType=tilt_types::none;one.bitLength=56;one.idle=false;
+  ++one.configurationRevision;++somfy.configurationRevision;open(view,{EntityKind::device,7});
+  const auto originalStop=command(view,Action::stop);const auto originalSession=security.generation;
+  security.allowed=false;security.stopGrace=true;security.expiredSessionGeneration=originalSession;++security.generation;
+  snapshotModel(true,view);++security.generation; // wrong unlock changes revision, not grace source
+  assert(dispatch(originalStop)==DispatchResult::done);
+  assert(dispatch(command(view,Action::my))==DispatchResult::denied); // valid source is STOP-only
+  security.allowed=true;security.stopGrace=false;security.expiredSessionGeneration=0;++security.generation;
+  const auto replacementSession=security.generation; // no snapshot/open/present between unlock and later expiry
+  security.allowed=false;security.stopGrace=true;security.expiredSessionGeneration=replacementSession;++security.generation;
+  beforeGroup=submitted.size();assert(dispatch(originalStop)==DispatchResult::denied);
+  assert(!snapshotModel(true,view).target.stopLease && submitted.size()==beforeGroup);
+  assert(dispatch(command(view,Action::stop))==DispatchResult::denied); // new source cannot seed an old focus
+  security.allowed=true;security.stopGrace=false;security.expiredSessionGeneration=0;++security.generation;
+  open(view,{EntityKind::device,7});const auto freshStop=command(view,Action::stop);
+  security.allowed=false;security.stopGrace=true;security.expiredSessionGeneration=security.generation;++security.generation;
+  assert(dispatch(freshStop)==DispatchResult::done);
+  assert(dispatch(originalStop)==DispatchResult::denied); // current lease cannot bless an old ticket
+  security.expiredSessionGeneration=0;assert(dispatch(freshStop)==DispatchResult::denied);
   puts("Dynamic adapter: stable sparse IDs, exact revisions/membership, presented target, mutation wrappers and scoped STOP passed.");
 }
