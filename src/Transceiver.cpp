@@ -424,20 +424,18 @@ void Transceiver::disableReceive(void) {
   interruptPin = 0;
   
 }
-void Transceiver::setConfig(const transceiver_config_t &cfg) {
-  // Swap the whole config in, save it and set the radio up with it once any
-  // transmission in flight has stopped, all under one lock, so the radio task
-  // never sees a half updated config or transmits before the radio is set up
-  // for the new one.  Queued jobs are kept and go out with the new settings.
-  // Saving first means a radio that locks up while applying comes back with
-  // the new config after the reboot.
+settings_save_result_t Transceiver::setConfig(const transceiver_config_t &cfg) {
+  // Persist before touching live pins/config. A partial NVS write is reported
+  // honestly, without applying it to the running radio or claiming rollback.
   RadioLock lock(portMAX_DELAY, true);
   transceiver_config_t next = cfg;
   next.applyBoardPins();
+  const auto result = next.save();
+  if(!result.saved()) return result;
   if(this->config.enabled && this->config.TXPin != next.TXPin) pinMode(this->config.TXPin, INPUT);
   this->config = next;
-  this->config.save();
   this->config.apply();
+  return result;
 }
 bool Transceiver::usesPin(uint8_t pin) {
   if(BoardProfile::usesPin(pin)) return true;
@@ -460,31 +458,6 @@ bool Transceiver::end() {
     RadioLock lock(portMAX_DELAY, true);
     this->disableReceive();
     return true;
-}
-void transceiver_config_t::save() {
-    this->applyBoardPins();
-    Preferences pref;
-    pref.begin("CC1101");
-    pref.clear();
-    pref.putUChar("type", this->type);
-    pref.putUChar("TXPin", this->TXPin);
-    pref.putUChar("RXPin", this->RXPin);
-    pref.putUChar("SCKPin", this->SCKPin);
-    pref.putUChar("MOSIPin", this->MOSIPin);
-    pref.putUChar("MISOPin", this->MISOPin);
-    pref.putUChar("CSNPin", this->CSNPin);
-    pref.putFloat("frequency", this->frequency);  // float
-    pref.putFloat("deviation", this->deviation);  // float
-    pref.putFloat("rxBandwidth", this->rxBandwidth); // float
-    pref.putBool("enabled", this->enabled);
-    pref.putBool("radioInit", true);
-    pref.putChar("txPower", this->txPower);
-    pref.putChar("proto", static_cast<uint8_t>(this->proto));
-    pref.putBool("noiseDetect", this->noiseDetection);
-
-    pref.end();
-   
-    ESP_LOGI(TAG, "Save Radio Settings SCK:%u MISO:%u MOSI:%u CSN:%u RX:%u TX:%u", this->SCKPin, this->MISOPin, this->MOSIPin, this->CSNPin, this->RXPin, this->TXPin);
 }
 void transceiver_config_t::removeNVSKey(Preferences &pref, const char *key) {
   if(pref.isKey(key)) {
@@ -616,16 +589,6 @@ void transceiver_config_t::load() {
     //this->printBuffer = somfy.transceiver.printBuffer;
     this->applyBoardPins();
 }
-void transceiver_config_t::applyBoardPins() {
-  if(!BoardProfile::integratedRadio) return;
-  this->SCKPin = BoardProfile::sck;
-  this->MOSIPin = BoardProfile::mosi;
-  this->MISOPin = BoardProfile::miso;
-  this->CSNPin = BoardProfile::cs;
-  this->TXPin = BoardProfile::tx;
-  this->RXPin = BoardProfile::rx;
-}
-
 static void warnBootPin(const char *name, uint8_t pin) {
   const char *effect = bootPinEffect(pin);
   if(effect) ESP_LOGW(TAG, "Radio %s is on GPIO%u, a strapping pin the radio can drive at reset.  %s", name, pin, effect);

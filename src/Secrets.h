@@ -9,6 +9,13 @@ inline bool hasSecret(const char *s) { return s && s[0] != '\0'; }
 
 inline const char *maskSecret(const char *s) { return hasSecret(s) ? "<set>" : "<empty>"; }
 
+// Volatile stores keep temporary credential erasure from being optimized away.
+template<size_t N>
+inline void wipeSecret(char (&buffer)[N]) {
+  volatile char *bytes = buffer;
+  for(size_t i=0; i<N; i++) bytes[i]=0;
+}
+
 // Updates dest from an incoming value, truncating to size.  Pass
 // obj["key"].as<const char *>(), which is null when the key is absent.
 //   absent -> keep the stored secret.

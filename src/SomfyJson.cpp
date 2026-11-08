@@ -192,7 +192,7 @@ bool Transceiver::fromJSON(JsonObject& obj) {
       // Parse into a copy so the radio task never sees a half updated config.
       transceiver_config_t cfg = this->config;
       cfg.fromJSON(objConfig);
-      this->setConfig(cfg);
+      return this->setConfig(cfg).saved();
     }
     return true;
 }

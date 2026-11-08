@@ -1,4 +1,7 @@
+#include <Arduino.h>
+#include <IPAddress.h>
 #include <ArduinoJson.h>
+#include "SettingsSaveResult.h"
 #include "EthPhy.h"
 #ifndef configsettings_h
 #define configsettings_h
@@ -61,7 +64,7 @@ class NTPSettings: BaseSettings {
 
     bool apply();
     bool begin();
-    bool save();
+    settings_save_result_t save();
     bool load();
     void print();
 };
@@ -79,7 +82,7 @@ class WifiSettings: BaseSettings {
     String mapEncryptionType(int type);
     bool ssidExists(const char *ssid);
     void printNetworks();
-    bool save();
+    settings_save_result_t save();
     bool load();
     void print();
     
@@ -113,7 +116,7 @@ class EthernetSettings: BaseSettings {
     bool fromJSON(JsonObject &obj);
 
     bool load();
-    bool save();
+    settings_save_result_t save();
     void print();
     bool usesPin(uint8_t pin);
 };
@@ -131,7 +134,7 @@ class IPSettings: BaseSettings {
     bool fromJSON(JsonObject &obj);
 
     bool load();
-    bool save();
+    settings_save_result_t save();
     void print();
 };
 enum class security_types : byte {
@@ -146,7 +149,7 @@ class SecuritySettings: BaseSettings {
     char password[33] = "";
     char pin[5] = "";
     bool begin();
-    bool save();
+    settings_save_result_t save();
     bool load();
     void print();
 
@@ -164,7 +167,7 @@ class MQTTSettings: BaseSettings {
     char rootTopic[65] = "";
     char discoTopic[65] = "homeassistant";
     bool begin();
-    bool save();
+    settings_save_result_t save();
     bool load();
 
     bool fromJSON(JsonObject &obj);
@@ -198,7 +201,7 @@ class ConfigSettings: BaseSettings {
     bool fromJSON(JsonObject &obj);
 
     bool begin();
-    bool save();
+    settings_save_result_t save();
     bool load();
     void print();
     bool getAppVersion();
