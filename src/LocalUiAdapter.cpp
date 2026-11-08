@@ -2,6 +2,7 @@
 #include "LocalUiAdapter.h"
 #include "LocalUiAuthorizationAdapter.h"
 #include "LocalStopLease.h"
+#include "LocalTargetRead.h"
 #include "Somfy.h"
 #include "ShadeRequests.h"
 #include "LoopQueue.h"
@@ -75,15 +76,14 @@ ControlMask capabilities(const ControlDescriptor &d) {
 }
 bool readTarget(EntityRef ref,Target &target,TargetContext &context,uint32_t &moving) {
   target={}; context={}; moving=0; target.ref=ref;
-  if(!ref.valid()) return false;
-  context.ref=ref; context.modelRevision=somfy.configurationRevision;
-  context.restoreRevision=somfy.restoreRevision; context.radioRevision=somfy.transceiver.configurationRevision;
+  RawTargetContext raw;
+  if(!readRawTargetContext(somfy,ref,raw) || !raw.targetExists) return false;
   if(ref.kind==EntityKind::device) {
     auto *shade=somfy.getShadeById(ref.id); if(!shade) return false;
     target.exists=true; label(target.name,shade->name);
-    target.identity=context.identity=shade->getRemoteAddress();
-    target.revision=context.revision=shade->configurationRevision;
-    context.memberCount=1; context.members[0]={ref.id,context.identity,context.revision};
+    target.identity=raw.identity;
+    target.revision=raw.revision;
+    if(!makeControlTargetContext(raw,context)) return false;
     target.descriptor=descriptor(*shade);
     target.capabilities=capabilities(target.descriptor);
     target.valid=target.capabilities!=0;
@@ -96,25 +96,17 @@ bool readTarget(EntityRef ref,Target &target,TargetContext &context,uint32_t &mo
   } else {
     auto *group=somfy.getGroupById(ref.id); if(!group) return false;
     target.exists=true; label(target.name,group->name);
-    target.identity=context.identity=group->getRemoteAddress();
-    target.revision=context.revision=group->configurationRevision;
+    target.identity=raw.identity;
+    target.revision=raw.revision;
     target.descriptor.group=true; target.descriptor.proto=group->proto;
     target.descriptor.bitLength=effectiveBits(group->bitLength);
+    if(!makeControlTargetContext(raw,context)) return false;
     ControlMask common=allControlActions;
     bool compatible=rf(group->proto) && context.identity!=0;
-    uint8_t ids[32]={}, count=0;
-    for(auto id:group->linkedShades) {
-      if(!id || id==255) continue;
-      uint8_t at=count;
-      while(at && ids[at-1]>id) { ids[at]=ids[at-1]; --at; }
-      if((at && ids[at-1]==id) || (at<count && ids[at]==id)) return false;
-      ids[at]=id; ++count;
-    }
-    context.memberCount=count;
+    const uint8_t count=context.memberCount;
     for(uint8_t i=0;i<count;i++) {
-      auto *shade=somfy.getShadeById(ids[i]); if(!shade) return false;
+      auto *shade=somfy.getShadeById(context.members[i].id); if(!shade) return false;
       const auto member=descriptor(*shade);
-      context.members[i]={ids[i],shade->getRemoteAddress(),shade->configurationRevision};
       compatible &= member.paired && member.proto==group->proto &&
         member.bitLength==target.descriptor.bitLength && context.members[i].identity!=0;
       common &= capabilities(member);
@@ -207,6 +199,12 @@ DispatchResult validateControl(Target &target,uint32_t &moving) {
 }
 } // namespace
 bool localControlsFrozen() { return controlsFrozen; }
+void invalidateControlPresentation() {
+  presentedRef={};presentedToken=0;
+  focusedContext={};focusedToken=0;hasFocus=false;
+  focusedMoving=leasedMoving=0;stopLease={};
+  // tokenSerial and intentSerial remain monotonic across graphics recovery.
+}
 void setLocalControlsFrozen(bool value) {
   if(value && !controlsFrozen) {
     controlsFrozen=true;lockAuthorization();cancelUnsubmittedLocalControl();

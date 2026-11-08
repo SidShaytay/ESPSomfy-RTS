@@ -83,8 +83,25 @@ void Runtime::begin() {
 bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
                    bool (*sendBand)(uint8_t,uint8_t,const uint8_t *,size_t),void (*light)(uint8_t)) {
   if(!memory.pixels) {
-    settingsForm.discard();settingsActive=false;presentedSettingsValid=false;
+    if(!graphicsMissing) {
+      graphicsMissing=true;
+      settingsForm.discard();settingsActive=false;
+      controller.discardTransient();
+      cancelUnsubmittedLocalControl();
+      DispatchResult ignored;takeLocalControlResult(ignored);
+      invalidateControlPresentation();lockAuthorization();
+      encoder=Encoder{};wasSleeping=false;
+      frameSettings={};presentedSettings={};presentedSettingsValid=false;
+      frameView={};presentedView={};stopPresentedRef={};
+      frameTargetToken=presentedTargetToken=framePageToken=presentedPageToken=stopPresentedToken=0;
+      validBands=0;memset(bandHashes,0,sizeof(bandHashes));
+      scene=lastBand=0;bandIndex=43;attempted=hasPresented=false;
+      canvas.attach(nullptr);
+    }
     setCaptureProtected(false);capturePoll(nullptr,true,0,0);return false;
+  }
+  if(graphicsMissing) {
+    graphicsMissing=false;canvas.attach(memory.pixels);setCaptureProtected(true);
   }
   const uint64_t settingsNow=uint64_t(esp_timer_get_time())/1000;
   const Model model=snapshotModel(s.running,controller.view());

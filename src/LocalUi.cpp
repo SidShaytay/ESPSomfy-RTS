@@ -22,6 +22,22 @@ void Controller::setPreferences(const DisplayPreferences &p) {
       state.offSeconds = value;
   }
 }
+void Controller::discardTransient() {
+  // Save consumption is the existing synchronous live-application boundary;
+  // a reported persistence failure still leaves those live values applied.
+  const auto keep=state.screen==Screen::brightness || savePending?brightnessBefore:preferences();
+  editor.cancel();valueEditor.cancel();
+  state=View{};pending=Command{};settingsInput={};
+  editorMode=AuthMode::none;afterUnlock=Screen::control;
+  valueAuthorizationGeneration=valueConfigurationGeneration=0;
+  brightnessConfigurationGeneration=editorActivity=editorConfigurationGeneration=0;
+  chosenIdentity=0;chosenRevision=chosenModelRevision=chosenRestoreRevision=0;
+  bindTarget=authorizeAfterUnlock=authActivity=cancelPending=false;
+  hasCommand=started=raw=stable=consumed=held=asleep=dimmed=savePending=false;
+  backRaw=backStable=backConsumed=false;
+  backSince=rawSince=pressedSince=activity=noticeSince=0;
+  brightnessBefore=keep;setPreferences(keep);
+}
 void Controller::editorView() {
   state.credentialChoice = editor.selected();
   state.credentialLength = editor.length();

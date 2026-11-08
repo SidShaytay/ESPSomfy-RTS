@@ -140,3 +140,31 @@ shared build reports 112,780 bytes static RAM and 1,411,994 bytes flash. Host la
 checks report 64 bytes per queue item, 624 bytes for the single pending slot and 288
 bytes for the snapshot; production compiler bounds remain the portable contract.
 These are compile/host results, with no controller access, RF, HA or installation.
+
+## Controller transient discard contract
+
+`Controller::discardTransient()` is an allocation-free local reset for graphics
+loss. It wipes credential/value editors, unconsumed commands/preferences and
+Settings events, activity and target-selection state, returns to Status, and
+reinitializes debounce so a held push or Back cannot replay on recovery.
+
+Only an active brightness editor or an unconsumed Save is rolled back. Once the
+existing synchronous save request is consumed, current applied live preferences
+are preserved, including after a reported persistence failure; this does not
+claim that storage succeeded. The method performs no domain or storage writes.
+The Runtime owns the separate one-time authorization lock, pending cancellation,
+Form wipe, adapter/presentation invalidation and graphics/capture recovery.
+
+When Runtime observes a missing framebuffer, it now performs that cleanup once:
+discard the settings draft and transient input, retract the local pending intent,
+drop its stale completion, lock local authorization and erase focus/STOP and
+completed-frame proofs. Target and intent serials remain monotonic. Repeated
+fallback ticks do not repeatedly change authorization history. Status fallback
+remains read-only.
+
+If a framebuffer becomes usable again, Runtime reattaches it, suppresses held
+input and requires a fresh complete frame. Every display band is invalidated;
+capture stays protected until a complete safe frame replaces the old screen.
+Offline fault-injection tests cover draft erasure, queued-start cancellation,
+old-target refusal, monotonic nonces, held-input recovery and capture transitions.
+This does not add physical display-disconnection detection or qualify hardware.

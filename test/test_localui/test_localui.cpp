@@ -233,6 +233,50 @@ static void pending_idle_stop_and_back_hold_cancellation_are_explicit() {
   d.c.result(d.now,DispatchResult::expired);TEST_ASSERT_EQUAL(int(Notice::expired),int(d.c.view().notice));
   d.c.result(d.now,DispatchResult::cancelledBusy);TEST_ASSERT_EQUAL(int(Notice::stopNotQueued),int(d.c.view().notice));
 }
+static void assertTransientDiscarded(Drive &d) {
+  d.c.discardTransient();
+  const auto &view=d.c.view();
+  TEST_ASSERT_EQUAL(int(Screen::status),int(view.screen));TEST_ASSERT_EQUAL(0,view.entity.id);
+  TEST_ASSERT_EQUAL(0,view.openedToken);TEST_ASSERT_FALSE(view.authorizedSelection);TEST_ASSERT_EQUAL(0,view.selectionAuthGeneration);
+  TEST_ASSERT_EQUAL(0,view.credentialLength);TEST_ASSERT_EQUAL(0,view.credentialMaximum);TEST_ASSERT_EQUAL(0,view.credentialChoice);
+  TEST_ASSERT_EQUAL(0,view.draftValue);TEST_ASSERT_EQUAL(0,view.valueChoice);
+  Command command;Credentials credentials;DisplayPreferences preferences;SettingsInput input;
+  TEST_ASSERT_FALSE(d.c.take(command));TEST_ASSERT_FALSE(d.c.takeCredentials(credentials));
+  TEST_ASSERT_FALSE(d.c.takePreferences(preferences));TEST_ASSERT_FALSE(d.c.takeSettingsInput(input));
+  TEST_ASSERT_FALSE(d.c.takeActivity());TEST_ASSERT_FALSE(d.c.takeCancellation());
+}
+static void graphics_discard_clears_raw_and_submitted_credentials_value_and_command() {
+  for(unsigned submit=0;submit<2;submit++) {
+    Drive d;d.f.base.authorized=false;d.f.base.authMode=AuthMode::pin;d.devices();d.click();d.tick(1);d.click();
+    TEST_ASSERT_EQUAL(1,d.c.view().credentialLength);
+    if(submit) {for(unsigned i=0;i<3;i++)d.click();for(unsigned i=0;i<96;i++)d.tick(1);d.click();}
+    assertTransientDiscarded(d);
+  }
+  Drive value;openMore(value);value.click();value.tick(1);TEST_ASSERT_EQUAL(36,value.c.view().draftValue);assertTransientDiscarded(value);
+  Drive command;command.devices();command.tick(-1);command.click();assertTransientDiscarded(command);
+}
+static void graphics_discard_clears_settings_events_and_preserves_live_preferences() {
+  Drive events;events.c.setPreferences({128,30,60});events.home();for(unsigned i=0;i<3;i++)events.tick(1);events.click();
+  events.tick(1);events.click();events.back();assertTransientDiscarded(events);
+  const auto preserved=events.c.preferences();TEST_ASSERT_EQUAL(128,preserved.brightness);TEST_ASSERT_EQUAL(30,preserved.dimSeconds);TEST_ASSERT_EQUAL(60,preserved.offSeconds);
+  for(unsigned phase=0;phase<4;phase++) {
+    Drive d;d.home();for(unsigned i=0;i<4;i++)d.tick(1);d.click();d.tick(1); //32->64 live preview
+    if(phase) {d.click();d.click();d.click();} // explicit Save produced, but not yet consumed
+    if(phase>=2) {DisplayPreferences output;TEST_ASSERT_TRUE(d.c.takePreferences(output));d.c.brightnessResult(d.now,phase==2);}
+    assertTransientDiscarded(d);
+    TEST_ASSERT_EQUAL(phase<2?32:64,d.c.preference()); // consumed failed Save also keeps its already applied live value
+  }
+}
+static void graphics_discard_restarts_debounce_and_suppresses_held_recovery_input() {
+  for(unsigned back=0;back<2;back++) {
+    Drive d;d.devices();d.tick(0,!back,true,back);d.tick(0,!back,true,back);
+    assertTransientDiscarded(d);
+    d.tick(0,!back,true,back);d.tick(0,!back,true,back,900);d.tick();d.tick();
+    TEST_ASSERT_EQUAL(int(Screen::status),int(d.c.view().screen));
+    Command command;TEST_ASSERT_FALSE(d.c.take(command));TEST_ASSERT_FALSE(d.c.takeCancellation());TEST_ASSERT_FALSE(d.c.takeActivity());
+    d.click();TEST_ASSERT_EQUAL(int(Screen::home),int(d.c.view().screen)); // fresh gesture works after release
+  }
+}
 int main() {
   UNITY_BEGIN();RUN_TEST(stable_catalogue_selection_binds_id_not_slot);
   RUN_TEST(never_presented_catalogue_or_stop_emits_no_intent);
@@ -252,5 +296,8 @@ int main() {
   RUN_TEST(toggle_and_capability_menus_have_no_invisible_fallback);
   RUN_TEST(step_bounds_and_tilt_stop_never_borrow_stop_grace);
   RUN_TEST(pending_idle_stop_and_back_hold_cancellation_are_explicit);
+  RUN_TEST(graphics_discard_clears_raw_and_submitted_credentials_value_and_command);
+  RUN_TEST(graphics_discard_clears_settings_events_and_preserves_live_preferences);
+  RUN_TEST(graphics_discard_restarts_debounce_and_suppresses_held_recovery_input);
   return UNITY_END();
 }
