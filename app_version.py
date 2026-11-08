@@ -37,11 +37,13 @@ if env.get("PIOENV") == "lilygo-t-embed-cc1101":
     from pathlib import Path
     sys.path.insert(0, os.path.join(project_dir, "tools"))
     from update_profiles import load_profile
-    from update_identity import identity, tags_at_head
+    from update_identity import identity, tags_at_head, source_epoch
     from update_assets import verify_manifest
     from lilygo_manifest import source_record
     env.Append(LINKFLAGS=["-Wl,--undefined=espsomfyUpdateIdentity"])
     source = source_record(Path(project_dir))
+    epoch=source_epoch(project_dir)
+    env.Append(CPPDEFINES=[("ESPSOMFY_SOURCE_EPOCH",epoch)])
     record = identity(source, verify_manifest(Path(project_dir) / "data"),
                       tags_at_head(project_dir), load_profile(project_dir, env.get("PIOENV")))
     for name, value in (("ESPSOMFY_SOURCE_SHA", record["source_sha"]),
