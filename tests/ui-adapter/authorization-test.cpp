@@ -5,6 +5,8 @@
 #include <string.h>
 #include <stdio.h>
 uint64_t authTestNow=0;
+uint64_t securityHistory=1;
+uint64_t securityConfigurationRevision() { return securityHistory; }
 enum class security_types : uint8_t { None, PinEntry, Password };
 struct ConfigSettings {
   struct { security_types type=security_types::PinEntry;
@@ -47,6 +49,12 @@ int main() {
   strcpy(given.secret,"new!"); assert(unlockAuthorization(given)==AuthResult::unlocked);
   strcpy(settings.Security.username,"inactive-user");
   assert(!pollAuthorization().allowed);
+  strcpy(given.secret,"new!"); assert(unlockAuthorization(given)==AuthResult::unlocked);
+  const auto beforeNoop=pollAuthorization();
+  securityHistory+=2; // successful replacements can return to the same final values between polls
+  const auto afterNoop=pollAuthorization();
+  assert(!afterNoop.allowed && !afterNoop.stopGrace);
+  assert(afterNoop.configurationGeneration!=beforeNoop.configurationGeneration);
   strcpy(given.secret,"new!"); assert(unlockAuthorization(given)==AuthResult::unlocked);
   lockAuthorization(); assert(!pollAuthorization().allowed && !pollAuthorization().stopGrace);
   settings.Security.type=security_types::None;
