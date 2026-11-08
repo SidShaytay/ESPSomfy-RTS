@@ -1,29 +1,9 @@
 #pragma once
 #include "ConfigRecords.h"
+#include "ModelCommitResult.h"
 #include <stdint.h>
 #include <stdio.h>
 
-enum class ModelCommitState : uint8_t { saved, failed, uncertain };
-enum class ModelCommitStage : uint8_t {
-  none,
-  path,
-  open,
-  write,
-  serialize,
-  flush,
-  sync,
-  close,
-  verifyOpen,
-  verifyRead,
-  verifyBytes,
-  verifyClose,
-  replace
-};
-struct ModelCommitResult {
-  ModelCommitState state = ModelCommitState::failed;
-  ModelCommitStage stage = ModelCommitStage::none;
-  bool saved() const { return state == ModelCommitState::saved; }
-};
 // The model-owning loop must keep the source stable. Serialization may run
 // three times and must not mutate the model, publish or access rolling-code
 // NVS.

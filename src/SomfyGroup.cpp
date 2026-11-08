@@ -85,4 +85,3 @@ bool SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
   this->emitState();
   return true;
 }
-bool SomfyGroup::save() { somfy.commit(); return true; }
