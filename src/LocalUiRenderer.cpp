@@ -17,7 +17,9 @@ const char *notices[] = {"",
                          "Target changed - reopen",
                          "Wait for screen, then press",
                          "Display settings saved",
-                         "Display settings save failed"};
+                         "Display settings save failed",
+                         "Unlock required", "Invalid credentials", "Too many attempts - wait",
+                         "Local unlock unavailable", "Unlocked - select action again"};
 } // namespace
 void Canvas::drawPixel(int16_t x, int16_t y, uint16_t color) {
   if(pixels && x >= 0 && x < screenWidth && y >= 0 && y < screenHeight)
@@ -80,6 +82,32 @@ void Canvas::shutter(int x, int y, int open, uint16_t color) {
 void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot &s) {
   fillScreen(bg);
   char label[48];
+  if(v.screen == Screen::unlock && s.running) {
+    text(12,28,"Local unlock",true,white);
+    text(12,54,v.credentialUser ? "Username (masked)" :
+         v.credentialMaximum==4 ? "PIN (masked)" : "Password (masked)",false,muted);
+    char masked[33]={};
+    for(uint8_t i=0;i<v.credentialLength && i<32;i++) masked[i]='*';
+    text(12,78,masked,false,white,180);
+    snprintf(label,sizeof(label),"%u/%u bytes",unsigned(v.credentialLength),unsigned(v.credentialMaximum));
+    text(200,78,label,false,muted,108);
+    if(v.credentialByte) snprintf(label,sizeof(label),"Add byte %02X (01-FF)",unsigned(v.credentialChoice));
+    else if(v.credentialChoice<95) {
+      if(v.credentialChoice==0) snprintf(label,sizeof(label),"Add space");
+      else snprintf(label,sizeof(label),"Add character: %c",char(v.credentialChoice+32));
+    } else snprintf(label,sizeof(label),"%s",v.credentialChoice==95?"Backspace":
+                    v.credentialChoice==96?"Byte entry (UTF-8 bytes)":
+                    v.credentialChoice==97?(v.credentialUser?"Next: password":"Unlock"):"Cancel");
+    fillRoundRect(10,90,300,30,5,selected);
+    text(20,112,label,false,teal);
+    if(v.retryAfterMs) snprintf(label,sizeof(label),"Wait %lus (device-wide limit)",
+      (unsigned long)(v.retryAfterMs/1000+(v.retryAfterMs%1000!=0)));
+    else snprintf(label,sizeof(label),"%s",v.notice==Notice::unlockWrong?"Invalid credentials":
+                  v.notice==Notice::unlockUnavailable?"Local unlock unavailable":"Turn selects; press adds/applies");
+    text(12,142,label,false,amber);
+    text(12,164,"Back: cancel   Idle clears entry",false,muted);
+    return;
+  }
   if(v.screen == Screen::details && s.running) {
     StatusDisplay::Page page;
     StatusDisplay::format(s, page);
@@ -235,6 +263,8 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
       text(12, 163, notices[int(v.notice)], false, amber);
     else if(!m.controlsEnabled)
       text(12, 163, "Preview: commands locked", false, amber);
+    else if(!m.authorized)
+      text(12,163,t.stopLease?"STOP only; unlock other actions":"Press: unlock   Back: return",false,amber);
     else
       text(12, 163, "Press: send   Back: return", false, muted);
   }

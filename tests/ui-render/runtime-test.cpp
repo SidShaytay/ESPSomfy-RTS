@@ -1,6 +1,7 @@
 #include "LocalUiRuntime.h"
 #include "LocalUiAdapter.h"
 #include "LocalUiCapture.h"
+#include "LocalUiAuthorizationAdapter.h"
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>
@@ -9,11 +10,13 @@ bool hasPsram = true, allocateOK = true;
 void *allocated = nullptr;
 int testPins[64] = {};
 uint32_t testNow = 0;
-static unsigned bands = 0, dispatches = 0;
-static bool busBusy = false;
+static unsigned bands = 0, dispatches = 0, locks=0;
+static bool busBusy = false, secure=false, captureProtected=true;
 LocalUi::Model LocalUi::snapshotModel(bool running) {
   Model m;
   m.ready = running;
+  m.authMode=secure?AuthMode::pin:AuthMode::none;
+  m.authorized=!secure;
   for(auto &t : m.targets) {
     t.valid = true;
     t.identity = 123;
@@ -23,6 +26,11 @@ LocalUi::Model LocalUi::snapshotModel(bool running) {
   return m; // controls remain locked in the actual preview runtime
 }
 void LocalUi::capturePoll(const uint16_t *, bool, uint8_t, uint32_t) {}
+void LocalUi::setCaptureProtected(bool value) { captureProtected=value; }
+void LocalUi::authorizationActivity() {}
+void LocalUi::lockAuthorization() { ++locks; }
+void LocalUi::focusAuthorizationTarget(uint8_t) {}
+LocalUi::AuthResult LocalUi::unlockAuthorization(Credentials &given) { given.clear(); return AuthResult::wrong; }
 LocalUi::DisplayPreferences LocalUi::loadPreferences() { return {}; }
 bool LocalUi::savePreferences(const DisplayPreferences &) { return true; }
 bool LocalUi::dispatch(const Command &) {
@@ -55,6 +63,7 @@ int main() {
   busBusy = false;
   for(; testNow < 200; testNow += 2)
     assert(ui.tick(testNow, s, false, send, light));
+  assert(!captureProtected);
   assert(bands == 43); // one complete 170-row frame, last band is two rows
   for(; testNow < 400; testNow += 2)
     assert(ui.tick(testNow, s, false, send, light));
@@ -91,6 +100,24 @@ int main() {
   idle();
   click();
   assert(dispatches == 0);
+  secure=true;
+  click(); // secured control routes to protected unlock, never dispatch
+  assert(captureProtected && dispatches==0);
+  idle();
+  assert(captureProtected);
+  busBusy=true;
+  testPins[6]=0; tick(ab,false); tick(ab,false); // cancel unlock to a sanitized control frame
+  assert(captureProtected); // presentation is blocked, so capture stays denied
+  testPins[6]=1; tick(ab,false); tick(ab,false);
+  assert(captureProtected);
+  busBusy=false;
+  idle();
+  assert(!captureProtected && dispatches==0);
+  const unsigned beforeSleep=locks;
+  testNow+=21000; ui.tick(testNow,s,false,send,light);
+  assert(locks==beforeSleep+1);
+  testNow+=100; ui.tick(testNow,s,false,send,light);
+  assert(locks==beforeSleep+1); // revoke only on the sleep transition
   free(allocated);
   allocated = nullptr;
   hasPsram = false;

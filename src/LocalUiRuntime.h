@@ -13,7 +13,7 @@ class Runtime {
   uint64_t validBands = 0;
   uint32_t scene = 0, lastBand = 0, revision = 0;
   uint8_t bandIndex = 43;
-  bool attempted = false, hasPresented = false;
+  bool attempted = false, hasPresented = false, wasSleeping = false;
   View frameView, presentedView;
   uint32_t frameIdentity = 0, presentedIdentity = 0;
 

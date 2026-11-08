@@ -1,9 +1,11 @@
 # LCD interaction and security proposal for issue #25
 
-Status: design for review; proposed flows below are **not implemented**. Sid approved
+Status: design for review plus an authorization implementation slice. Only the
+implementation record below describes implemented behavior; other flows remain proposals. Sid approved
 reuse of the configured web credential for both local controls and administration,
 with 120-second inactivity expiry and a device-wide attempt limit. Sid later superseded the initial STOP decision: narrowly scoped STOP remains available
-after expiry for already-authorized continuing movement, as described below. The existing
+for at most 30 seconds after expiry for already-authorized continuing movement, ending
+sooner when that movement ends, as described below. The existing
 web throttle schedule uses
 volatile local state (including the documented reboot-reset limitation). Other decisions
 remain pending as marked below. This document is
@@ -177,11 +179,12 @@ STOP is a distinct intent from favourite/MY despite sharing the on-air command:
 4. All idle: no RF. Favourite is a separately labelled intentional action, with shared
    idle/tilt/type restrictions. `set_favorite` is administration with confirmation.
 
-At authorization expiry, retain a STOP lease only for matching movement observed both
+At authorization expiry, retain a STOP lease for at most 30 seconds, only for matching movement observed both
 while the session was authorized and at expiry. Freeze the eligible moving member set;
 a group member that starts moving later cannot acquire a lease. Revalidate exact target,
 RF identities, membership, capabilities and security configuration before every request.
-Observed idle irreversibly removes the target/member from the lease; idle then new motion
+The deadline is the original session-expiry time plus 30 seconds; a late poll, activity,
+or failed unlock cannot extend it. Observed idle irreversibly removes the target/member from the lease; idle then new motion
 does not revive it. Any relevant configuration or security change revokes the lease.
 A shared group MY requires every current member to retain a matching continuing-motion
 lease; otherwise stop only leased moving members individually. No lease permits an idle
@@ -219,7 +222,7 @@ buffers use schema maxima plus terminator, reject overlength, and are explicitly
 on submit, cancel, timeout, lock, navigation away and error. Never include secrets in
 notices, logs, scene hashes with exported diagnostics, previews or screenshots.
 
-Mark the complete credential/unlock/transfer-secret screen as protected. Capture returns
+Mark the complete credential/unlock screen as protected. Capture returns
 a refusal without pixel data while protected, even when a request arrived before entry.
 When leaving, wipe drafts and repaint every framebuffer pixel before allowing capture;
 a partially presented frame is not a safe nonsecret frame. Test entry/exit during an
@@ -292,7 +295,68 @@ Until then record runtime heap/latency acceptance as pending, not passed by a bu
   masked credentials, confirmation defaults, error/queued/partial state and dim/wake.
   Text mockups above alone do not meet the preview acceptance criterion.
 - Existing native, JS, board-profile, status-panel, adapter/runtime/capture/renderer and
-  tooling suites; the single canonical shared CC1101/Plus firmware build; generic-board build isolation and
+  tooling suites; the single shared CC1101/Plus full firmware build; generic-board build isolation and
   negative compiler/package contracts. Record ELF/slot size; hardware memory and
   latency evidence stays explicitly pending. Independent review must challenge auth,
   capture races and STOP/MY with fake sinks before feature integration into main.
+
+## Authorization slice implementation record
+
+Final shared CC1101/Plus integration, including the approved 30-second cap: 700 native
+tests passed with one optional private-fixture skip; JS69, Python36, release script and
+production renderer/runtime/capture/domain/credential-adapter harnesses passed. Shared
+and generic ESP32 firmware compiled. The shared image reports 108,924 static RAM bytes
+and 1,371,230 linker program bytes. A parallel firmware invocation exposed the existing
+shared `data/` minifier race; sequential firmware builds passed without a source change.
+These are offline checks, not physical stopping or hardware latency evidence.
+
+The isolated authorization slice implements configured None/PIN/password checks for
+local commands and display-setting persistence, a 120-second monotonic inactivity
+session independent of estimated movement, device-wide volatile web-schedule throttling,
+revocation on any security setting change (including inactive username/password/PIN)
+and exact-byte bounded masked entry. A private bounded cache compares all configured
+security fields without exposing their bytes or a secret fingerprint to the model. ASCII character input
+and Byte 01–FF input support the existing byte-limited credentials without substituting
+unsupported Unicode. NUL is excluded because configured fields are C strings. PIN is
+at most four bytes; username/password are at most 32 bytes each. User entry drafts wipe
+on submit, cancel, timeout and sleep; configured credential copies wipe before replacement.
+The boot/non-running model fails closed before configured security is loaded.
+Display-setting previews revert and close on authorization expiry, security changes or
+sleep; wheel input cannot continue modifying an unauthorized open draft. Existing
+authorized display-settings Back/save behavior is retained in this slice.
+Web token generation and web login behavior are unchanged.
+
+A single generic 32-member `StopLease` follows the last actual authorized target.
+Ordinary menu navigation keeps observing that target; selecting another actual target
+changes or revokes scope rather than granting a catalog-wide exception.
+Expiry freezes continuing observed member motion for at most 30 seconds. Another moving, never-focused target
+gets no lease. Observed idle removes eligibility permanently until a new authorized
+session; member/target/RF/security/relevant configuration changes revoke it. All other
+commands require the current session generation. Ordinary dispatch and page activation
+also compare the relevant configuration fingerprint. The later dynamic-model slice still
+needs a mutation generation to reject delete/recreate or re-pair that returns to an
+identical final configuration between observations; a fingerprint alone cannot detect it.
+
+The runtime sets capture protection before painting unlock and keeps it set through a
+complete sanitized redraw after leaving. Both a new request during entry and a waiter
+from before entry are denied without pixel allocation. Protected/error responses have
+no-store where a response can be allocated; allocation failure returns 503 without pixels.
+Graphical allocation failure admits no invisible commands. Actual sleep revokes once per
+transition; an explicit Lock menu item remains for the later administration navigation
+slice rather than being claimed available here. Wrong unlock cannot grant or expand an
+existing timed-out STOP lease. Any backwards clock observation revokes the session and
+lease, and validation remains blocked until the clock catches up without resetting throttling.
+
+Offline evidence: 27 focused native auth/editor/controller tests passed; production
+adapter fake-sink, credential-adapter, runtime, capture and real GFX renderer harnesses
+passed. Previews include masked PIN/32-byte username/password, byte mode and throttle.
+Visual inspection found a 32-star/count overlap, corrected by a bounded masked text area.
+Mutation checks killed an expiry-boundary weakening, STOP-lease union instead of
+intersection, removal of the protected-capture handler guard, and bypass of dispatch
+authorization. The isolated legacy Plus UI configuration compiled with pinned Core 6.2.0: static RAM
+108,996/327,680 bytes; reported program flash 1,368,490/3,342,336 bytes; firmware binary
+1,413,472 bytes (1,928,864 bytes below its slot bound); ELF 28,988,664 bytes. These are
+link/build sizes, not runtime heap measurements.
+that is an authorization smoke check, **not the final shared-board build contract**.
+Final integration must build the single shared configuration Sid subsequently requested.
+No firmware was flashed, and no controller/HA/RF/motor operation was performed.
