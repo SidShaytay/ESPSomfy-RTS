@@ -7,6 +7,7 @@
 #include "LoopQueue.h"
 #include "SettingsDurability.h"
 #include "ModelCommitResult.h"
+#include "SomfyFrame.h"
 #include <assert.h>
 #include <string>
 #include <thread>
@@ -33,7 +34,8 @@ struct SomfyShadeController {
     void reopenAfterRefusedRestart(){sealed=false;}
   } transceiver;
   struct Shade {uint8_t id=255;bool idle=true,pending=false;uint32_t gpioRelease=0;uint8_t getShadeId(){return id;}bool isIdle(){return idle;}bool idleForAdministration(){return idle&&!pending&&!gpioRelease;}} shades[32];
-  struct Group {uint8_t id=255;int8_t direction=0;uint8_t getGroupId(){return id;}} groups[16];
+  struct Group {uint8_t id=255;int8_t direction=0;somfy_frame_t lastFrame;uint8_t linkedShades[32]{};uint8_t getGroupId(){return id;}} groups[16];
+  Shade *getShadeById(uint8_t id){for(auto &shade:shades)if(id && id!=255 && shade.id==id)return &shade;return nullptr;}
   ModelCommitResult commit(){++commits;if(duringCommit)duringCommit();return fileResult;}
 } somfy;
 rebootDelay_t rebootDelay;
@@ -114,13 +116,15 @@ int main(int argc,char **argv) {
   if(mode=="held"){somfy.shades[0].id=3;somfy.shades[0].pending=true;}
   if(mode=="pulse"){somfy.shades[0].id=3;somfy.shades[0].gpioRelease=1;}
   if(mode=="groupMoving"){somfy.groups[15].id=8;somfy.groups[15].direction=-1;}
+  if(mode=="groupIdle") {somfy.groups[15].id=8;somfy.groups[15].direction=-1;somfy.groups[15].linkedShades[31]=7;somfy.shades[31].id=7;}
+  if(mode=="groupEmpty")somfy.groups[15].id=8;
   if(mode=="radio")somfy.transceiver.work=true;
   if(mode=="queueSealRace")queueSealRefused=true;
   if(mode=="radioSealRace")somfy.transceiver.sealRefused=true;
   if(mode=="lateSettings")duringCommit=[]{settingsDurability().markUncertain(1);settingsDurability().fullSave(SettingsNamespace::cfg,{settings_save_state_t::saved});};
   if(mode=="lateHistory")duringCommit=[]{++somfy.configurationRevision;};
   const bool restarted=legacyRestartLoop();
-  const bool expected=mode=="allowed" || mode=="handoff";
+  const bool expected=mode=="allowed" || mode=="handoff" || mode=="groupIdle" || mode=="groupEmpty";
   assert(restarted==expected && shutdowns==unsigned(expected));
   if(!expected) {
     assert(!snapshotLegacyRestart(rebootDelay).reboot);
