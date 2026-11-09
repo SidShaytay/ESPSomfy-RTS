@@ -15,6 +15,7 @@ struct SecurityRecord {
   }
   ~SecurityRecord(){clear();}
 };
+static_assert(sizeof(SecurityRecord)==72,"Bound credential loading drafts");
 // Only exact NVS NOT_FOUND is absence. No storage write or reset is performed.
 // Output stays empty on failure; callers publish only a trusted complete draft.
 SecurityLoadState readSecurityRecord(SecurityRecord &);
