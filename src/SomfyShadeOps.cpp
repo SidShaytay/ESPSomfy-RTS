@@ -1,6 +1,7 @@
 #include "SomfyShadeOps.h"
 #include "Somfy.h"
 #include "CounterResults.h"
+#include "CounterRuntime.h"
 #include "ShadeChanges.h"
 
 extern SomfyShadeController somfy;
@@ -65,7 +66,7 @@ void SomfyShadeOps::setUnpaired(uint8_t shadeId) {
   shade->configChanged();
 }
 shade_request_result_t SomfyShadeOps::setRollingCode(uint8_t shadeId, uint16_t code) {
-  return counterRequestResult(correctExplicitCounter(shadeId,code));
+  return counterRequestResult(applyPrimaryCounterCorrection(shadeId,code));
 }
 
 bool SomfyShadeOps::sendGroupCommand(uint8_t groupId, somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {

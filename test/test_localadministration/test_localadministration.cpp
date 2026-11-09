@@ -11,6 +11,15 @@ struct Memory : ArduinoJson::Allocator {
   void *reallocate(void *p,size_t n) override {return realloc(p,n);}
 };
 struct State : EntityAdmin::Backend,Advanced::Backend,CatalogueSource {
+  // This catalogue/metadata fixture does not emulate checked counter storage.
+  // Primary correction is driven through the real Backend by its own tests.
+  Advanced::PrimaryReadResult readPrimary(Advanced::Target,const Advanced::Context&,Authorization,uint64_t,PrimaryCounterReview &out) override {
+    out={};TEST_FAIL_MESSAGE("Primary correction is outside this navigation fixture");return {CounterDomainState::invalid,Admission::invalid};
+  }
+  bool primaryCurrent(Advanced::Target,const PrimaryCounterReview&) override {TEST_FAIL_MESSAGE("Unexpected primary counter query");return false;}
+  Advanced::PrimaryApplyResult correctPrimary(Advanced::Target,const Advanced::Context&,Authorization,uint64_t,const PrimaryCounterReview&,uint16_t,LearnPending&) override {
+    TEST_FAIL_MESSAGE("Unexpected primary counter correction");return {{},Admission::invalid};
+  }
   ReceiveHub learningFrames;
   ReceiveHub&receivedFrames()override{return learningFrames;}
   LearnQueued queueLearn(LearnPending&,uint64_t)override{return {};}

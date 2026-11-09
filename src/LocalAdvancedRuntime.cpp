@@ -1,6 +1,7 @@
 #ifdef ESPSOMFY_LOCAL_UI
 #include "LocalAdvancedRuntime.h"
 #include "CounterEdit.h"
+#include "CounterRuntime.h"
 #include "GroupReadiness.h"
 #include "LocalEntityRuntime.h"
 #include "LocalOperationAdmission.h"
@@ -122,6 +123,42 @@ class RuntimeBackend final : public Backend {
   }
 
 public:
+  PrimaryReadResult readPrimary(Target target,const Context &context,
+      Authorization auth,uint64_t history,PrimaryCounterReview &out) override {
+    out={};
+    auto admission=admit(target,context,auth,history);
+    if(admission!=Admission::accepted)return {CounterDomainState::invalid,admission};
+    if(target.scope!=Scope::devices)return {CounterDomainState::invalid,Admission::invalid};
+    const auto state=reviewPrimaryCounter(target.id,out);
+    admission=admit(target,context,auth,history);
+    if(admission!=Admission::accepted)out={};
+    return {state,admission};
+  }
+  bool primaryCurrent(Target target,const PrimaryCounterReview &review) override {
+    return target.scope==Scope::devices && primaryCounterReviewCurrent(target.id,review);
+  }
+  PrimaryApplyResult correctPrimary(Target target,const Context &context,
+      Authorization auth,uint64_t history,const PrimaryCounterReview &review,
+      uint16_t code,LearnPending &pending) override {
+    auto admission=admit(target,context,auth,history);
+    if(admission!=Admission::accepted)return {{},admission};
+    if(!primaryCurrent(target,review))return {{},Admission::stale};
+    // No configuration lease: the shared correction acquires its counter
+    // owner/reservation. This witness remains read-only under that owner.
+    class Witness final : public CounterCorrectionWitness {
+      LearnPending &pending;
+    public:
+      LearnQueueReason reason=LearnQueueReason::ready;
+      explicit Witness(LearnPending &p):pending(p){}
+      bool current() override {
+        reason=pending.current(uint64_t(esp_timer_get_time())/1000);
+        return reason==LearnQueueReason::ready;
+      }
+    } witness(pending);
+    if(!witness.current())return {{},Admission::accepted,witness.reason};
+    const auto result=applyPrimaryCounterCorrection(target.id,code,review,witness);
+    return {result,Admission::accepted,witness.reason};
+  }
   ReceiveHub &receivedFrames() override { return LocalUi::receiveHub(); }
   LearnQueued queueLearn(LearnPending &pending, uint64_t now) override {
     return submitLocalLearn(pending, now);
