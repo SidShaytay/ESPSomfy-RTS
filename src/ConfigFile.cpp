@@ -1,3 +1,7 @@
+#include "SelectedSettingsRestore.h"
+#include "DeviceOps.h"
+#include "ShadeGpioPolicy.h"
+#include <driver/gpio.h>
 #include <Arduino.h>
 #include <LittleFS.h>
 #include "esp_log.h"
@@ -247,6 +251,47 @@ bool ShadeConfigFile::prepareCounters(CounterLoadControl control) {
   const auto result=counters.resolve(control);
   if(!result.ready())ESP_LOGE(TAG,"Model counter load failed at stage %u",unsigned(result.stage));
   return result.ready();
+}
+
+// Two bounded passes over the SAME immutable model: count physically touched
+// pads, then validate each assignment against projected settings and its peers.
+// No model draft, mutable-file reread, pin operation or counter I/O is needed.
+bool ShadeConfigFile::validateRestoreGPIOs(SomfyShadeController *model,bool imported,
+    const SelectedSettingsRestore &stage){
+  static_assert(3*SOMFY_MAX_SHADES<255,"Per-pin owner counts cannot overflow");
+  uint8_t owners[256]={};const uint32_t start=position();
+  auto visit=[&](auto action){
+    if(!imported){
+      for(auto &shade:model->shades)if(shade.getShadeId()!=255 &&
+          !action(shade.proto,shade.gpioUp,shade.gpioDown,shade.gpioMy))return false;
+      return true;
+    }
+    bool valid=seekRead(start)&&skipRecords(*this,header.roomRecords);
+    for(unsigned i=0;valid&&i<header.shadeRecords;++i){
+      shade_record_t shade;
+      valid=readShadeRecord(*this,header,shade);
+      if(valid&&shade.shadeId!=255)valid=action(shade.proto,shade.gpioUp,shade.gpioDown,shade.gpioMy);
+    }
+    const bool rewound=seekRead(start);
+    return valid&&rewound&&!readFailed;
+  };
+  if(!visit([&](radio_proto proto,uint8_t up,uint8_t down,uint8_t my){
+    const uint8_t mask=ShadeGpioPolicy::physicalMask(proto),pins[]={up,down,my};
+    for(unsigned i=0;i<3;++i)if((mask&(1u<<i))&&pins[i]!=255)++owners[pins[i]];
+    return true;
+  }))return false;
+  pin_users_t invalid;
+  invalid.uses=[](uint8_t pin,void *){return !GPIO_IS_VALID_OUTPUT_GPIO(pin);};
+  return visit([&](radio_proto proto,uint8_t up,uint8_t down,uint8_t my){
+    struct Context{const uint8_t *owners;uint8_t mask,pins[3];} context{owners,ShadeGpioPolicy::physicalMask(proto),{up,down,my}};
+    pin_users_t others;others.ctx=&context;
+    others.uses=[](uint8_t pin,void *opaque){
+      const auto &current=*static_cast<const Context *>(opaque);unsigned own=0;
+      for(unsigned i=0;i<3;++i)if((current.mask&(1u<<i))&&current.pins[i]==pin)++own;
+      return current.owners[pin]>own;
+    };
+    return stage.validateGPIOs(proto,up,down,my,settings,model->transceiver.config,others,invalid)==0;
+  });
 }
 
 void ShadeConfigFile::readRoom(SomfyRoom *room) {
@@ -598,16 +643,37 @@ RestoreApplyResult ShadeConfigFile::restoreFile(SomfyShadeController *s,const ch
     result.refusal=RestoreRefusal::incompleteModel;return result;
   }
   if(!opts.shades&&!opts.repeaters&&!opts.settings&&!opts.network&&!opts.mqtt&&!opts.transceiver)return result;
-  if(opts.settings||opts.network||opts.mqtt||opts.transceiver){
-    // This feature stays off main until the independently reviewed staged
-    // selected-settings writer replaces this refusal. Never replay the legacy
-    // unchecked live-before-save path or certify an unverified full restore.
-    result.settings.state=RestoreSettingsState::unavailable;
-    if(opts.settings)result.settings.requestedNamespaces|=settingsNamespaceBit(SettingsNamespace::cfg)|settingsNamespaceBit(SettingsNamespace::ntp);
-    if(opts.network)result.settings.requestedNamespaces|=settingsNamespaceBit(SettingsNamespace::cfg)|settingsNamespaceBit(SettingsNamespace::ip);
-    if(opts.mqtt)result.settings.requestedNamespaces|=settingsNamespaceBit(SettingsNamespace::mqtt);
-    if(opts.transceiver)result.settings.requestedNamespaces|=settingsNamespaceBit(SettingsNamespace::radio);
-    result.refusal=RestoreRefusal::settings;return result;
+  SelectedSettingsRestore stage;
+  const bool selected=opts.settings||opts.network||opts.mqtt||opts.transceiver;
+  const uint32_t modelStart=position();
+  // Even model-only restore prepares the no-write settings context so pin
+  // projection may use proven current owners without allocating a draft.
+  if(!selected && !stage.prepare(settings,s->transceiver.config,opts,header,*this,false)){
+    result.settings=stage.status();result.refusal=RestoreRefusal::settings;return result;
+  }
+  if(selected){
+    // An identifier must be proven before truncation/defaults can affect the
+    // same-board Ethernet decision. Keep ordinary boot parsing unchanged.
+    config_header_t checkedHeader;
+    if(!seekRead(0)){result.refusal=RestoreRefusal::invalid;return result;}
+    beginCheckedValues();readConfigHeader(*this,checkedHeader);
+    const auto checked=endCheckedValues();
+    const unsigned fields=4+(checkedHeader.version>=19?2:0)+(checkedHeader.version>10?2:0)+
+        (checkedHeader.version>=21?2:0)+(checkedHeader.version>13?4:0);
+    const bool strictHeader=checked.valid&&checked.fields==fields&&!readFailed&&position()==modelStart;
+    if(!strictHeader || !seekRead(modelStart)){result.refusal=RestoreRefusal::invalid;return result;}
+    const bool sameBoard=checkedHeader.serverId[0]&&settings.serverId[0]&&
+        !strcmp(checkedHeader.serverId,settings.serverId);
+    if(!skipRecords(*this,uint32_t(header.roomRecords)+header.shadeRecords+header.groupRecords+header.repeaterRecords) ||
+       !stage.prepare(settings,s->transceiver.config,opts,header,*this,
+          sameBoard) || readFailed){
+      result.settings=stage.status();result.refusal=RestoreRefusal::settings;return result;
+    }
+    result.settings=stage.status();
+    if(!seekRead(modelStart)){result.refusal=RestoreRefusal::invalid;return result;}
+  }
+  if((opts.shades||opts.network||opts.transceiver) && !validateRestoreGPIOs(s,opts.shades,stage)){
+    result.refusal=RestoreRefusal::invalid;return result;
   }
   if(opts.shades){
     const bool prepared=prepareCounters({&owner,continueRestoreCounterLoad,cooperateCounterLoad});
@@ -638,8 +704,13 @@ RestoreApplyResult ShadeConfigFile::restoreFile(SomfyShadeController *s,const ch
     if(opts.shades)s->modelLoad.finishRecoveryCommit(result.modelFile.saved());
     if(!result.modelFile.saved()){result.refusal=RestoreRefusal::modelStorage;return result;}
   }
-  if(opts.shades)s->configureGPIOs();
-  result.complete=result.settings.saved();result.refusal=RestoreRefusal::none;return result;
+  if(selected)result.settings=applyPreparedSettingsRestore(stage,s->transceiver,owner,radio);
+  // Final actual ownership, including a live radio adoption followed by a
+  // marker failure, governs physical setup. Never project from stale pins.
+  if(s->modelLoad.usable() && (opts.shades || ((opts.network||opts.transceiver) &&
+      (result.settings.appliedNamespaces || result.settings.persistence.liveApplied))))s->configureGPIOs();
+  result.complete=result.settings.saved();
+  result.refusal=result.complete?RestoreRefusal::none:RestoreRefusal::settings;return result;
 }
 bool ShadeConfigFile::loadFile(SomfyShadeController *s, const char *filename) {
   bool opened = false;

@@ -13,6 +13,8 @@
 #include "RestoreResult.h"
 
 
+class SelectedSettingsRestore;
+
 // Opens shades.cfg or a backup and writes or reads its values
 // (ConfigRecords.h), from the file or into a String in RAM.
 class ConfigFile : public ConfigReader, public ConfigWriter {
@@ -45,6 +47,7 @@ class ShadeConfigFile : public ConfigFile {
     bool writeModel(SomfyShadeController *s,ConfigWriter &writer);
     CounterLoad counters;
     bool prepareCounters(CounterLoadControl control={});
+    bool validateRestoreGPIOs(SomfyShadeController *,bool imported,const SelectedSettingsRestore &);
     // Loading or restoring keeps the higher file/NVS rolling code for each address.
     void readModel(SomfyShadeController *s);
     void readRoom(SomfyRoom *room);
