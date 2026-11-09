@@ -8,6 +8,9 @@ using byte=uint8_t;
 #include "SafeRestart.h"
 #include "LoopQueue.h"
 #include "LocalUiAuthorizationAdapter.h"
+#include "GitUpdateBootHealth.h"
+static bool bootPending=false;
+GitUpdateBootStatus gitUpdateBootStatus(){return {bootPending,false};}
 static std::string controllerScenario;
 static bool filesystemReady=true,queueHeld=false,queuePending=false,localPending=false;
 static bool saveOkay=true,pauseOkay=true,resumeBusy=false;
@@ -81,6 +84,7 @@ int main(int argc,char **argv){
   const auto candidate=gitUpdate.snapshot().candidate;CHECK(candidate.generation && gitUpdate.snapshot().canInstall);
   uint64_t operation=0;
   CHECK(requestLocalGitUpdateInstall(candidate,3,4,operation)==GitUpdateRequest::unavailable && !operation);
+  bootPending=true;CHECK(requestLocalGitUpdateInstall(candidate,3,5,operation)==GitUpdateRequest::unavailable && !operation);bootPending=false;
   CHECK(requestLocalGitUpdateInstall(candidate,3,5,operation)==GitUpdateRequest::accepted && operation==candidate.generation);
   if(controllerScenario=="moving"){somfy.shades[0].id=1;somfy.shades[0].idle=false;}
   if(controllerScenario=="queued")queuePending=true;

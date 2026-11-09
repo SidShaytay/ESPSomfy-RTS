@@ -3,6 +3,7 @@
 #include <stdio.h>
 static unsigned long uptime=0;
 static unsigned validations=0;
+static bool validationFailed=false;
 static bool otaPending=true,routes=true;
 static constexpr unsigned long OTA_PROVEN_MS=60000;
 static constexpr int ESP_OK=0;
@@ -14,7 +15,7 @@ struct Durability {Durability status()const{return{};}bool restartAllowed()const
 static Durability settingsDurability(){return{};}
 unsigned long millis(){return uptime;}
 bool bundledWebRoutesReady(){return routes;}
-int esp_ota_mark_app_valid_cancel_rollback(){++validations;return ESP_OK;}
+int esp_ota_mark_app_valid_cancel_rollback(){++validations;return validationFailed?-1:ESP_OK;}
 #define ESP_LOGI(...) ((void)0)
 #define ESP_LOGE(...) ((void)0)
 #define ESPSOMFY_BUNDLED_WEB
@@ -31,6 +32,7 @@ int main(){
  somfy.isDirty=false;net.online=false;health();assert(otaPending && !validations);
  net.online=true;routes=false;health();assert(otaPending && !validations);
  routes=true;uptime=59999;health();assert(otaPending && !validations);
- uptime=60000;health();assert(!otaPending && validations==1);
+ uptime=60000;validationFailed=true;health();assert(otaPending && validations==1);
+ validationFailed=false;health();assert(!otaPending && validations==2);
  puts("Actual OTA confirmation block requires trusted model and security loads, network, bundled routes and minimum uptime");
 }
