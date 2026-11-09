@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory(prefix='espsomfy-images-') as temporary:
   subprocess.run([str(binary),mode,str(path),hashlib.sha256(firmware).hexdigest(),compat,'yes' if yes else 'no'],check=True)
  for mode in ('valid','manual'):run(mode,yes=True)
  dev=marker.replace(b'|v4.0.3|',b'|dev-aaaaaaaaaaaa-dirty|');run('manualDev',image(dev+boot+blob),True)
- for mode in ('wrongExpectedDigest','wrongExpectedWeb','wrongExpectedVersion','wrongExpectedSource','wrongExpectedSize','startHash','updateHash','finishHash','cancel','cancelLate'):run(mode)
+ for mode in ('wrongExpectedDigest','wrongExpectedWeb','wrongExpectedVersion','wrongExpectedSource','wrongExpectedSize','startHash','updateHash','finishHash','cancel','cancelLate','cancelFinish','cancelFree'):run(mode)
  for name,replacement in [('schema',marker.replace(b'ID:3|',b'ID:2|')),('retired',marker.replace(b'cc1101|',b'cc1101-plus|')),('mode',marker.replace(b'|bundled|',b'|filesystem|')),('source',marker.replace(b'a'*40,b'g'*40)),('duplicate',marker+marker),('missing',b''),('leadingVersion',marker.replace(b'v4.0.3',b'v04.0.3')),('overflowVersion',marker.replace(b'v4.0.3',b'v4294967296.0.0')),('badDev',marker.replace(b'v4.0.3',b'dev-bbbbbbbbbbbb'))]:run('manual:'+name,image(replacement+boot+blob))
  for name,replacement in [('missingBoot',b''),('duplicateBoot',boot+boot),('wrongBoot',boot.replace(b'b'*64,b'c'*64)),('bootOffset',boot.replace(b'ID:0:',b'ID:4096:'))]:run(name,image(marker+replacement+blob))
  for name,replacement in [('missingBundle',b''),('duplicateBundle',blob+blob),('corruptBundle',blob[:-1]+bytes([blob[-1]^1]))]:run(name,image(marker+boot+replacement))
