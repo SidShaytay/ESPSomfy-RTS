@@ -10,6 +10,7 @@
 #include "PulseDecoder.h"
 #include "BoardProfile.h"
 #include "SettingsSaveResult.h"
+#include "SettingsLoadState.h"
 #include "CounterEdit.h"
 #include "RadioUpdateActivity.h"
 
@@ -29,6 +30,8 @@ struct somfy_rx_queue_t {
   bool pop(somfy_rx_t *rx);
 };
 struct transceiver_config_t {
+    SettingsLoadStatus loadStatus;
+    bool startupInitAllowed=true;
     bool printBuffer = false;
     bool enabled = BoardProfile::integratedRadio;
     uint8_t type = 56;                // 56 or 80 bit protocol.
@@ -49,11 +52,10 @@ struct transceiver_config_t {
     settings_save_result_t save();
     // Persistence-only reconciliation: preserve the stored init safety marker.
     settings_save_result_t savePreservingInit();
-    void load();
+    bool loadReadOnly();
+    void applyChipDefaults();
     void apply();
     void applyBoardPins();
-    // Removes a key no longer used from the open CC1101 namespace.
-    void removeNVSKey(Preferences &pref, const char *key);
 };
 class Transceiver {
   private:
@@ -89,6 +91,7 @@ class Transceiver {
     // Persists a prepared config before swapping/applying it. Failed or partial
     // persistence leaves the live config and hardware unchanged.
     settings_save_result_t setConfig(const transceiver_config_t &cfg);
+    bool loadReadOnly();
     bool begin();
     void loop();
     bool end();

@@ -114,6 +114,7 @@ struct pin_users_t {
 #define PIN_CONFLICT_SHADE -12
 #define PIN_CONFLICT_DUPLICATE -13
 #define PIN_INVALID_OUTPUT -14
+#define PIN_STORAGE_UNAVAILABLE -15
 // Every physically touched pad is checked, including setup/deassertion pads
 // omitted by logical commands. 255 means unset and is never an SDK GPIO call.
 int8_t gpioPinConflict(radio_proto proto,uint8_t upPin,uint8_t downPin,uint8_t myPin,

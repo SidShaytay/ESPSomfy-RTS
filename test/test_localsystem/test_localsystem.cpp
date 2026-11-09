@@ -88,6 +88,14 @@ static void child_input_refreshes_inactivity_but_completion_does_not() {
  TEST_ASSERT_TRUE(f.wantsWifiScan());f.childActivity(119999);f.tick(120001);TEST_ASSERT_FALSE(f.closed());
  f.tick(240000);TEST_ASSERT_TRUE(f.closed());TEST_ASSERT_EQUAL(0,state.restarts);
 }
+static void untrusted_settings_have_distinct_repair_message_without_replay() {
+  State state;state.result={false,RestartReason::settingsUnavailable};
+  System::Form form(state);EntityAdmin::FormView view;
+  form.open(1);form.activate(2);form.turn(1,3);form.activate(4);form.render(view);
+  TEST_ASSERT_EQUAL_STRING("Restart refused",view.title);
+  TEST_ASSERT_EQUAL_STRING("Settings need repair. Review affected section.",view.hint);
+  form.activate(5);TEST_ASSERT_EQUAL(1,state.restarts);
+}
 static void diagnostics_is_explicit_and_returns_to_its_system_row() {
  State b;System::Form f(b);EntityAdmin::FormView view;f.open(0);
  for(unsigned i=0;i<3;++i)f.turn(1,1);
@@ -95,4 +103,5 @@ static void diagnostics_is_explicit_and_returns_to_its_system_row() {
  f.activate(2);TEST_ASSERT_TRUE(f.wantsDiagnostics());TEST_ASSERT_EQUAL(0,b.restarts);
  f.finishChild();f.render(view);TEST_ASSERT_EQUAL(3,view.selected);TEST_ASSERT_FALSE(f.wantsDiagnostics());
 }
-int main(int,char**) {UNITY_BEGIN();RUN_TEST(diagnostics_is_explicit_and_returns_to_its_system_row);RUN_TEST(child_input_refreshes_inactivity_but_completion_does_not);RUN_TEST(unreadable_security_never_suggests_credentials_were_reset);RUN_TEST(unreadable_model_requires_verified_restore_guidance);RUN_TEST(immediate_cancel_and_invalid_binding_never_claim_scheduled);RUN_TEST(superseded_generation_never_borrows_another_result);RUN_TEST(navigation_and_cancel_never_restart);RUN_TEST(explicit_restart_is_once_and_tracks_its_result);RUN_TEST(auth_change_expiry_and_backward_clock_discard_confirmation);RUN_TEST(refusal_does_not_claim_saved_or_replay);return UNITY_END();}
+int main(int,char**) {UNITY_BEGIN();RUN_TEST(diagnostics_is_explicit_and_returns_to_its_system_row);RUN_TEST(untrusted_settings_have_distinct_repair_message_without_replay);RUN_TEST(child_input_refreshes_inactivity_but_completion_does_not);RUN_TEST(unreadable_security_never_suggests_credentials_were_reset);RUN_TEST(unreadable_model_requires_verified_restore_guidance);RUN_TEST(immediate_cancel_and_invalid_binding_never_claim_scheduled);RUN_TEST(superseded_generation_never_borrows_another_result);RUN_TEST(navigation_and_cancel_never_restart);RUN_TEST(explicit_restart_is_once_and_tracks_its_result);RUN_TEST(auth_change_expiry_and_backward_clock_discard_confirmation);RUN_TEST(refusal_does_not_claim_saved_or_replay);return UNITY_END();}
+

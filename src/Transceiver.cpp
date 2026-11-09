@@ -20,6 +20,8 @@
 #endif
 #include "CounterTxPolicy.h"
 #include "CounterCommandGuard.h"
+#include "SettingsTypedValidation.h"
+#include "RadioInitMarker.h"
 
 static const char *TAG = "Somfy";
 
@@ -499,14 +501,7 @@ bool Transceiver::end() {
     this->disableReceive();
     return true;
 }
-void transceiver_config_t::removeNVSKey(Preferences &pref, const char *key) {
-  if(pref.isKey(key)) {
-    ESP_LOGD(TAG, "Removing NVS Key: CC1101.%s", key);
-    pref.remove(key);
-  }
-}
-void transceiver_config_t::load() {
-    Preferences pref;
+void transceiver_config_t::applyChipDefaults() {
     esp_chip_info_t ci;
     esp_chip_info(&ci);
     switch(ci.model) {
@@ -588,47 +583,9 @@ void transceiver_config_t::load() {
         this->CSNPin = 5;
         break;
     }
-    pref.begin("CC1101");
-    this->type = pref.getUChar("type", 56);
-    this->TXPin = pref.getUChar("TXPin", this->TXPin);
-    this->RXPin = pref.getUChar("RXPin", this->RXPin);
-    this->SCKPin = pref.getUChar("SCKPin", this->SCKPin);
-    this->MOSIPin = pref.getUChar("MOSIPin", this->MOSIPin);
-    this->MISOPin = pref.getUChar("MISOPin", this->MISOPin);
-    this->CSNPin = pref.getUChar("CSNPin", this->CSNPin);
-    this->frequency = pref.getFloat("frequency", this->frequency);  // float
-    this->deviation = pref.getFloat("deviation", this->deviation);  // float
-    this->enabled = pref.getBool("enabled", this->enabled);
-    this->txPower = pref.getChar("txPower", this->txPower);
-    this->rxBandwidth = pref.getFloat("rxBandwidth", this->rxBandwidth);
-    this->proto = static_cast<radio_proto>(pref.getChar("proto", static_cast<uint8_t>(this->proto)));
-    this->noiseDetection = pref.getBool("noiseDetect", false);
-    this->removeNVSKey(pref, "internalCCMode");
-    this->removeNVSKey(pref, "modulationMode");
-    this->removeNVSKey(pref, "channel");
-    this->removeNVSKey(pref, "channelSpacing");
-    this->removeNVSKey(pref, "dataRate");
-    this->removeNVSKey(pref, "syncMode");
-    this->removeNVSKey(pref, "syncWordHigh");
-    this->removeNVSKey(pref, "syncWordLow");
-    this->removeNVSKey(pref, "addrCheckMode");
-    this->removeNVSKey(pref, "checkAddr");
-    this->removeNVSKey(pref, "dataWhitening");
-    this->removeNVSKey(pref, "pktFormat");
-    this->removeNVSKey(pref, "pktLengthMode");
-    this->removeNVSKey(pref, "pktLength");
-    this->removeNVSKey(pref, "useCRC");
-    this->removeNVSKey(pref, "autoFlushCRC");
-    this->removeNVSKey(pref, "disableDCFilter");
-    this->removeNVSKey(pref, "enableManchester");
-    this->removeNVSKey(pref, "enableFEC");
-    this->removeNVSKey(pref, "minPreambleBytes");
-    this->removeNVSKey(pref, "pqtThreshold");
-    this->removeNVSKey(pref, "appendStatus");
-    pref.end();
-    //this->printBuffer = somfy.transceiver.printBuffer;
     this->applyBoardPins();
 }
+
 static void warnBootPin(const char *name, uint8_t pin) {
   const char *effect = bootPinEffect(pin);
   if(effect) ESP_LOGW(TAG, "Radio %s is on GPIO%u, a strapping pin the radio can drive at reset.  %s", name, pin, effect);
@@ -655,17 +612,20 @@ static bool checkBoardRadio(float frequency) {
 }
 
 void transceiver_config_t::apply() {
-    Preferences pref;
+    if(!loadStatus.usable() || !validSettings(*this)) {
+      radioInit=false;somfy.transceiver._available=false;return;
+    }
     // A transmission in flight stops after its current frame so the radio can
     // be reconfigured.  Queued frames are already encoded and go out with the
     // new settings.
     RadioLock lock(portMAX_DELAY, true);
+    if(!lock.locked){radioInit=false;somfy.transceiver._available=false;return;}
     // Reconfiguring the radio ends a frequency scan so TX may resume.
     const bool wasScanning = rxmode == 3;
     somfy.transceiver.disableReceive();
-    // Generic radios retain their enabled-based availability. The integrated
-    // radio is published ready only after its register/RX checks succeed.
-    somfy.transceiver._available = this->enabled && !BoardProfile::integratedRadio;
+    // Every board withholds availability until initialization and its NVS
+    // safety marker have completed; an early failure is never radio readiness.
+    somfy.transceiver._available = false;
     if(wasScanning) {
       somfy.transceiver.resumeTx(TX_SUSPEND_SCAN);
       scanEmitPending = true;
@@ -674,18 +634,11 @@ void transceiver_config_t::apply() {
     radioBitLength = this->type;    
     if(this->enabled) {
       this->radioInit = false;
-      if(!BoardProfile::prepareRadio(this->frequency)) return;
-      bool radioInit = true;
-      pref.begin("CC1101");
-      radioInit = pref.getBool("radioInit", true);
-      // If the radio locks up then we can simply reboot and re-enable the radio.
-      pref.putBool("radioInit", false);
-      this->radioInit = false;
-      pref.end();
-      if(!radioInit) {
-        ESP_LOGW(TAG, "Radio initialization previously interrupted; save radio settings to retry");
-        return;
+      if(!startupInitAllowed) {
+        ESP_LOGW(TAG,"Radio initialization previously interrupted; save radio settings to retry");return;
       }
+      if(!writeRadioInitMarker(false).saved()){startupInitAllowed=false;return;}
+      if(!BoardProfile::prepareRadio(this->frequency))return;
       ESP_LOGD(TAG, "Applying radio settings - Setting Data Pins RX:%u TX:%u", this->RXPin, this->TXPin);
       // The pins the CC1101 drives: at power-up GDO0 puts out a clock, GDO2
       // CHIP_RDYn, and SO follows CHIP_RDYn while CSN is low.  Once it is
@@ -749,6 +702,9 @@ void transceiver_config_t::apply() {
       if(BoardProfile::integratedRadio)
         Serial.printf("CC1101 detection=%s register validation=%s\n",
           detected ? "PASS" : "FAIL", boardRadioValid ? "PASS" : "FAIL");
+      if(!writeRadioInitMarker(true).saved()) {
+        radioInit=false;startupInitAllowed=false;return;
+      }
       if (!detected || !boardRadioValid) {
           ESP_LOGE(TAG, "Error setting up the radio");
           this->radioInit = false;
@@ -759,9 +715,6 @@ void transceiver_config_t::apply() {
           somfy.transceiver._available = true;
           somfy.transceiver.enableReceive();
       }
-      pref.begin("CC1101");
-      pref.putBool("radioInit", true);
-      pref.end();
       
     }
     else {
@@ -771,11 +724,16 @@ void transceiver_config_t::apply() {
     }
     //somfy.transceiver.printBuffer = this->printBuffer;
 }
+bool Transceiver::loadReadOnly() {
+    this->config.applyChipDefaults();
+    return this->config.loadReadOnly();
+}
 bool Transceiver::begin() {
     if(!radioMutex) radioMutex = xSemaphoreCreateRecursiveMutex();
     if(!txQueueMutex) txQueueMutex = xSemaphoreCreateMutex();
-    this->config.load();
-    this->config.apply();
+    if(!radioMutex || !txQueueMutex){this->_available=false;return false;}
+    if(this->config.loadStatus.usable())this->config.apply();
+    else this->_available=false;
     ESP_LOGD(TAG,"Initializing RX Queue");
     { RxTaskLock receiveLock;rx_queue.init(); }
     this->startTxTask();

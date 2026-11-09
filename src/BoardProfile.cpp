@@ -39,7 +39,7 @@ void begin() {
 bool prepareRadio(float frequency) {
   begin();
   // This hardware profile selects only the 433 MHz RF filter path.
-  if(!(frequency >= 387.0f && frequency <= 464.0f)) {
+  if(!radioFrequencyAllowed(frequency)) {
     Serial.println("Radio disabled: frequency is outside the selected 433 MHz band");
     return false;
   }

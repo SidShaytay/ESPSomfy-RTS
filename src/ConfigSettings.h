@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include "SettingsSaveResult.h"
 #include "SecurityLoad.h"
+#include "SettingsLoadState.h"
 #include "EthPhy.h"
 #ifndef configsettings_h
 #define configsettings_h
@@ -59,6 +60,7 @@ class BaseSettings {
 };
 class NTPSettings: BaseSettings {
   public:
+    SettingsLoadStatus loadStatus;
     char ntpServer[65] = "pool.ntp.org";
     char posixZone[64] = "";
     bool fromJSON(JsonObject &obj);
@@ -71,6 +73,7 @@ class NTPSettings: BaseSettings {
 };
 class WifiSettings: BaseSettings {
   public:
+    SettingsLoadStatus loadStatus;
     WifiSettings();
     bool roaming = true;
     bool hidden = false;
@@ -91,6 +94,7 @@ class WifiSettings: BaseSettings {
 #if HAS_ETHERNET
 class EthernetSettings: BaseSettings {
   public:
+    SettingsLoadStatus loadStatus;
     EthernetSettings();
     uint8_t CLKMode = static_cast<uint8_t>(eth_clock_id_t::GPIO0_IN); // An eth_clock_id_t, see EthPhy.h.
 #if defined(CONFIG_IDF_TARGET_ESP32P4)
@@ -124,7 +128,11 @@ class EthernetSettings: BaseSettings {
 #endif
 class IPSettings: BaseSettings {
   public:
+    SettingsLoadStatus loadStatus;
     IPSettings();
+    char invalidAddress[5][16]={};
+    bool setAddress(uint8_t index,const char *text);
+    void addressText(uint8_t index,char *out,size_t capacity) const;
     bool dhcp = true;
     IPAddress ip;
     IPAddress subnet = IPAddress(255,255,255,0);
@@ -160,6 +168,7 @@ class SecuritySettings: BaseSettings {
 };
 class MQTTSettings: BaseSettings {
   public:
+    SettingsLoadStatus loadStatus;
     bool enabled = false;
     bool pubDisco = false;
     char hostname[65] = "ESPSomfyRTS";
@@ -175,8 +184,23 @@ class MQTTSettings: BaseSettings {
 
     bool fromJSON(JsonObject &obj);
 };
+struct transceiver_config_t;
 class ConfigSettings: BaseSettings {
   public:
+    SettingsLoadStatus loadStatus;
+    bool legacyMigrationPending=false;
+    bool startupApplied=false;
+    bool applyStartup(const transceiver_config_t &radio);
+    bool networkUsable() const {
+      return loadStatus.usable() && WIFI.loadStatus.usable() && IP.loadStatus.usable()
+#if HAS_ETHERNET
+        && Ethernet.loadStatus.usable()
+#endif
+        ;
+    }
+    bool settingsUsable() const {
+      return networkUsable() && NTP.loadStatus.usable() && MQTT.loadStatus.usable() && Security.loadTrusted();
+    }
     static void printAvailHeap();
     char serverId[10] = "";
     char hostname[32] = "ESPSomfyRTS";

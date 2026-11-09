@@ -6,7 +6,9 @@ namespace {
 struct SettingsDraft {
   ConfigSettings value;
   explicit SettingsDraft(const ConfigSettings &source) {
-    // Only persisted fields belong in the draft; omit boot/status metadata.
+    // Persisted fields and their read provenance belong in the draft.
+    value.loadStatus=source.loadStatus;
+    // Omit unrelated boot/status metadata.
     strcpy(value.hostname,source.hostname);
     value.ssdpBroadcast=source.ssdpBroadcast;
     value.checkForUpdate=source.checkForUpdate;

@@ -55,6 +55,8 @@ settings_reconcile_result_t reconcileRunningSettings(ConfigSettings &current,con
       out.reconciled|=bit;completed|=affectedSections(space);
     } else if(out.persistence.saved()) out.persistence=result;
   }
+  if(out.persistence.saved() && (!current.settingsUsable() || !radio.loadStatus.usable()))
+    out.persistence={settings_save_state_t::failed,"settings load"};
   if(!out.persistence.saved() && (out.reconciled || partial)) out.persistence.state=settings_save_state_t::partial;
   out.durability=settingsDurability().status();
   // Notify only after every attempted writer has updated the ledger. A saved

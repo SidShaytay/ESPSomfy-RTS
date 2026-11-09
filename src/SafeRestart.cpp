@@ -54,6 +54,7 @@ RestartObservation observation() {
   out.settingsEpoch=stored.epoch;
   out.modelConfigurationRevision=somfy.configurationRevision;
   if(!settings.Security.loadTrusted())out.refusal=RestartReason::securityUnavailable;
+  else if(!settings.settingsUsable() || !somfy.transceiver.config.loadStatus.usable())out.refusal=RestartReason::settingsUnavailable;
   else if(stored.exhausted)out.refusal=RestartReason::exhausted;
   else if(!stored.restartAllowed())out.refusal=RestartReason::settingsUncertain;
   else if(somfy.transceiver.counterEditUncertain())out.refusal=RestartReason::counterUncertain;

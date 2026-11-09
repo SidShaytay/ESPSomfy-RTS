@@ -51,13 +51,13 @@ int main(){
  s.gpioUp=17;
  assert(s.sendCommandAfter(somfy_commands::Up,1,0,0).sent);assert(storageReads==1&&storageWrites==1&&gpioWrites==1);
  const auto writes=storageWrites; const auto frame=s.lastFrame;const auto code=s.lastRollingCode;
- s.conflict=1;assert(!s.sendCommandAfter(somfy_commands::Up,1,0,0).sent);
+ s.conflict=-15;assert(!s.sendCommandAfter(somfy_commands::Up,1,0,0).sent);
  assert(storageWrites==writes&&s.lastFrame.cmd==frame.cmd&&s.lastRollingCode==code);
  s.conflict=0;assert(!s.sendCommandAfter(somfy_commands::StepUp,1,0,0).sent);
  s.proto=radio_proto::RTS;s.conflict=1;assert(s.sendCommandAfter(somfy_commands::Up,1,0,0).sent);assert(somfy.frames==1);
  SomfyRemote base;base.proto=radio_proto::GP_Relay;assert(!base.sendCommand(somfy_commands::Up));
  // Wrapper admission must happen before any Behaviour call or default bit-length mutation.
- s.proto=radio_proto::GP_Remote;s.bitLength=0;s.conflict=1;
+ s.proto=radio_proto::GP_Remote;s.bitLength=0;s.conflict=-15;
  assert(!s.sendCommand(somfy_commands::Up));assert(!s.sendTiltCommand(somfy_commands::Up));
  assert(!s.moveToTarget(20));assert(!s.moveToTiltTarget(20));assert(!s.setMyPosition(20));assert(!s.moveToMyPosition());
  assert(!behaviourCalls&&s.bitLength==0);

@@ -7,8 +7,11 @@ static bool otaPending=true,routes=true;
 static constexpr unsigned long OTA_PROVEN_MS=60000;
 static constexpr int ESP_OK=0;
 struct { bool online=true;bool connected()const{return online;} } net;
-struct { struct { bool trusted=true;bool usable()const{return trusted;} } modelLoad; } somfy;
-struct { struct { bool trusted=false;bool loadTrusted()const{return trusted;} } Security; } settings;
+struct { bool isDirty=false;struct { bool trusted=true;bool usable()const{return trusted;} } modelLoad; struct {struct {struct{bool valid=true;bool usable()const{return valid;}}loadStatus;bool enabled=false,radioInit=false;}config;}transceiver;} somfy;
+struct { bool namespaces=true;struct { bool trusted=false;bool loadTrusted()const{return trusted;} } Security;bool settingsUsable()const{return namespaces && Security.loadTrusted();} } settings;
+static bool writeTrusted=true;
+struct Durability {Durability status()const{return{};}bool restartAllowed()const{return writeTrusted;}};
+static Durability settingsDurability(){return{};}
 unsigned long millis(){return uptime;}
 bool bundledWebRoutesReady(){return routes;}
 int esp_ota_mark_app_valid_cancel_rollback(){++validations;return ESP_OK;}
@@ -20,7 +23,12 @@ int main(){
  uptime=60000;health();assert(otaPending && !validations);
  uptime=3600000;health();assert(otaPending && !validations);
  settings.Security.trusted=true;somfy.modelLoad.trusted=false;health();assert(otaPending && !validations);
- somfy.modelLoad.trusted=true;net.online=false;health();assert(otaPending && !validations);
+ somfy.modelLoad.trusted=true;settings.namespaces=false;health();assert(otaPending && !validations);
+ settings.namespaces=true;somfy.transceiver.config.loadStatus.valid=false;health();assert(otaPending && !validations);
+ somfy.transceiver.config.loadStatus.valid=true;somfy.transceiver.config.enabled=true;health();assert(otaPending && !validations);
+ somfy.transceiver.config.radioInit=true;writeTrusted=false;health();assert(otaPending && !validations);
+ writeTrusted=true;somfy.isDirty=true;health();assert(otaPending && !validations);
+ somfy.isDirty=false;net.online=false;health();assert(otaPending && !validations);
  net.online=true;routes=false;health();assert(otaPending && !validations);
  routes=true;uptime=59999;health();assert(otaPending && !validations);
  uptime=60000;health();assert(!otaPending && validations==1);

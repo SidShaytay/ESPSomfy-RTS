@@ -22,6 +22,7 @@ public:
 // loop() only: source settings/radio remain stable during this bounded read.
 // No allocation, persistence, commands or secret copies. A sink must copy any
 // values it retains; the supplied reference is valid only during field().
-// False for an invalid section, without emitting any fields.
+// False for an invalid section or a structurally unavailable required namespace,
+// without emitting any fields. Readable invalid originals remain explicit.
 bool readSettingsSnapshot(settings_section_t section, const ConfigSettings &settings,
                           const transceiver_config_t &radio, SettingsSnapshotSink &sink);
