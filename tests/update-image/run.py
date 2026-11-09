@@ -23,10 +23,14 @@ with tempfile.TemporaryDirectory(prefix='espsomfy-images-') as temporary:
  good=image(marker+boot+blob)
  binary=p/'test'
  subprocess.run(compiler+['-std=c++17','-O2','-Wall','-Wextra','-Werror','-I'+str(root/'src'),'-I'+str(root/'tests/update-assets'),'-I'+str(root/'test/stubs'),str(root/'tests/update-image/image-test.cpp'),str(root/'src/GitUpdateImage.cpp'),str(root/'src/UpdateSha256.cpp'),str(root/'src/GitUpdatePolicy.cpp'),'-o',str(binary)],check=True)
- def run(mode,firmware=good,yes=False):
+ def run(mode,firmware=good,yes=False,ownCompat=compat):
   path=p/'firmware.bin';path.write_bytes(firmware)
-  subprocess.run([str(binary),mode,str(path),hashlib.sha256(firmware).hexdigest(),compat,'yes' if yes else 'no'],check=True)
+  subprocess.run([str(binary),mode,str(path),hashlib.sha256(firmware).hexdigest(),ownCompat,'yes' if yes else 'no'],check=True)
  for mode in ('valid','manual'):run(mode,yes=True)
+ badCompat='sha256:'+'c'*64
+ selfMismatch=image(marker.replace(compat.encode(),badCompat.encode())+boot+blob)
+ run('manual:ownManifestMismatch',selfMismatch,ownCompat=badCompat)
+ run('ownManifestMismatch',selfMismatch,ownCompat=badCompat)
  dev=marker.replace(b'|v4.0.3|',b'|dev-aaaaaaaaaaaa-dirty|');run('manualDev',image(dev+boot+blob),True)
  for mode in ('wrongExpectedDigest','wrongExpectedWeb','wrongExpectedVersion','wrongExpectedSource','wrongExpectedSize','startHash','updateHash','finishHash','cancel','cancelLate','cancelFinish','cancelFree'):run(mode)
  for name,replacement in [('schema',marker.replace(b'ID:3|',b'ID:2|')),('retired',marker.replace(b'cc1101|',b'cc1101-plus|')),('mode',marker.replace(b'|bundled|',b'|filesystem|')),('source',marker.replace(b'a'*40,b'g'*40)),('duplicate',marker+marker),('missing',b''),('leadingVersion',marker.replace(b'v4.0.3',b'v04.0.3')),('overflowVersion',marker.replace(b'v4.0.3',b'v4294967296.0.0')),('badDev',marker.replace(b'v4.0.3',b'dev-bbbbbbbbbbbb'))]:run('manual:'+name,image(replacement+boot+blob))
