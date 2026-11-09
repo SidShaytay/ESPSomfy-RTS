@@ -5,6 +5,7 @@
 #include "LocalUiRenderer.h"
 #include "LocalSettingsRuntime.h"
 #include "LocalAdministration.h"
+#include "LocalSystem.h"
 namespace LocalUi {
 class Runtime {
 #ifdef UI_RUNTIME_HOST_TEST
@@ -17,6 +18,8 @@ class Runtime {
   Settings::Form settingsForm{Settings::runtimeBackend(),Settings::runtimeMemory()};
   Settings::FormView frameSettings, presentedSettings;
   Administration administration;
+  System::Form systemForm{System::runtimeBackend()};
+  bool systemActive=false;
   EntityAdmin::FormView frameAdministration,presentedAdministration;
   uint64_t frameAdministrationEpoch=0,presentedAdministrationEpoch=0;
   bool administrationActive=false,presentedAdministrationValid=false;
