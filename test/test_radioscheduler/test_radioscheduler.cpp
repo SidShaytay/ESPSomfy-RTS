@@ -482,6 +482,10 @@ static void restart_work_includes_waiting_taken_and_unobserved_outcomes() {
   somfy_tx_event_t event;while(scheduler.popEvent(event)) {}
   TEST_ASSERT_FALSE(scheduler.hasWork());
   TEST_ASSERT_TRUE(scheduler.sealForRestart());
+  TEST_ASSERT_FALSE(scheduler.hasRoom());
+  auto reused=makeJob(REMOTE_B);reused.ticket=99;
+  TEST_ASSERT_EQUAL(0,scheduler.submit(reused,false,0,2));
+  TEST_ASSERT_EQUAL(0,reused.ticket);
   TEST_ASSERT_EQUAL(0,submit(scheduler,REMOTE_B));
   TEST_ASSERT_FALSE(scheduler.hasWork());
   TEST_ASSERT_FALSE(scheduler.sealForRestart());
