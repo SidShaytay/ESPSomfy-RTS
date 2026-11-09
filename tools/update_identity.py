@@ -32,8 +32,8 @@ def tags_at_head(source):
 
 
 def identity(source, app_compat, tags, profile=None):
-    profile = profile or {'board': BOARD, 'layout': LAYOUT}
-    if profile['board'] != BOARD or profile['layout'] != LAYOUT:
+    profile = profile or {'board': BOARD, 'layout': LAYOUT, 'assets_mode': 'bundled'}
+    if profile['board'] != BOARD or profile['layout'] != LAYOUT or profile.get('assets_mode') != 'bundled':
         raise ValueError('unsupported or retired update profile')
     if type(source.get('dirty')) is not bool:
         raise ValueError('missing source dirty state')
@@ -47,7 +47,7 @@ def identity(source, app_compat, tags, profile=None):
     stable = [tag for tag in tags if stable_tag(tag)]
     version = stable[0] if not source['dirty'] and len(stable) == 1 else (
         'dev-' + source['revision'][:12] + ('-dirty' if source['dirty'] else ''))
-    marker = '|'.join(('ESPSOMFY_UPDATE_ID:2', profile['board'], profile['layout'], source['revision'], version, app_compat))
-    return {'schema': 2, 'board': profile['board'], 'layout': profile['layout'],
+    marker = '|'.join(('ESPSOMFY_UPDATE_ID:3', profile['board'], profile['layout'], source['revision'], version, profile['assets_mode'], app_compat))
+    return {'schema': 3, 'assets_mode': profile['assets_mode'], 'board': profile['board'], 'layout': profile['layout'],
             'source_sha': source['revision'], 'version': version,
             'app_compat': app_compat, 'marker': marker}

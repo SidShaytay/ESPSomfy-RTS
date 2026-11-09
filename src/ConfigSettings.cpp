@@ -4,6 +4,9 @@
 #include <WiFi.h>
 #include <Preferences.h>
 #include "ConfigSettings.h"
+#if defined(ESPSOMFY_BUNDLED_WEB)
+#include "BundledWeb.h"
+#endif
 #include "Utils.h"
 #include "Secrets.h"
 #include "esp_chip_info.h"
@@ -190,6 +193,10 @@ bool ConfigSettings::load() {
   return true;
 }
 bool ConfigSettings::getAppVersion() {
+#if defined(ESPSOMFY_BUNDLED_WEB)
+  this->appVersion.parse(BundledWeb::sourceVersion());
+  return true;
+#else
   char app[15];
   if(!LittleFS.exists("/appversion")) return false;
   File f = LittleFS.open("/appversion", "r");
@@ -199,7 +206,9 @@ bool ConfigSettings::getAppVersion() {
   _trim(app);
   this->appVersion.parse(app);
   return true;
+#endif
 }
+
 bool ConfigSettings::requiresAuth() { return this->Security.type != security_types::None; }
 void ConfigSettings::print() {
   this->Security.print();

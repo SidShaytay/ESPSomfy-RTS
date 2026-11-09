@@ -26,6 +26,11 @@ class ProfileTests(unittest.TestCase):
                 (source / 'update-profiles.json').write_text(json.dumps(document))
                 with self.assertRaises(ValueError): p.supported_profiles(source)
 
+    def test_legacy_filesystem_schema_two_is_retired(self):
+        original=json.loads((ROOT/'update-profiles.json').read_text());original['schema']=2
+        with tempfile.TemporaryDirectory() as directory:
+            source=Path(directory);(source/'update-profiles.json').write_text(json.dumps(original))
+            with self.assertRaises(ValueError):p.supported_profiles(source)
     def test_unknown_profile_and_old_schema_rejected(self):
         original = json.loads((ROOT / 'update-profiles.json').read_text())
         for document in (dict(original, schema=1), dict(original, profiles=dict(original['profiles'], esp32s3={}))):

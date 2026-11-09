@@ -12,6 +12,9 @@
 #include "MqttConnection.h"
 #include "LoopQueue.h"
 #include "LegacyRestartGuard.h"
+#if defined(ESPSOMFY_BUNDLED_WEB)
+#include "BundledWebRoutes.h"
+#endif
 #include "entryPoints/ManualUploadSession.h"
 #include "ShadeRequests.h"
 #include "SomfyShadeOps.h"
@@ -196,7 +199,12 @@ void loop() {
     esp_task_wdt_reset();
   }
   if(legacyRestartLoop()) return;
-  if(otaPending && otaProven(net.connected(), millis(), OTA_PROVEN_MS)) {
+  bool updateNetworkReady=net.connected();
+#if defined(ESPSOMFY_BUNDLED_WEB)
+  // Registration is necessary, but full installer health checks remain separate.
+  updateNetworkReady=updateNetworkReady && bundledWebRoutesReady();
+#endif
+  if(otaPending && otaProven(updateNetworkReady, millis(), OTA_PROVEN_MS)) {
     otaPending = false;
     if(esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) ESP_LOGI(TAG, "Updated firmware confirmed, rollback cancelled");
     else ESP_LOGE(TAG, "Unable to confirm the updated firmware");
