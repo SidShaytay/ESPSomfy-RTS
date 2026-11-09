@@ -141,6 +141,8 @@ int main(int argc,char **argv) {
   loopQueue.begin();
   if(argc>1 && !strcmp(argv[1],"badLoad")) {
     reset();somfy.modelLoad.fail();assert(!correctExplicitCounter(7,100).saved());assert(!linkExplicitRemote(7,999,100).saved());assert(!recoverExplicitCounterFile().saved());
+    somfy_tx_job_t job;job.ticket=999;job.frame.remoteAddress=address;job.tx.bit_length=56;
+    assert(!somfy.transceiver.submitTx(job) && !job.ticket && !notifies && !somfy.transceiver.sched.hasWork());
     assert(!FakeNvs::opens && !forbidden);return 0;
   }
   if(argc>1 && !strcmp(argv[1],"sharedLink")) {

@@ -45,6 +45,6 @@ PY
   "$repo/tests/explicit-counter/counter-test.cpp" "$repo/src/CounterEdit.cpp" "$repo/src/GitUpdate.cpp" \
   "$repo/src/RadioScheduler.cpp" "$repo/src/ShadeBehaviour.cpp" "$repo/src/ShadeSensors.cpp" "$repo/src/ShadeMotion.cpp" "$repo/src/TxBuffer.cpp" "$repo/src/SomfyFrame.cpp" "$repo/src/CounterResults.cpp" "$repo/src/ModelEditor.cpp" "$repo/src/ModelPersistence.cpp" \
   -o "$scratch/counter"
-cases=(core completedGroup unknownGroup pending pendingRecovery commandGuard sink aliasRisk learnBound browserCommit globalIdle sharedLink)
+cases=(badLoad core completedGroup unknownGroup pending pendingRecovery commandGuard sink aliasRisk learnBound browserCommit globalIdle sharedLink)
 if (($#));then cases=("$@");fi
 for case in badLoad "${cases[@]}";do "$scratch/counter" "$case";done
