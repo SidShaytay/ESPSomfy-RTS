@@ -1,5 +1,6 @@
 #include "LocalEntityView.h"
 #include "LocalUiRenderer.h"
+#include "../../src/LocalEntityRenderer.cpp"
 #include <assert.h>
 #include <fstream>
 #include <string.h>
@@ -171,6 +172,23 @@ int main(int argc, char **argv) {
   for(unsigned row=74;row<104;row++)for(unsigned col=130;col<308;col++)
     addressChanged|=pixels[row*320+col]!=exactAddress[row*320+col];
   assert(addressChanged); // The final identity digits are not clipped away.
+  view={};view.mode=EntityAdmin::Mode::wifiReview;view.total=view.rowCount=2;
+  strcpy(view.title,"Review WiFi #16");strcpy(view.rows[0].label,"Cancel");view.rows[0].selected=true;
+  strcpy(view.rows[1].label,"Use SSID in settings draft");strcpy(view.rows[2].label,"AA:BB:CC:DD:EE:FF");
+  memset(view.rows[2].value,'W',29);strcpy(view.rows[2].value+29,"END");
+  strcpy(view.hint,"Draft only. Review password and Save separately.");
+  save(canvas,pixels.data(),view,argv[1],"entity-wifi-review-wide");
+  char firstLine[48],secondLine[48];lines(canvas,view.rows[2].value,firstLine,secondLine);
+  assert(std::string(firstLine)+secondLine==view.rows[2].value);
+  int16_t wx,wy;uint16_t ww,wh;
+  canvas.getTextBounds(firstLine,0,0,&wx,&wy,&ww,&wh);assert(ww<=296);
+  canvas.getTextBounds(secondLine,0,0,&wx,&wy,&ww,&wh);assert(ww<=296);
+  const auto visibleSSID=pixels;view.rows[2].value[31]='X';canvas.paintEntity(view);
+  bool tailVisible=false;for(unsigned y=35;y<72;y++)for(unsigned x=12;x<308;x++)tailVisible|=pixels[y*320+x]!=visibleSSID[y*320+x];assert(tailVisible);
+  for(const char*warning:{"May interrupt WiFi. Results only; no connection or Save.","Waiting up to 30s. An accepted shared scan may finish.","First 16 results. Others/hidden SSIDs: enter manually.","Hidden SSID: enter its name manually in settings.","Draft only. Review password and Save separately."}) {
+    lines(canvas,warning,firstLine,secondLine);assert(std::string(firstLine)+(secondLine[0]?" ":"")+secondLine==warning);
+    canvas.getTextBounds(firstLine,0,0,&wx,&wy,&ww,&wh);assert(ww<=296);canvas.getTextBounds(secondLine,0,0,&wx,&wy,&ww,&wh);assert(ww<=296);
+  }
   puts("Production entity renderer: fields, identity confirmation, complete "
        "applied/file-only failure and text states passed.");
 }
