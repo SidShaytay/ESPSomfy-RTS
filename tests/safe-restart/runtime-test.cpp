@@ -135,8 +135,11 @@ int main(int argc,char **argv) {
     if(mode=="radio")somfy.transceiver.work=true;
     const auto result=requestRestart(500);
     const bool initial=mode!="settingsLoad" && mode!="radioLoad" && mode!="security" && mode!="initialFailure" && mode!="cancelIO" && mode!="counter" && mode!="settings" && mode!="moving" && mode!="held" && mode!="pulse" && mode!="groupUnknown" && mode!="queue" && mode!="radio";
-    if(mode=="settingsLoad" || mode=="radioLoad")assert(!result.admitted && result.reason==RestartReason::settingsUnavailable && !commits && restartTransferBlocked());
-    if(mode=="security")assert(!result.admitted && result.reason==RestartReason::securityUnavailable && !commits);
+    if(mode=="settingsLoad" || mode=="radioLoad"){
+      assert(!result.admitted && result.reason==RestartReason::settingsUnavailable && !commits && restartTransferBlocked());
+      assert(!restartRestoreStagingBlocked());
+    }
+    if(mode=="security")assert(!result.admitted && result.reason==RestartReason::securityUnavailable && !commits && restartRestoreStagingBlocked());
     assert(result.admitted==initial);
     if(initial) {
       if(mode=="finalFailure")fileResult={ModelCommitState::uncertain,ModelCommitStage::replace};

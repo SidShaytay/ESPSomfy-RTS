@@ -176,7 +176,11 @@ bool restartTransferBlocked() {
 bool restartRestoreStagingBlocked() {
   SafeRestartDetail::Guard guard;
   auto current=SafeRestartDetail::cached;
-  if(current.refusal==RestartReason::modelUnavailable)current.refusal=RestartReason::none;
+  // This admits only an owned temporary backup receive. Strict selected
+  // coverage in the loop may repair failed non-security namespaces; it grants
+  // neither ordinary updates nor restart over an unresolved namespace.
+  if(current.refusal==RestartReason::modelUnavailable || current.refusal==RestartReason::settingsUnavailable)
+    current.refusal=RestartReason::none;
   return !SafeRestartDetail::initialized || !SafeRestartDetail::coordinator.updatePrecheck(current);
 }
 bool restartPending(){SafeRestartDetail::Guard guard;return SafeRestartDetail::coordinator.snapshot().pending();}
