@@ -3,8 +3,11 @@
 #include "GitUpdate.h"
 #include "LegacyRestartSource.h"
 #include "Utils.h"
+#include "LoopQueue.h"
+#include "GroupReadiness.h"
 extern SomfyShadeController somfy;
 extern rebootDelay_t rebootDelay;
+extern LoopQueue loopQueue;
 namespace {
 static_assert(SOMFY_MAX_SHADES<=32 && SOMFY_MAX_GROUPS<=16,"Keep affected-target masks bounded");
 struct Owner {
@@ -38,13 +41,14 @@ Affected affected(uint32_t address,SomfyShade *newLink=nullptr) {
     auto &group=somfy.groups[i];
     if(group.getGroupId()==255 || group.getRemoteAddress()!=address)continue;
     out.groups|=uint16_t(1)<<i;
-    if(group.direction!=0)out.idle=false;
-    for(auto id:group.linkedShades)if(id) {
-      bool found=false;
+    const auto readiness=readGroupReadiness(somfy,group);
+    // Explicit correction also refuses missing members, even absent motion
+    // evidence. Cached direction alone never overrides fully tracked idle.
+    if(readiness.activeMember || readiness.missingMembers || readiness.unknownMovement())out.idle=false;
+    for(auto id:group.linkedShades)if(id && id!=255) {
       for(unsigned j=0;j<SOMFY_MAX_SHADES;++j)if(somfy.shades[j].getShadeId()!=255 && somfy.shades[j].getShadeId()==id) {
-        out.shades|=uint32_t(1)<<j;found=true;break;
+        out.shades|=uint32_t(1)<<j;break;
       }
-      if(!found)out.idle=false;
     }
   }
   for(unsigned i=0;i<SOMFY_MAX_SHADES;++i)if(out.shades&(uint32_t(1)<<i)) {
@@ -75,8 +79,12 @@ void adoptAll(uint32_t address,uint16_t code) {
 }
 CounterDomainResult correct(SomfyShade &shade,uint32_t address,uint16_t code,SomfyLinkedRemote *slot) {
   if(!address || address>0xffffff)return {};
+  // A correction changes model history; preserve already accepted intents
+  // rather than making an unrelated queued STOP stale behind this operation.
+  if(loopQueue.pending())return {CounterDomainState::busy};
   Owner owner;if(!owner)return {CounterDomainState::busy};
   const auto context=affected(address,slot ? &shade : nullptr);
+  if(loopQueue.pending())return {CounterDomainState::busy};
   const auto admitted=somfy.transceiver.reserveCounterEdit(address,context.idle,context.groups,snapshotLegacyRestart(rebootDelay).reboot);
   if(admitted!=CounterEditAdmission::admitted)return {admission(admitted)};
   const auto persisted=persistExplicitCounter(address,code);
