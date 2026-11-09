@@ -241,7 +241,7 @@ ModelCommitResult SomfyShadeController::deleteGroup(uint8_t groupId) {
   return this->commit();
 }
 void SomfyShadeController::loop() { 
-  if(!modelLoad.usable())return;
+  if(!modelLoad.usable()){this->transceiver.serviceUntrustedReceive();return;}
   this->transceiver.loop(); 
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     if(this->shades[i].getShadeId() != 255) {
