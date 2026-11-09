@@ -109,8 +109,22 @@ static void model_persistence_event_frames_keep_failure_and_uncertainty_visible(
       TEST_ASSERT_NOT_NULL(protoString(payload, proto_field_t::desc));
   }
 }
+static void expired_upload_recovery_uses_existing_wire_fields_without_a_save_claim() {
+  char text[256];BufferedJsonFormatter json;json.setBuffer(text,sizeof(text));
+  beginFrame(json,proto_type_t::modelPersistence);ProtoWriter writer(json);
+  ModelCommitReport report;report.refusal=RestartReason::stale;
+  writeModelCommitReport(writer,report);endFrame(json);
+  TEST_ASSERT_FALSE(json.overflowed());JsonDocument doc;
+  TEST_ASSERT_FALSE(deserializeJson(doc,text));const auto payload=doc["d"].as<JsonObject>();
+  TEST_ASSERT_FALSE(protoBool(payload,proto_field_t::ok));
+  TEST_ASSERT_FALSE(protoBool(payload,proto_field_t::durable));
+  TEST_ASSERT_FALSE(protoBool(payload,proto_field_t::rebooting));
+  TEST_ASSERT_NOT_NULL(strstr(protoString(payload,proto_field_t::desc),"no file save or restart"));
+  TEST_ASSERT_EQUAL(3,payload.size());
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(expired_upload_recovery_uses_existing_wire_fields_without_a_save_claim);
   RUN_TEST(applied_failure_retains_id_and_actual_change_fanout);
   RUN_TEST(
       reply_preserves_new_id_and_distinguishes_persistence_failure_from_refusal);

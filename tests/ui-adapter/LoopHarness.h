@@ -12,15 +12,30 @@
 #define PROTO_SOCKET_H
 #define DEVICE_OPS_H
 #include "LoopQueue.h"
+#include "GitUpdate.h"
 #ifdef LOCAL_QUEUE_FAKE_RESTORE_OPTIONS
 struct restore_options_t {bool settings=false,shades=false,network=false,transceiver=false,repeaters=false,mqtt=false;};
 #endif
+#ifndef LOCAL_QUEUE_EXTERNAL_REBOOT
 #ifndef utils_h
 #define utils_h
-struct rebootDelay_t {bool reboot=false;int rebootTime=0;bool closed=false;};
+struct rebootDelay_t {bool reboot=false;int rebootTime=0;bool closed=false;uint64_t externalOwnerGeneration=0;uint8_t externalOwnerKind=0;};
 #endif
 inline rebootDelay_t rebootDelay;
-struct ShadeConfigFile {static bool restore(SomfyShadeController *,const char *,restore_options_t &) {return false;}};
+#endif
+#ifndef LOCAL_QUEUE_REAL_UPDATE_OWNER
+inline GitUpdateClass gitUpdate;
+inline bool GitUpdateClass::claimTransfer(const GitUpdateOwnerToken &,uint64_t,bool){return false;}
+inline bool GitUpdateClass::transferResource(const GitUpdateOwnerToken &,bool){assert(false);return false;}
+inline bool GitUpdateClass::transferContinuing(const GitUpdateOwnerToken &,uint64_t){assert(false);return false;}
+inline bool GitUpdateClass::holdTransferRestart(const GitUpdateOwnerToken &){assert(false);return false;}
+inline bool GitUpdateClass::finishTransfer(const GitUpdateOwnerToken &,uint64_t,bool){assert(false);return false;}
+inline bool GitUpdateClass::closeTransfer(const GitUpdateOwnerToken &){assert(false);return false;}
+inline bool GitUpdateClass::releaseExternal(const GitUpdateOwnerToken &){assert(false);return false;}
+#endif
+#ifndef LOCAL_QUEUE_EXTERNAL_CONFIG_FILE
+struct ShadeConfigFile {static bool restore(SomfyShadeController *,const char *,restore_options_t &,const GitUpdateOwnerToken &) {return false;}};
+#endif
 inline void (*modelEditHook)()=nullptr;
 inline void runModelEdit(model_edit_t *) {if(modelEditHook)modelEditHook();}
 inline void runDeviceOp(const loop_item_t &) {}

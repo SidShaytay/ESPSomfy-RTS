@@ -10,6 +10,7 @@
 #include "PulseDecoder.h"
 #include "BoardProfile.h"
 #include "SettingsSaveResult.h"
+#include "CounterEdit.h"
 
 // The CC1101 radio: receive decoding, the radio task that transmits radio
 // jobs, the frequency scan and the radio config.
@@ -64,6 +65,7 @@ class Transceiver {
     somfy_frame_t frame;
     // Only touched under the TX queue lock.
     RadioScheduler sched;
+    CounterEditSafety counterEdits;
     void startTxTask();
     bool transmitJob(somfy_tx_job_t &job);
     // Sends a job taken off the queue and leaves a frame beat after it.
@@ -95,6 +97,7 @@ class Transceiver {
     void resumeTx(uint8_t reason);
     bool txSuspended();
     bool txHasRoom();
+    bool counterEditUncertain();
     void beginTransmit();
     void endTransmit();
     void emitFrame(somfy_frame_t *frame, somfy_rx_t *rx = nullptr);

@@ -3,6 +3,8 @@
 #include <Preferences.h>
 #include "esp_log.h"
 #include "ConfigFile.h"
+#include "GitUpdate.h"
+#include <esp_timer.h>
 #include "SettingsRevisions.h"
 #include "Utils.h"
 #include "ConfigSettings.h"
@@ -573,16 +575,18 @@ bool ShadeConfigFile::validateFile(const char *filename) {
   file.end();
   return valid;
 }
-bool ShadeConfigFile::restore(SomfyShadeController *s, const char *filename, restore_options_t &opts) {
+bool ShadeConfigFile::restore(SomfyShadeController *s, const char *filename, restore_options_t &opts, const GitUpdateOwnerToken &owner) {
+  if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000) || s->transceiver.counterEditUncertain()) return false;
   ShadeConfigFile file;
   if(file.begin(filename, true)) {
-    bool success = file.restoreFile(s, filename, opts);
+    bool success = file.restoreFile(s, filename, opts, owner);
     file.end();
     return success;
   }
   return false;
 }
-bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename, restore_options_t &opts) {
+bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename, restore_options_t &opts, const GitUpdateOwnerToken &owner) {
+  if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000) || s->transceiver.counterEditUncertain()) return false;
   bool opened = false;
   if(!this->isOpen()) {
     ESP_LOGI(TAG, "Opening shade restore file");
@@ -593,6 +597,9 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
     ESP_LOGE(TAG, "Shade restore file invalid!");
     if(opened) this->end();
     return false;
+  }
+  if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000) || s->transceiver.counterEditUncertain()) {
+    if(opened) this->end();return false;
   }
   invalidateDeviceSettingsRevisions();
   ++s->configurationRevision;

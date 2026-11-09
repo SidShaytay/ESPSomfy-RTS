@@ -69,6 +69,22 @@ int main() {
   cleanup=gitUpdate.claimTransferCleanup(30001);
   assert(cleanup.token.generation==upload.generation && !cleanup.resourceOpen);
   assert(gitUpdate.closeTransfer(upload));assert(gitUpdate.releaseExternal(upload));
+  GitUpdateOwnerToken source,shutdown;
+  assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,source));
+  assert(gitUpdate.beginTransfer(source,ManualUpdateKind::firmware,0));
+  assert(gitUpdate.claimTransfer(source,1));assert(gitUpdate.transferResource(source,true));
+  assert(gitUpdate.transferResource(source,false));assert(gitUpdate.holdTransferRestart(source));
+  assert(!gitUpdate.acquireRestart(shutdown,1,source)); // Claimed SDK cleanup still excludes shutdown.
+  assert(gitUpdate.finishTransfer(source,1,true));
+  assert(gitUpdate.acquireRestart(shutdown,2,source));
+  assert(shutdown.kind==GitUpdateExternalOwner::restart && shutdown.generation!=source.generation);
+  assert(!gitUpdate.claimTransferCleanup(UINT64_MAX).token.generation);
+  assert(!gitUpdate.retireTransfer(source) && !gitUpdate.releaseExternal(source));
+  assert(gitUpdate.ownsExternal(shutdown));
+  assert(!gitUpdate.acquireExternal(GitUpdateExternalOwner::counter,counter));
+  assert(gitUpdate.releaseExternal(shutdown)); // Explicit refusal before actual shutdown only.
+  assert(!gitUpdate.acquireRestart(shutdown,3,source)); // No fallback to owner-none.
+  assert(gitUpdate.acquireRestart(shutdown,3));assert(gitUpdate.releaseExternal(shutdown));
   std::atomic<unsigned> inside{0},completed{0};std::vector<std::thread> threads;
   for(unsigned n=0;n<4;n++) threads.emplace_back([&] {
     for(unsigned i=0;i<1000;i++) {
