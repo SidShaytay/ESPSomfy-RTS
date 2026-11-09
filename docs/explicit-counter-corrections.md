@@ -84,6 +84,14 @@ linked frame without a monotonic comparison and can later write a lower code.
 The automatic TX/RX algorithm is unchanged. Future learning UI must independently
 bind candidate freshness, identity, session and observation high-water.
 
+Ordinary commands that need to read their stored counter now refuse before RF
+queueing, GPIO output or frame/model changes if that read fails or has the wrong
+stored type. The read is read-only; exact missing keys or namespaces retain the
+existing first-code behavior. A verified 16-bit rollover to zero remains valid.
+Sensor flags do not use this counter read. This does not add checked automatic
+counter writes: the existing post-queue TX commit and automatic RX write paths
+remain outside the explicit correction guarantee above.
+
 NVS and the model file are separate stores. Managed restart must remain blocked
 while either quarantine cause exists. Sudden power loss between the stores can
 still expose an older higher file value at boot; this operation is not atomic

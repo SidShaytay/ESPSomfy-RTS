@@ -1,4 +1,5 @@
 #include <Preferences.h>
+#include <nvs.h>
 #include "esp_log.h"
 #include "Somfy.h"
 #include "RollingCode.h"
@@ -49,7 +50,7 @@ send_result_t SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, 
   // Build the frame aside and only take the rolling code once the frame is
   // queued so a dropped command leaves the remote untouched.
   somfy_frame_t frame = this->lastFrame;
-  frame.rollingCode = this->peekNextRollingCode();
+  if(!this->peekNextRollingCode(frame.rollingCode)) return {};
   frame.remoteAddress = this->getRemoteAddress();
   frame.cmd = this->transformCommand(cmd);
   frame.repeats = repeat;
@@ -123,16 +124,23 @@ bool SomfyRemote::repeatFrame(uint8_t repeat) {
 }
 // The next rolling code is consumed by commitRollingCode once the frame using
 // it has been queued.  After that lastRollingCode holds what NVS does.
-uint16_t SomfyRemote::peekNextRollingCode() {
-  return nextRollingCode(this->m_rollingCodeSynced, this->lastRollingCode, [this]() {
-    Preferences pref;
-    if(!pref.begin("ShadeCodes")) {
-      ESP_LOGE(TAG, "peekNextRollingCode() pref.begin(ShadeCodes) FAILED");
+bool SomfyRemote::peekNextRollingCode(uint16_t &code) {
+  uint16_t stored=0;
+  if(!this->m_rollingCodeSynced) {
+    nvs_handle_t handle=0;
+    const auto opened=nvs_open("ShadeCodes",NVS_READONLY,&handle);
+    if(opened!=ESP_OK && opened!=ESP_ERR_NVS_NOT_FOUND)return false;
+    if(opened==ESP_OK) {
+      const auto read=nvs_get_u16(handle,this->m_remotePrefId,&stored);
+      nvs_close(handle);
+      if(read!=ESP_OK && read!=ESP_ERR_NVS_NOT_FOUND)return false;
+      if(read==ESP_ERR_NVS_NOT_FOUND)stored=0;
     }
-    uint16_t code = pref.getUShort(this->m_remotePrefId, 0);
-    pref.end();
-    return code;
-  });
+  }
+  // Exact absence starts at one; a verified 65535 intentionally wraps to zero.
+  // No output or remote state changes when a storage read fails.
+  code=nextRollingCode(this->m_rollingCodeSynced,this->lastRollingCode,[stored](){return stored;});
+  return true;
 }
 void SomfyRemote::commitRollingCode(uint16_t code) {
   Preferences pref;
