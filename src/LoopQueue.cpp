@@ -13,6 +13,8 @@
 #include "LocalControlQueue.h"
 #endif
 #include "ModelCommitService.h"
+#include "LegacyRestartSource.h"
+#include <esp_timer.h>
 
 static const char *TAG = "LoopQueue";
 
@@ -85,19 +87,22 @@ void LoopQueue::drain() {
         break;
       }
       case loop_item_type_t::restore_shades: {
-        restore_options_t opts = restoreOptions(item.restoreParts);
-        const bool restored = ShadeConfigFile::restore(&somfy, "/shades.tmp", opts);
-        // It holds the whole backup, rolling codes included, and has no use now.
-        LittleFS.remove("/shades.tmp");
-        // A failed restore stops before it changes anything, so there is
-        // nothing to reboot for.
-        if(!restored) {
-          ESP_LOGE(TAG, "Restore failed, keeping the current settings");
-          break;
+        const auto &owner=item.externalOwner;
+        if(!gitUpdate.claimTransfer(owner,uint64_t(esp_timer_get_time())/1000,true)) {
+          ESP_LOGW(TAG,"Restore source expired or is no longer owner; nothing applied or removed");break;
         }
-        ESP_LOGI(TAG, "Rebooting ESP for restored settings...");
-        rebootDelay.reboot = true;
-        rebootDelay.rebootTime = millis() + 1000;
+        restore_options_t opts=restoreOptions(item.restoreParts);
+        const bool restored=ShadeConfigFile::restore(&somfy,"/shades.tmp",opts,owner);
+        // Only this claimed source may remove its temporary file. Stale
+        // markers never delete a newer request's backup at the same path.
+        LittleFS.remove("/shades.tmp");gitUpdate.transferResource(owner,false);
+        const auto time=uint64_t(esp_timer_get_time())/1000;
+        if(restored && gitUpdate.transferContinuing(owner,time) && gitUpdate.holdTransferRestart(owner)) {
+          const auto published=publishExternalLegacyRestart(rebootDelay,millis()+1000,owner.generation,uint8_t(owner.kind));
+          if(published.admitted) {gitUpdate.finishTransfer(owner,time,true);break;}
+          ESP_LOGW(TAG,"Restore applied; restart not admitted");
+        } else ESP_LOGW(TAG,"Restore refused, failed or expired; no restart scheduled");
+        if(gitUpdate.closeTransfer(owner)) gitUpdate.releaseExternal(owner);
         break;
       }
       case loop_item_type_t::model_commit:

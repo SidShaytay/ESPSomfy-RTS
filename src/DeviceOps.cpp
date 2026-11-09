@@ -6,6 +6,8 @@
 #include "DeviceOps.h"
 #include "SettingsApply.h"
 #include "SettingsCompletion.h"
+#include "LegacyRestartGuard.h"
+#include "LegacyRestartSource.h"
 #include "SettingsDurability.h"
 #include "ConfigSettings.h"
 #include "ESPNetwork.h"
@@ -72,9 +74,10 @@ class RuntimeSettingsEffects : public SettingsEffects {
   const uint32_t originSocketClient;
 public:
   explicit RuntimeSettingsEffects(uint32_t origin) : securityBefore(settings.Security.type), originSocketClient(origin) {}
-  void completed(settings_section_t section, bool reboot) override {
+  RestartResult completed(settings_section_t section, bool reboot) override {
     settingsRevisions.completed(section);
-    completeSettingsSave({section,securityBefore,settings.Security.type,originSocketClient,reboot},protoSocket,rebootDelay,millis());
+    return completeSettingsSave({section,securityBefore,settings.Security.type,originSocketClient,reboot},protoSocket,rebootDelay,millis(),
+                                reboot ? legacyGenericRestartAdmission() : RestartResult{});
   }
   bool wifiClientsPresent() const override { return WiFi.softAPgetStationNum() != 0; }
   void hostnameChanged() override { net.updateHostname(); }
@@ -114,7 +117,7 @@ static void runSave(const proto_reply_to_t &to, settings_save_t *save) {
   ProtoWriter w = protoSocket.beginReply(to);
   w.add(proto_field_t::apiKey, token);
   w.add(proto_field_t::rebooting, reboot);
-  if(result.restartBlocked) w.add(proto_field_t::desc,settingsDurabilityDescription());
+  if(result.restartBlocked) w.add(proto_field_t::desc,restartReason(result.restartReason));
   protoSocket.endReply(to);
   ESP_LOGI(TAG, "Socket [%lu] saved the %s settings%s", (unsigned long)to.client, settingsSectionName(section), reboot ? ", rebooting" : "");
   // Completion is shared with local saves. closeAll(origin) defers this
@@ -154,14 +157,14 @@ void runDeviceOp(const loop_item_t &item) {
       protoSocket.beginReply(item.replyTo);
       protoSocket.endReply(item.replyTo);
       break;
-    case proto_type_t::reboot:
-      ESP_LOGI(TAG, "Socket [%lu] asked for a reboot", (unsigned long)item.replyTo.client);
-      protoSocket.beginReply(item.replyTo);
-      protoSocket.endReply(item.replyTo);
-      // Time for the reply to go out.
-      rebootDelay.rebootTime = millis() + 500;
-      rebootDelay.reboot = true;
-      break;
+    case proto_type_t::reboot: {
+      auto admission=legacyGenericRestartAdmission();
+      if(admission.admitted) admission=publishGenericLegacyRestart(rebootDelay,millis()+500);
+      if(!admission.admitted) {
+        protoSocket.replyRefused(item.replyTo,proto_error_t::busy,restartReason(admission.reason));break;
+      }
+      protoSocket.beginReply(item.replyTo);protoSocket.endReply(item.replyTo);break;
+    }
     default:
       if(item.save) freeSettingsSave(item.save);
       protoSocket.replyRefused(item.replyTo, proto_error_t::internal, "Not a device op");

@@ -24,7 +24,7 @@ struct Guard { Guard() { portENTER_CRITICAL(&serviceLock); } ~Guard() { portEXIT
 std::mutex serviceLock;
 struct Guard { std::lock_guard<std::mutex> lock; Guard():lock(serviceLock) {} };
 #endif
-enum class Owner : uint8_t { none,check,prepare,manual,restore,counter };
+enum class Owner : uint8_t { none,check,prepare,manual,restore,counter,restart };
 Owner owner=Owner::none;
 uint64_t ownerGeneration=0;
 GitUpdateSnapshot view;
@@ -64,6 +64,7 @@ Owner externalOwner(GitUpdateExternalOwner kind) {
     case GitUpdateExternalOwner::manual: return Owner::manual;
     case GitUpdateExternalOwner::restore: return Owner::restore;
     case GitUpdateExternalOwner::counter: return Owner::counter;
+    case GitUpdateExternalOwner::restart: return Owner::restart;
   }
   return Owner::none;
 }
@@ -74,7 +75,7 @@ bool owns(const GitUpdateOwnerToken &token) {
 }
 bool GitUpdateClass::acquireExternal(GitUpdateExternalOwner kind,GitUpdateOwnerToken &token) {
   const auto requested=externalOwner(kind);
-  if(requested==Owner::none) return false;
+  if(requested==Owner::none || requested==Owner::restart) return false;
   Guard guard;
   if(!acquire(requested)) return false;
   token.generation=ownerGeneration;token.kind=kind;
@@ -99,6 +100,9 @@ bool GitUpdateClass::claimTransfer(const GitUpdateOwnerToken &token,uint64_t now
 bool GitUpdateClass::transferContinuing(const GitUpdateOwnerToken &token) const {
   Guard guard;return owns(token) && manualTransfer.continuing(token);
 }
+bool GitUpdateClass::transferContinuing(const GitUpdateOwnerToken &token,uint64_t now) {
+  Guard guard;return owns(token) && manualTransfer.continuing(token,now);
+}
 bool GitUpdateClass::transferResource(const GitUpdateOwnerToken &token,bool opened) {
   Guard guard;return owns(token) && manualTransfer.resource(token,opened);
 }
@@ -107,6 +111,27 @@ bool GitUpdateClass::queueTransfer(const GitUpdateOwnerToken &token) {
 }
 bool GitUpdateClass::holdTransferRestart(const GitUpdateOwnerToken &token) {
   Guard guard;return owns(token) && manualTransfer.holdRestart(token);
+}
+bool GitUpdateClass::holdTransferRecovery(const GitUpdateOwnerToken &token,uint64_t now) {
+  Guard guard;return owns(token) && manualTransfer.holdRecovery(token,now);
+}
+bool GitUpdateClass::claimTransferRecovery(const GitUpdateOwnerToken &token,uint64_t now) {
+  Guard guard;return owns(token) && manualTransfer.claimRecovery(token,now);
+}
+bool GitUpdateClass::transferRestoreClaimed(const GitUpdateOwnerToken &token,uint64_t now) {
+  Guard guard;return owns(token) && manualTransfer.restoreClaimed(token,now);
+}
+bool GitUpdateClass::transferRestartHeld(const GitUpdateOwnerToken &token,uint64_t now) {
+  Guard guard;return owns(token) && manualTransfer.restartHeld(token,now);
+}
+bool GitUpdateClass::acquireRestart(GitUpdateOwnerToken &result,uint64_t now,const GitUpdateOwnerToken &expected) {
+  Guard guard;
+  if(ownerGeneration==UINT64_MAX) return false;
+  if(expected.generation) {
+    if(!owns(expected) || !manualTransfer.handoffRestart(expected,now)) return false;
+    owner=Owner::restart;++ownerGeneration;
+  } else if(!acquire(Owner::restart)) return false;
+  result={ownerGeneration,GitUpdateExternalOwner::restart};return true;
 }
 bool GitUpdateClass::finishTransfer(const GitUpdateOwnerToken &token,uint64_t now,bool progress) {
   Guard guard;return owns(token) && manualTransfer.finish(token,now,progress);

@@ -2,6 +2,7 @@
 #include "ConfigSettings.h"
 #include "ProtoSettings.h"
 #include "Utils.h"
+#include "LegacyRestartSource.h"
 
 struct settings_completion_t {
   settings_section_t section;
@@ -14,13 +15,12 @@ struct settings_completion_t {
 // origin after its queued reply drains; settingsChanged excludes the origin.
 // Socket callers queue their reply before returning to ProtoSocket::loop().
 template<class ClientNotifications>
-void completeSettingsSave(const settings_completion_t &saved, ClientNotifications &clients, rebootDelay_t &restart, uint32_t now) {
+RestartResult completeSettingsSave(const settings_completion_t &saved, ClientNotifications &clients, rebootDelay_t &restart, uint32_t now, RestartResult admission = {true,RestartReason::none}) {
   const bool reauthenticate = saved.section == settings_section_t::security &&
     (saved.securityBefore != saved.securityAfter || saved.securityAfter != security_types::None);
   if(reauthenticate) clients.closeAll(saved.originSocketClient);
   else clients.settingsChanged(saved.originSocketClient,settingsSectionName(saved.section));
-  if(saved.reboot) {
-    restart.rebootTime=now+1000;
-    restart.reboot=true;
-  }
+  if(!saved.reboot) return {};
+  if(!admission.admitted) return admission;
+  return publishGenericLegacyRestart(restart,now+1000);
 }

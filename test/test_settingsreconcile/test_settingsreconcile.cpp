@@ -10,8 +10,9 @@ public:
   void timeChanged() override { TEST_FAIL_MESSAGE("No time apply"); }
   void mqttChanged() override { TEST_FAIL_MESSAGE("No MQTT disconnect"); }
   settings_save_result_t saveRadio(JsonObject) override { TEST_FAIL_MESSAGE("No radio apply");return {}; }
-  void completed(settings_section_t section,bool reboot) override {
+  RestartResult completed(settings_section_t section,bool reboot) override {
     TEST_ASSERT_FALSE(reboot);++calls;sections|=1u<<static_cast<uint8_t>(section);
+    return {reboot,RestartReason::none};
   }
 };
 void setUp() { FakeNvs::reset();settingsDurability()=SettingsDurability{}; }

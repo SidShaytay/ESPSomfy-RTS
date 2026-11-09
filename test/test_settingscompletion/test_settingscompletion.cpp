@@ -97,8 +97,18 @@ static void test_restore_style_invalidation_advances_every_section() {
     TEST_ASSERT_EQUAL_UINT64(section==static_cast<uint8_t>(settings_section_t::radio) ? 3 : 2,revisions.get(settings_section_t(section)));
   TEST_ASSERT_EQUAL_UINT64(0,revisions.get(settings_section_t(5)));
 }
+static void generic_completion_never_overwrites_an_armed_manual_source() {
+  ClientNotifications clients;rebootDelay_t restart;
+  restart.reboot=true;restart.rebootTime=800;
+  restart.externalOwnerGeneration=77;restart.externalOwnerKind=0;
+  completeSettingsSave({settings_section_t::network,security_types::None,security_types::None,0,true},clients,restart,1);
+  TEST_ASSERT_EQUAL(800,restart.rebootTime);
+  TEST_ASSERT_EQUAL_UINT64(77,restart.externalOwnerGeneration);
+  TEST_ASSERT_EQUAL(1,clients.changeCalls);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(generic_completion_never_overwrites_an_armed_manual_source);
   RUN_TEST(test_local_security_save_revokes_all_clients);
   RUN_TEST(test_socket_security_save_preserves_origin_until_reply_drains);
   RUN_TEST(test_every_security_transition_reauthenticates_except_none_to_none);

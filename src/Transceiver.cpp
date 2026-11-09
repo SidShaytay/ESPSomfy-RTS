@@ -837,6 +837,9 @@ uint32_t Transceiver::submitTx(somfy_tx_job_t &job, bool priority, uint16_t dela
   if(ticket) xTaskNotifyGive(txTaskHandle);
   return ticket;
 }
+bool Transceiver::counterEditUncertain() {
+  TxQueueLock lock;return this->counterEdits.uncertain();
+}
 bool Transceiver::txSuspended() {
   TxQueueLock lock;
   return this->sched.suspended();

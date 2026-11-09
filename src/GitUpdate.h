@@ -1,5 +1,6 @@
 #pragma once
 #include <ArduinoJson.h>
+#include "GitUpdateOwner.h"
 #include <cstddef>
 #include <cstdint>
 
@@ -13,11 +14,6 @@ enum class GitUpdateReason : uint8_t {
   timeout, candidateChanged, invalidCandidate, settingsUncertain, certificateTime, freshness
 };
 enum class GitUpdateRequest : uint8_t { accepted, busy, unavailable, invalidCandidate };
-enum class GitUpdateExternalOwner : uint8_t { manual, restore, counter };
-struct GitUpdateOwnerToken {
-  uint64_t generation=0;
-  GitUpdateExternalOwner kind=GitUpdateExternalOwner::manual;
-};
 struct GitUpdateCandidate {
   uint64_t generation=0;
   uint32_t size=0;
@@ -60,9 +56,17 @@ public:
   bool beginTransfer(const GitUpdateOwnerToken &,ManualUpdateKind,uint64_t now);
   bool claimTransfer(const GitUpdateOwnerToken &,uint64_t now,bool queuedRestore=false);
   bool transferContinuing(const GitUpdateOwnerToken &) const;
+  bool transferContinuing(const GitUpdateOwnerToken &,uint64_t now);
   bool transferResource(const GitUpdateOwnerToken &,bool opened);
   bool queueTransfer(const GitUpdateOwnerToken &);
   bool holdTransferRestart(const GitUpdateOwnerToken &);
+  bool holdTransferRecovery(const GitUpdateOwnerToken &,uint64_t now);
+  bool claimTransferRecovery(const GitUpdateOwnerToken &,uint64_t now);
+  bool transferRestoreClaimed(const GitUpdateOwnerToken &,uint64_t now);
+  bool transferRestartHeld(const GitUpdateOwnerToken &,uint64_t now);
+  // Atomic handoff to the same non-expiring owner, held through actual shutdown.
+  // A nonzero expected source never falls back to a generic owner-none restart.
+  bool acquireRestart(GitUpdateOwnerToken &result,uint64_t now,const GitUpdateOwnerToken &expected = {});
   bool finishTransfer(const GitUpdateOwnerToken &,uint64_t now,bool progress);
   bool retireTransfer(const GitUpdateOwnerToken &);
   ManualUpdateCleanup claimTransferCleanup(uint64_t now);

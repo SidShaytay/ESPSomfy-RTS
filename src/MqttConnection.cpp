@@ -1,3 +1,4 @@
+#include "LegacyRestartSource.h"
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
@@ -41,7 +42,7 @@ void MqttConnection::reset() {
   this->connect();
 }
 bool MqttConnection::loop() {
-  if(settings.MQTT.enabled && !rebootDelay.reboot && !this->suspended && !mqttClient.connected()) {
+  if(settings.MQTT.enabled && !snapshotLegacyRestart(rebootDelay).reboot && !this->suspended && !mqttClient.connected()) {
     resetTaskWdt();
     if(!this->connected() && net.connected()) this->connect();
   }
