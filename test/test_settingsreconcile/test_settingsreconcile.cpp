@@ -102,8 +102,23 @@ static void all_supported_namespaces_rewrite_once_and_complete_each_section_once
   TEST_ASSERT_TRUE(result.saved());TEST_ASSERT_EQUAL_UINT8(mask,result.reconciled);
   TEST_ASSERT_EQUAL_UINT8(31,effects.sections);TEST_ASSERT_EQUAL(5,effects.calls);
 }
+static void untrusted_security_load_cannot_be_declared_reconciled_even_with_empty_write_ledger() {
+  for(bool dirty:{false,true}) {
+    settingsDurability()=SettingsDurability{};FakeNvs::reset();
+    if(dirty)settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::security));
+    ConfigSettings current;current.Security.loadState=SecurityLoadState::failed;
+    Effects effects;transceiver_config_t radio;
+    const auto before=settingsDurability().status();
+    const auto result=reconcileRunningSettings(current,radio,effects);
+    TEST_ASSERT_FALSE(result.saved());TEST_ASSERT_EQUAL(0,result.reconciled);
+    TEST_ASSERT_EQUAL(0,FakeNvs::opens);TEST_ASSERT_EQUAL(0,effects.calls);
+    TEST_ASSERT_EQUAL(before.epoch,settingsDurability().status().epoch);
+    TEST_ASSERT_EQUAL(before.uncertain,settingsDurability().status().uncertain);
+    TEST_ASSERT_FALSE(current.Security.loadTrusted());
+  }
+}
 int main() {
-  UNITY_BEGIN();
+  UNITY_BEGIN();RUN_TEST(untrusted_security_load_cannot_be_declared_reconciled_even_with_empty_write_ledger);
   RUN_TEST(all_supported_namespaces_rewrite_once_and_complete_each_section_once);
   RUN_TEST(later_partial_failure_remains_partial_even_when_nothing_fully_reconciles);
   RUN_TEST(radio_invalid_or_unreadable_guard_cannot_clear_uncertainty_or_write);

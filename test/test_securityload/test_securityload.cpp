@@ -23,7 +23,7 @@ static void every_read_error_refuses_without_returning_partial_credentials() {
  const auto count=FakeNvs::reads;
  for(int i=1;i<=count;++i){FakeNvs::reset();seed(2,"user","password");FakeNvs::failRead=i;strcpy(record.password,"old secret");
   TEST_ASSERT_EQUAL(SecurityLoadState::failed,readSecurityRecord(record));
-  TEST_ASSERT_EQUAL_STRING("",record.username);TEST_ASSERT_EQUAL_STRING("",record.password);TEST_ASSERT_EQUAL_STRING("",record.pin);TEST_ASSERT_EQUAL(0,FakeNvs::sets);
+  const uint8_t wiped[sizeof(record)]={};TEST_ASSERT_EQUAL_MEMORY(wiped,&record,sizeof(record));TEST_ASSERT_EQUAL(0,FakeNvs::sets);
  }
 }
 static void invalid_active_credentials_cannot_become_blank_login() {
@@ -44,7 +44,7 @@ static void actual_security_settings_publish_only_complete_load_and_save_cannot_
  TEST_ASSERT_FALSE(settings.save().saved());TEST_ASSERT_EQUAL(0,FakeNvs::opens);
  seed(1,"","","aB!9");TEST_ASSERT_TRUE(settings.begin());TEST_ASSERT_TRUE(settings.loadTrusted());TEST_ASSERT_EQUAL_STRING("aB!9",settings.pin);
  FakeNvs::reads=0;FakeNvs::failRead=1;
- TEST_ASSERT_FALSE(settings.load());TEST_ASSERT_FALSE(settings.loadTrusted());TEST_ASSERT_EQUAL_STRING("",settings.pin);
+ TEST_ASSERT_FALSE(settings.load());TEST_ASSERT_FALSE(settings.loadTrusted());const uint8_t emptyPin[5]={};TEST_ASSERT_EQUAL_MEMORY(emptyPin,settings.pin,5);
  const auto writes=FakeNvs::sets,opens=FakeNvs::opens;
  TEST_ASSERT_FALSE(settings.save().saved());TEST_ASSERT_EQUAL(writes,FakeNvs::sets);TEST_ASSERT_EQUAL(opens,FakeNvs::opens);
  FakeNvs::reset();TEST_ASSERT_TRUE(settings.load());TEST_ASSERT_TRUE(settings.loadTrusted());TEST_ASSERT_EQUAL(SecurityLoadState::knownEmpty,settings.loadState);

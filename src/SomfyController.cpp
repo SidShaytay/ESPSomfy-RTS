@@ -199,7 +199,7 @@ void loop() {
     esp_task_wdt_reset();
   }
   if(restartLoop()) return;
-  bool updateNetworkReady=net.connected();
+  bool updateNetworkReady=net.connected() && settings.Security.loadTrusted();
 #if defined(ESPSOMFY_BUNDLED_WEB)
   // Registration is necessary, but full installer health checks remain separate.
   updateNetworkReady=updateNetworkReady && bundledWebRoutesReady();
