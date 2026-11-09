@@ -102,6 +102,13 @@ class Transceiver {
     bool restartQuiescent();
     bool sealForRestart();
     void reopenAfterRefusedRestart();
+    CounterEditAdmission reserveCounterEdit(uint32_t address,bool idle,uint16_t relatedGroups,bool restart);
+    void finishCounterEdit(CounterEditResult,ModelCommitResult);
+    CounterEditAdmission reserveCounterFileRecovery(bool restart);
+    void finishCounterFileRecovery(ModelCommitResult);
+    uint32_t counterFileRecoveryAddress();
+    CounterQuarantine counterQuarantine();
+    bool counterBlocksIdentity(uint32_t address);
     void beginTransmit();
     void endTransmit();
     void emitFrame(somfy_frame_t *frame, somfy_rx_t *rx = nullptr);
