@@ -55,6 +55,7 @@ struct SomfyShade:SomfyRemote,shade_record_t {
  using SomfyRemote::lastRollingCode;SomfyLinkedRemote linkedRemotes[SOMFY_MAX_LINKED_REMOTES];
  ShadeSettings behaviorSettings;RemoteSettings behaviorRemote;somfy_frame_t frame;NoMotorEffects effects;ShadeBehaviour behaviour;uint32_t gpioRelease=0;
  SomfyShade():behaviour(behaviorSettings,behaviorRemote,frame,effects,effects,shadeId,name){}
+ int8_t validateGPIOs(radio_proto,uint8_t,uint8_t,uint8_t){return 0;}void configureGPIOs();
  bool idleForAdministration()const;
  uint8_t getShadeId(){return shadeId;}void setShadeId(uint8_t value){shadeId=value;}
  void clear(){shadeId=255;}void setFlags(uint8_t value){flags=value;}
@@ -168,6 +169,7 @@ static void cooperateCounterLoad(const void *);
 static bool continueRestoreCounterLoad(const void *);
 static bool restoreIdle(SomfyShadeController *,const RadioInstallToken &);
 static bool restoreExecutionHolds(const GitUpdateOwnerToken &,const RadioInstallToken &radio){return radio.generation==1;}
+static uint64_t configuredPads=0;static constexpr unsigned OUTPUT=1;static void pinMode(uint8_t pin,unsigned){assert(pin!=255);assert(LivePinClaims::contains(retainedGpioPinClaims(),pin));configuredPads|=LivePinClaims::pinMask(pin);}
 #include "production-load.inc"
 struct Writer:ConfigWriter {std::string bytes;bool writeBytes(const uint8_t *p,size_t n)override{bytes.append(reinterpret_cast<const char *>(p),n);return true;}};
 static std::string validModel(){Writer w;config_header_t h;h.version=SHADE_HDR_VER;h.length=SHADE_HDR_SIZE;h.shadeRecordSize=SHADE_REC_SIZE;h.groupRecordSize=GROUP_REC_SIZE;h.roomRecordSize=ROOM_REC_SIZE;h.roomRecords=h.shadeRecords=h.groupRecords=0;h.repeaterRecords=1;h.repeaterRecordSize=REPEATER_REC_SIZE;h.settingsRecordSize=h.netRecordSize=h.transRecordSize=0;assert(writeConfigHeader(w,h));uint32_t repeaters[SOMFY_MAX_REPEATERS]{};assert(writeRepeaterRecord(w,repeaters));return w.bytes;}
@@ -212,6 +214,16 @@ int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));Lit
   expireAfterValidation=false;restoreAllowed=true;grantChecks=0;
  }
  if(getenv("RESTORE_PREFLIGHT_EXPIRY"))return 0;
+ const auto oldGpioRestore=[&]{noteModelFilesystemMounted(true);
+  auto bytes=gpioModel(40,42,255,radio_proto::GP_Remote,true);size_t start=SHADE_HDR_SIZE+SHADE_REC_SIZE;for(unsigned i=0;i<3;++i)start=bytes.find(',',start)+1;bytes.replace(start,3," 17");
+  FakeNvs::reset();stored(100,900);writeAt("/shades.tmp",bytes);restoreAllowed=true;
+  somfy.modelLoad.bootResult(ModelLoadStatus::loaded);auto &old=somfy.shades[0];old.setShadeId(1);old.proto=radio_proto::GP_Remote;old.gpioUp=17;old.gpioDown=old.gpioMy=255;assert(!somfy.transceiver.config.usesPin(17));
+  old.configureGPIOs();assert(configuredPads==LivePinClaims::pinMask(17));
+  ShadeConfigFile file;restore_options_t opts;opts.shades=opts.transceiver=true;const auto result=file.restoreFile(&somfy,"/shades.tmp",opts,RestoreOwner,RadioInstallToken{1});
+  fprintf(stderr,"oldGP configured=%llu newSCK=%u complete=%u writes=%u\n",(unsigned long long)configuredPads,somfy.transceiver.config.SCKPin,result.complete,FakeNvs::writeOpens);
+  assert(!result.complete&&!result.modelApplied&&!FakeNvs::writeOpens);
+ };
+ if(getenv("RESTORE_OLD_GP_PAD")){oldGpioRestore();return 0;}
  noteModelFilesystemMounted(true);SomfyShadeController empty;assert(empty.begin()&&empty.modelLoad.usable()&&empty.gpio==1&&!empty.commits);assert(ShadeConfigFile::loadBoot(&model)==ModelLoadStatus::absent&&!model.adopted);
  const auto valid=validModel();write(valid);assert(ShadeConfigFile::loadBoot(&model)==ModelLoadStatus::loaded&&model.adopted==1&&model.repeatersRead==1);
  model.adopted=model.repeatersRead=0;
@@ -435,6 +447,7 @@ int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));Lit
   assert(FakeNvs::opens==0&&live.shades[0].getRemoteAddress()==777&&live.shades[0].effects.sends==0);
   assert(loopQueue.queued==unsigned(busy==4));loopQueue.queued=0;file.end();
  }
+ oldGpioRestore();
  restoreAllowed=true;FakeNvs::reset();unlink((LittleFS.root+"/shades.tmp").c_str());
 
  unlink((LittleFS.root+"/shades.cfg").c_str());rmdir(dir);puts("Actual ConfigFile boot loading: mounted/absent/full load/truncated header/repeater/trailing records pass before adoption");
