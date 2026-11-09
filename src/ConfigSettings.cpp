@@ -281,7 +281,7 @@ bool WifiSettings::ssidExists(const char *ssid) {
 }
 #if HAS_ETHERNET
 
-bool EthernetSettings::usesPin(uint8_t pin) {
+bool EthernetSettings::usesPin(uint8_t pin) const {
   if(ethClockPin(this->CLKMode) == pin) return true;
   else if(this->PWRPin == pin) return true;
   else if(this->MDCPin == pin) return true;

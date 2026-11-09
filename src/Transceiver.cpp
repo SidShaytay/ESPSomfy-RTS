@@ -513,19 +513,7 @@ settings_save_result_t Transceiver::setConfigWhilePaused(const transceiver_confi
   }
   return applied;
 }
-bool Transceiver::usesPin(uint8_t pin) {
-  if(BoardProfile::usesPin(pin)) return true;
-  if(this->config.enabled) {
-    if(this->config.SCKPin == pin ||
-      this->config.TXPin == pin ||
-      this->config.RXPin == pin ||
-      this->config.MOSIPin == pin ||
-      this->config.MISOPin == pin ||
-      this->config.CSNPin == pin)
-      return true;
-  }
-  return false;  
-}
+bool Transceiver::usesPin(uint8_t pin) {return config.usesPin(pin);}
 bool Transceiver::end() {
     // Nothing may transmit (and re-enable receive) after this.  It is not
     // resumed since the only caller is OTA, which reboots when the upload

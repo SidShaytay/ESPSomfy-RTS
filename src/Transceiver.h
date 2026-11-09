@@ -57,6 +57,10 @@ struct transceiver_config_t {
     void applyChipDefaults();
     settings_save_result_t apply();
     void applyBoardPins();
+    bool usesPin(uint8_t pin)const {
+      return BoardProfile::usesPin(pin) || (enabled &&
+        (SCKPin==pin || TXPin==pin || RXPin==pin || MOSIPin==pin || MISOPin==pin || CSNPin==pin));
+    }
 };
 class Transceiver {
   private:

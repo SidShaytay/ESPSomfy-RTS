@@ -10,6 +10,7 @@
 #include "esp_log.h"
 #include "DeviceOps.h"
 #include "SettingsApply.h"
+#include "SelectedSettingsRestore.h"
 #include "SettingsCompletion.h"
 #include "SafeRestart.h"
 #include "SettingsDurability.h"
@@ -102,7 +103,7 @@ public:
   bool wifiClientsPresent() const override { return WiFi.softAPgetStationNum() != 0; }
   void hostnameChanged() override { net.updateHostname(); }
   void timeChanged() override { settings.NTP.apply(); }
-  void mqttChanged() override { mqtt.disconnect(); }
+  void mqttChanged() override { mqtt.disconnect();mqtt.lastConnect=0; }
   settings_save_result_t saveRadio(JsonObject request) override {
     transceiver_config_t next = somfy.transceiver.config;
     next.fromJSON(request);
@@ -111,6 +112,10 @@ public:
     return result;
   }
 };
+RestoreSettingsResult applyPreparedSettingsRestore(SelectedSettingsRestore &stage,Transceiver &radio,
+    const GitUpdateOwnerToken &owner,const RadioInstallToken &pause) {
+  RuntimeSettingsEffects effects(0);return stage.apply(settings,radio,owner,pause,effects);
+}
 settings_apply_result_t applyDeviceSettings(settings_section_t section, JsonObject request, uint32_t originSocketClient) {
   RuntimeSettingsEffects effects(originSocketClient);
   return applySettings(settings,section,request,effects);

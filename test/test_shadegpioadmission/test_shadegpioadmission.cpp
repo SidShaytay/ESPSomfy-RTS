@@ -32,6 +32,7 @@ struct SomfyShadeController {
 } somfy;
 enum class conn_types_t { wifi, ethernet, ethernetpref };
 struct ConfigSettings {
+  SettingsLoadStatus loadStatus{SettingsLoadState::loaded};
   conn_types_t connType = conn_types_t::wifi;
   struct Ethernet {
     SettingsLoadStatus loadStatus{SettingsLoadState::loaded};
@@ -42,6 +43,7 @@ struct ConfigSettings {
 #include "../../src/ShadeGpioConfig.cpp"
 void setUp() {
   somfy.transceiver.config.loadStatus={SettingsLoadState::loaded};
+  settings.loadStatus={SettingsLoadState::loaded};
   settings.Ethernet.loadStatus={SettingsLoadState::loaded};
   radioPads.clear();
   ethernetPads.clear();
@@ -128,9 +130,10 @@ unsafe_legacy_assignments_remain_unchanged_and_can_be_explicitly_repaired() {
   TEST_ASSERT_EQUAL(0, validate(request));
 }
 static void unavailable_pin_ownership_refuses_only_physical_gpio_without_mutation() {
- for(unsigned source=0;source<2;++source){
+ for(unsigned source=0;source<3;++source){
   somfy.transceiver.config.loadStatus={source?SettingsLoadState::loaded:SettingsLoadState::failed};
-  settings.Ethernet.loadStatus={source?SettingsLoadState::failed:SettingsLoadState::loaded};
+  settings.Ethernet.loadStatus={source==1?SettingsLoadState::failed:SettingsLoadState::loaded};
+  settings.loadStatus={source==2?SettingsLoadState::failed:SettingsLoadState::loaded};
   const auto before=somfy.shades[0];JsonDocument request;request["gpioUp"]=19;
   TEST_ASSERT_EQUAL(PIN_STORAGE_UNAVAILABLE,validate(request));
   TEST_ASSERT_EQUAL(before.gpioUp,somfy.shades[0].gpioUp);
