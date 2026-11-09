@@ -5,7 +5,8 @@ Open **Home → Administration** and unlock when required, then choose **Rooms**
 to edit or delete it. Duplicate names are allowed; the kind and ID identify the
 target. These flows work on the LCD without a browser. Full lists page through
 every configured entry. When all slots are used, Add is marked full and pressing
-it opens no draft.
+it opens no draft. **Reorder** follows the configured entries and remains
+available on a full list; see [local list ordering](lcd-ordering.md).
 
 Every activation requires the exact selection and current configuration to have
 finished reaching the display. If the display is busy, wait and press again.

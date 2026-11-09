@@ -15,7 +15,7 @@ struct State : Backend,CatalogueSource {
   CatalogueEntry rooms[16]={{4,0,0,"Office",0,1},{12,0,1,"Office",0,1}};
   CatalogueEntry devices[32]={{4,0,0,"Office",104,1},{27,0,1,"Office",127,1}};
   CatalogueEntry groups[16]={{4,0,0,"Office",504,1},{16,0,1,"Office",516,1}};
-  unsigned opens=0,applies=0,commits=0;
+  unsigned opens=0,applies=0,commits=0,orders=0;
   Kind preparedKind=Kind::room,appliedKind=Kind::room;
   ModelCommitState outcome=ModelCommitState::saved;
   CatalogueEntry *entries(Kind kind){return kind==Kind::room?rooms:kind==Kind::shade?devices:groups;}
@@ -53,6 +53,31 @@ struct State : Backend,CatalogueSource {
     }
     return {edit_result_t::completed(id,{outcome,ModelCommitStage::none})};
   }
+  bool readOrder(Kind kind,OrderIds &ids,OrderIds &slots,uint8_t &total,bool &normalize) override {
+    memset(ids,0,sizeof(ids));memset(slots,0,sizeof(slots));total=0;normalize=false;
+    auto *items=entries(kind);
+    for(uint8_t slot=0;slot<capacity(kind);slot++)if(items[slot].id) {
+      uint8_t at=total;
+      while(at && (items[slots[at-1]].sortOrder>items[slot].sortOrder ||
+        (items[slots[at-1]].sortOrder==items[slot].sortOrder && ids[at-1]>items[slot].id))) {
+        ids[at]=ids[at-1];slots[at]=slots[at-1];--at;
+      }
+      ids[at]=items[slot].id;slots[at]=slot;++total;
+    }
+    for(uint8_t i=0;i<total;i++)normalize|=items[slots[i]].sortOrder!=i;
+    return true;
+  }
+  bool readOrderLabel(Kind kind,uint8_t slot,uint8_t id,Value &out) override {
+    if(slot>=capacity(kind)||entries(kind)[slot].id!=id)return false;
+    out={};out.kind='s';memcpy(out.text,entries(kind)[slot].name,sizeof(out.text));return true;
+  }
+  ApplyResult applyOrder(Kind kind,const uint8_t *ids,uint8_t total,ArduinoJson::Allocator &,Authorization,uint64_t) override {
+    ++orders;++generation;
+    for(uint8_t i=0;i<total;i++)for(uint8_t slot=0;slot<capacity(kind);slot++)
+      if(entries(kind)[slot].id==ids[i])entries(kind)[slot].sortOrder=i;
+    return {edit_result_t::completed(0,{outcome,ModelCommitStage::write})};
+  }
+  CommitResult retryOrderFile(Authorization,uint64_t) override {++commits;return {{ModelCommitState::saved,ModelCommitStage::none}};}
   CommitResult retryFileCommit(Authorization,uint64_t) override {++commits;return {{ModelCommitState::saved,ModelCommitStage::none}};}
   void activity() override {}
 };
@@ -61,7 +86,7 @@ static void stable_room_ids_and_new_drafts_need_explicit_selection() {
   State state;Memory memory;Administration ui(state,state,memory);
   TEST_ASSERT_TRUE(ui.open(0));TEST_ASSERT_EQUAL_STRING("Administration",ui.view().title);
   ui.activate(1);TEST_ASSERT_EQUAL_STRING("Rooms",ui.view().title);
-  TEST_ASSERT_EQUAL(3,ui.view().total);TEST_ASSERT_EQUAL_STRING("Add room",ui.view().rows[0].label);
+  TEST_ASSERT_EQUAL(4,ui.view().total);TEST_ASSERT_EQUAL_STRING("Add room",ui.view().rows[0].label);
   ui.turn(1,2);TEST_ASSERT_EQUAL(4,ui.view().id);ui.activate(3);
   TEST_ASSERT_EQUAL_STRING("Edit Room 4",ui.view().title);TEST_ASSERT_EQUAL(1,state.opens);
   TEST_ASSERT_EQUAL(0,state.applies);ui.back(4);
@@ -169,7 +194,59 @@ static void device_history_change_cannot_turn_a_missing_id_into_a_group_or_add()
   ui.activate(1);TEST_ASSERT_EQUAL(Kind::shade,state.preparedKind);
   TEST_ASSERT_EQUAL_STRING("Add Shade 9",ui.view().title);TEST_ASSERT_EQUAL(0,state.applies);
 }
+static void appended_reorder_preserves_entity_indices_and_adopts_moved_id() {
+  for(unsigned type=0;type<3;type++) {
+    State state;Memory memory;Administration ui(state,state,memory);ui.open(0);
+    for(unsigned i=0;i<type;i++)ui.turn(1,1);ui.activate(1);
+    TEST_ASSERT_EQUAL(4,ui.view().total); // Add, existing IDs, then Reorder.
+    ui.turn(1,1);TEST_ASSERT_EQUAL(4,ui.view().id);ui.turn(1,1);
+    TEST_ASSERT_EQUAL(type==0?12:type==1?27:16,ui.view().id);
+    ui.turn(1,1);TEST_ASSERT_EQUAL_STRING("Reorder",ui.view().rows[0].label);ui.activate(1);
+    TEST_ASSERT_NOT_NULL(strstr(ui.view().title,"Reorder"));TEST_ASSERT_TRUE(ui.view().protectedFrame);
+    ui.activate(1);ui.turn(1,1);ui.activate(1); // Pick4, move second, Apply draft.
+    TEST_ASSERT_EQUAL(0,state.orders);TEST_ASSERT_EQUAL(0,state.applies);
+    ui.turn(1,1);ui.activate(1);TEST_ASSERT_EQUAL(Mode::confirm,ui.view().mode);
+    ui.activate(1);TEST_ASSERT_EQUAL(0,state.orders); // Default Cancel.
+    ui.activate(1);ui.turn(1,1);state.outcome=ModelCommitState::failed;ui.activate(1);
+    TEST_ASSERT_EQUAL(1,state.orders);TEST_ASSERT_EQUAL(Notice::appliedNotSaved,ui.view().notice);
+    ui.turn(1,1);ui.activate(1);TEST_ASSERT_EQUAL(1,state.commits);TEST_ASSERT_EQUAL(1,state.orders);
+    ui.activate(1);TEST_ASSERT_EQUAL(4,ui.view().id);TEST_ASSERT_EQUAL(2,ui.view().selected);
+    TEST_ASSERT_EQUAL(0,state.applies);ui.discard();TEST_ASSERT_EQUAL(0,memory.active);
+  }
+}
+static void reorder_launcher_stays_anchored_across_list_changes_and_discards_drafts() {
+  State state;Memory memory;Administration ui(state,state,memory);ui.open(0);ui.turn(1,1);ui.activate(1);
+  for(unsigned i=0;i<3;i++)ui.turn(1,1);
+  state.devices[2]={9,0,2,"Added",0,1};++state.generation;ui.activate(1);
+  TEST_ASSERT_EQUAL(0,state.opens);TEST_ASSERT_EQUAL_STRING("Reorder",ui.view().rows[1].label);TEST_ASSERT_EQUAL(4,ui.view().selected);TEST_ASSERT_EQUAL(0,ui.view().id);
+  ui.activate(1);ui.activate(1);ui.turn(1,1);ui.activate(1);TEST_ASSERT_TRUE(ui.view().dirty);
+  ui.discard();TEST_ASSERT_TRUE(ui.closed());
+  ui.open(2);ui.turn(1,2);ui.activate(2);for(unsigned i=0;i<4;i++)ui.turn(1,2);ui.activate(2);
+  TEST_ASSERT_FALSE(ui.view().dirty);TEST_ASSERT_EQUAL(4,ui.view().id);
+  ++state.auth.configurationGeneration;ui.tick(3);TEST_ASSERT_EQUAL(Notice::changed,ui.view().notice);
+  TEST_ASSERT_EQUAL(0,state.orders);TEST_ASSERT_EQUAL(0,state.applies);
+}
+static void full_32_device_list_still_has_reorder_and_normalization_repairs_add_block() {
+  State state;for(uint8_t i=0;i<32;i++)state.devices[i]={uint8_t(i+1),0,int8_t(i),"Same",0,1};
+  state.devices[31].sortOrder=127;Memory memory;Administration ui(state,state,memory);
+  ui.open(0);ui.turn(1,1);ui.activate(1);for(unsigned i=0;i<33;i++)ui.turn(1,1);
+  ui.activate(1);TEST_ASSERT_EQUAL(1,ui.view().id);TEST_ASSERT_EQUAL(34,ui.view().total);
+  for(unsigned i=0;i<32;i++)ui.turn(1,1);ui.activate(1);ui.turn(1,1);ui.activate(1);
+  TEST_ASSERT_EQUAL(1,state.orders);TEST_ASSERT_EQUAL(31,state.devices[31].sortOrder);
+  TEST_ASSERT_EQUAL(0,state.opens);TEST_ASSERT_EQUAL(0,state.applies);
+}
+static void scrolling_past_other_ids_to_save_does_not_replace_explicit_move_anchor() {
+  State state;state.devices[2]={9,0,2,"Third",0,1};Memory memory;Administration ui(state,state,memory);
+  ui.open(0);ui.turn(1,1);ui.activate(1);for(unsigned i=0;i<4;i++)ui.turn(1,1);ui.activate(1);
+  ui.activate(1);ui.turn(1,1);ui.activate(1); // Explicitly move ID4.
+  ui.turn(1,1);TEST_ASSERT_EQUAL(9,ui.view().id);ui.turn(1,1);ui.activate(1);ui.turn(1,1);ui.activate(1);
+  TEST_ASSERT_EQUAL(1,state.orders);ui.activate(1);TEST_ASSERT_EQUAL(4,ui.view().id);TEST_ASSERT_EQUAL(2,ui.view().selected);
+}
 int main(){UNITY_BEGIN();
+RUN_TEST(scrolling_past_other_ids_to_save_does_not_replace_explicit_move_anchor);
+RUN_TEST(appended_reorder_preserves_entity_indices_and_adopts_moved_id);
+RUN_TEST(reorder_launcher_stays_anchored_across_list_changes_and_discards_drafts);
+RUN_TEST(full_32_device_list_still_has_reorder_and_normalization_repairs_add_block);
 RUN_TEST(all_three_kinds_keep_their_own_ids_and_return_selection);
 RUN_TEST(device_and_group_add_confirm_delete_and_retry_keep_kind_and_id);
 RUN_TEST(every_device_is_paged_and_full_add_never_opens_a_draft);
