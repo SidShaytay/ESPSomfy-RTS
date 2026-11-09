@@ -19,7 +19,7 @@ namespace BoardProfile{bool usesPin(uint8_t){return false;}}
 unsigned ESPNetwork::fallbacks=0;
 static unsigned driverCalls=0;static bool link=false;
 static void driver(){assert((net.retainedPinClaims()&settings.Ethernet.pinClaims())==settings.Ethernet.pinClaims());++driverCalls;}
-struct {bool linkUp(){return link;}void setHostname(const char*){driver();}const char *getHostname(){return "fake";}template<class...Args>bool begin(Args...){driver();return false;}template<class...Args>bool config(Args...){driver();return true;}}ETH;
+struct {bool linkUp(){return link;}void setHostname(const char*){driver();}const char *getHostname(){return "fake";}bool begin(eth_phy_type_t,int32_t,int mdc,int mdio,int power,eth_clock_mode_t){assert(mdc>=0 && mdio>=0 && power==-1);driver();return false;}template<class...Args>bool config(Args...){driver();return true;}}ETH;
 static constexpr int WL_CONNECTED=3,WIFI_OFF=0,INADDR_NONE=0;
 struct {int status(){return 0;}void disconnect(bool){driver();}void mode(int){driver();}}WiFi;
 #define ESP_LOGW(...) ((void)0)
@@ -48,6 +48,8 @@ int main(){
  rf.enabled=false;assert(networkPinConfigurationAvailable(settings));
  shade.gpioUp=21;assert(!networkPinConfigurationAvailable(settings));shade.gpioUp=255;
  assert(ethernetActivationPinsAvailable(settings));
+ settings.Ethernet.PWRPin=-1;assert(!LivePinClaims::contains(settings.Ethernet.pinClaims(),255));
+ settings.Ethernet.MDCPin=-1;assert(!networkPinConfigurationAvailable(settings));settings.Ethernet.MDCPin=44;
  settings.WIFI.loadStatus=settings.IP.loadStatus={SettingsLoadState::loaded};
  somfy.modelLoad.ok=false;assert(!net.connectWired());assert(!driverCalls&&ESPNetwork::fallbacks==1);
  somfy.modelLoad.ok=true;assert(!net.connectWired());assert(driverCalls && !net.ethStarted);const auto claimed=net.retainedPinClaims();assert((claimed&settings.Ethernet.pinClaims())==settings.Ethernet.pinClaims());

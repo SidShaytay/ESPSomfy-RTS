@@ -13,7 +13,7 @@ extern ESPNetwork net;
 #endif
 int8_t SomfyShade::validateGPIOs(radio_proto protocol, uint8_t upPin,
                                  uint8_t downPin, uint8_t myPin) {
-  if(ShadeGpioPolicy::physicalMask(protocol) &&
+  if(ShadeGpioPolicy::pinClaims(protocol,upPin,downPin,myPin) &&
      (!somfy.transceiver.config.loadStatus.usable()
 #if HAS_ETHERNET
       || !settings.loadStatus.usable() || !settings.Ethernet.loadStatus.usable()

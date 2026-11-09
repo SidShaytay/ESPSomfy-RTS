@@ -135,6 +135,8 @@ static void unavailable_pin_ownership_refuses_only_physical_gpio_without_mutatio
   somfy.transceiver.config.loadStatus={source?SettingsLoadState::loaded:SettingsLoadState::failed};
   settings.Ethernet.loadStatus={source==1?SettingsLoadState::failed:SettingsLoadState::loaded};
   settings.loadStatus={source==2?SettingsLoadState::failed:SettingsLoadState::loaded};
+  TEST_ASSERT_EQUAL(0,somfy.shades[0].validateGPIOs(radio_proto::GP_Remote,255,255,255));
+  TEST_ASSERT_EQUAL(0,somfy.shades[0].validateGPIOs(radio_proto::GP_Relay,255,255,19));
   const auto before=somfy.shades[0];JsonDocument request;request["gpioUp"]=19;
   TEST_ASSERT_EQUAL(PIN_STORAGE_UNAVAILABLE,validate(request));
   TEST_ASSERT_EQUAL(before.gpioUp,somfy.shades[0].gpioUp);
