@@ -292,6 +292,7 @@ int markRSSI = -100;
 uint32_t lastScan = 0;
 static uint32_t scanStart = 0;
 static bool scanResumeReceive = false;
+static std::atomic<bool> scanStopRequested{false};
 // Scan state changes made off loop() (the web handlers and apply() run on
 // async_tcp) are only flagged here.  The socket's frame buffer is shared, so
 // loop() sends the event.
@@ -306,6 +307,7 @@ void Transceiver::beginFrequencyScan() {
   RadioLock lock(portMAX_DELAY, true);
   if(this->available() && rxmode != 3) {
     scanResumeReceive = rxmode == 1;
+    scanStopRequested = false;
     this->disableReceive();
     rxmode = 3;
     scanStart = millis();
@@ -322,7 +324,9 @@ void Transceiver::beginFrequencyScan() {
   }
 }
 void Transceiver::processFrequencyScan(bool received) {
-  RadioLock lock;
+  if(scanStopRequested.load()) return;
+  RadioLock lock(0);
+  if(!lock.locked) return;
   if(this->available() && rxmode == 3) {
     if(received) {
       currRSSI = ELECHOUSE_cc1101.getRssi();
@@ -350,13 +354,16 @@ void Transceiver::processFrequencyScan(bool received) {
   }
 }
 void Transceiver::endFrequencyScan() {
-  RadioLock lock;
+  if(rxmode != 3) return;
+  scanStopRequested = true;
+  RadioLock lock(0);
+  if(!lock.locked) return;
   if(rxmode == 3) {
     rxmode = 0;
     if(interruptPin > 0) detachInterrupt(interruptPin); 
     interruptPin = 0;
     // Observation changes only tuning/RX state. Ending it must not persist,
-    // reinitialize pins or retry a failed initialization marker.
+    // run full radio initialization or retry its persistence markers.
     if(this->available() && this->config.enabled) {
       ELECHOUSE_cc1101.setMHZ(this->config.frequency);
       ELECHOUSE_cc1101.setRxBW(this->config.rxBandwidth);
@@ -364,9 +371,10 @@ void Transceiver::endFrequencyScan() {
       else ELECHOUSE_cc1101.setSidle();
     }
     scanResumeReceive = false;
+    scanStopRequested = false;
     scanEmitPending = true;
   }
-  // Even if something else already ended the scan, nothing may keep TX suspended.
+  // Restoration has completed before transmission is allowed again.
   this->resumeTx(TX_SUSPEND_SCAN);
 }
 void Transceiver::emitFrequencyScan() {
@@ -815,8 +823,8 @@ void Transceiver::loop() {
       noiseCount = 0;
     }
   }
-  if(rxmode == 3 && millis() - scanStart > SCAN_MAX_MS) {
-    ESP_LOGW(TAG, "Frequency scan timed out");
+  if(rxmode == 3 && (scanStopRequested.load() || millis() - scanStart > SCAN_MAX_MS)) {
+    if(!scanStopRequested.load()) ESP_LOGW(TAG, "Frequency scan timed out");
     this->endFrequencyScan();
   }
   if(rxmode == 3) {
