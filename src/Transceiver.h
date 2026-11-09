@@ -98,6 +98,7 @@ class Transceiver {
     bool txSuspended();
     bool txHasRoom();
     bool counterEditUncertain();
+    // Loop only: includes raw repeater frames and radio-task scheduler work.
     bool restartQuiescent();
     bool sealForRestart();
     void reopenAfterRefusedRestart();
