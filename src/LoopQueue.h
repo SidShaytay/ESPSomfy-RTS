@@ -33,7 +33,8 @@ enum class loop_item_type_t : uint8_t {
   proto_read,      // answer a protocol 2 read op from the shade model
   proto_device,    // run a protocol 2 settings op or the WiFi scan (DeviceOps)
   local_control,  // loop-owned LCD intent token, freshly revalidated on drain
-  local_advanced  // bounded loop-owned learned-link/file-recovery intent
+  local_advanced, // bounded loop-owned learned-link/file-recovery intent
+  firmware_install // complete staged file; exact owner, never request/buffer pointers
 };
 struct model_edit_t;
 struct settings_save_t;

@@ -23,6 +23,12 @@ void receiveManualRestore(AsyncWebServerRequest *,size_t index,uint8_t *data,siz
 bool claimManualRestore(AsyncWebServerRequest *);
 void discardManualRestore(AsyncWebServerRequest *);
 bool queueManualRestore(AsyncWebServerRequest *,uint8_t parts);
+#if defined(ESPSOMFY_BUNDLED_WEB)
+bool queueManualFirmware(AsyncWebServerRequest *);
+void runManualFirmware(const GitUpdateOwnerToken &);
+#else
+inline void runManualFirmware(const GitUpdateOwnerToken &){}
+#endif
 // Poll on loop(), including abandoned requests. Cleanup claims exclude an
 // in-flight SDK/file call and can never touch a newer owner's resource.
 void manualUploadLoop();
