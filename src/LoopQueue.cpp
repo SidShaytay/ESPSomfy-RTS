@@ -14,6 +14,7 @@
 #include "ModelCommitService.h"
 #include "SafeRestart.h"
 #include "RestoreExecution.h"
+#include "entryPoints/ManualUploadSession.h"
 
 static const char *TAG = "LoopQueue";
 
@@ -95,6 +96,9 @@ void LoopQueue::drain() {
     // loop() is the only consumer so this is the item we peeked.
     xQueueReceive(q, &item, 0);
     switch(item.type) {
+      case loop_item_type_t::firmware_install:
+        runManualFirmware(item.externalOwner);
+        break;
       case loop_item_type_t::local_advanced:
 #ifdef ESPSOMFY_LOCAL_UI
         LocalUi::runLocalLearn(item.localToken);

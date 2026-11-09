@@ -61,10 +61,24 @@ image/hash, identity and its own bundled-asset validation. Compatible developmen
 files remain supported, including from an installed development build. Status
 identifies this origin as `manual-file`.
 
-The browser receiver still uses its legacy streaming SDK path. Connecting its
-bounded receive/status workflow to this backend remains required before the
-canonical manual-update flow is qualified. This internal backend alone does
-not correct that route or authorize a controller write.
+Canonical browser firmware reception now allocates one full application-slot
+buffer in PSRAM, with no internal-memory fallback. Receive callbacks only copy
+bounded bytes; they never start an SDK write, shut down radio/MQTT or select a
+boot image. The existing owner and lifecycle exclude overlap, abandoned-request
+cleanup and stale callbacks. Transfers have a 30-second progress timeout and a
+180-second receive limit. Missing memory, short/oversized files, a second file,
+changed credentials or security history, and failed queue publication refuse
+without applying the image.
+
+Authenticated completion transfers the file through the existing loop FIFO,
+carrying only the exact owner token. Loop hands the private buffer and original
+security revision to `requestManualInstall()`. A normal disconnect after this
+handoff cannot cancel installation. HTTP 202 means only that the file was
+received and queued, never that it was verified, written or selected for boot.
+Browser operation-status observation and independent review remain required
+before this manual-update flow is qualified. Generic-board streaming remains
+separate and unchanged in this increment. No offline evidence authorizes a
+controller write.
 
 The isolated installer draft reuses this worker and its exclusive owner. With
 loop-owned callbacks supplied, it re-fetches the exact confirmed release,
@@ -95,7 +109,7 @@ commands and stores no credentials in its source record.
 
 Startup invokes the adapter after global TLS allocator initialization. The main
 loop services network/UI while `gitUpdateControllerPaused()` and defers normal
-model/queue execution until cleanup or final shutdown. Canonical browser receive wiring and independent review remain unfinished;
+model/queue execution until cleanup or final shutdown. Browser operation-status observation and independent review remain unfinished;
 these tests do not establish complete updater acceptance. The LCD adapter is described in
 [lcd-github-updates.md](lcd-github-updates.md).
 

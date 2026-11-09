@@ -12,6 +12,9 @@
 #include "Update.h"
 #include "Utils.h"
 #include "esp_timer.h"
+#if defined(ESPSOMFY_BUNDLED_WEB)
+#include "esp_heap_caps.h"
+#endif
 #include <iostream>
 #include <vector>
 #define SOMFY_H
@@ -168,7 +171,60 @@ int main() {
   assert(restarts.empty() && !restartPending() && gitUpdate.ownsExternal(competing));
   assert(gitUpdate.releaseExternal(competing));
   AsyncWebServerRequest empty;server.complete(&empty);assert(empty.status==410 && !gitUpdate.busy());
-  std::cout << "Bundled application upload retired before owner, SDK, filesystem or shutdown effects.\n";return 0;
+  std::vector<uint8_t> image(1024,42);
+  AsyncWebServer firmware;registerFirmwareUploadRoute(firmware);
+  AsyncWebServerRequest staged;
+  firmware.upload(&staged,String("firmware.bin"),0,image.data(),512,false);
+  assert(stagedAllocations==1 && !Update.begins && !somfy.transceiver.stops && !mqtt.stops);
+  firmware.upload(&staged,String("firmware.bin"),512,image.data()+512,512,true);
+  firmware.complete(&staged);
+  assert(staged.status==202 && restoreMarker.type==loop_item_type_t::firmware_install);
+  assert(staged.body.find("received")!=std::string::npos && !Update.ends && !restartPending());
+  staged.disconnected();assert(gitUpdate.busy()&&stagedAllocations==1);
+  loopQueue.drain(); // This host build has no installer worker: refuse, free, never write.
+  assert(!stagedAllocations&&!gitUpdate.busy()&&!Update.begins&&!Update.aborts);
+  auto noEffects=[](){assert(!Update.begins&&!Update.writes&&!Update.ends&&!Update.aborts&&!somfy.transceiver.stops&&!mqtt.stops&&!restartPending());};
+  auto receive=[&](AsyncWebServerRequest &request){firmware.upload(&request,String("firmware.bin"),0,image.data(),image.size(),true);};
+  AsyncWebServerRequest partial;
+  firmware.upload(&partial,String("firmware.bin"),0,image.data(),512,false);
+  partial.disconnected();manualUploadLoop();assert(!stagedAllocations&&!gitUpdate.busy());noEffects();
+  AsyncWebServerRequest timeout;
+  firmware.upload(&timeout,String("firmware.bin"),0,image.data(),512,false);
+  manualClockMs+=30000;manualUploadLoop();assert(!stagedAllocations&&!gitUpdate.busy());
+  AsyncWebServerRequest replacement;receive(replacement);
+  const auto replacementOwner=manualUploadState(&replacement)->owner;
+  firmware.upload(&timeout,String("firmware.bin"),512,image.data(),512,true);
+  timeout.disconnected();manualUploadLoop();assert(stagedAllocations==1&&gitUpdate.ownsExternal(replacementOwner));
+  replacement.disconnected();manualUploadLoop();assert(!stagedAllocations&&!gitUpdate.busy());noEffects();
+  AsyncWebServerRequest oversized;
+  firmware.upload(&oversized,String("firmware.bin"),0,image.data(),GitUpdatePolicy::APP_BYTES+1ULL,true);
+  assert(!stagedAllocations&&!gitUpdate.busy());noEffects();
+  AsyncWebServerRequest noMemory;failStagedAllocation=true;receive(noMemory);failStagedAllocation=false;
+  assert(!stagedAllocations&&!gitUpdate.busy());noEffects();
+  AsyncWebServerRequest tooSmall;
+  firmware.upload(&tooSmall,String("firmware.bin"),0,image.data(),1,true);
+  assert(!stagedAllocations&&!gitUpdate.busy());noEffects();
+  AsyncWebServerRequest wrongOffset;
+  firmware.upload(&wrongOffset,String("firmware.bin"),0,image.data(),512,false);
+  firmware.upload(&wrongOffset,String("firmware.bin"),513,image.data(),512,true);
+  manualUploadLoop();assert(!stagedAllocations&&!gitUpdate.busy());noEffects();
+  AsyncWebServerRequest twoFiles;receive(twoFiles);receive(twoFiles);firmware.complete(&twoFiles);
+  manualUploadLoop();assert(twoFiles.status==409&&!stagedAllocations&&!gitUpdate.busy());noEffects();
+  AsyncWebServerRequest credentialChanged;receive(credentialChanged);
+  restoreSecurityHistory.invalidateAll();firmware.complete(&credentialChanged);
+  assert(credentialChanged.status==503&&!stagedAllocations&&!gitUpdate.busy());noEffects();
+  AsyncWebServerRequest authChanged;receive(authChanged);authChanged.allowed=false;firmware.complete(&authChanged);
+  assert(authChanged.status==503&&!stagedAllocations&&!gitUpdate.busy());noEffects();
+  AsyncWebServerRequest queueFull;receive(queueFull);restoreQueue=false;firmware.complete(&queueFull);restoreQueue=true;
+  assert(queueFull.status==503&&queueFull.responses==1&&!stagedAllocations&&!gitUpdate.busy());noEffects();
+  AsyncWebServerRequest lifetime;
+  firmware.upload(&lifetime,String("firmware.bin"),0,image.data(),128,false);
+  for(size_t i=1;i<9;++i){manualClockMs+=20000;firmware.upload(&lifetime,String("firmware.bin"),i*128,image.data(),128,false);}
+  manualClockMs+=20000;firmware.upload(&lifetime,String("firmware.bin"),1152,image.data(),128,true);
+  manualUploadLoop();assert(!stagedAllocations&&!gitUpdate.busy());noEffects();
+  AsyncWebServerRequest queuedExpired;receive(queuedExpired);firmware.complete(&queuedExpired);
+  manualClockMs+=30000;manualUploadLoop();loopQueue.drain();assert(!stagedAllocations&&!gitUpdate.busy());noEffects();
+  std::cout << "Bundled upload stages complete file and hands it to loop without SDK/shutdown effects.\n";return 0;
 #endif
   AsyncWebServerRequest first, overlap;
   server.upload(&first,String("a.bin"),0,&byte,1,false);
