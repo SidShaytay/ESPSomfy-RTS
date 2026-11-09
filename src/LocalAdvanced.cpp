@@ -1,13 +1,42 @@
 #include "LocalAdvanced.h"
 #include "LocalJsonAllocator.h"
+#include "SomfyFrame.h"
 #include <new>
 #include <stdio.h>
 #include <string.h>
 namespace LocalUi {
 namespace Advanced {
 using namespace EntityAdmin;
-struct Form::Session {
-  enum class Page : uint8_t { picker, menu, list, confirm, result, refused };
+struct Form::Session final : LearnPending {
+  Form &owner;
+  LearnCandidates candidates;
+  LearnSelection selection;
+  uint64_t ticket = 0, queuedAt = 0;
+  bool listening = false, fileOnly = false, canRetryFile = false,
+       linkApplied = false, fileVerified = false;
+  CounterDomainState counterOutcome = CounterDomainState::invalid;
+  Session(Form &form, ReceiveHub &hub) : owner(form), candidates(hub) {}
+  LearnQueueReason current(uint64_t now) override {
+    return owner.learnCurrent(now);
+  }
+  void execute(uint64_t now) override { owner.runLearn(now); }
+  void cancelled(LearnQueueReason reason) override {
+    owner.learnCancelled(reason);
+  }
+  enum class Page : uint8_t {
+    picker,
+    menu,
+    list,
+    confirm,
+    result,
+    refused,
+    learnStart,
+    learnList,
+    learnReview,
+    learnPending,
+    learnFault,
+    learnResult
+  };
   Context context;
   OrderIds ids{}, slots{};
   Authorization auth;
@@ -20,8 +49,22 @@ struct Form::Session {
   bool paired = false;
 };
 uint64_t Form::epoch() const { return session ? session->revision : 0; }
+void Form::endLearning() {
+  if (!session)
+    return;
+  if (session->listening || session->selection.session ||
+      session->candidates.count())
+    privateProjectionDiscarded = true;
+  session->candidates.end();
+  session->listening = false;
+  session->selection = {};
+}
 void Form::close(Notice n) {
   if (session) {
+    if (session->ticket)
+      backend.cancelLearn(session->ticket, *session);
+    session->ticket = 0;
+    endLearning();
     session->~Session();
     allocator.deallocate(session);
     session = nullptr;
@@ -59,6 +102,21 @@ bool Form::guard(uint64_t now) {
       return false;
     }
   }
+  if (s.listening && s.page != Session::Page::learnPending) {
+    const auto check = s.candidates.tick(now);
+    if (check != LearnCheck::ready) {
+      close(check == LearnCheck::expired || check == LearnCheck::clock
+                ? Notice::expired
+                : Notice::changed);
+      return false;
+    }
+    if (s.page == Session::Page::learnReview &&
+        s.candidates.validate(s.selection, now) != LearnCheck::ready) {
+      s.selection = {};
+      learnFault("Received frame changed. Choose and review a frame again.",
+                 true);
+    }
+  }
   return true;
 }
 bool Form::open(Scope scope, uint64_t now) {
@@ -82,7 +140,7 @@ bool Form::open(Scope scope, uint64_t now) {
     close(Notice::noMemory);
     return false;
   }
-  session = new (memory) Session;
+  session = new (memory) Session(*this, backend.receivedFrames());
   auto &s = *session;
   s.auth = auth;
   s.revision = revision;
@@ -139,6 +197,20 @@ void Form::turn(int direction, uint64_t now) {
     count = s.count;
     break;
   case Session::Page::menu:
+    count = 3;
+    break;
+  case Session::Page::learnList:
+    count = s.candidates.count();
+    break;
+  case Session::Page::learnPending:
+    count = 1;
+    break;
+  case Session::Page::learnResult:
+    count = s.canRetryFile ? 2 : 1;
+    break;
+  case Session::Page::learnStart:
+  case Session::Page::learnReview:
+  case Session::Page::learnFault:
   case Session::Page::confirm:
   case Session::Page::result:
   case Session::Page::refused:
@@ -208,6 +280,203 @@ void Form::apply() {
   s.page = Session::Page::result;
   s.cursor = 1;
 }
+LearnQueueReason Form::learnCurrent(uint64_t now) {
+  if (!session)
+    return LearnQueueReason::stale;
+  const auto &s = *session;
+  if (s.page == Session::Page::learnPending &&
+      (now < s.queuedAt || now - s.queuedAt >= LearnQueue::maxAgeMs))
+    return LearnQueueReason::expired;
+  if (now < s.observedAt || now < s.activityAt ||
+      now - s.activityAt >= timeoutMs)
+    return LearnQueueReason::expired;
+  const auto admission =
+      backend.checkLearnContext(s.target, s.context, s.auth, s.revision);
+  if (admission == Admission::locked)
+    return LearnQueueReason::locked;
+  if (admission != Admission::accepted)
+    return LearnQueueReason::stale;
+  if (s.fileOnly)
+    return LearnQueueReason::ready;
+  const auto check = session->candidates.validate(s.selection, now);
+  return check == LearnCheck::ready     ? LearnQueueReason::ready
+         : check == LearnCheck::expired ? LearnQueueReason::expired
+         : check == LearnCheck::clock   ? LearnQueueReason::clock
+                                        : LearnQueueReason::candidate;
+}
+void Form::learnFault(const char *reason, bool chooseFrame) {
+  auto &s = *session;
+  s.page = Session::Page::learnFault;
+  s.returnPage =
+      chooseFrame ? Session::Page::learnList : Session::Page::learnReview;
+  s.cursor = 0;
+  snprintf(s.refusal, sizeof(s.refusal), "%s", reason);
+  status = Notice::none;
+}
+void Form::learnCancelled(LearnQueueReason reason) {
+  if (!session)
+    return;
+  session->ticket = 0;
+  if (reason == LearnQueueReason::locked) {
+    close(Notice::locked);
+    return;
+  }
+  if (reason == LearnQueueReason::expired ||
+      reason == LearnQueueReason::clock) {
+    close(Notice::expired);
+    return;
+  }
+  if (reason == LearnQueueReason::stale) {
+    close(Notice::changed);
+    return;
+  }
+  if (session->fileOnly) {
+    session->page = Session::Page::learnResult;
+    session->cursor = 1;
+    return;
+  }
+  session->selection = {};
+  learnFault("Received frame changed. Choose and review a frame again.", true);
+}
+void Form::queueLearn(uint64_t now, bool fileOnly) {
+  auto &s = *session;
+  s.fileOnly = fileOnly;
+  s.queuedAt = now;
+  s.page = Session::Page::learnPending;
+  s.cursor = 0;
+  const auto queued = backend.queueLearn(s, now);
+  if (queued.reason == LearnQueueReason::ready) {
+    s.ticket = queued.token;
+    return;
+  }
+  if (queued.reason == LearnQueueReason::busy ||
+      queued.reason == LearnQueueReason::queueFull ||
+      queued.reason == LearnQueueReason::exhausted) {
+    if (fileOnly) {
+      s.page = Session::Page::learnResult;
+      s.cursor = 1;
+      return;
+    }
+    learnFault("Queue unavailable/full. Wait, then review explicitly.");
+    return;
+  }
+  learnCancelled(queued.reason);
+}
+void Form::runLearn(uint64_t) {
+  if (!session)
+    return;
+  auto &s = *session;
+  s.ticket = 0;
+  if (s.fileOnly) {
+    const auto result =
+        backend.retryLearnFile(s.target, s.context, s.auth, s.revision, s);
+    if (result.freshness != LearnQueueReason::ready) {
+      learnCancelled(result.freshness);
+      return;
+    }
+    if (result.admission == Admission::locked) {
+      close(Notice::locked);
+      return;
+    }
+    if (result.admission == Admission::stale) {
+      close(Notice::changed);
+      return;
+    }
+    if (result.report.refusal == RestartReason::counterUncertain) {
+      s.canRetryFile = false;
+      s.counterOutcome = CounterDomainState::quarantined;
+      s.page = Session::Page::learnResult;
+      s.cursor = 0;
+      return;
+    }
+    if (result.admission != Admission::accepted ||
+        result.report.refusal != RestartReason::none) {
+      snprintf(s.refusal, sizeof(s.refusal),
+               "Busy. Link applied; retry file only, never Link again.");
+      s.page = Session::Page::learnResult;
+      s.cursor = 1;
+      return;
+    }
+    s.counterOutcome = result.report.file.saved() ? CounterDomainState::saved
+                       : result.report.file.state == ModelCommitState::uncertain
+                           ? CounterDomainState::modelUncertain
+                           : CounterDomainState::modelFailed;
+    s.fileVerified = result.report.file.saved();
+    s.refusal[0] = 0;
+    s.canRetryFile = !result.report.file.saved();
+    s.page = Session::Page::learnResult;
+    s.cursor = s.canRetryFile ? 1 : 0;
+    status = Notice::none;
+    return;
+  }
+  const auto result = backend.linkLearn(s.target, s.context, s.auth, s.revision,
+                                        s.selection, s, allocator);
+  if (result.freshness != LearnQueueReason::ready) {
+    learnCancelled(result.freshness);
+    return;
+  }
+  if (result.admission == Admission::locked) {
+    close(Notice::locked);
+    return;
+  }
+  if (result.admission == Admission::stale) {
+    close(Notice::changed);
+    return;
+  }
+  if (result.admission == Admission::noMemory) {
+    close(Notice::noMemory);
+    return;
+  }
+  if (result.admission != Admission::accepted) {
+    learnFault("Link not applied. Wait, then review explicitly.");
+    return;
+  }
+  if (!result.edit.hasCounterResult) {
+    endLearning();
+    s.counterOutcome = CounterDomainState::invalid;
+    s.canRetryFile = false;
+    s.page = Session::Page::learnResult;
+    s.cursor = 0;
+    return;
+  }
+  s.counterOutcome = result.edit.counterState;
+  if (result.edit.applied) {
+    s.linkApplied = true;
+    s.fileVerified = result.edit.persistence.saved();
+    s.refusal[0] = 0;
+    endLearning();
+    s.action = {};
+    memset(s.ids, 0, sizeof(s.ids));
+    memset(s.slots, 0, sizeof(s.slots));
+    s.count = 0;
+    s.revision = backend.revision();
+    if (!backend.capture(s.target, s.context)) {
+      close(Notice::changed);
+      return;
+    }
+    s.canRetryFile = !result.edit.persistence.saved();
+    s.page = Session::Page::learnResult;
+    s.cursor = s.canRetryFile ? 1 : 0;
+    status = Notice::none;
+    return;
+  }
+  if (s.counterOutcome == CounterDomainState::nvsUncertain ||
+      s.counterOutcome == CounterDomainState::quarantined) {
+    endLearning();
+    s.canRetryFile = false;
+    s.page = Session::Page::learnResult;
+    s.cursor = 0;
+    return;
+  }
+  learnFault(
+      s.counterOutcome == CounterDomainState::stale
+          ? "Stored/live code is newer. Receive and review a fresh frame."
+      : s.counterOutcome == CounterDomainState::nvsFailed
+          ? "Counter storage read/open failed. Nothing was linked."
+      : s.counterOutcome == CounterDomainState::full
+          ? "No linked remote slot. Nothing was linked."
+          : "Link not applied. Wait, then review explicitly.");
+}
 void Form::activate(uint64_t now) {
   if (!guard(now))
     return;
@@ -223,6 +492,11 @@ void Form::activate(uint64_t now) {
       close(Notice::changed);
     break;
   case Session::Page::menu:
+    if (s.cursor == 2) {
+      s.page = Session::Page::learnStart;
+      s.cursor = 0;
+      break;
+    }
     if (s.cursor) {
       s.page = Session::Page::list;
       s.cursor = 0;
@@ -279,6 +553,64 @@ void Form::activate(uint64_t now) {
     s.cursor = 0;
     status = Notice::none;
     break;
+  case Session::Page::learnStart:
+    if (!s.cursor) {
+      s.page = Session::Page::menu;
+      s.cursor = 2;
+      break;
+    }
+    if (!s.candidates.begin(now)) {
+      s.page = Session::Page::menu;
+      s.cursor = 2;
+      status = Notice::busy;
+      break;
+    }
+    s.listening = true;
+    s.selection = {};
+    s.page = Session::Page::learnList;
+    s.cursor = 0;
+    break;
+  case Session::Page::learnList:
+    if (!s.candidates.count())
+      break;
+    if (s.candidates.select(s.cursor, now, s.selection) != LearnCheck::ready) {
+      endLearning();
+      s.page = Session::Page::learnStart;
+      s.cursor = 0;
+      status = Notice::changed;
+      break;
+    }
+    s.page = Session::Page::learnReview;
+    s.cursor = 0;
+    break;
+  case Session::Page::learnReview:
+    if (!s.cursor) {
+      s.page = Session::Page::learnList;
+      s.cursor = 0;
+    } else
+      queueLearn(now, false);
+    break;
+  case Session::Page::learnPending:
+    close(Notice::none);
+    return;
+  case Session::Page::learnFault:
+    if (!s.cursor) {
+      endLearning();
+      s.page = Session::Page::menu;
+      s.cursor = 2;
+    } else {
+      s.page = s.returnPage;
+      s.cursor = 0;
+    }
+    status = Notice::none;
+    break;
+  case Session::Page::learnResult:
+    if (s.canRetryFile && !s.cursor) {
+      queueLearn(now, true);
+      break;
+    }
+    close(Notice::none);
+    return;
   case Session::Page::result: {
     if (s.cursor) {
       close(Notice::none);
@@ -309,6 +641,25 @@ void Form::back(uint64_t now) {
     return;
   touch(now);
   auto &s = *session;
+  if (s.page == Session::Page::learnPending ||
+      s.page == Session::Page::learnResult) {
+    close(Notice::none);
+    return;
+  }
+  if (s.page == Session::Page::learnReview) {
+    s.page = Session::Page::learnList;
+    s.cursor = 0;
+    return;
+  }
+  if (s.page == Session::Page::learnStart ||
+      s.page == Session::Page::learnList ||
+      s.page == Session::Page::learnFault) {
+    endLearning();
+    s.page = Session::Page::menu;
+    s.cursor = 2;
+    status = Notice::none;
+    return;
+  }
   if (s.page == Session::Page::refused) {
     s.page = Session::Page::confirm;
     s.cursor = 0;
@@ -354,7 +705,129 @@ void Form::render(FormView &out) {
     snprintf(out.title, sizeof(out.title), "%s", label.label);
   }
   strcpy(out.hint, "Press: choose   Back: cancel");
-  if (s.page == Session::Page::refused) {
+  if (s.page == Session::Page::learnStart ||
+      s.page == Session::Page::learnReview ||
+      s.page == Session::Page::learnPending ||
+      s.page == Session::Page::learnFault ||
+      s.page == Session::Page::learnResult) {
+    out.mode = Mode::validation;
+    out.total = out.rowCount = 2;
+    strcpy(out.rows[0].label, "Cancel");
+    if (s.page == Session::Page::learnStart) {
+      strcpy(out.rows[1].label, "Begin observation");
+      strcpy(out.hint,
+             "Future received commands can affect this device. No RF now.");
+    } else if (s.page == Session::Page::learnReview) {
+      out.mode = Mode::learnReview;
+      strcpy(out.rows[1].label, "Link received remote");
+      snprintf(out.rows[2].label, sizeof(out.rows[2].label), "#%lu Code %u",
+               static_cast<unsigned long>(s.selection.address),
+               unsigned(s.selection.rollingCode));
+      LearnCandidate candidate;
+      for (uint8_t i = 0; i < s.candidates.count(); i++)
+        if (s.candidates.candidate(i, candidate) &&
+            candidate.address == s.selection.address &&
+            candidate.protocol == s.selection.protocol &&
+            candidate.bits == s.selection.bits)
+          break;
+      char rawCommand[8];
+      snprintf(rawCommand, sizeof(rawCommand), "0x%02X",
+               unsigned(candidate.command));
+      const char *command =
+          somfyCommandLabel(static_cast<somfy_commands>(candidate.command));
+      char signal[20];
+      if (candidate.rssi)
+        snprintf(signal, sizeof(signal), "%ddBm", int(candidate.rssi));
+      else
+        snprintf(signal, sizeof(signal), "RSSI unavailable");
+      snprintf(out.rows[2].value, sizeof(out.rows[2].value), "%s %u-bit %s %s",
+               s.selection.protocol == 0   ? "RTS"
+               : s.selection.protocol == 1 ? "RTW"
+                                           : "RTV",
+               unsigned(s.selection.bits), command ? command : rawCommand,
+               signal);
+      strcpy(out.hint,
+             "Links address/counter; observed format is not a filter.");
+    } else if (s.page == Session::Page::learnPending) {
+      strcpy(out.title, s.fileOnly ? "File save queued" : "Link queued");
+      out.total = out.rowCount = 1;
+      strcpy(out.rows[0].label, "Cancel queued operation");
+      strcpy(out.hint,
+             "FIFO; expires after 5s. Back cancels. No automatic retry.");
+    } else if (s.page == Session::Page::learnFault) {
+      strcpy(out.title, "Link not applied");
+      strcpy(out.rows[0].label, "Cancel learning");
+      strcpy(out.rows[1].label, s.returnPage == Session::Page::learnList
+                                    ? "Choose received frame"
+                                    : "Back to review");
+      snprintf(out.hint, sizeof(out.hint), "%s", s.refusal);
+    } else {
+      strcpy(out.rows[0].label, "Close");
+      out.total = out.rowCount = 1;
+      if (s.canRetryFile) {
+        strcpy(out.title, s.counterOutcome == CounterDomainState::modelUncertain
+                              ? "Linked; file uncertain"
+                              : "Linked; file not saved");
+        out.total = out.rowCount = 2;
+        strcpy(out.rows[0].label, "Retry model file save");
+        strcpy(out.rows[1].label, "Close");
+        snprintf(
+            out.hint, sizeof(out.hint), "%s",
+            s.refusal[0]
+                ? s.refusal
+                : "Counter/link applied. Commit file only; never Link again.");
+      } else if (s.linkApplied && s.fileVerified &&
+                 s.counterOutcome != CounterDomainState::nvsUncertain &&
+                 s.counterOutcome != CounterDomainState::quarantined) {
+        strcpy(out.title, "Remote linked");
+        strcpy(out.hint,
+               s.counterOutcome == CounterDomainState::saved
+                   ? "Counter and model file verified. No RF was sent."
+                   : "Link applied; file saved. Review counter outcome.");
+      } else if (s.counterOutcome == CounterDomainState::nvsUncertain) {
+        strcpy(out.title, "Counter storage uncertain");
+        strcpy(out.hint,
+               "Link not applied; stored code unknown. Do not replay/reset.");
+      } else if (s.counterOutcome == CounterDomainState::quarantined) {
+        strcpy(out.title, s.linkApplied ? "Applied; recovery blocked"
+                                        : "Counter operation blocked");
+        strcpy(
+            out.hint,
+            s.linkApplied
+                ? "Earlier link kept. Counter state unknown. Do not replay."
+                : "Earlier counter state needs recovery. No link was applied.");
+      } else {
+        strcpy(out.title, "Link not applied");
+        strcpy(out.hint,
+               "Outcome unavailable. No success reported; review state.");
+      }
+    }
+  } else if (s.page == Session::Page::learnList) {
+    out.total = s.candidates.count();
+    out.offset = s.cursor / 3 * 3;
+    strcpy(out.hint, s.candidates.overflowed()
+                         ? "8 max; choose frame to review"
+                         : "30s window. Choose frame to review.");
+    if (!out.total) {
+      out.total = out.rowCount = 1;
+      strcpy(out.rows[0].label, "Waiting for remote frame");
+    }
+    for (uint8_t i = out.offset; i < s.candidates.count() && out.rowCount < 3;
+         i++) {
+      LearnCandidate candidate;
+      if (!s.candidates.candidate(i, candidate)) {
+        close(Notice::changed);
+        out = {};
+        out.notice = status;
+        return;
+      }
+      auto &row = out.rows[out.rowCount++];
+      snprintf(row.label, sizeof(row.label), "#%lu",
+               static_cast<unsigned long>(candidate.address));
+      snprintf(row.value, sizeof(row.value), "Code %u",
+               unsigned(candidate.rollingCode));
+    }
+  } else if (s.page == Session::Page::refused) {
     out.mode = Mode::validation;
     out.total = out.rowCount = 2;
     strcpy(out.rows[0].label, "Back to review");
@@ -384,7 +857,8 @@ void Form::render(FormView &out) {
     strcpy(out.rows[1].label, "Close");
     strcpy(out.hint, "Applied already. Retry saves the model file only.");
   } else if (s.page == Session::Page::menu) {
-    out.total = out.rowCount = 2;
+    out.total = out.rowCount = 3;
+    strcpy(out.rows[2].label, "Learn received remote");
     strcpy(out.rows[0].label, "Paired marker");
     strcpy(out.rows[0].value, s.paired ? "Paired" : "Unpaired");
     strcpy(out.rows[1].label, "Linked remotes");

@@ -1,3 +1,4 @@
+#include "CounterResults.h"
 #include "LocalAdvanced.h"
 #include "LocalJsonAllocator.h"
 #include <map>
@@ -35,6 +36,63 @@ struct Model : Advanced::Backend {
   uint32_t repeater = 1234;
   Admission refusal = Admission::accepted, retryRefusal = Admission::accepted;
   ModelCommitState file = ModelCommitState::saved;
+  ReceiveHub received;
+  LearnQueue learnedQueue;
+  unsigned links = 0, counterWrites = 0;
+  uint64_t learnedToken = 0;
+  CounterDomainState counterState = CounterDomainState::saved;
+  LearnQueueReason lateFreshness = LearnQueueReason::ready;
+  RestartReason fileRetryRefusal = RestartReason::none;
+  ReceiveHub &receivedFrames() override { return received; }
+  LearnQueued queueLearn(LearnPending &pending, uint64_t now) override {
+    auto result = learnedQueue.reserve(pending, now);
+    learnedToken = result.token;
+    return result;
+  }
+  bool cancelLearn(uint64_t token, LearnPending &pending) override {
+    return learnedQueue.detach(token, pending);
+  }
+  Admission checkLearnContext(Target target, const Context &expected,
+                              Authorization admitted, uint64_t rev) override {
+    if (!auth.allowed)
+      return Admission::locked;
+    Context actual;
+    capture(target, actual);
+    return admitted.generation == auth.generation &&
+                   admitted.configurationGeneration ==
+                       auth.configurationGeneration &&
+                   rev == history && expected.same(actual)
+               ? Admission::accepted
+               : Admission::stale;
+  }
+  LearnApplyResult linkLearn(Target target, const Context &context,
+                             Authorization admitted, uint64_t rev,
+                             const LearnSelection &candidate,
+                             LearnPending &witness,
+                             ArduinoJson::Allocator &) override {
+    if (witness.current(20) != LearnQueueReason::ready)
+      return {{}, Admission::stale};
+    if (lateFreshness != LearnQueueReason::ready)
+      return {{}, Admission::accepted, lateFreshness};
+    ++links;
+    const bool applied = counterState == CounterDomainState::saved ||
+                         counterState == CounterDomainState::modelFailed ||
+                         counterState == CounterDomainState::modelUncertain;
+    if (applied || counterState == CounterDomainState::nvsUncertain)
+      ++counterWrites;
+    if (applied)
+      ++history;
+    return {counterLinkResult(
+        target.id, {counterState, applied, {file, ModelCommitStage::write}})};
+  }
+  LearnFileResult retryLearnFile(Target, const Context &, Authorization,
+                                 uint64_t, LearnPending &) override {
+    ++retries;
+    LearnFileResult result;
+    result.report.file = {ModelCommitState::saved};
+    result.report.refusal = fileRetryRefusal;
+    return result;
+  }
   Authorization authorization() override { return auth; }
   uint64_t revision() override { return history; }
   void activity() override {}
@@ -343,8 +401,290 @@ static void busy_mutation_has_visible_refusal_and_explicit_review_again() {
   form.activate(19);
   TEST_ASSERT_EQUAL(1, model.saves);
 }
+static void received(Model &model, uint64_t at, uint32_t address, uint16_t code,
+                     uint8_t bits = 56, uint8_t protocol = 0) {
+  ReceiveObservation v;
+  v.observedAt = at;
+  v.address = address;
+  v.rollingCode = code;
+  v.bits = bits;
+  v.protocol = protocol;
+  v.flags = ReceiveObservation::validFlag;
+  TEST_ASSERT_TRUE(model.received.publish(v));
+}
+static void openLearn(Advanced::Form &form) {
+  TEST_ASSERT_TRUE(form.open(Scope::devices, 0));
+  form.activate(1);
+  form.turn(1, 2);
+  form.turn(1, 3);
+  form.activate(4);
+}
+static void
+learning_requires_explicit_start_frozen_review_and_queue_execution() {
+  Model model;
+  JsonAllocator memory(4096, acquire, release);
+  Advanced::Form form(model, memory);
+  FormView view;
+  openLearn(form);
+  char budget[96];
+  snprintf(budget, sizeof(budget),
+           "Learn slab/header=%zu bytes; outer handle=%zu", peak,
+           sizeof(Advanced::Form));
+  TEST_MESSAGE(budget);
+  form.render(view);
+  TEST_ASSERT_EQUAL_STRING("Begin observation", view.rows[1].label);
+  TEST_ASSERT_EQUAL(0, view.selected);
+  TEST_ASSERT_FALSE(model.received.active());
+  form.activate(5);
+  TEST_ASSERT_FALSE(model.received.active()); // default Cancel returns menu
+  form.activate(6);
+  form.turn(1, 7);
+  form.activate(8);
+  TEST_ASSERT_TRUE(model.received.active());
+  received(model, 9, 0xabc, 20);
+  form.activate(10);
+  form.render(view);
+  TEST_ASSERT_EQUAL(0, view.selected);
+  TEST_ASSERT_EQUAL(0, model.links);
+  form.activate(11);
+  TEST_ASSERT_EQUAL(0, model.links); // default Cancel returns list
+  form.activate(12);
+  form.turn(1, 13);
+  form.activate(14);
+  TEST_ASSERT_EQUAL(0, model.links);
+  TEST_ASSERT_TRUE(model.learnedQueue.active(model.learnedToken));
+  model.learnedQueue.run(model.learnedToken, 20);
+  form.render(view);
+  TEST_ASSERT_EQUAL(1, model.links);
+  TEST_ASSERT_EQUAL(1, model.counterWrites);
+  TEST_ASSERT_FALSE(model.received.active());
+  TEST_ASSERT_NOT_NULL(strstr(view.title, "linked"));
+  form.activate(21);
+  TEST_ASSERT_TRUE(form.closed());
+  TEST_ASSERT_EQUAL(0, memory.used());
+}
+static void pending_candidate_or_auth_changes_and_back_cannot_link() {
+  for (unsigned reason = 0; reason < 3; ++reason) {
+    Model model;
+    JsonAllocator memory(4096, acquire, release);
+    Advanced::Form form(model, memory);
+    openLearn(form);
+    form.turn(1, 5);
+    form.activate(6);
+    received(model, 7, 123, 20);
+    form.activate(8);
+    form.turn(1, 9);
+    form.activate(10);
+    const auto token = model.learnedToken;
+    if (reason == 0)
+      received(model, 11, 123, 21);
+    else if (reason == 1)
+      ++model.auth.generation;
+    else
+      form.back(11);
+    model.learnedQueue.refresh(12);
+    model.learnedQueue.run(token, 13);
+    TEST_ASSERT_EQUAL(0, model.links);
+    form.discard();
+    TEST_ASSERT_EQUAL(0, memory.used());
+  }
+}
+static void
+applied_link_file_failure_retries_current_file_never_counter_or_link() {
+  Model model;
+  model.counterState = CounterDomainState::modelFailed;
+  model.file = ModelCommitState::failed;
+  JsonAllocator memory(4096, acquire, release);
+  Advanced::Form form(model, memory);
+  openLearn(form);
+  form.turn(1, 5);
+  form.activate(6);
+  received(model, 7, 123, 20);
+  form.activate(8);
+  form.turn(1, 9);
+  form.activate(10);
+  model.learnedQueue.run(model.learnedToken, 20);
+  FormView view;
+  form.render(view);
+  TEST_ASSERT_NOT_NULL(strstr(view.rows[0].label, "file"));
+  TEST_ASSERT_EQUAL(1, view.selected);
+  TEST_ASSERT_FALSE(model.received.active());
+  form.turn(-1, 21);
+  form.activate(22);
+  TEST_ASSERT_EQUAL(0, model.retries);
+  model.learnedQueue.run(model.learnedToken, 23);
+  TEST_ASSERT_EQUAL(1, model.retries);
+  TEST_ASSERT_EQUAL(1, model.links);
+  TEST_ASSERT_EQUAL(1, model.counterWrites);
+  form.discard();
+}
+static void final_expired_witness_closes_and_wipes_without_linking() {
+  Model model;
+  model.lateFreshness = LearnQueueReason::expired;
+  JsonAllocator memory(4096, acquire, release);
+  Advanced::Form form(model, memory);
+  openLearn(form);
+  form.turn(1, 5);
+  form.activate(6);
+  received(model, 7, 123, 20);
+  form.activate(8);
+  form.turn(1, 9);
+  form.activate(10);
+  model.learnedQueue.run(model.learnedToken, 20);
+  TEST_ASSERT_TRUE(form.closed());
+  TEST_ASSERT_EQUAL(Notice::expired, form.notice());
+  TEST_ASSERT_EQUAL(0, model.links);
+  TEST_ASSERT_FALSE(model.received.active());
+  TEST_ASSERT_EQUAL(0, memory.used());
+}
+static void uncertain_nvs_has_no_retry_and_observation_or_queue_expiry_wipes() {
+  for (unsigned scenario = 0; scenario < 3; scenario++) {
+    Model model;
+    model.counterState = CounterDomainState::nvsUncertain;
+    JsonAllocator memory(4096, acquire, release);
+    Advanced::Form form(model, memory);
+    openLearn(form);
+    form.turn(1, 5);
+    form.activate(6);
+    received(model, 7, 123, 20);
+    if (scenario == 0) {
+      form.activate(8);
+      form.turn(1, 9);
+      form.activate(10);
+      model.learnedQueue.run(model.learnedToken, 20);
+      FormView view;
+      form.render(view);
+      TEST_ASSERT_EQUAL_STRING("Counter storage uncertain", view.title);
+      TEST_ASSERT_EQUAL(1, view.rowCount);
+      TEST_ASSERT_EQUAL_STRING("Close", view.rows[0].label);
+      TEST_ASSERT_EQUAL(1, model.links);
+      TEST_ASSERT_EQUAL(1, model.counterWrites);
+      TEST_ASSERT_FALSE(model.received.active());
+      form.activate(21);
+      TEST_ASSERT_EQUAL(0, model.retries);
+    } else if (scenario == 1) {
+      form.tick(30006);
+      TEST_ASSERT_TRUE(form.closed());
+      TEST_ASSERT_EQUAL(Notice::expired, form.notice());
+    } else {
+      form.activate(8);
+      form.turn(1, 9);
+      form.activate(10);
+      model.learnedQueue.refresh(5010);
+      TEST_ASSERT_TRUE(form.closed());
+      TEST_ASSERT_EQUAL(Notice::expired, form.notice());
+    }
+    TEST_ASSERT_EQUAL(0, memory.used());
+    TEST_ASSERT_FALSE(model.received.active());
+  }
+}
+static void
+failed_prewrite_stays_unapplied_and_file_uncertainty_preserves_prior_link() {
+  for (unsigned scenario = 0; scenario < 2; scenario++) {
+    Model model;
+    model.counterState = scenario ? CounterDomainState::modelUncertain
+                                  : CounterDomainState::nvsFailed;
+    model.file = ModelCommitState::uncertain;
+    JsonAllocator memory(4096, acquire, release);
+    Advanced::Form form(model, memory);
+    openLearn(form);
+    form.turn(1, 5);
+    form.activate(6);
+    received(model, 7, 123, 20);
+    form.activate(8);
+    form.turn(1, 9);
+    form.activate(10);
+    model.learnedQueue.run(model.learnedToken, 20);
+    FormView view;
+    form.render(view);
+    TEST_ASSERT_EQUAL(1, model.links);
+    if (!scenario) {
+      TEST_ASSERT_EQUAL(0, model.counterWrites);
+      TEST_ASSERT_EQUAL_STRING("Link not applied", view.title);
+      form.activate(21);
+      TEST_ASSERT_FALSE(model.received.active());
+    } else {
+      TEST_ASSERT_EQUAL(1, model.counterWrites);
+      TEST_ASSERT_NOT_NULL(strstr(view.title, "uncertain"));
+      TEST_ASSERT_EQUAL(1, view.selected);
+      model.fileRetryRefusal = RestartReason::counterUncertain;
+      form.turn(-1, 21);
+      form.activate(22);
+      model.learnedQueue.run(model.learnedToken, 23);
+      form.render(view);
+      TEST_ASSERT_EQUAL_STRING("Applied; recovery blocked", view.title);
+      TEST_ASSERT_EQUAL(1, view.rowCount);
+      TEST_ASSERT_NOT_NULL(strstr(view.hint, "Earlier link kept"));
+      TEST_ASSERT_EQUAL(1, model.counterWrites);
+      TEST_ASSERT_EQUAL(1, model.links);
+    }
+    form.discard();
+    TEST_ASSERT_EQUAL(0, memory.used());
+  }
+}
+static void projection_discard_event_survives_cache_and_session_erasure_once() {
+  Model model;
+  JsonAllocator memory(4096, acquire, release);
+  Advanced::Form form(model, memory);
+  TEST_ASSERT_EQUAL(32, sizeof(form));
+  openLearn(form);
+  form.turn(1, 5);
+  form.activate(6);
+  received(model, 7, 123, 20);
+  form.activate(8);
+  TEST_ASSERT_FALSE(form.takePrivateProjectionDiscard());
+  form.back(9);
+  form.back(10);
+  TEST_ASSERT_TRUE(form.takePrivateProjectionDiscard());
+  TEST_ASSERT_FALSE(form.takePrivateProjectionDiscard());
+  TEST_ASSERT_FALSE(model.received.active());
+  form.activate(11);
+  form.turn(1, 12);
+  form.activate(13);
+  received(model, 14, 123, 20);
+  form.discard();
+  TEST_ASSERT_EQUAL(0, memory.used());
+  TEST_ASSERT_TRUE(form.takePrivateProjectionDiscard());
+  TEST_ASSERT_FALSE(form.takePrivateProjectionDiscard());
+}
+static void sensor_zero_and_observed_format_are_honest_without_fake_rssi() {
+  Model model;
+  JsonAllocator memory(4096, acquire, release);
+  Advanced::Form form(model, memory);
+  openLearn(form);
+  form.turn(1, 5);
+  form.activate(6);
+  ReceiveObservation event;
+  event.observedAt = 7;
+  event.address = 123;
+  event.rollingCode = 0;
+  event.command = static_cast<uint8_t>(somfy_commands::Sensor);
+  event.protocol = 2;
+  event.bits = 80;
+  event.flags = ReceiveObservation::validFlag;
+  TEST_ASSERT_TRUE(model.received.publish(event));
+  form.activate(8);
+  FormView view;
+  form.render(view);
+  TEST_ASSERT_NOT_NULL(strstr(view.rows[2].label, "Code 0"));
+  TEST_ASSERT_NOT_NULL(strstr(view.rows[2].value, "RTV 80-bit Sensor"));
+  TEST_ASSERT_NOT_NULL(strstr(view.rows[2].value, "RSSI unavailable"));
+  TEST_ASSERT_NOT_NULL(strstr(view.hint, "not a filter"));
+  form.discard();
+  TEST_ASSERT_EQUAL(0, model.links);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(sensor_zero_and_observed_format_are_honest_without_fake_rssi);
+  RUN_TEST(projection_discard_event_survives_cache_and_session_erasure_once);
+  RUN_TEST(uncertain_nvs_has_no_retry_and_observation_or_queue_expiry_wipes);
+  RUN_TEST(
+      failed_prewrite_stays_unapplied_and_file_uncertainty_preserves_prior_link);
+  RUN_TEST(final_expired_witness_closes_and_wipes_without_linking);
+  RUN_TEST(learning_requires_explicit_start_frozen_review_and_queue_execution);
+  RUN_TEST(pending_candidate_or_auth_changes_and_back_cannot_link);
+  RUN_TEST(
+      applied_link_file_failure_retries_current_file_never_counter_or_link);
   RUN_TEST(cancel_is_default_and_rotation_never_applies);
   RUN_TEST(applied_failure_retries_file_only);
   RUN_TEST(context_and_authorization_changes_close_and_free);
