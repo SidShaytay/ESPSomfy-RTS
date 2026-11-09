@@ -43,6 +43,7 @@ struct ConfigSettings { bool hasOtaSlot=true;struct { bool trusted=true;bool loa
 #define configsettings_h
 struct Web {
   bool uploadSuccess = false;
+  bool isAuthenticated(AsyncWebServerRequest *request){return request->allowed&&settings.Security.trusted;}
 } webServer;
 struct MqttConnection {
   unsigned stops = 0;
@@ -89,8 +90,8 @@ struct RecordingRequests {shade_request_result_t run(const shade_request_t&){ret
 #define LOCAL_QUEUE_REAL_UPDATE_OWNER
 #define LOCAL_QUEUE_REAL_RESTORE_EXECUTION
 #include "../ui-adapter/LoopHarness.h"
-bool asyncHasParam(AsyncWebServerRequest *request,const char*){return request->hasRestoreOptions;}
-String asyncParam(AsyncWebServerRequest *request,const char*){return String(request->restoreOptions);}
+bool asyncHasParam(AsyncWebServerRequest *request,const char *name){return std::string(name)=="data"?request->hasRestoreOptions:request->params.count(name);}
+String asyncParam(AsyncWebServerRequest *request,const char *name){return String(std::string(name)=="data"?request->restoreOptions:request->params[name]);}
 bool queueLoopItem(AsyncWebServerRequest *request,const loop_item_t &item){
   restoreMarker=item;
   const bool queued=restoreQueue && loopQueue.submit(item);
@@ -336,9 +337,23 @@ int main() {
   restoreServer.upload(&restoreSuccess,String("x.backup"),0,&byte,1,true);restoreServer.complete(&restoreSuccess);
   assert(restoreSuccess.status==202 && restoreMarker.externalOwner.generation && restoreMarker.externalOwner.kind==GitUpdateExternalOwner::restore);
   const auto restoreSource=restoreMarker.externalOwner;
+  const auto status=restoreExecutionStatus();
+  assert(restoreSuccess.body.find("\"bootSession\":\""+std::to_string(status.bootSession)+"\"")!=std::string::npos);
+  assert(restoreSuccess.body.find("\"generation\":\""+std::to_string(restoreSource.generation)+"\"")!=std::string::npos);
+  assert(restoreServer.statusGet);
+  AsyncWebServerRequest query;query.params={{"bootSession",std::to_string(status.bootSession)},{"generation",std::to_string(status.generation)}};
+  query.allowed=false;restoreServer.statusGet(&query);assert(query.status==401);
+  query.allowed=true;query.params["generation"]="01";restoreServer.statusGet(&query);assert(query.status==400);
+  query.params["generation"]="18446744073709551616";restoreServer.statusGet(&query);assert(query.status==400);
+  query.params["generation"]=std::to_string(status.generation);query.params["bootSession"]="1";
+  restoreServer.statusGet(&query);assert(query.status==409);
+  query.params["bootSession"]=std::to_string(status.bootSession);restoreServer.statusGet(&query);
+  assert(query.status==200&&query.body.find("\"phase\":\"queued\"")!=std::string::npos);
+
   restoreSuccess.disconnected();assert(gitUpdate.ownsExternal(restoreSource));
   loopQueue.drain();assert(restores==1 && restartPending() && !gitUpdate.ownsExternal(restoreSource));
   assert(!LittleFS.files.count("/shades.tmp") && gitUpdate.busy());
+  restoreServer.statusGet(&query);assert(query.status==200&&query.body.find("\"phase\":\"applied\"")!=std::string::npos&&query.body.find("\"restartScheduled\":true")!=std::string::npos);
   reset();
   AsyncWebServerRequest staleRestore,newerRestore;
   restoreServer.upload(&staleRestore,String("x.backup"),0,&byte,1,true);restoreServer.complete(&staleRestore);
@@ -354,6 +369,23 @@ int main() {
   AsyncWebServerRequest fullRestore;
   restoreServer.upload(&fullRestore,String("x.backup"),0,&byte,1,true);restoreServer.complete(&fullRestore);
   assert(fullRestore.status==503 && loopQueue.pending()==LOOP_QUEUE_SIZE && !gitUpdate.busy() && !LittleFS.files.count("/shades.tmp"));
+  assert(restoreExecutionStatus().phase==RestoreExecutionPhase::refused);
+  for(const bool disconnect:{false,true}){
+    reset();AsyncWebServerRequest gap;
+    restoreServer.upload(&gap,String("x.backup"),0,&byte,1,true);bool fired=false;
+    duringClock=[&]{const auto status=restoreExecutionStatus();if(!fired&&status.phase==RestoreExecutionPhase::queued&&status.generation==manualUploadState(&gap)->owner.generation){fired=true;if(disconnect)gap.disconnected();else manualClockMs+=30001;}};
+    restoreServer.complete(&gap);duringClock={};
+    assert(fired);
+    if(disconnect){
+      // The existing lifecycle intentionally retains a queued source across
+      // HTTP disconnect; its exact FIFO marker still executes only once.
+      assert(gap.status==202&&loopQueue.pending()==1);
+      loopQueue.drain();assert(restores==1&&restoreExecutionStatus().phase==RestoreExecutionPhase::applied);
+    }else{
+      assert(gap.status==409&&!loopQueue.pending()&&restoreExecutionStatus().phase==RestoreExecutionPhase::refused);
+      manualUploadLoop();assert(!gitUpdate.busy());
+    }
+  }
   reset();
   LittleFS.shortWrite=true;AsyncWebServerRequest shortRestore;
   restoreServer.upload(&shortRestore,String("x.backup"),0,&byte,1,true);restoreServer.complete(&shortRestore);

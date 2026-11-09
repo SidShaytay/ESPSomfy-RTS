@@ -4355,6 +4355,61 @@ class Firmware {
         document.getElementById('divContainer').appendChild(div);
         if(this.isMobile()) document.getElementById('btnBackupCfg').style.display = 'inline-block';
     }
+    watchRestore(el, identity) {
+        const instructions = el.querySelector('div[id="divInstText"]');
+        const report = text => { if (instructions) instructions.textContent = text; };
+        const decimal = value => typeof value === 'string' && /^[1-9][0-9]{0,19}$/.test(value) &&
+            (value.length < 20 || value <= '18446744073709551615');
+        if (!identity || !decimal(identity.bootSession) || !decimal(identity.generation)) {
+            report('Restore completion is not confirmed. Do not resubmit automatically.');
+            return;
+        }
+        let stopped = false, timer, request, attempts = 0;
+        const stop = () => { stopped = true; clearTimeout(timer); };
+        const close = el.querySelector('button[id="btnClose"]');
+        if (close) close.addEventListener('click', () => {
+            stop();
+            if (request) request.abort(); // End observation, not the owned restore.
+        });
+        const poll = () => {
+            if (stopped) return;
+            if (attempts++ >= 120) {
+                stop(); report('Restore completion is still pending or not confirmed. Do not resubmit automatically.'); return;
+            }
+            request = new XMLHttpRequest();
+            request.open('GET', `${baseUrl}/restoreStatus?bootSession=${identity.bootSession}&generation=${identity.generation}`, true);
+            request.timeout = 5000;
+            request.setRequestHeader('apikey', security.apiKey);
+            const unavailable = () => {
+                if (stopped) return;
+                stop(); report('Restore completion is not confirmed. Reconnect and review the current state; do not resubmit automatically.');
+            };
+            request.onerror = request.ontimeout = unavailable;
+            request.onload = () => {
+                if (stopped) return;
+                if (request.status === 401) { stop(); security.tokenRefused(); return; }
+                let status;
+                try { status = JSON.parse(request.responseText); } catch (e) { unavailable(); return; }
+                if (request.status !== 200 || status.bootSession !== identity.bootSession || status.generation !== identity.generation) {
+                    unavailable(); return;
+                }
+                report(typeof status.desc === 'string' ? status.desc : 'Restore status received.');
+                if (['queued', 'running', 'cleanupPending'].includes(status.phase)) {
+                    timer = setTimeout(poll, 500); return;
+                }
+                stop();
+                if (!['applied', 'partial', 'refused', 'cleanupFault'].includes(status.phase)) {
+                    report('Restore completion is not confirmed. Do not resubmit automatically.'); return;
+                }
+                // Refresh only after execution/cleanup has a terminal result.
+                // This also shows actual partial model effects, without replay.
+                if (status.modelApplied === true) somfy.init();
+            };
+            request.send();
+        };
+        report('Restore queued; waiting for loop execution and cleanup.');
+        poll();
+    }
     async uploadFile(service, el, data) {
         if (service === '/updateApplication' && isBundledWeb()) {
             ui.infoMessage('The web UI is included in firmware updates. No separate Application image was sent.');
@@ -4486,10 +4541,9 @@ class Firmware {
             }
             switch (service) {
                 case '/restore':
-                    (async () => {
-                        await somfy.init();
-                        if (document.getElementById('divUploadFile')) document.getElementById('divUploadFile').remove();
-                    })();
+                    let identity;
+                    try { identity = JSON.parse(xhr.responseText); } catch (e) { }
+                    firmware.watchRestore(el, identity);
                     break;
                 case '/updateApplication':
 

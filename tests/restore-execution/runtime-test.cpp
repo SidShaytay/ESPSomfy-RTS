@@ -67,9 +67,10 @@ int main(int argc,char **argv){assert(argc==2);const std::string mode=argv[1];ra
  if(mode=="remove")LittleFS.failRemove=true;
  if(mode=="missingModel")applyResult.modelApplied=false;
  if(mode=="contradict"){applyResult.settings.state=RestoreSettingsState::saved;applyResult.settings.requestedNamespaces=applyResult.settings.verifiedNamespaces=applyResult.settings.appliedNamespaces=1;applyResult.settings.persistence.state=settings_save_state_t::failed;}
+ if(mode=="extraNamespace"){applyResult.settings.state=RestoreSettingsState::saved;applyResult.settings.requestedNamespaces=applyResult.settings.verifiedNamespaces=applyResult.settings.appliedNamespaces=settingsNamespaceBit(SettingsNamespace::cfg)|settingsNamespaceBit(SettingsNamespace::ntp)|settingsNamespaceBit(SettingsNamespace::ip)|settingsNamespaceBit(SettingsNamespace::ethernet);}
  if(mode=="partial"){applyResult.complete=false;applyResult.refusal=RestoreRefusal::counterStorage;applyResult.counterWriteAttempted=true;applyResult.modelApplied=false;}
  if(mode=="expired")duringApply=[] {clock(40000);};
- runOwnedRestore(owner,RESTORE_SHADES|RESTORE_REPEATERS|(mode=="missingSettings"?RESTORE_SETTINGS:0));
+ runOwnedRestore(owner,RESTORE_SHADES|RESTORE_REPEATERS|((mode=="missingSettings"||mode=="extraNamespace")?RESTORE_SETTINGS:0)|(mode=="extraNamespace"?RESTORE_NETWORK:0));
  if(mode=="remove"){
   assert(restoreExecutionStatus().phase==RestoreExecutionPhase::cleanupFault&&!restartCalls&&gitUpdate.ownsExternal(owner)&&!somfy.transceiver.paused);
   assert(!gitUpdate.claimTransferCleanup(40000).token.generation);const auto calls=LittleFS.removes;serviceRestoreCleanup();assert(LittleFS.removes==calls);return 0;
@@ -83,10 +84,10 @@ int main(int argc,char **argv){assert(argc==2);const std::string mode=argv[1];ra
   if(mode=="stale"){++ownerGeneration;::owner=Owner::manual;serviceRestoreCleanup();assert(somfy.transceiver.paused&&LittleFS.removes==0&&restoreExecutionStatus().phase==RestoreExecutionPhase::cleanupFault);return 0;}
   serviceRestoreCleanup();assert(!somfy.transceiver.paused&&LittleFS.removes==1&&!gitUpdate.busy()&&!restartCalls);
   const auto resumes=somfy.transceiver.resumes;serviceRestoreCleanup();assert(somfy.transceiver.resumes==resumes&&LittleFS.removes==1);
-  const auto next=queued();const auto files=LittleFS.removes;runOwnedRestore(owner,RESTORE_SHADES);assert(gitUpdate.ownsExternal(next)&&LittleFS.removes==files);return 0;
+  const auto next=queued();const auto files=LittleFS.removes;refuseUnpublishedRestore(owner,RestoreRefusal::ownership);assert(restoreExecutionStatus().generation==next.generation&&restoreExecutionStatus().phase==RestoreExecutionPhase::queued);runOwnedRestore(owner,RESTORE_SHADES);assert(gitUpdate.ownsExternal(next)&&LittleFS.removes==files);return 0;
  }
  if(mode=="pending"||mode=="radio"||mode=="moving")assert(!applies&&!restartCalls&&!gitUpdate.busy()&&LittleFS.removes==1);
- else if(mode=="partial"||mode=="expired"||mode=="contradict"||mode=="missingModel"||mode=="missingSettings")assert(applies==1&&!restartCalls&&!gitUpdate.busy()&&LittleFS.removes==1);
+ else if(mode=="partial"||mode=="expired"||mode=="contradict"||mode=="missingModel"||mode=="missingSettings"||mode=="extraNamespace")assert(applies==1&&!restartCalls&&!gitUpdate.busy()&&LittleFS.removes==1);
  else assert(mode=="complete"&&applies==1&&restartCalls==1&&LittleFS.removes==1&&reservation.generation);
  const auto status=restoreExecutionStatus();assert(status.generation==owner.generation&&status.bootSession);puts("Actual restore execution source/lease/cleanup case passed");
 }

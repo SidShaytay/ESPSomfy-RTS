@@ -22,6 +22,9 @@ bool restoreExecutionReady();
 // Called while the existing queued restore source still holds its receive claim,
 // before its FIFO marker is published. Cached status only, no file/model I/O.
 bool noteRestoreQueued(const GitUpdateOwnerToken &);
+// An unpublished/expired marker is terminal for this exact cached generation.
+// Never alters a running restore or a replacement source.
+void refuseUnpublishedRestore(const GitUpdateOwnerToken &,RestoreRefusal);
 // loop() only. The marker has already left the queue; claims the same source.
 void runOwnedRestore(const GitUpdateOwnerToken &,uint8_t parts);
 // loop() only, before generic manual cleanup. Never retries apply or restart.
