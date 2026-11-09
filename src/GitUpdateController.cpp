@@ -9,6 +9,7 @@
 #include "SettingsDurability.h"
 #include "LocalUiAuthorizationAdapter.h"
 #include "LocalControlQueue.h"
+#include "GitUpdateBootHealth.h"
 extern SomfyShadeController somfy;
 extern ConfigSettings settings;
 extern LoopQueue loopQueue;
@@ -25,7 +26,7 @@ bool authorized(uint32_t session,uint32_t security) {
   return session && security && current.allowed && current.generation==session && current.configurationGeneration==security;
 }
 bool modelReady() {
-  return modelFilesystemMounted() && settings.settingsUsable() && somfy.modelLoad.usable() &&
+  return !gitUpdateBootStatus().pending && modelFilesystemMounted() && settings.settingsUsable() && somfy.modelLoad.usable() &&
       somfy.transceiver.config.loadStatus.usable() && settingsDurability().status().restartAllowed() &&
       !somfy.transceiver.counterEditUncertain();
 }

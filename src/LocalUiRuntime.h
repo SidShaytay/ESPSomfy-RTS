@@ -76,6 +76,7 @@ public:
   void begin();
   DisplayPreferences preferences() const { return controller.preferences(); }
   GraphicsFailure failure() const { return memory.failure; }
+  bool healthy() const {return memory.failure==GraphicsFailure::none && hasPresented && !graphicsMissing;}
   bool tick(uint32_t now, const StatusDisplay::Snapshot &, bool pressed,
             bool (*sendBand)(uint8_t, uint8_t, const uint8_t *, size_t), void (*light)(uint8_t));
 };

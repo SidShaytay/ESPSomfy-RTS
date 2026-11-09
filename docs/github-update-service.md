@@ -1,6 +1,6 @@
 # Inactive GitHub update service and installer draft
 
-`GitUpdateClass` is the single shared service reconciled from the issue #12 audit. It supplies latest-release Check, candidate-bound metadata Prepare, and the isolated installation draft described below. Nothing invokes `begin()` or `loop()` in startup or exposes its requests through web/LCD controls. `prepared` means verified metadata only; `canInstall` remains false unless all installation callbacks are supplied. Web and LCD adapters must use this service rather than create another installer.
+`GitUpdateClass` is the single shared service reconciled from the issue #12 audit. It supplies latest-release Check, candidate-bound metadata Prepare, and installation through the controller adapter described below. Canonical startup initializes it and its loop adapter without scheduling network requests. Web/LCD controls remain unfinished. `prepared` means verified metadata only; `canInstall` remains false unless all installation callbacks are supplied. Web and LCD adapters must use this service rather than create another installer.
 
 ## Ownership and candidate confirmation
 
@@ -22,9 +22,9 @@ The worker requests a 12 KiB internal stack and checks at least 48 KiB free inte
 
 ## Activation prerequisites
 
-The mbedTLS allocator hook is global. It must be installed exactly once **before any mbedTLS allocation**, including the web API token HMAC, not merely before TLS. Switching after existing allocations would mismatch allocator/free pairs. Current startup contains no such call. A later activation stage must review startup ordering, prove allocation failure cannot mint or accept an HMAC token, and retain bounded behavior for other TLS clients. The certificate adapter itself is per-client: synchronous HTTP cleanup completes while its callback context is alive, and other clients keep their own bundle callbacks.
+The mbedTLS allocator hook is global. Canonical startup installs it **before any mbedTLS allocation**, including the web API token HMAC, display/capture or web initialization. Switching after existing allocations would mismatch allocator/free pairs. Failed startup initialization leaves the updater unavailable and does not trigger a later hook switch. Token HMAC failure refuses authentication. The certificate adapter itself is per-client: synchronous HTTP cleanup completes while its callback context is alive, and other clients keep their own bundle callbacks.
 
-Installation still needs reviewed loop callbacks for fresh authorization, model admission, quiescence and cleanup, the final SafeRestart handoff, OTA boot health/rollback and user-facing confirmation. Existing settings durability tracks uncertainty by complete persisted namespace (general/connection share CFG); installer admission must use it. Historical bootloader/assets migration is a separate explicitly authorized stage. There is no live access or provisioning authorization here.
+The controller callbacks supply fresh authorization, model admission, quiescence, cleanup and the final SafeRestart handoff. User-facing confirmation and managed rollback remain unfinished. [Continuous boot health](github-update-boot-health.md) now qualifies confirmation and emits a deadline failure intent. Existing settings durability tracks uncertainty by complete persisted namespace (general/connection share CFG); installer admission uses it. Historical bootloader/assets migration is a separate explicitly authorized stage. There is no live access or provisioning authorization here.
 
 ## Offline evidence and limits
 
@@ -55,12 +55,11 @@ only after closed I/O; busy cleanup retains resources and stale cleanup stops
 without retrying a physical operation. The controller requests no RF/motor
 commands and stores no credentials in its source record.
 
-Startup, LCD controls and postboot health remain unfinished. No production
-startup calls this adapter; these tests do not establish a working user-facing
-installer. `beginGitUpdateController()` requires prior global TLS allocator
-initialization. The owning main loop must service network/UI while
-`gitUpdateControllerPaused()` and must defer normal model/queue execution until
-cleanup or final shutdown.
+Startup invokes the adapter after global TLS allocator initialization. The main
+loop services network/UI while `gitUpdateControllerPaused()` and defers normal
+model/queue execution until cleanup or final shutdown. LCD controls and managed
+rollback remain unfinished; these tests do not establish complete user-facing
+updater acceptance.
 
 `tools/test-update-worker.sh` compiles production service/policy/certificate code against scripted SDK boundaries and local SHA256. It exercises valid and changed candidates, stale/reboot generations, cancellation/deadlines, ownership races, malformed metadata/digests/redirects, allocation/resource failures and certificate errors. Fakes assert no critical-section SDK calls, leaks, partition writes or model effects. A mutation removing manifest-digest binding fails the changed-manifest regression.
 

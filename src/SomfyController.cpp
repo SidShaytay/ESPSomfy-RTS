@@ -31,6 +31,14 @@
 #include <inttypes.h>
 #include "Timing.h"
 #include "BoardProfile.h"
+#include "GitUpdateBootHealth.h"
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+#include "GitUpdateController.h"
+#include "GitUpdateMemory.h"
+#include "GitUpdateAssets.h"
+#include "GitUpdateBootloader.h"
+#include <esp_timer.h>
+#endif
 
 static const char *TAG = "Main";
 #define LOOP_SLOW_MS 100
@@ -46,6 +54,17 @@ static const char *TAG = "Main";
 // at boot.  loop() confirms it once otaProven().
 extern "C" bool verifyRollbackLater() { return true; }
 static bool otaPending = false;
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+static GitUpdateBootHealth otaHealth;
+static bool updaterBootloaderHealthy=false,updaterAssetsHealthy=false;
+#endif
+GitUpdateBootStatus gitUpdateBootStatus(){
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  return {otaPending,otaHealth.rollbackRequired()};
+#else
+  return {otaPending,false};
+#endif
+}
 
 ConfigSettings settings;
 Web webServer;
@@ -91,6 +110,11 @@ static void onAllocFailed(size_t size, uint32_t caps, const char *function) {
 #include "StatusPanel.h"
 
 void setup() {
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  // The global allocator must precede display/capture/web startup and HMAC.
+  // On failure no later code attempts to switch allocation/free pairs.
+  gitUpdateMemoryBegin();
+#endif
   Serial.begin(SERIAL_BAUD);
   BoardProfile::begin();
   StatusPanel::begin();
@@ -170,6 +194,12 @@ void setup() {
   otaPending = esp_ota_get_state_partition(esp_ota_get_running_partition(), &otaState) == ESP_OK &&
     otaState == ESP_OTA_IMG_PENDING_VERIFY;
   if(otaPending) ESP_LOGW(TAG, "Updated firmware, keeping it once it has run %ds with the network up", OTA_PROVEN_MS / 1000);
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  updaterBootloaderHealthy=gitUpdateBootloaderMatches();
+  updaterAssetsHealthy=gitUpdateAssetsMatch();
+  otaHealth.start(otaPending,0);
+  beginGitUpdateController();
+#endif
 }
 
 void performLegacyShutdown() {
@@ -190,6 +220,9 @@ void loop() {
   net.loop();
   logIfSlow(TAG, "Loop net", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  if(!gitUpdateControllerPaused()) {
+#endif
   somfy.loop();
   logIfSlow(TAG, "Loop somfy", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
@@ -200,6 +233,9 @@ void loop() {
   somfy.sendChanges();
   logIfSlow(TAG, "Loop changes", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  }
+#endif
   if(net.connected() || net.softAPOpened) {
     webServer.loop();
     logIfSlow(TAG, "Loop web server", timing.lap(), LOOP_SLOW_MS);
@@ -208,6 +244,12 @@ void loop() {
     logIfSlow(TAG, "Loop sockets", timing.lap(), LOOP_SLOW_MS);
     esp_task_wdt_reset();
   }
+  StatusPanel::loop();
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  // Normal accepted work drains before preparation. While paused, keep only
+  // network/status/UI and reducing cleanup active; never run model producers.
+  loopGitUpdateController();
+#endif
   if(restartLoop()) return;
   bool updateNetworkReady=net.connected() && somfy.modelLoad.usable() && settings.settingsUsable() &&
       somfy.transceiver.config.loadStatus.usable() &&
@@ -217,12 +259,29 @@ void loop() {
   // Registration is necessary, but full installer health checks remain separate.
   updateNetworkReady=updateNetworkReady && bundledWebRoutesReady();
 #endif
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  updateNetworkReady=updateNetworkReady && modelFilesystemMounted() && gitUpdateMemoryReady() &&
+      updaterBootloaderHealthy && updaterAssetsHealthy && StatusPanel::healthy() &&
+      !somfy.transceiver.counterEditUncertain() && (!somfy.transceiver.config.enabled || somfy.transceiver.available()) &&
+      !gitUpdateControllerPaused() && !gitUpdate.busy() && pass.us()<1000000 &&
+      heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)>=24576;
+  const auto bootMicros=esp_timer_get_time();
+  const auto action=otaHealth.poll(updateNetworkReady,bootMicros<0?UINT64_MAX:uint64_t(bootMicros)/1000);
+  if(action==GitUpdateBootHealth::Action::confirm) {
+    if(esp_ota_mark_app_valid_cancel_rollback()==ESP_OK) {
+      otaHealth.confirmed();otaPending=false;ESP_LOGI(TAG,"Updated firmware passed continuous boot health");
+    } else ESP_LOGE(TAG,"Unable to confirm updated firmware; keeping confirmation pending");
+  } else if(action==GitUpdateBootHealth::Action::rollbackRequired) {
+    // This is a health-failure intent only. Never restart a moving controller
+    // or bypass checked persistence here; managed rollback wiring is separate.
+    ESP_LOGE(TAG,"Updated firmware failed boot health; rollback required");
+  }
+#else
   if(otaPending && otaProven(updateNetworkReady, millis(), OTA_PROVEN_MS)) {
-    otaPending = false;
-    if(esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) ESP_LOGI(TAG, "Updated firmware confirmed, rollback cancelled");
+    if(esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {otaPending = false;ESP_LOGI(TAG, "Updated firmware confirmed, rollback cancelled");}
     else ESP_LOGE(TAG, "Unable to confirm the updated firmware");
   }
+#endif
   esp_task_wdt_reset();
-  StatusPanel::loop();
   loopStats.record(pass.us());
 }
