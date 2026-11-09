@@ -4,6 +4,7 @@
 #include "CounterResults.h"
 #include "GitUpdate.h"
 #include "LocalAdvancedRuntime.h"
+#include "LocalMembership.h"
 #include "LocalEntityRuntime.h"
 #include "LocalJsonAllocator.h"
 #include "LocalUiAuthorizationAdapter.h"
@@ -34,18 +35,20 @@ struct Remote {
 struct Shade {
   uint8_t id = 255;
   uint32_t address = 100;
+  uint32_t gpioRelease=0;uint8_t bitLength=56;radio_proto proto=radio_proto::RTS;int8_t sortOrder=0;char name[21]="Office";
   uint64_t configurationRevision = 1;
   bool paired = false, idle = true;
   Remote linkedRemotes[7];
   uint8_t getShadeId() { return id; }
   uint32_t getRemoteAddress() { return address; }
-  bool idleForAdministration() { return idle; }
+  bool idleForAdministration() { return idle&&!gpioRelease; }
 };
 struct Group {
   int8_t direction = 1;
   somfy_frame_t lastFrame;
   uint8_t id = 255;
   uint32_t address = 200;
+  uint8_t bitLength=56;radio_proto proto=radio_proto::RTS;char name[21]="Group";
   uint64_t configurationRevision = 1;
   uint8_t linkedShades[32]{};
   uint8_t getGroupId() { return id; }
@@ -59,7 +62,8 @@ struct SomfyShadeController {
   uint32_t repeaters[7]{};
   struct {
     uint64_t configurationRevision = 1;
-    bool quiet = true;
+    bool quiet = true;bool paused=false;struct{uint8_t type=56;}config;
+    bool txSuspended(){return paused;}
     uint32_t blocked = 0;
     CounterQuarantine quarantine = CounterQuarantine::none;
     CounterQuarantine counterQuarantine() { return quarantine; }
@@ -167,12 +171,15 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
   else if (edit.type == model_edit_type_t::unlink_repeater)
     somfy.repeaters[6] = 0;
   else {
-    TEST_ASSERT_EQUAL(model_edit_type_t::unlink_from_group, edit.type);
-    TEST_ASSERT_EQUAL(88, edit.doc["shadeId"].as<uint8_t>());
-    somfy.groups[0].linkedShades[31] = 0;
+    TEST_ASSERT_TRUE(edit.type==model_edit_type_t::unlink_from_group || edit.type==model_edit_type_t::link_to_group);
+    const auto id=edit.doc["shadeId"].as<uint8_t>();
+    if(edit.type==model_edit_type_t::link_to_group)TEST_ASSERT_TRUE(addToList(somfy.groups[0].linkedShades,32,id));
+    else removeFromList(somfy.groups[0].linkedShades,32,id);
   }
   ++somfy.configurationRevision;
-  return edit_result_t::completed(7, {file, ModelCommitStage::write});
+  auto result=edit_result_t::completed(edit.type==model_edit_type_t::unlink_from_group||edit.type==model_edit_type_t::link_to_group?9:7,{file,ModelCommitStage::write});
+  if(edit.type==model_edit_type_t::unlink_from_group||edit.type==model_edit_type_t::link_to_group)result.shadeId=edit.doc["shadeId"].as<uint8_t>();
+  return result;
 }
 ModelCommitReport applyModelCommit(const proto_reply_to_t &,
                                    ModelCommitMode mode) {
@@ -210,10 +217,9 @@ struct Reader : Backend {
   void activity() override {}
   bool readOrder(Kind kind, OrderIds &ids, OrderIds &slots, uint8_t &count,
                  bool &needed) override {
-    ids[0] = kind == Kind::shade ? 7 : 9;
-    slots[0] = 0;
-    count = 1;
-    needed = false;
+    count=0;needed=false;
+    if(kind==Kind::shade){for(uint8_t slot=0;slot<32;slot++)if(somfy.shades[slot].id!=255){ids[count]=somfy.shades[slot].id;slots[count++]=slot;}}
+    else {ids[0]=9;slots[0]=0;count=1;}
     return true;
   }
   bool readOrderLabel(Kind, uint8_t slot, uint8_t id, Value &value) override {
@@ -628,8 +634,37 @@ static void primary_final_read_side_effect_and_witness_changes_refuse_without_co
     TEST_ASSERT_EQUAL(0,primaryWrites);
   }
 }
+static void membership_reads_all_slots_and_mixed_unpaired_candidates_without_rf_filter() {
+  const Target target{Scope::groups,9};Context context;source().capture(target,context);
+  somfy.groups[0].linkedShades[2]=255;somfy.groups[0].linkedShades[29]=7;somfy.groups[0].linkedShades[31]=88;source().capture(target,context);
+  MembershipRows rows;TEST_ASSERT_TRUE(source().membershipRows(target,false,rows));TEST_ASSERT_EQUAL(32,rows.count);TEST_ASSERT_EQUAL(255,rows.ids[2]);TEST_ASSERT_EQUAL(88,rows.ids[31]);TEST_ASSERT_EQUAL(0,rows.devices[29]);
+  Choice label;char detail[48];TEST_ASSERT_TRUE(source().membershipLabel(target,false,rows,29,label,detail));TEST_ASSERT_EQUAL(7,label.value);TEST_ASSERT_NOT_NULL(strstr(label.label,"30"));
+  somfy.shades[31].id=32;somfy.shades[31].address=900;somfy.shades[31].proto=radio_proto::RTW;somfy.shades[31].bitLength=80;somfy.shades[31].paired=false;
+  TEST_ASSERT_TRUE(source().membershipRows(target,true,rows));TEST_ASSERT_EQUAL(1,rows.count);TEST_ASSERT_EQUAL(32,rows.ids[0]);TEST_ASSERT_EQUAL(31,rows.devices[0]);
+  MembershipSelection selected;TEST_ASSERT_TRUE(source().selectMembership(target,context,true,rows,0,selected));
+  TEST_ASSERT_TRUE(selected.hasCandidate&&selected.candidate.targetExists);TEST_ASSERT_EQUAL(32,selected.candidate.ref.id);TEST_ASSERT_NOT_NULL(strstr(selected.deviceIdentity,"RTW"));TEST_ASSERT_NOT_NULL(strstr(selected.deviceIdentity,"80"));
+  TEST_ASSERT_EQUAL(0,applies);TEST_ASSERT_EQUAL(0,commits);
+}
+static void membership_repairs_unknown_groups_but_preserves_unrelated_motion_and_stop_context() {
+  const Target target{Scope::groups,9};Context context;source().capture(target,context);MembershipRows rows;source().membershipRows(target,false,rows);MembershipSelection selected;
+  TEST_ASSERT_TRUE(source().selectMembership(target,context,false,rows,31,selected));
+  somfy.groups[15].id=16;somfy.groups[15].direction=1;somfy.groups[15].linkedShades[31]=255;
+  JsonAllocator memory(65536,acquire,release);Witness witness;
+  auto result=source().applyMembership(target,context,source().authorization(),source().revision(),selected,witness,memory);
+  TEST_ASSERT_EQUAL(Admission::accepted,result.result.admission);TEST_ASSERT_TRUE(result.result.edit.applied);TEST_ASSERT_EQUAL(1,applies);TEST_ASSERT_EQUAL(0,somfy.groups[0].linkedShades[31]);
+  for(unsigned busy=0;busy<4;++busy){
+    setUp();source().capture(target,context);source().membershipRows(target,false,rows);TEST_ASSERT_TRUE(source().selectMembership(target,context,false,rows,31,selected));
+    somfy.shades[31].id=32;somfy.shades[31].address=777;
+    if(busy==0)somfy.shades[31].idle=false;if(busy==1)somfy.shades[31].gpioRelease=1;if(busy==2)pendingCount=1;if(busy==3)somfy.transceiver.quiet=false;
+    const auto history=source().revision();const auto raw=context;
+    result=source().applyMembership(target,context,source().authorization(),history,selected,witness,memory);
+    TEST_ASSERT_EQUAL(Admission::busy,result.result.admission);TEST_ASSERT_EQUAL(0,applies);TEST_ASSERT_EQUAL(history,source().revision());Context after;source().capture(target,after);TEST_ASSERT_TRUE(raw.same(after));
+  }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(membership_reads_all_slots_and_mixed_unpaired_candidates_without_rf_filter);
+  RUN_TEST(membership_repairs_unknown_groups_but_preserves_unrelated_motion_and_stop_context);
   RUN_TEST(primary_counter_read_and_final_apply_share_fresh_context_without_nested_owner);
   RUN_TEST(primary_final_read_side_effect_and_witness_changes_refuse_without_correction);
   RUN_TEST(checked_link_uses_only_address_counter_and_domain_owned_lease);

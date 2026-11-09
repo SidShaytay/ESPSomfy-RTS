@@ -31,4 +31,12 @@ static void unknown_group_motion_is_not_an_administration_grant(){
   m.groups[slot].direction=1;TEST_ASSERT_FALSE(modelIdleForAdministration(m));
  }
 }
-int main(){UNITY_BEGIN();RUN_TEST(every_configured_physical_shade_must_be_idle);RUN_TEST(tracked_completed_groups_ignore_stale_command_direction);RUN_TEST(unknown_group_motion_is_not_an_administration_grant);return UNITY_END();}
+static void metadata_partial_proof_preserves_configured_motion_without_unknown_group_barrier(){
+ Model m;m.groups[0].id=1;m.groups[0].direction=1;m.groups[15].id=16;
+ m.groups[15].lastFrame.valid=true;m.groups[15].lastFrame.cmd=somfy_commands::My;m.groups[15].linkedShades[31]=88;
+ TEST_ASSERT_TRUE(configuredShadesIdleForAdministration(m));TEST_ASSERT_FALSE(modelIdleForAdministration(m));
+ for(unsigned slot=0;slot<32;++slot){m.shades[slot].id=slot+1;m.shades[slot].idle=false;
+  TEST_ASSERT_FALSE(configuredShadesIdleForAdministration(m));m.shades[slot].idle=true;}
+ TEST_ASSERT_TRUE(configuredShadesIdleForAdministration(m));TEST_ASSERT_FALSE(modelIdleForAdministration(m));
+}
+int main(){UNITY_BEGIN();RUN_TEST(metadata_partial_proof_preserves_configured_motion_without_unknown_group_barrier);RUN_TEST(every_configured_physical_shade_must_be_idle);RUN_TEST(tracked_completed_groups_ignore_stale_command_direction);RUN_TEST(unknown_group_motion_is_not_an_administration_grant);return UNITY_END();}
