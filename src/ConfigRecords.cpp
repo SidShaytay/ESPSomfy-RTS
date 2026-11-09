@@ -63,7 +63,18 @@ bool ConfigReader::readString(char *buff, size_t len) {
   return false;
 }
 bool ConfigReader::readFixedString(char *buff, size_t len) {
-  if(_checkedValues)_checkedError=true; // Not used by checked settings records.
+  if(_checkedValues) {
+    if(!len){_checkedError=true;return false;}
+    memset(buff,0,len);
+    if(atRecordEnd())return false;
+    uint8_t byte;
+    for(size_t i=0;i+1<len;++i) {
+      if(!next(byte) || !byte || byte==CFG_REC_END){_checkedError=true;return false;}
+      buff[i]=char(byte);
+    }
+    if(!next(byte) || byte!=CFG_VALUE_SEP){_checkedError=true;return false;}
+    _rtrim(buff);++_checkedFields;return true;
+  }
   memset(buff, 0x00, len);
   if(this->atRecordEnd()) return false;
   uint8_t val;
