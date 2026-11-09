@@ -2,7 +2,7 @@
 
 Use this procedure to back up an existing controller and update its firmware while preserving configuration, rolling codes and the previous application. A/B means two application slots: the updater writes the inactive one and selects it for the next boot.
 
-The normal path is a firmware-only A/B update on the **same verified partition layout**. It does not update the web filesystem. First installation, a layout change, a board without a second app slot, or recovery from an unreachable application needs a separate board-specific USB plan.
+The normal path is a firmware-only A/B update on the **same verified partition layout**. On the canonical shared LILYGO build, the matching web UI is embedded in that firmware and rolls back with it; private LittleFS data remains untouched. Generic firmware retains its existing separate web filesystem. First installation, a layout change, a board without a second app slot, or recovery from an unreachable application needs a separate board-specific USB plan.
 
 Run the blocks in order in the same Bash session from the repository root. Stop on any failure; do not treat a partial capture as a recovery set. Tool setup requires `uv` and network access; it installs only into your user-owned cache.
 

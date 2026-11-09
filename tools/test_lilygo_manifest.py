@@ -1,5 +1,8 @@
 """Offline artifact rejection tests; no device or installed toolchain required."""
 import hashlib
+import gzip
+import bundled_web_assets
+import update_assets
 import json
 import os
 import subprocess
@@ -36,12 +39,19 @@ class ManifestTests(unittest.TestCase):
                          for name, (kind, sub, offset, size) in STANDARD_PARTITIONS.items())
         table += b'\xeb\xeb' + b'\xff' * 14 + hashlib.md5(table).digest()
         (self.out / 'partitions.bin').write_bytes(table.ljust(0xc00, b'\xff'))
+        self.webtmp=tempfile.TemporaryDirectory();self.addCleanup(self.webtmp.cleanup)
+        web=Path(self.webtmp.name)
+        for name,text in [('index.html','<html><meta name="espsomfy-web-mode" content="bundled"></html>'),('index.js','window.test=1;'),('app.css','body{}')]:
+            (web/(name+'.gz')).write_bytes(gzip.compress(text.encode(),mtime=0))
+        (web/'appversion').write_bytes(b'4.0.1\n');update_assets.write_manifest(web)
+        self.bundleBlob=bundled_web_assets.build_blob(web)
+        self.bundleCompat=bundled_web_assets.extract(self.bundleBlob)['compatibility']
         for name in ('bootloader.bin', 'firmware.bin'):
             header = bytearray(24)
             header[0:4] = bytes([0xe9, 1, 2, 0x4f])
             header[23] = 1
             struct.pack_into('<H', header, 12, 9)
-            payload = b'payload'
+            payload = b'payload'+(self.bundleBlob if name=='firmware.bin' else b'')
             image = header + struct.pack('<II', 0x3c000000, len(payload)) + payload
             checksum = 0xef
             for byte in payload:
@@ -54,11 +64,10 @@ class ManifestTests(unittest.TestCase):
         ota[28:32] = bytes.fromhex('9a984347')
         ota[4096:4100] = b'\x00' * 4
         (self.out / 'boot_app0.bin').write_bytes(ota)
-        (self.out / 'littlefs.bin').write_bytes(b'\xff' * 0x180000)
         (self.out / 'firmware.elf').write_bytes(b'ELF-symbols')
         profile = dict(m.BUILD_SETTINGS, lib_deps=list(m.DISPLAY_LIBRARIES), platform=m.PLATFORM, framework=['arduino'], build_flags=list(m.REQUIRED_FLAGS))
         compiler = {'env_name': m.ENV, 'build_type': 'release',
-                    'defines': [f[2:] for f in m.REQUIRED_FLAGS] + ['BOARD_HAS_PSRAM', 'IDF_VER="v5.5.5"', 'MBEDTLS_CONFIG_FILE="mbedtls/esp_config.h"'],
+                    'defines': [f[2:] for f in m.REQUIRED_FLAGS] + ['BOARD_HAS_PSRAM', 'IDF_VER="v5.5.5"', 'MBEDTLS_CONFIG_FILE="mbedtls/esp_config.h"', 'FW_VERSION="v4.0.1"', 'ESPSOMFY_APP_COMPAT="'+self.bundleCompat+'"'],
                     'cc_flags': [], 'cxx_flags': [],
                     'includes': {'build': ['/sdk/esp32s3/qio_opi/include']}}
         (self.out / 'resolved-config.json').write_text(json.dumps([['env:' + m.ENV, list(profile.items())]]))
@@ -80,15 +89,31 @@ class ManifestTests(unittest.TestCase):
             with self.subTest(macro=macro,field='resolved'), self.assertRaises(ValueError):
                 m.build_configuration(evidence['resolved'],evidence['compiler'])
 
+    def test_canonical_bundle_has_no_separate_filesystem_payload(self):
+        self.assertEqual(self.manifest['web']['mode'],'bundled')
+        self.assertEqual(self.manifest['usage']['filesystem_update'],[])
+        self.assertNotIn('littlefs.bin',[segment['file'] for segment in self.manifest['segments']])
+    def test_compiled_bundle_digest_and_source_version_cannot_disagree(self):
+        import copy
+        path=self.out/'compiler-metadata.json';original=json.loads(path.read_text())
+        for name,bad in [('FW_VERSION','"v9.9.9"'),('ESPSOMFY_APP_COMPAT','"sha256:'+'a'*64+'"')]:
+            data=copy.deepcopy(original);values=data[m.ENV]['defines']
+            values[:]=[v for v in values if not v.startswith(name+'=')];values.append(name+'='+bad)
+            path.write_text(json.dumps(data))
+            with self.subTest(name=name),self.assertRaisesRegex(ValueError,'bundled web'):m.artifact_manifest(self.out)
+        path.write_text(json.dumps(original))
+    def test_stale_separate_web_image_is_refused(self):
+        (self.out/'littlefs.bin').write_bytes(b'old web image')
+        with self.assertRaisesRegex(ValueError,'unexpected artifact'):m.artifact_manifest(self.out)
     def test_canonical_package_includes_full_interface(self):
         self.assertFalse(self.manifest['target']['headless'])
-        for feature in ('ESPSOMFY_STATUS_DISPLAY', 'ESPSOMFY_LOCAL_UI', 'ESPSOMFY_LOCAL_COMMANDS'):
+        for feature in ('ESPSOMFY_STATUS_DISPLAY', 'ESPSOMFY_LOCAL_UI', 'ESPSOMFY_LOCAL_COMMANDS', 'ESPSOMFY_BUNDLED_WEB'):
             self.assertIn('-D' + feature, self.manifest['profile_build_flags'])
 
     def test_required_interface_cannot_be_removed_or_conflicted(self):
         import copy
         original = self.manifest['effective_build']
-        for feature in ('ESPSOMFY_STATUS_DISPLAY', 'ESPSOMFY_LOCAL_UI', 'ESPSOMFY_LOCAL_COMMANDS'):
+        for feature in ('ESPSOMFY_STATUS_DISPLAY', 'ESPSOMFY_LOCAL_UI', 'ESPSOMFY_LOCAL_COMMANDS', 'ESPSOMFY_BUNDLED_WEB'):
             for field in ('defines', 'cc_flags', 'cxx_flags'):
                 evidence = copy.deepcopy(original)
                 if field == 'defines':
@@ -155,7 +180,7 @@ class ManifestTests(unittest.TestCase):
         for name in [m.ENV]:
             flags = config['env:' + name]['build_flags'].split()
             self.assertIn('-D' + 'ESPSOMFY_LILYGO_T_EMBED_CC1101', flags)
-            for feature in ('ESPSOMFY_STATUS_DISPLAY', 'ESPSOMFY_LOCAL_UI', 'ESPSOMFY_LOCAL_COMMANDS'):
+            for feature in ('ESPSOMFY_STATUS_DISPLAY', 'ESPSOMFY_LOCAL_UI', 'ESPSOMFY_LOCAL_COMMANDS', 'ESPSOMFY_BUNDLED_WEB'):
                 self.assertIn('-D' + feature, flags)
         for name in config.sections():
             if name.startswith('env:') and not name.startswith('env:lilygo-'):

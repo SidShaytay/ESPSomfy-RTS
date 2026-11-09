@@ -5,12 +5,11 @@
 void setUp() {}
 void tearDown() {}
 using namespace GitUpdatePolicy;
-static const std::string APP_TEXT = "sha256:" + std::string(64, 'c');
-static const char *APP = APP_TEXT.c_str();
 static Manifest valid() {
   Manifest m;
-  m.schema = 2;
-  m.features = 7;
+  m.schema = 3;
+  m.assetsMode = "bundled";
+  m.features = 15;
   m.compatibleBoards = {BOARD, "lilygo-t-embed-cc1101-plus"};
   m.board = BOARD;
   m.layout = LAYOUT;
@@ -26,29 +25,39 @@ static Manifest valid() {
   m.channel = "stable";
   return m;
 }
-static void accepts_exact_board_release() { TEST_ASSERT_EQUAL((int)CheckResult::compatible, (int)check(valid(), APP)); }
+static void bundled_candidate_binds_its_own_web_and_rejects_legacy_mode() {
+  auto m=valid();m.appCompat="sha256:"+std::string(64,'d');
+  TEST_ASSERT_EQUAL(CheckResult::compatible,check(m));
+  auto image=identity(m);image.push_back('\0');
+  TEST_ASSERT_TRUE(hasIdentity(reinterpret_cast<const uint8_t*>(image.data()),image.size(),m));
+  m.appCompat="sha256:"+std::string(64,'c');
+  TEST_ASSERT_FALSE(hasIdentity(reinterpret_cast<const uint8_t*>(image.data()),image.size(),m));
+  m=valid();m.schema=2;TEST_ASSERT_EQUAL(CheckResult::schema,check(m));
+  m=valid();m.assetsMode="filesystem";TEST_ASSERT_EQUAL(CheckResult::assets,check(m));
+}
+static void accepts_exact_board_release() { TEST_ASSERT_EQUAL((int)CheckResult::compatible, (int)check(valid())); }
 static void rejects_wrong_board_layout_and_hardware() {
-  Manifest m=valid(); m.features=3; TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid();m.compatibleBoards.clear();TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid();m.compatibleBoards.push_back("esp32s3");TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid(); m.board="esp32s3"; TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid();m.layout="huge_app"; TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid();m.flashBytes=8388608; TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid();m.psramBytes=0; TEST_ASSERT_NOT_NULL(validate(m,APP));
+  Manifest m=valid(); m.features=3; TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid();m.compatibleBoards.clear();TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid();m.compatibleBoards.push_back("esp32s3");TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid(); m.board="esp32s3"; TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid();m.layout="huge_app"; TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid();m.flashBytes=8388608; TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid();m.psramBytes=0; TEST_ASSERT_NOT_NULL(validate(m));
 }
 static void rejects_wrong_web_application_and_generic_artifact() {
-  Manifest m=valid();m.appCompat="4.0.1";TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid();m.asset="firmware.bin";TEST_ASSERT_NOT_NULL(validate(m,APP));
+  Manifest m=valid();m.appCompat="4.0.1";TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid();m.asset="firmware.bin";TEST_ASSERT_NOT_NULL(validate(m));
 }
 static void rejects_bad_digest_size_revision_and_version() {
-  Manifest m=valid();m.sha256[5]='g';TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid();m.bootloaderSha[5]='g';TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid();m.sourceSha.resize(39);TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid();m.size=APP_BYTES+1;TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid();m.size=0;TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid();m.version="v4.0.3/../main";TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid();m.version="v4.0.3-beta";TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid();m.channel="beta";TEST_ASSERT_NOT_NULL(validate(m,APP));
+  Manifest m=valid();m.sha256[5]='g';TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid();m.bootloaderSha[5]='g';TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid();m.sourceSha.resize(39);TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid();m.size=APP_BYTES+1;TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid();m.size=0;TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid();m.version="v4.0.3/../main";TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid();m.version="v4.0.3-beta";TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid();m.channel="beta";TEST_ASSERT_NOT_NULL(validate(m));
 }
 static void versions_compare_numerically_and_reject_downgrades() {
   TEST_ASSERT_TRUE(newer("v4.10.0","v4.9.9"));
@@ -81,14 +90,14 @@ static void bounded_versions_urls_and_manifest_fail_closed() {
     TEST_ASSERT_FALSE(allowedUrl(u));
   std::string url="https://github.com/"+std::string(2048,'x');
   TEST_ASSERT_FALSE(allowedUrl(url.c_str()));
-  Manifest m=valid();m.features=263;TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid();m.schema=1;TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid();m.compatibleBoards[1]=BOARD;TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid();m.appCompat="sha256:"+std::string(64,'G');TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid();m.version=std::string("v1.2.3\0other",12);TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid();m.size=1023;TEST_ASSERT_NOT_NULL(validate(m,APP));
-  m=valid();m.size=1024;TEST_ASSERT_NULL(validate(m,APP));
-  m.size=APP_BYTES;TEST_ASSERT_NULL(validate(m,APP));
+  Manifest m=valid();m.features=263;TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid();m.schema=1;TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid();m.compatibleBoards[1]=BOARD;TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid();m.appCompat="sha256:"+std::string(64,'G');TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid();m.version=std::string("v1.2.3\0other",12);TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid();m.size=1023;TEST_ASSERT_NOT_NULL(validate(m));
+  m=valid();m.size=1024;TEST_ASSERT_NULL(validate(m));
+  m.size=APP_BYTES;TEST_ASSERT_NULL(validate(m));
 }
 static void duplicate_or_conflicting_image_identity_is_refused() {
   Manifest m=valid();std::string image=identity(m);image.push_back('\0');
@@ -97,6 +106,7 @@ static void duplicate_or_conflicting_image_identity_is_refused() {
 }
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(bundled_candidate_binds_its_own_web_and_rejects_legacy_mode);
   RUN_TEST(bounded_versions_urls_and_manifest_fail_closed);
   RUN_TEST(duplicate_or_conflicting_image_identity_is_refused);
   RUN_TEST(accepts_exact_board_release);

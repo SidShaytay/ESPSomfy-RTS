@@ -19,12 +19,12 @@ struct Manifest {
   uint32_t features = 0;
   std::vector<std::string> compatibleBoards;
   uint32_t schema = 0, flashBytes = 0, psramBytes = 0, size = 0;
-  std::string board, layout, appCompat, version, sourceSha, asset, sha256, channel, bootloaderSha;
+  std::string board, layout, assetsMode, appCompat, version, sourceSha, asset, sha256, channel, bootloaderSha;
 };
 enum class CheckResult : uint8_t { compatible, schema, hardware, assets, artifact, range, digest, version };
-CheckResult check(const Manifest &manifest, const char *installedApp);
+CheckResult check(const Manifest &manifest);
 const char *reason(CheckResult result);
-const char *validate(const Manifest &manifest, const char *installedApp);
+const char *validate(const Manifest &manifest);
 bool stableVersion(const char *version);
 bool newer(const char *available, const char *installed);
 bool allowedUrl(const char *url);

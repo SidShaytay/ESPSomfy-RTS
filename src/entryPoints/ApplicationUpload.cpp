@@ -1,3 +1,20 @@
+#if defined(ESPSOMFY_BUNDLED_WEB)
+#include "WebRoutes.h"
+namespace {
+void refuseSeparateApplication(AsyncWebServerRequest *request) {
+  if(request->getAttribute("bundledApplicationRefused",false))return;
+  request->setAttribute("bundledApplicationRefused",true);
+  request->send(410,_encoding_json,"{\"status\":\"ERROR\",\"started\":false,\"desc\":\"Web UI is bundled with this board's firmware. Upload the matching firmware image; separate Application images are retired. Nothing was written or restarted.\"}");
+}
+}
+void registerApplicationUploadRoute(AsyncWebServer &server) {
+  server.on(AsyncURIMatcher::exact("/updateApplication"),HTTP_POST,
+    [](AsyncWebServerRequest *request){refuseSeparateApplication(request);},
+    [](AsyncWebServerRequest *request,String,size_t index,uint8_t *,size_t,bool){
+      if(uploadAllowed(request,index))refuseSeparateApplication(request);
+    });
+}
+#else
 #include "ApplicationUploadResult.h"
 #include "ManualUploadSession.h"
 #include "TaskWdt.h"
@@ -20,3 +37,5 @@ void registerApplicationUploadRoute(AsyncWebServer &server) {
       resetTaskWdt();
     });
 }
+
+#endif

@@ -7,6 +7,7 @@
 #include <cstring>
 #include <unistd.h>
 #include <vector>
+#include <string>
 extern int hashFailure;
 extern unsigned activeHashes;
 struct mbedtls_sha256_context { std::vector<unsigned char> bytes; };

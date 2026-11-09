@@ -20,9 +20,9 @@ static void publish(std::string body={}) {
 }
 static void fixtures() {
   using namespace GitUpdatePolicy;
-  manifest["schema"]=2;manifest["board"]=BOARD;manifest["layout"]=LAYOUT;
+  manifest["schema"]=3;manifest["assets_mode"]="bundled";manifest["board"]=BOARD;manifest["layout"]=LAYOUT;
   manifest["compatible_boards"][0]=BOARD;manifest["compatible_boards"][1]=GitUpdateProfile::plusBoard;
-  manifest["features"]=7;manifest["flash_bytes"]=FLASH_BYTES;manifest["psram_bytes"]=PSRAM_BYTES;
+  manifest["features"]=15;manifest["flash_bytes"]=FLASH_BYTES;manifest["psram_bytes"]=PSRAM_BYTES;
   manifest["size"]=1000000;manifest["app_compat"]=ESPSOMFY_APP_COMPAT;manifest["version"]=tag;
   manifest["source_sha"]=std::string(40,'a');manifest["asset"]=FIRMWARE_ASSET;manifest["sha256"]=std::string(64,'a');
   manifest["bootloader_sha256"]=gitUpdateBootloaderDigest();manifest["channel"]="stable";
@@ -97,7 +97,10 @@ int main(int argc,char **argv) {
   if(mode=="types") {manifest["size"]="1000000";publish();}
   if(mode=="features") {manifest["features"]=263;publish();}
   if(mode=="boards") {manifest["compatible_boards"][1]="esp32s3";publish();}
-  if(mode=="oldschema") {manifest["schema"]=1;publish();}
+  if(mode=="newweb") {manifest["app_compat"]="sha256:"+std::string(64,'d');publish();}
+  if(mode=="wrongmode") {manifest["assets_mode"]="filesystem";publish();}
+  if(mode=="missingmode") {manifest.remove("assets_mode");publish();}
+  if(mode=="oldschema") {manifest["schema"]=2;publish();}
   if(mode=="huge") {release["assets"][0]["size"]=uint64_t(0x100000000);publish();}
   if(mode=="digest") {release["assets"][1]["digest"]="sha256:"+std::string(64,'d');Fake::responses[apiUrl].body=stringify(release);}
   if(mode=="chunkapi") {Fake::responses[apiUrl].chunked=true;Fake::responses[apiUrl].length=0;}
@@ -132,7 +135,7 @@ int main(int argc,char **argv) {
   CHECK(gitUpdate.requestCheck()==GitUpdateRequest::accepted);
   CHECK(Fake::urls.empty() && Fake::attestationCalls==0 && !Fake::queued);
   auto result=run();
-  const bool good=mode=="valid" || mode=="redirect" || mode=="chunkapi" || mode=="prepare" || mode=="generation" || mode=="reboot" || mode=="generationlarge" || mode=="wrapclock" || mode=="externalinvalidates" || mode=="failedrefresh" || mode=="sameversion" || mode=="downgrade" || mode.rfind("changed",0)==0;
+  const bool good=mode=="newweb" || mode=="valid" || mode=="redirect" || mode=="chunkapi" || mode=="prepare" || mode=="generation" || mode=="reboot" || mode=="generationlarge" || mode=="wrapclock" || mode=="externalinvalidates" || mode=="failedrefresh" || mode=="sameversion" || mode=="downgrade" || mode.rfind("changed",0)==0;
   CHECK(result.compatible==good);CHECK(!result.canInstall);
   if(!good) {
     CHECK(result.candidate.generation==0);CHECK(result.phase==GitUpdatePhase::error || result.phase==GitUpdatePhase::cancelled);
