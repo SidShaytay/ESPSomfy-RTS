@@ -251,7 +251,7 @@ int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));Lit
  // owners before promotion, while valid joint pin changes use the candidate.
  for(unsigned mode=0;mode<4;++mode){
   FakeNvs::reset();stored(100,100);writeAt("/shades.tmp",gpioModel(mode==1?254:17,mode==0?17:40,255,radio_proto::GP_Remote,mode==3));restoreAllowed=true;
-  
+
   SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);ShadeConfigFile file;restore_options_t opts;opts.shades=true;opts.transceiver=mode==3;
   if(mode==2)live.transceiver.config.loadStatus.state=SettingsLoadState::failed;
   if(mode==3){writeAt("/shades.tmp",gpioModel(27,40,255,radio_proto::GP_Remote,true));}
