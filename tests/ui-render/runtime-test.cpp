@@ -34,7 +34,13 @@ uint64_t authTestNow=0;
 static unsigned settingsSaves=0;
 static RestartReason settingsRestartCause=RestartReason::none;
 static unsigned entityEdits=0,entityCommits=0;
-static ModelCommitState entitySaveState=ModelCommitState::saved;
+static ModelCommitState entitySaveState=ModelCommitState::saved,entityCommitState=ModelCommitState::saved;
+// A fake filesystem projection, not a real persistence claim. Failed writes
+// retain its prior contents; uncertain verification makes the projection unknown.
+static LocalUi::EntityAdmin::OrderIds fileOrder[3]{};
+static int8_t fileRanks[3][32]{};
+static uint8_t fileCounts[3]{};
+static bool fileKnown=false;
 static uint64_t settingsRevision=1;
 uint64_t deviceSettingsRevision(settings_section_t section) {return uint8_t(section)<5?settingsRevision:0;}
 bool readDeviceSettings(settings_section_t section,SettingsSnapshotSink &sink) {
@@ -57,7 +63,30 @@ settings_apply_result_t applyDeviceSettings(settings_section_t section,JsonObjec
 }
 int testPins[64]={};uint32_t testNow=0;
 SomfyShadeController somfy;
+static void snapshotFakeOrderFile() {
+  for(uint8_t type=0;type<3;type++) {
+    LocalUi::EntityAdmin::OrderIds slots{};bool normalize=false;
+    assert(LocalUi::EntityAdmin::runtimeBackend().readOrder(LocalUi::EntityAdmin::Kind(type),fileOrder[type],slots,fileCounts[type],normalize));
+    for(uint8_t i=0;i<fileCounts[type];i++)fileRanks[type][i]=type==0?somfy.rooms[slots[i]].sortOrder:type==1?somfy.shades[slots[i]].sortOrder:somfy.groups[slots[i]].sortOrder;
+  }
+  fileKnown=true;
+}
 edit_result_t applyModelEdit(model_edit_t &edit) {
+  if(edit.type==model_edit_type_t::room_order || edit.type==model_edit_type_t::shade_order || edit.type==model_edit_type_t::group_order) {
+    assert(edit.doc.is<JsonArray>());uint8_t rank=0;
+    for(auto value:edit.doc.as<JsonArray>()) {
+      const uint8_t id=value.as<uint8_t>();bool found=false;
+      if(edit.type==model_edit_type_t::room_order){auto *item=somfy.getRoomById(id);if(item){item->sortOrder=rank;found=true;}}
+      else if(edit.type==model_edit_type_t::shade_order){auto *item=somfy.getShadeById(id);if(item){item->sortOrder=rank;found=true;}}
+      else {auto *item=somfy.getGroupById(id);if(item){item->sortOrder=rank;found=true;}}
+      assert(found);++rank;
+    }
+    ++entityEdits;++somfy.configurationRevision;
+    if(entitySaveState==ModelCommitState::saved)snapshotFakeOrderFile();
+    else if(entitySaveState==ModelCommitState::uncertain)fileKnown=false;
+    edit_result_t result;result.applied=true;result.ok=entitySaveState==ModelCommitState::saved;
+    result.persistence={entitySaveState,ModelCommitStage::write};return result;
+  }
   auto object=edit.doc.as<JsonObject>();
   const bool roomOp=edit.type==model_edit_type_t::add_room||edit.type==model_edit_type_t::save_room||edit.type==model_edit_type_t::delete_room;
   const bool shadeOp=edit.type==model_edit_type_t::add_shade||edit.type==model_edit_type_t::save_shade||edit.type==model_edit_type_t::delete_shade;
@@ -123,11 +152,16 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
     assert(group);if(deleting)*group={};else common(group);
   }
   ++entityEdits;++somfy.configurationRevision;
+  if(entitySaveState==ModelCommitState::saved)snapshotFakeOrderFile();
+  else if(entitySaveState==ModelCommitState::uncertain)fileKnown=false;
   edit_result_t result;result.applied=true;result.ok=entitySaveState==ModelCommitState::saved;
   result.id=id;result.persistence={entitySaveState,ModelCommitStage::none};return result;
 }
 ModelCommitReport applyModelCommit(const proto_reply_to_t &,ModelCommitMode) {
-  ++entityCommits;return {{ModelCommitState::saved,ModelCommitStage::none}};
+  ++entityCommits;
+  if(entityCommitState==ModelCommitState::saved)snapshotFakeOrderFile();
+  else if(entityCommitState==ModelCommitState::uncertain)fileKnown=false;
+  return {{entityCommitState,ModelCommitStage::write}};
 }
 #include "../../src/LocalEntityRuntime.cpp"
 static LocalUi::Authorization authorization;
@@ -402,9 +436,12 @@ int main(int argc,char **argv){
     assert(lastQuery.screen==Screen::status);rotate(1);idle();
     for(unsigned i=0;i<administrationHomeIndex;i++){rotate(1);idle();}
     click();idle();assert(lastQuery.screen==Screen::administration && captureProtected);
-    busBusy=true;for(unsigned i=0;i<type;i++){rotate(1);idle();}click();
-    assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Administration"));
-    busBusy=false;idle();click();idle();
+    if(type) {
+      busBusy=true;for(unsigned i=0;i<type;i++){rotate(1);idle();}click();
+      assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Administration"));
+      busBusy=false;idle();
+    }
+    click();idle();
   };
   auto closeAdministration=[&] {
     back();idle();back();idle();assert(lastQuery.screen==Screen::home);
@@ -456,9 +493,75 @@ int main(int argc,char **argv){
     assert(Settings::runtimeMemory().used()==0 && settingsAllocations.empty());
     assert(submitted.size()==beforeGraphicsCommand);
   }
+  auto &otherGroup=somfy.groups[15];assert(otherGroup.id==255);otherGroup.id=16;otherGroup.address=5016;otherGroup.bitLength=56;otherGroup.sortOrder=2;strcpy(otherGroup.name,"Duplicate");++somfy.configurationRevision;
+  snapshotFakeOrderFile(); // Initialize this offline filesystem fixture.
+  // Reorder is appended after Add and all configured IDs; existing entry
+  // indices and stable targets keep their meaning. Every operation here uses
+  // actual encoder -> Controller -> Runtime -> Administration -> Order/backend.
+  const auto rfBeforeOrders=submitted.size();
+  for(unsigned type=0;type<3;type++) {
+    const auto kind=EntityAdmin::Kind(type);
+    EntityAdmin::OrderIds before{},slots{};uint8_t count=0;bool normalize=false;
+    assert(EntityAdmin::runtimeBackend().readOrder(kind,before,slots,count,normalize)&&count>=2);
+    const auto editsBefore=entityEdits,commitsBefore=entityCommits;const auto rfBefore=submitted.size();
+    openAdministration(type);
+    for(unsigned i=0;i<count;i++){rotate(1);idle();}
+    busBusy=true;rotate(1);click();
+    assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,type==0?"Rooms":type==1?"Devices":"Groups"));
+    busBusy=false;idle();click();idle();
+    assert(strstr(RuntimeTestAccess::administration(settingsUi).title,"Reorder"));
+    saveFrame(preview,type==0?"runtime-room-reorder":type==1?"runtime-device-reorder":"runtime-group-reorder");
+    click();idle();rotate(1);idle();back();idle();assert(RuntimeTestAccess::administration(settingsUi).id==before[0]);
+    click();idle();rotate(1);idle();click();idle();assert(RuntimeTestAccess::administration(settingsUi).dirty && entityEdits==editsBefore);
+    for(unsigned i=1;i<count-1;i++){rotate(1);idle();}
+    busBusy=true;rotate(1);click();assert(RuntimeTestAccess::administration(settingsUi).mode==EntityAdmin::Mode::fields && entityEdits==editsBefore);
+    busBusy=false;idle();click();idle();assert(RuntimeTestAccess::administration(settingsUi).mode==EntityAdmin::Mode::confirm);
+    click();idle();assert(entityEdits==editsBefore); // Default Cancel.
+    click();idle();busBusy=true;rotate(1);click();assert(entityEdits==editsBefore);
+    busBusy=false;idle();entitySaveState=ModelCommitState::failed;click();idle();
+    assert(entityEdits==editsBefore+1 && RuntimeTestAccess::administration(settingsUi).notice==EntityAdmin::Notice::appliedNotSaved);
+    EntityAdmin::OrderIds applied{},appliedSlots{};uint8_t appliedCount=0;bool compact=false;
+    assert(EntityAdmin::runtimeBackend().readOrder(kind,applied,appliedSlots,appliedCount,compact));
+    assert(applied[0]==before[1] && applied[1]==before[0] && !compact);
+    assert(fileKnown && fileCounts[type]==count && !memcmp(fileOrder[type],before,count));
+    saveFrame(preview,"runtime-order-file-failed");
+    rotate(1);idle();click();idle();assert(entityCommits==commitsBefore+1 && entityEdits==editsBefore+1);
+    assert(fileKnown && fileCounts[type]==appliedCount && !memcmp(fileOrder[type],applied,appliedCount));
+    click();idle();assert(RuntimeTestAccess::administration(settingsUi).id==before[0]);
+    closeAdministration();assert(submitted.size()==rfBefore && Settings::runtimeMemory().used()==0 && settingsAllocations.empty());
+  }
+  // A full 32-device list still reaches Reorder (Add remains full). A legacy
+  // rank127 can then be compacted explicitly without an artificial move.
+  for(uint8_t i=0;i<32;i++){auto &shade=somfy.shades[i];shade={};shade.id=i+1;shade.address=2000+i;shade.bitLength=56;shade.sortOrder=i;shade.idle=true;strcpy(shade.name,"Duplicate");}
+  ++somfy.configurationRevision;
+  openAdministration(1);for(unsigned i=0;i<33;i++){rotate(1);idle();}click();idle();
+  for(unsigned i=0;i<31;i++){rotate(1);idle();}
+  assert(RuntimeTestAccess::administration(settingsUi).id==32 && RuntimeTestAccess::administration(settingsUi).total==34);
+  saveFrame(preview,"runtime-order-full32");back();idle();closeAdministration();
+  somfy.shades[31]={};somfy.shades[30].sortOrder=127;++somfy.configurationRevision;
+  const auto beforeNormalize=entityEdits;
+  openAdministration(1);for(unsigned i=0;i<32;i++){rotate(1);idle();}click();idle();
+  assert(RuntimeTestAccess::administration(settingsUi).dirty);
+  for(unsigned i=0;i<31;i++){rotate(1);idle();}click();idle();rotate(1);idle();entitySaveState=ModelCommitState::saved;click();idle();
+  assert(entityEdits==beforeNormalize+1 && somfy.getMaxShadeOrder()==30 && fileKnown && fileRanks[1][30]==30);
+  click();idle();for(unsigned i=0;i<31;i++){rotate(-1);idle();}click();idle();
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Add Shade 32") && entityEdits==beforeNormalize+1);
+  back();idle();closeAdministration();
+  auto openOrderDraft=[&] {
+    openAdministration(1);for(unsigned i=0;i<32;i++){rotate(1);idle();}click();idle();
+    click();idle();rotate(1);idle();click();idle();assert(RuntimeTestAccess::administration(settingsUi).dirty);
+  };
+  openOrderDraft();savedPixels=RuntimeTestAccess::losePixels(settingsUi);
+  assert(!settingsUi.tick(testNow,status,false,send,light));assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status && RuntimeTestAccess::noPresentation(settingsUi));
+  RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();
+  openAdministration(1);for(unsigned i=0;i<32;i++){rotate(1);idle();}click();idle();assert(!RuntimeTestAccess::administration(settingsUi).dirty);back();idle();closeAdministration();
+  openOrderDraft();testNow+=21000;authTestNow=testNow;settingsUi.tick(testNow,status,false,send,light);idle();
+  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status);click();idle(); // wake only
+  openAdministration(1);for(unsigned i=0;i<32;i++){rotate(1);idle();}click();idle();assert(!RuntimeTestAccess::administration(settingsUi).dirty);back();idle();closeAdministration();
+  assert(submitted.size()==rfBeforeOrders && Settings::runtimeMemory().used()==0 && settingsAllocations.empty());
   somfy.transceiver.ready=true;
   free(allocated);allocated=nullptr;hasPsram=false;
   Runtime missing;missing.begin();assert(missing.failure()==GraphicsFailure::missing && !missing.tick(testNow,status,false,send,light));
   hasPsram=true;allocateOK=false;Runtime failed;failed.begin();assert(failed.failure()==GraphicsFailure::allocation && !failed.tick(testNow,status,false,send,light));
-  puts("Production runtime/adapter: dynamic navigation, presented target/STOP, context change, unlock, capture transitions, 30 s lease, standalone settings/room/device/group admin, presentation/wipe and fallback passed.");
+  puts("Production runtime/adapter: dynamic navigation, presented target/STOP, context change, unlock, capture transitions, 30 s lease, standalone settings/room/device/group/reorder admin, presentation/wipe and fallback passed.");
 }
