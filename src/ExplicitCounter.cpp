@@ -113,7 +113,7 @@ bool allShadesIdleForCounter() {
     if(shade.getShadeId()!=255 && !shade.idleForAdministration())return false;
   return true;
 }
-CounterDomainResult correct(SomfyShade &shade,uint32_t address,uint16_t code,SomfyLinkedRemote *slot,const PrimaryCounterReview *expected=nullptr) {
+CounterDomainResult correct(SomfyShade &shade,uint32_t address,uint16_t code,SomfyLinkedRemote *slot,const PrimaryCounterReview *expected=nullptr,CounterCorrectionWitness *witness=nullptr) {
   if(!somfy.modelLoad.usable())return {CounterDomainState::busy};
   if(!address || address>0xffffff)return {};
   // A correction changes model history; preserve already accepted intents
@@ -133,6 +133,7 @@ CounterDomainResult correct(SomfyShade &shade,uint32_t address,uint16_t code,Som
     if(!reviewedAliasesMatch(shade,*expected))refused=CounterDomainState::stale;
     else if(!readExplicitCounter(address,stored))refused=CounterDomainState::nvsFailed;
     else if(!stored.same(expected->stored) || !reviewedAliasesMatch(shade,*expected))refused=CounterDomainState::stale;
+    if(refused==CounterDomainState::saved && (!witness || !witness->current()))refused=CounterDomainState::stale;
     if(refused!=CounterDomainState::saved) {
       somfy.transceiver.finishCounterEdit({CounterEditState::failed},{});
       return {refused};
@@ -182,11 +183,11 @@ bool primaryCounterReviewCurrent(uint8_t shadeId,const PrimaryCounterReview &exp
   auto *shade=somfy.getShadeById(shadeId);
   return shade && reviewedAliasesMatch(*shade,expected);
 }
-CounterDomainResult correctReviewedPrimaryCounter(uint8_t shadeId,uint16_t code,const PrimaryCounterReview &expected) {
+CounterDomainResult correctReviewedPrimaryCounter(uint8_t shadeId,uint16_t code,const PrimaryCounterReview &expected,CounterCorrectionWitness &witness) {
   if(!somfy.modelLoad.usable())return {CounterDomainState::busy};
   if(!shadeId || shadeId>SOMFY_MAX_SHADES)return {CounterDomainState::missing};
   auto *shade=somfy.getShadeById(shadeId);
-  return shade ? correct(*shade,shade->getRemoteAddress(),code,nullptr,&expected) : CounterDomainResult{CounterDomainState::missing};
+  return shade ? correct(*shade,shade->getRemoteAddress(),code,nullptr,&expected,&witness) : CounterDomainResult{CounterDomainState::missing};
 }
 CounterDomainResult linkExplicitRemote(uint8_t shadeId,uint32_t address,uint16_t code) {
   if(!somfy.modelLoad.usable())return {CounterDomainState::busy};

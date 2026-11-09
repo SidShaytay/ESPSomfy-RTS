@@ -21,8 +21,15 @@ CounterDomainResult correctExplicitCounter(uint8_t shadeId,uint16_t code);
 CounterDomainState reviewPrimaryCounter(uint8_t shadeId,PrimaryCounterReview &out);
 // Read-only live aliases/quarantine check, no NVS or ownership mutation.
 bool primaryCounterReviewCurrent(uint8_t shadeId,const PrimaryCounterReview &expected);
+// Final grant-consumption witness. Read-only: no allocation, NVS, authority
+// mutation or callbacks which can destroy the borrowed review/session.
+class CounterCorrectionWitness {
+public:
+  virtual ~CounterCorrectionWitness() = default;
+  virtual bool current() = 0;
+};
 CounterDomainResult correctReviewedPrimaryCounter(uint8_t shadeId,uint16_t code,
-                                                  const PrimaryCounterReview &expected);
+                                                  const PrimaryCounterReview &expected,CounterCorrectionWitness &witness);
 // Linking is received/observed learning: never lowers retained NVS/live aliases.
 CounterDomainResult linkExplicitRemote(uint8_t shadeId,uint32_t address,uint16_t code);
 // Only current known-NVS/file-pending state is recoverable. Never writes NVS.

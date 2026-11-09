@@ -25,14 +25,9 @@ CounterEditResult persistCounter(uint32_t address,uint16_t code,bool observed,ui
   if(observed) {
     // Preflight cannot create a namespace merely to reject a received code.
     // Caller retains the same identity reservation across both handles.
-    uint16_t stored=0;
-    const auto opened=nvs_open("ShadeCodes",NVS_READONLY,&handle);
-    if(opened==ESP_OK) {
-      const auto read=nvs_get_u16(handle,key,&stored);
-      nvs_close(handle);
-      if(read!=ESP_OK && read!=ESP_ERR_NVS_NOT_FOUND)return {};
-    } else if(opened!=ESP_ERR_NVS_NOT_FOUND)return {};
-    if(code<stored)return {CounterEditState::stale};
+    StoredCounter stored;
+    if(!readExplicitCounter(address,stored))return {};
+    if(code<stored.code)return {CounterEditState::stale};
   }
   if(nvs_open("ShadeCodes",NVS_READWRITE,&handle)!=ESP_OK)return {};
   // Once a set was attempted, conservatively report uncertainty for any
