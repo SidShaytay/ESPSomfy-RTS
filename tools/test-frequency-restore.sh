@@ -16,5 +16,5 @@ loop=text.index('void Transceiver::loop()');a=text.index('  if(rxmode == 3 &&',l
 out.append('void Transceiver::serviceScanStop(){\n'+text[a:b]+'\n}')
 Path(sys.argv[2]).write_text('\n'.join(out))
 PY
-"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -I"$scratch" -I"$repo/test/stubs" "$repo/tests/frequency-restore/test.cpp" -o "$scratch/test"
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -I"$scratch" -I"$repo/src" -I"$repo/test/stubs" "$repo/tests/frequency-restore/test.cpp" -o "$scratch/test"
 "$scratch/test"

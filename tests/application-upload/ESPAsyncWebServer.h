@@ -5,6 +5,7 @@
 #include <map>
 #include <string>
 constexpr int HTTP_POST = 2;
+constexpr int HTTP_GET = 1;
 struct AsyncURIMatcher {
   static const char *exact(const char *s) { return s; }
 };
@@ -13,6 +14,7 @@ struct AsyncWebServerRequest {
   ~AsyncWebServerRequest() { free(_tempObject); }
   bool allowed = true,hasRestoreOptions=false;
   std::string restoreOptions;
+  std::map<std::string,std::string> params;
   int status = 0;unsigned responses=0;
   std::string body;
   std::map<std::string, bool> attributes;
@@ -29,7 +31,8 @@ struct AsyncWebServerRequest {
   }
 };
 struct AsyncWebServer {
-  std::function<void(AsyncWebServerRequest *)> complete;
+  std::function<void(AsyncWebServerRequest *)> complete,statusGet;
+  void on(const char *path,int method,decltype(complete) c){assert(std::string(path)=="/restoreStatus"&&method==HTTP_GET);statusGet=c;}
   std::function<void(AsyncWebServerRequest *, String, size_t, uint8_t *, size_t,
                      bool)>
       upload;

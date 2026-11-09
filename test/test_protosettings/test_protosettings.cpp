@@ -127,6 +127,16 @@ static void test_numbers_are_checked_against_what_the_radio_can_be_set_to() {
   TEST_ASSERT_EQUAL_STRING("rxBandwidth must be 58.03-812.50", expand(R"({"se":"radio","bw":900})"));
   TEST_ASSERT_EQUAL_STRING("deviation must be 1.58-380.85", expand(R"({"se":"radio","dv":0})"));
 }
+static void test_frequency_rejects_driver_band_gaps_without_clamping() {
+  for(const char *value:{"300","348","378","464","779","928"}) {
+    std::string json="{\"se\":\"radio\",\"fq\":"+std::string(value)+"}";
+    TEST_ASSERT_GOOD(expand(json.c_str()));
+  }
+  for(const char *value:{"348.01","360","377.99","464.01","700","778.99"}) {
+    std::string json="{\"se\":\"radio\",\"fq\":"+std::string(value)+"}";
+    TEST_ASSERT_NOT_NULL(expand(json.c_str()));
+  }
+}
 static void test_strings_must_fit_their_setting() {
   // hostname holds 31 characters, a PIN 4.
   TEST_ASSERT_GOOD(expand(R"({"se":"general","hn":"0123456789012345678901234567890"})"));
@@ -246,7 +256,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_whole_numbers_are_checked_against_what_the_setting_holds);
   RUN_TEST(test_the_bit_length_is_56_or_80);
   RUN_TEST(test_the_radio_proto_is_one_there_is);
-  RUN_TEST(test_numbers_are_checked_against_what_the_radio_can_be_set_to);
+  RUN_TEST(test_numbers_are_checked_against_what_the_radio_can_be_set_to);RUN_TEST(test_frequency_rejects_driver_band_gaps_without_clamping);
   RUN_TEST(test_strings_must_fit_their_setting);
   RUN_TEST(test_addresses_are_checked_and_empty_clears_them);
   RUN_TEST(test_only_what_was_sent_is_in_the_request);

@@ -136,3 +136,17 @@ test('status events', () => {
     assert.equal(m.status.strength, -60);
     assert.equal(m.applyEvent('frame', { remoteAddress: 1 }), false);
 });
+
+
+test('restore full resync removes old room, shade, group and repeater identities including empty lists', () => {
+    const m = synced();
+    assert.ok(m.rooms.size && m.shades.size && m.groups.size);
+    m.applyEvent('repeaters', { repeaters: [123] });
+    m.beginSync();
+    m.applySync({ header: { hostname: 'restored-empty' }, status: {} });
+    m.endSync();
+    assert.equal(m.rooms.size, 0);
+    assert.equal(m.shades.size, 0);
+    assert.equal(m.groups.size, 0);
+    assert.deepEqual(m.repeaters, []);
+});

@@ -20,6 +20,13 @@
 #endif
 #include "CounterTxPolicy.h"
 #include "CounterCommandGuard.h"
+#include "SettingsTypedValidation.h"
+#include "SettingsDurability.h"
+#include "RadioInitMarker.h"
+#include "RadioSettingsAdmission.h"
+#include "PinOwnership.h"
+#include "GitUpdate.h"
+#include <esp_timer.h>
 
 static const char *TAG = "Somfy";
 
@@ -301,33 +308,40 @@ static std::atomic<bool> scanEmitPending{false};
 // the radio doesn't stay unable to transmit.
 #define SCAN_MAX_MS 300000
 void Transceiver::beginFrequencyScan() {
-  // The scan retunes the radio so nothing may transmit until it ends.  This
-  // also aborts a transmission in flight so the lock below is never held long.
-  if(this->available()) this->suspendTx(TX_SUSPEND_SCAN);
-  RadioLock lock(portMAX_DELAY, true);
-  if(this->available() && rxmode != 3) {
+  // Refuse accepted work; observation must never flush/preempt a command.
+  if(!radioUpdateResourcesReady())return;
+  RadioLock lock(0);if(!lock.locked)return;
+  TxQueueLock queue(0);if(!queue.locked)return;
+  {
+    RxTaskLock receiveLock;
+    const auto activity=this->updateActivityLocked();
+    if(!this->config.enabled || !this->available() || !activity.canPause() ||
+       !this->sched.sealForRestart())return;
     scanResumeReceive = rxmode == 1;
     scanStopRequested = false;
-    this->disableReceive();
-    rxmode = 3;
-    scanStart = millis();
-    pinMode(this->config.RXPin, INPUT);
-    interruptPin = digitalPinToInterrupt(this->config.RXPin);
-    ELECHOUSE_cc1101.setRxBW(this->config.rxBandwidth);              // Set the Receive Bandwidth in kHz. Value from 58.03 to 812.50. Default is 812.50 kHz.
-    ELECHOUSE_cc1101.SetRx();
-    markFreq = currFreq = 433.0f;
-    markRSSI = -100;
-    ELECHOUSE_cc1101.setMHZ(currFreq);
-    ESP_LOGD(TAG, "Begin frequency scan on Pin #%d", this->config.RXPin);
-    attachInterrupt(interruptPin, handleReceive, CHANGE);
-    scanEmitPending = true;
+    rxPausedForInstall = true;
+    this->_administrationPaused = true;
   }
+  this->disableReceive();
+  rxmode = 3;
+  scanStart = millis();
+  pinMode(this->config.RXPin, INPUT);
+  interruptPin = digitalPinToInterrupt(this->config.RXPin);
+  ELECHOUSE_cc1101.setRxBW(this->config.rxBandwidth);              // Set the Receive Bandwidth in kHz. Value from 58.03 to 812.50. Default is 812.50 kHz.
+  ELECHOUSE_cc1101.SetRx();
+  markFreq = currFreq = 433.0f;
+  markRSSI = -100;
+  ELECHOUSE_cc1101.setMHZ(currFreq);
+  ESP_LOGD(TAG, "Begin frequency scan on Pin #%d", this->config.RXPin);
+  attachInterrupt(interruptPin, handleReceive, CHANGE);
+  { RxTaskLock receiveLock;rxPausedForInstall = false; }
+  scanEmitPending = true;
 }
 void Transceiver::processFrequencyScan(bool received) {
   if(scanStopRequested.load()) return;
   RadioLock lock(0);
   if(!lock.locked || scanStopRequested.load()) return;
-  if(this->available() && rxmode == 3) {
+  if(this->_available.load() && rxmode == 3) {
     if(received) {
       currRSSI = ELECHOUSE_cc1101.getRssi();
       if((long)(markFreq * 100) == (long)(currFreq * 100)) {
@@ -357,25 +371,36 @@ void Transceiver::endFrequencyScan() {
   if(rxmode != 3) return;
   scanStopRequested = true;
   RadioLock lock(0);
-  if(!lock.locked) return;
+  if(!lock.locked || rxmode != 3) return;
+  TxQueueLock queue(0);if(!queue.locked)return;
   if(rxmode == 3) {
+    { RxTaskLock receiveLock;rxPausedForInstall = true; }
     rxmode = 0;
     if(interruptPin > 0) detachInterrupt(interruptPin); 
     interruptPin = 0;
+    // Initial admission proved these buffers empty. Everything received since
+    // belongs to this observation and must not become a normal command later.
+    { RxTaskLock receiveLock;
+      rx_queue.init();somfy_rx.clear();
+      noiseDetected=false;noiseStart=0;noiseCount=0;
+    }
     // Observation changes only tuning/RX state. Ending it must not persist,
     // run full radio initialization or retry its persistence markers.
-    if(this->available() && this->config.enabled) {
+    if(this->_available.load() && this->config.enabled) {
       ELECHOUSE_cc1101.setMHZ(this->config.frequency);
       ELECHOUSE_cc1101.setRxBW(this->config.rxBandwidth);
+      { RxTaskLock receiveLock;rxPausedForInstall=false; }
       if(scanResumeReceive) this->enableReceive();
       else ELECHOUSE_cc1101.setSidle();
     }
+    { RxTaskLock receiveLock;rxPausedForInstall=false; }
     scanResumeReceive = false;
     scanStopRequested = false;
     scanEmitPending = true;
   }
   // Restoration has completed before transmission is allowed again.
-  this->resumeTx(TX_SUSPEND_SCAN);
+  this->sched.reopenAfterRefusedRestart();
+  this->_administrationPaused = false;
 }
 void Transceiver::emitFrequencyScan() {
   if(protoSocket.subscribed(proto_feed_t::frequencyScan)) {
@@ -482,32 +507,45 @@ void Transceiver::disableReceive(void) {
   
 }
 settings_save_result_t Transceiver::setConfig(const transceiver_config_t &cfg) {
+  return saveRadioConfiguration(*this,cfg);
+}
+settings_save_result_t Transceiver::setConfigWhilePaused(const transceiver_config_t &cfg,
+    const RadioInstallToken &pause,const GitUpdateOwnerToken &owner,RadioPinContext context) {
+  if((owner.kind!=GitUpdateExternalOwner::configuration && owner.kind!=GitUpdateExternalOwner::restore) ||
+     !gitUpdate.ownsExternal(owner) || !installPauseHeld(pause))
+    return {settings_save_state_t::failed,"radio admission"};
+  auto freshSource=[&](){
+    if(owner.kind!=GitUpdateExternalOwner::restore)return true;
+    const auto micros=esp_timer_get_time();const uint64_t now=micros<0?UINT64_MAX:uint64_t(micros)/1000;
+    return gitUpdate.transferRestoreClaimed(owner,now);
+  };
+  if(!freshSource())return {settings_save_state_t::failed,"restore source"};
+  context=withRetainedEthernetClaims(context);
+  if(!radioPinConfigurationAvailable(cfg,context))return {settings_save_state_t::failed,"pin ownership"};
   // Persist before touching live pins/config. A partial NVS write is reported
   // honestly, without applying it to the running radio or claiming rollback.
   RadioLock lock(portMAX_DELAY, true);
+  if(!lock.locked)return {settings_save_state_t::failed,"radio lock"};
   transceiver_config_t next = cfg;
   next.applyBoardPins();
   const auto result = next.save();
   if(!result.saved()) return result;
-  if(this->config.enabled && this->config.TXPin != next.TXPin) pinMode(this->config.TXPin, INPUT);
+  if(!freshSource() || !gitUpdate.ownsExternal(owner) || !installPauseHeld(pause) || !radioPinConfigurationAvailable(next,context)) {
+    settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::radio));
+    return {settings_save_state_t::partial,"restore source",false,false,true};
+  }
+  if(radioBusInitialized && this->config.enabled && this->config.TXPin!=255 && this->config.TXPin != next.TXPin) pinMode(this->config.TXPin, INPUT);
   ++configurationRevision;
   this->config = next;
-  this->config.apply();
-  return result;
-}
-bool Transceiver::usesPin(uint8_t pin) {
-  if(BoardProfile::usesPin(pin)) return true;
-  if(this->config.enabled) {
-    if(this->config.SCKPin == pin ||
-      this->config.TXPin == pin ||
-      this->config.RXPin == pin ||
-      this->config.MOSIPin == pin ||
-      this->config.MISOPin == pin ||
-      this->config.CSNPin == pin)
-      return true;
+  auto applied=this->config.applyWithPinContext(context);
+  applied.liveApplied=true;applied.radioNamespaceVerified=true;
+  if(!applied.saved()) {
+    applied.state=settings_save_state_t::partial;
+    settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::radio));
   }
-  return false;  
+  return applied;
 }
+bool Transceiver::usesPin(uint8_t pin) {return config.usesPin(pin) || livePinClaims.usesPin(pin);}
 bool Transceiver::end() {
     // Nothing may transmit (and re-enable receive) after this.  It is not
     // resumed since the only caller is OTA, which reboots when the upload
@@ -517,14 +555,7 @@ bool Transceiver::end() {
     this->disableReceive();
     return true;
 }
-void transceiver_config_t::removeNVSKey(Preferences &pref, const char *key) {
-  if(pref.isKey(key)) {
-    ESP_LOGD(TAG, "Removing NVS Key: CC1101.%s", key);
-    pref.remove(key);
-  }
-}
-void transceiver_config_t::load() {
-    Preferences pref;
+void transceiver_config_t::applyChipDefaults() {
     esp_chip_info_t ci;
     esp_chip_info(&ci);
     switch(ci.model) {
@@ -606,47 +637,9 @@ void transceiver_config_t::load() {
         this->CSNPin = 5;
         break;
     }
-    pref.begin("CC1101");
-    this->type = pref.getUChar("type", 56);
-    this->TXPin = pref.getUChar("TXPin", this->TXPin);
-    this->RXPin = pref.getUChar("RXPin", this->RXPin);
-    this->SCKPin = pref.getUChar("SCKPin", this->SCKPin);
-    this->MOSIPin = pref.getUChar("MOSIPin", this->MOSIPin);
-    this->MISOPin = pref.getUChar("MISOPin", this->MISOPin);
-    this->CSNPin = pref.getUChar("CSNPin", this->CSNPin);
-    this->frequency = pref.getFloat("frequency", this->frequency);  // float
-    this->deviation = pref.getFloat("deviation", this->deviation);  // float
-    this->enabled = pref.getBool("enabled", this->enabled);
-    this->txPower = pref.getChar("txPower", this->txPower);
-    this->rxBandwidth = pref.getFloat("rxBandwidth", this->rxBandwidth);
-    this->proto = static_cast<radio_proto>(pref.getChar("proto", static_cast<uint8_t>(this->proto)));
-    this->noiseDetection = pref.getBool("noiseDetect", false);
-    this->removeNVSKey(pref, "internalCCMode");
-    this->removeNVSKey(pref, "modulationMode");
-    this->removeNVSKey(pref, "channel");
-    this->removeNVSKey(pref, "channelSpacing");
-    this->removeNVSKey(pref, "dataRate");
-    this->removeNVSKey(pref, "syncMode");
-    this->removeNVSKey(pref, "syncWordHigh");
-    this->removeNVSKey(pref, "syncWordLow");
-    this->removeNVSKey(pref, "addrCheckMode");
-    this->removeNVSKey(pref, "checkAddr");
-    this->removeNVSKey(pref, "dataWhitening");
-    this->removeNVSKey(pref, "pktFormat");
-    this->removeNVSKey(pref, "pktLengthMode");
-    this->removeNVSKey(pref, "pktLength");
-    this->removeNVSKey(pref, "useCRC");
-    this->removeNVSKey(pref, "autoFlushCRC");
-    this->removeNVSKey(pref, "disableDCFilter");
-    this->removeNVSKey(pref, "enableManchester");
-    this->removeNVSKey(pref, "enableFEC");
-    this->removeNVSKey(pref, "minPreambleBytes");
-    this->removeNVSKey(pref, "pqtThreshold");
-    this->removeNVSKey(pref, "appendStatus");
-    pref.end();
-    //this->printBuffer = somfy.transceiver.printBuffer;
     this->applyBoardPins();
 }
+
 static void warnBootPin(const char *name, uint8_t pin) {
   const char *effect = bootPinEffect(pin);
   if(effect) ESP_LOGW(TAG, "Radio %s is on GPIO%u, a strapping pin the radio can drive at reset.  %s", name, pin, effect);
@@ -672,38 +665,35 @@ static bool checkBoardRadio(float frequency) {
     (modem & 0x70) == 0x30 && actual > frequency - 0.01f && actual < frequency + 0.01f;
 }
 
-void transceiver_config_t::apply() {
-    Preferences pref;
-    // A transmission in flight stops after its current frame so the radio can
-    // be reconfigured.  Queued frames are already encoded and go out with the
-    // new settings.
-    RadioLock lock(portMAX_DELAY, true);
-    // Reconfiguring the radio ends a frequency scan so TX may resume.
-    const bool wasScanning = rxmode == 3;
-    somfy.transceiver.disableReceive();
-    // Generic radios retain their enabled-based availability. The integrated
-    // radio is published ready only after its register/RX checks succeed.
-    somfy.transceiver._available = this->enabled && !BoardProfile::integratedRadio;
-    if(wasScanning) {
-      somfy.transceiver.resumeTx(TX_SUSPEND_SCAN);
-      scanEmitPending = true;
+settings_save_result_t transceiver_config_t::apply() {return applyWithPinContext(currentRadioPinContext());}
+settings_save_result_t transceiver_config_t::applyWithPinContext(RadioPinContext context) {
+    if(!loadStatus.usable() || !validSettings(*this)) {
+      if(!somfy.transceiver.radioBusInitialized){radioInit=false;somfy.transceiver._available=false;}
+      return {settings_save_state_t::failed,"radio configuration"};
     }
+    // Do not stop an already initialized bus on a later ownership/model fault.
+    if(!radioPinConfigurationAvailable(*this,context))return {settings_save_state_t::failed,"pin ownership"};
+    // Live callers already hold the exact administration pause. Startup has
+    // no traffic; never cancel or adopt another scan through config apply.
+    RadioLock lock(portMAX_DELAY, true);
+    if(!lock.locked){radioInit=false;somfy.transceiver._available=false;return {settings_save_state_t::failed,"radio configuration"};}
+    if(rxmode==3)return {settings_save_state_t::failed,"radio scan"};
+    somfy.transceiver.disableReceive();
+    // Every board withholds availability until initialization and its NVS
+    // safety marker have completed; an early failure is never radio readiness.
+    somfy.transceiver._available = false;
     this->applyBoardPins();
     radioBitLength = this->type;    
     if(this->enabled) {
+      // Claims survive marker failure, RAM reassignment and later disable.
+      somfy.transceiver.livePinClaims.retain(pinClaims());
       this->radioInit = false;
-      if(!BoardProfile::prepareRadio(this->frequency)) return;
-      bool radioInit = true;
-      pref.begin("CC1101");
-      radioInit = pref.getBool("radioInit", true);
-      // If the radio locks up then we can simply reboot and re-enable the radio.
-      pref.putBool("radioInit", false);
-      this->radioInit = false;
-      pref.end();
-      if(!radioInit) {
-        ESP_LOGW(TAG, "Radio initialization previously interrupted; save radio settings to retry");
-        return;
+      if(!startupInitAllowed) {
+        ESP_LOGW(TAG,"Radio initialization previously interrupted; save radio settings to retry");return {settings_save_state_t::failed,"radioInit"};
       }
+      const auto before=writeRadioInitMarker(false);
+      if(!before.saved()){startupInitAllowed=false;return before;}
+      if(!BoardProfile::prepareRadio(this->frequency))return {};
       ESP_LOGD(TAG, "Applying radio settings - Setting Data Pins RX:%u TX:%u", this->RXPin, this->TXPin);
       // The pins the CC1101 drives: at power-up GDO0 puts out a clock, GDO2
       // CHIP_RDYn, and SO follows CHIP_RDYn while CSN is low.  Once it is
@@ -728,6 +718,7 @@ void transceiver_config_t::apply() {
       if(BoardProfile::integratedRadio)
         SPI.begin(this->SCKPin, this->MISOPin, this->MOSIPin, this->CSNPin);
       ELECHOUSE_cc1101.Init();
+      somfy.transceiver.radioBusInitialized=true;
       ELECHOUSE_cc1101.setCCMode(0);                            // set config for internal transmission mode.
       ELECHOUSE_cc1101.setMHZ(this->frequency);                 // Here you can set your basic frequency. The lib calculates the frequency automatically (default = 433.92).The cc1101 can: 300-348 MHZ, 387-464MHZ and 779-928MHZ. Read More info from datasheet.
       ELECHOUSE_cc1101.setRxBW(this->rxBandwidth);              // Set the Receive Bandwidth in kHz. Value from 58.03 to 812.50. Default is 812.50 kHz.
@@ -767,6 +758,10 @@ void transceiver_config_t::apply() {
       if(BoardProfile::integratedRadio)
         Serial.printf("CC1101 detection=%s register validation=%s\n",
           detected ? "PASS" : "FAIL", boardRadioValid ? "PASS" : "FAIL");
+      const auto after=writeRadioInitMarker(true);
+      if(!after.saved()) {
+        radioInit=false;startupInitAllowed=false;return after;
+      }
       if (!detected || !boardRadioValid) {
           ESP_LOGE(TAG, "Error setting up the radio");
           this->radioInit = false;
@@ -777,23 +772,26 @@ void transceiver_config_t::apply() {
           somfy.transceiver._available = true;
           somfy.transceiver.enableReceive();
       }
-      pref.begin("CC1101");
-      pref.putBool("radioInit", true);
-      pref.end();
       
     }
     else {
-      if(this->radioInit) ELECHOUSE_cc1101.setSidle();
+      if(somfy.transceiver.radioBusInitialized) ELECHOUSE_cc1101.setSidle();
       somfy.transceiver.disableReceive();
       this->radioInit = false;
     }
     //somfy.transceiver.printBuffer = this->printBuffer;
+    return {};
+}
+bool Transceiver::loadReadOnly() {
+    this->config.applyChipDefaults();
+    return this->config.loadReadOnly();
 }
 bool Transceiver::begin() {
     if(!radioMutex) radioMutex = xSemaphoreCreateRecursiveMutex();
     if(!txQueueMutex) txQueueMutex = xSemaphoreCreateMutex();
-    this->config.load();
-    this->config.apply();
+    if(!radioMutex || !txQueueMutex){this->_available=false;return false;}
+    if(this->config.loadStatus.usable() && somfy.modelLoad.usable())this->config.apply();
+    else if(!this->radioBusInitialized)this->_available=false;
     ESP_LOGD(TAG,"Initializing RX Queue");
     { RxTaskLock receiveLock;rx_queue.init(); }
     this->startTxTask();
@@ -959,7 +957,7 @@ bool Transceiver::counterEditUncertain() {
 }
 bool Transceiver::txSuspended() {
   TxQueueLock lock;
-  return this->sched.suspended();
+  return this->sched.suspended() || this->_administrationPaused.load();
 }
 bool Transceiver::txHasRoom() {
   // Without a radio task submitTx() fails straight away so there is no point waiting.

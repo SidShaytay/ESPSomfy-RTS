@@ -1,5 +1,6 @@
 #include "Arduino.h"
 #include "ModelLoadTrust.h"
+#include "SettingsLoadState.h"
 #include "MqttConnection.h"
 #include "ShadeChanges.h"
 #include "ShadeTypes.h"
@@ -31,7 +32,7 @@ struct Broker {
  void beginPublish(const char *,size_t,bool){++streams;}size_t write(const uint8_t *,size_t n){return n;}void endPublish(){}
 }mqttClient;
 struct{bool connected(){return true;}String mac="mac";}net;
-struct{struct{bool enabled=true;const char *protocol="mqtt",*hostname="broker",*username="",*password="",*rootTopic="test";unsigned port=1883;}MQTT;
+struct{bool networkReady=true;bool networkUsable()const{return networkReady;}struct{SettingsLoadStatus loadStatus{SettingsLoadState::loaded};bool enabled=true;const char *protocol="mqtt",*hostname="broker",*username="",*password="",*rootTopic="test";unsigned port=1883;}MQTT;
  struct{struct{String toString(){return String("ip");}}ip;}IP;const char *hostname="controller",*serverId="id";struct{const char *name="version";}fwVersion;
 }settings;
 struct loop_item_t{int request=0;};
@@ -76,6 +77,16 @@ int main(){
  assert(!mqtt.loop()&&!mqttClient.active&&mqttClient.messages.size()==1);
  assert(mqttClient.messages[0].topic=="test/status"&&mqttClient.messages[0].payload=="offline"&&mqttClient.messages[0].retain);
  mqtt.loop();assert(mqttClient.messages.size()==1&&!mqttClient.loops);
+ // Qualified model never authorizes unreadable network/MQTT credentials.
+ somfy.modelLoad.bootResult(ModelLoadStatus::loaded);
+ const auto priorConnects=mqttClient.connects;const auto priorMessages=mqttClient.messages.size();
+ for(bool badNetwork:{false,true}) {
+  settings.networkReady=!badNetwork;settings.MQTT.loadStatus.state=badNetwork?SettingsLoadState::loaded:SettingsLoadState::failed;
+  assert(!mqtt.connect()&&mqttClient.connects==priorConnects);
+  MqttConnection::receive("test/command",&payload,1);assert(!parsed&&!loopQueue.submitted);
+  assert(!mqtt.publish("shades/1/name","bad",true));assert(mqttClient.messages.size()==priorMessages);
+ }
+ settings.networkReady=true;settings.MQTT.loadStatus.state=SettingsLoadState::loaded;
  // Explicit trusted recovery uses the original online/full-publish path.
  somfy.modelLoad.bootResult(ModelLoadStatus::absent);somfy.modelLoad.committed(false);assert(!mqtt.connect());somfy.modelLoad.committed(true);assert(mqtt.connect()&&mqttClient.connects==1&&mqttClient.subscriptions==1);
  bool online=false;for(const auto &message:mqttClient.messages)online|=message.topic=="test/status"&&message.payload=="online";assert(online);

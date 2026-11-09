@@ -97,6 +97,10 @@ class LoopQueue {
     // for a producer. A refused shutdown must explicitly reopen admission.
     bool sealForRestart();
     void reopenAfterRefusedRestart();
+    // The one direct socket RF publisher shares this producer barrier. Caller
+    // must pair an admitted begin with end on every return, outside any lock.
+    bool beginSocketMutation(uint32_t clientId);
+    void endSocketMutation(bool accepted);
   private:
     void *queue = nullptr;
     std::atomic<bool> restartSealed{false};

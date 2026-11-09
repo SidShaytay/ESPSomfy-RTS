@@ -4,6 +4,7 @@
 #define CONFIG_ETH_USE_ESP32_EMAC 1
 #define CONFIG_IDF_TARGET_ESP32P4 1
 #include "EthPhy.h"
+#include "EthPinClaims.h"
 
 void setUp() {}
 void tearDown() {}
@@ -46,8 +47,13 @@ static void test_clock_pin_is_50() {
   TEST_ASSERT_EQUAL_INT8(-1, ethClockPin(3));
 }
 
+static void fixed_rmii_claims_match_pinned_sdk_synthetic_list(){
+ const uint64_t expected=LivePinClaims::pinMask(49)|LivePinClaims::pinMask(34)|LivePinClaims::pinMask(35)|LivePinClaims::pinMask(29)|LivePinClaims::pinMask(30)|LivePinClaims::pinMask(28)|LivePinClaims::pinMask(50);
+ TEST_ASSERT_EQUAL_HEX64(expected,ethernetDataPinClaims());TEST_ASSERT_EQUAL_HEX64(0,LivePinClaims::pinMask(255));
+}
 int main(int, char **) {
   UNITY_BEGIN();
+ RUN_TEST(fixed_rmii_claims_match_pinned_sdk_synthetic_list);
   RUN_TEST(test_builds_with_ethernet);
   RUN_TEST(test_ip101_is_the_tlk110_id);
   RUN_TEST(test_clock_in_is_ext_in);
