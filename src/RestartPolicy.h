@@ -4,6 +4,7 @@ struct RestartObservation {
   uint64_t settingsEpoch=1,modelEpoch=1;
   RestartReason refusal=RestartReason::none;
   bool operationsPending=false;
+  uint64_t modelConfigurationRevision=1,operationEpoch=1;
 };
 // Pure policy. Runtime owns synchronization and supplies a monotonic boot clock.
 class RestartPolicy {
