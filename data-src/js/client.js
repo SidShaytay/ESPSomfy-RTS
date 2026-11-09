@@ -258,7 +258,11 @@ class ProtoClient {
         // has the whole of it.
         if (Object.keys(device).length) {
             this.readable();
-            this.model.applySync(this.schema.expand(device));
+            const expanded = this.schema.expand(device);
+            // Every full device sync starts with its header, including an
+            // unsolicited restore refresh or a restart of an in-flight sync.
+            if (expanded.header) this.model.beginSync();
+            this.model.applySync(expanded);
         }
         this.ws.send(JSON.stringify({ v: ProtoClient.VERSION, t: ProtoClient.NEXT }));
     }

@@ -337,3 +337,26 @@ test('subscribe sends the feed number', () => {
     assert.equal(sent.t, T.subscribe);
     assert.deepEqual(sent.d, { fe: schema.feedNumbers.frames });
 });
+
+test('server initiated restore resync clears identities without a client resync request', () => {
+    const { c, ws } = connected();
+    assert.ok(c.model.rooms.size && c.model.shades.size && c.model.groups.size);
+    ws.deliver({ v: 2, t: T.sync, d: schema.pack({ header: { hostname: 'restored-empty' } }) });
+    ws.deliver({ v: 2, t: T.syncEnd, d: {} });
+    assert.equal(c.model.rooms.size, 0);
+    assert.equal(c.model.shades.size, 0);
+    assert.equal(c.model.groups.size, 0);
+    assert.deepEqual(c.model.repeaters, []);
+    assert.equal(ws.sent.filter(f => f.t === T.sync).length, 0);
+});
+
+test('a restarted server sync forgets the earlier partial list but keeps later live events', () => {
+    const { c, ws } = connected();
+    ws.deliver({ v: 2, t: T.sync, d: schema.pack({ header: {}, rooms: [{ roomId: 88, name: 'partial-old' }] }) });
+    ws.deliver({ v: 2, t: T.sync, d: schema.pack({ header: { hostname: 'restored-new' } }) });
+    ws.deliver({ v: 2, t: T.room, d: schema.pack({ roomId: 89, name: 'event-new' }) });
+    ws.deliver({ v: 2, t: T.syncEnd, d: {} });
+    assert.equal(c.model.rooms.has(88), false);
+    assert.equal(c.model.rooms.has(89), true);
+    assert.equal(c.model.rooms.size, 1);
+});
