@@ -11,14 +11,16 @@ public:
   int hostnames=0,times=0,mqtt=0,radio=0,completions=0;
   settings_section_t completedSection=settings_section_t::general;
   bool completedReboot=false;
+  RestartResult completionResult{true,RestartReason::none};
   ConfigSettings *observed=nullptr;
   std::string hostnameAtCompletion;
   settings_save_result_t radioResult;
   SettingsRevisions revisions;
-  void completed(settings_section_t section,bool reboot) override {
+  RestartResult completed(settings_section_t section,bool reboot) override {
     completions++; completedSection=section; completedReboot=reboot;
     revisions.completed(section);
     if(observed) hostnameAtCompletion=observed->hostname;
+    return reboot ? completionResult : RestartResult{};
   }
   bool wifiClientsPresent() const override { return apClients; }
   void hostnameChanged() override { hostnames++; }
@@ -304,12 +306,26 @@ static void test_unrelated_success_reports_saved_but_restart_blocked_before_comp
   settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::security));
   const auto result=apply(current,settings_section_t::network,R"({"connType":2})",effects);
   TEST_ASSERT_TRUE(result.saved());TEST_ASSERT_TRUE(result.restartBlocked);
+  TEST_ASSERT_EQUAL(RestartReason::settingsUncertain,result.restartReason);
   TEST_ASSERT_FALSE(result.reboot);TEST_ASSERT_FALSE(effects.completedReboot);
   TEST_ASSERT_EQUAL(1,effects.completions);
   TEST_ASSERT_EQUAL_UINT8(settingsNamespaceBit(SettingsNamespace::security),settingsDurability().status().uncertain);
 }
+static void actual_completion_refusal_is_reported_without_replaying_effects() {
+  for(auto reason:{RestartReason::persistenceBusy,RestartReason::pending,RestartReason::counterUncertain}) {
+    ConfigSettings current;current.connType=conn_types_t::wifi;
+    Effects effects;effects.completionResult={false,reason};
+    const auto result=apply(current,settings_section_t::network,R"({"connType":2})",effects);
+    TEST_ASSERT_TRUE(result.saved());TEST_ASSERT_FALSE(result.reboot);
+    TEST_ASSERT_TRUE(result.restartBlocked);TEST_ASSERT_EQUAL(reason,result.restartReason);
+    TEST_ASSERT_EQUAL(conn_types_t::ethernet,current.connType);
+    TEST_ASSERT_EQUAL(1,effects.completions);TEST_ASSERT_TRUE(effects.completedReboot);
+    TEST_ASSERT_EQUAL_UINT64(2,effects.revisions.get(settings_section_t::network));
+  }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(actual_completion_refusal_is_reported_without_replaying_effects);
   RUN_TEST(test_composite_failure_remarks_earlier_full_draft_namespace);
   RUN_TEST(test_unrelated_success_reports_saved_but_restart_blocked_before_completion);
   RUN_TEST(test_connection_change_reboots_only_after_verified_save);

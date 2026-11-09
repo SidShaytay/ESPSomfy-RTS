@@ -29,11 +29,16 @@ void writeModelCommitReport(ProtoWriter &w, ModelCommitReport report) {
   w.add(proto_field_t::durable, result.saved());
   w.add(proto_field_t::modelSaveState, static_cast<int>(result.state));
   w.add(proto_field_t::rebooting, report.rebooting);
-  if (report.restartDeferred)
+  if(report.refusal!=RestartReason::none) {
+    if(!result.saved()) {
+      w.add(proto_field_t::code,static_cast<uint8_t>(proto_error_t::busy));
+      w.add(proto_field_t::desc,"Upload recovery expired or does not own storage; no file save or restart was performed.");
+    } else w.add(proto_field_t::desc,restartReason(report.refusal));
+  } else if (report.restartDeferred)
     w.add(proto_field_t::desc,
           "Model file saved; restart not scheduled while operations remain "
           "queued. Resolve queued operations, then Restart.");
-  if (!result.saved()) {
+  else if (!result.saved()) {
     w.add(proto_field_t::code, static_cast<uint8_t>(proto_error_t::internal));
     w.add(proto_field_t::desc, modelCommitFailureDescription(result.state));
   }

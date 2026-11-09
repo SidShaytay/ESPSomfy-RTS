@@ -9,7 +9,10 @@ struct AsyncURIMatcher {
   static const char *exact(const char *s) { return s; }
 };
 struct AsyncWebServerRequest {
-  bool allowed = true;
+  void *_tempObject=nullptr;
+  ~AsyncWebServerRequest() { free(_tempObject); }
+  bool allowed = true,hasRestoreOptions=false;
+  std::string restoreOptions;
   int status = 0;
   std::string body;
   std::map<std::string, bool> attributes;
@@ -32,7 +35,7 @@ struct AsyncWebServer {
       upload;
   void on(const char *path, int method, decltype(complete) c,
           decltype(upload) u) {
-    assert(std::string(path) == "/updateApplication" && method == HTTP_POST);
+    assert((std::string(path) == "/updateApplication" || std::string(path) == "/updateFirmware" || std::string(path) == "/restore") && method == HTTP_POST);
     complete = c;
     upload = u;
   }

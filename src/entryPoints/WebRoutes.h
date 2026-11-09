@@ -9,6 +9,8 @@
 // Registers the HTTP routes on port 80, and the web UI's files.
 void registerHttpRoutes(AsyncWebServer &server);
 void registerApplicationUploadRoute(AsyncWebServer &server);
+void registerFirmwareUploadRoute(AsyncWebServer &server);
+void registerRestoreUploadRoute(AsyncWebServer &server);
 // Shared first-chunk authentication/admission for browser-owned uploads.
 bool uploadAllowed(AsyncWebServerRequest *request,size_t index);
 

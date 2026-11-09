@@ -5,9 +5,10 @@
 #include "LocalUiAuthorizationAdapter.h"
 #include "LoopQueue.h"
 #include "ModelCommitService.h"
-#include "Utils.h"
 #include "Somfy.h"
 #include "SomfyEditor.h"
+#include "Utils.h"
+#include "LegacyRestartSource.h"
 #include <stdio.h>
 #include <string.h>
 extern SomfyShadeController somfy;
@@ -16,6 +17,9 @@ extern rebootDelay_t rebootDelay;
 namespace LocalUi {
 namespace EntityAdmin {
 namespace {
+static_assert(SOMFY_MAX_SHADES <= 32 && SOMFY_MAX_GROUPS <= 32 &&
+                  SOMFY_MAX_ROOMS <= 32,
+              "Ordering covers the complete configured physical model");
 class RuntimeBackend final : public Backend {
   Kind preparedKind = Kind::room;
   uint8_t sourceId = 0, offeredId = 0;
@@ -266,7 +270,7 @@ class RuntimeBackend final : public Backend {
     }
     return true;
   }
-  Admission admit(Authorization expected, uint64_t revision) {
+  Admission admitAuthority(Authorization expected, uint64_t revision) {
     const auto now = authorization();
     if (!expected.allowed || !now.allowed)
       return Admission::locked;
@@ -275,11 +279,73 @@ class RuntimeBackend final : public Backend {
         expected.configurationGeneration != now.configurationGeneration ||
         revision != this->revision())
       return Admission::stale;
-    if (!currentContext())
-      return Admission::stale;
-    if (loopQueue.pending() || rebootDelay.reboot)
+    if (loopQueue.pending() || snapshotLegacyRestart(rebootDelay).reboot)
       return Admission::busy;
     return Admission::accepted;
+  }
+
+  Admission admit(Authorization expected, uint64_t revision) {
+    const auto result = admitAuthority(expected, revision);
+    if (result != Admission::accepted && result != Admission::busy)
+      return result;
+    return currentContext() ? result : Admission::stale;
+  }
+  uint8_t orderCapacity(Kind kind) const {
+    if (kind == Kind::room)
+      return sizeof(somfy.rooms) / sizeof(somfy.rooms[0]);
+    if (kind == Kind::shade)
+      return sizeof(somfy.shades) / sizeof(somfy.shades[0]);
+    if (kind == Kind::group)
+      return sizeof(somfy.groups) / sizeof(somfy.groups[0]);
+    return 0;
+  }
+  template <typename Item>
+  bool orderRecord(Item &item, uint8_t id, uint8_t &outId, int8_t &order,
+                   Value *label) {
+    outId = id;
+    order = item.sortOrder;
+    if (label) {
+      *label = {};
+      label->kind = 's';
+      if (!memchr(item.name, 0, sizeof(item.name)))
+        return false;
+      memcpy(label->text, item.name, sizeof(label->text));
+    }
+    return true;
+  }
+  bool orderRecord(Kind kind, uint8_t slot, uint8_t &id, int8_t &order,
+                   Value *label = nullptr) {
+    if (slot >= orderCapacity(kind))
+      return false;
+    if (kind == Kind::room)
+      return orderRecord(somfy.rooms[slot], somfy.rooms[slot].roomId, id, order,
+                         label);
+    if (kind == Kind::shade)
+      return orderRecord(somfy.shades[slot], somfy.shades[slot].getShadeId(),
+                         id, order, label);
+    if (kind == Kind::group)
+      return orderRecord(somfy.groups[slot], somfy.groups[slot].getGroupId(),
+                         id, order, label);
+    return false;
+  }
+  bool fullPermutation(Kind kind, const uint8_t *ids, uint8_t count) {
+    OrderIds live{}, slots{};
+    uint8_t total = 0;
+    bool normalize = false;
+    if (!ids || count > 32 || !readOrder(kind, live, slots, total, normalize) ||
+        count != total)
+      return false;
+    for (uint8_t i = 0; i < count; ++i) {
+      bool found = false;
+      for (uint8_t j = 0; j < count; ++j)
+        found |= ids[i] == live[j];
+      if (!found)
+        return false;
+      for (uint8_t j = 0; j < i; ++j)
+        if (ids[j] == ids[i])
+          return false;
+    }
+    return true;
   }
 
 public:
@@ -481,6 +547,104 @@ public:
   CommitResult retryFileCommit(Authorization expected,
                                uint64_t revision) override {
     const auto admission = admit(expected, revision);
+    if (admission != Admission::accepted)
+      return {{}, admission};
+    return {applyModelCommit().file};
+  }
+  bool readOrder(Kind kind, OrderIds &ids, OrderIds &slots, uint8_t &count,
+                 bool &normalize) override {
+    memset(ids, 0, sizeof(ids));
+    memset(slots, 0, sizeof(slots));
+    count = 0;
+    normalize = false;
+    const uint8_t capacity = orderCapacity(kind);
+    if (!authorization().allowed || !capacity || capacity > 32)
+      return false;
+    struct Key {
+      uint8_t id, slot;
+      int8_t order;
+    };
+    Key keys[32]{};
+    uint8_t total = 0;
+    for (uint8_t slot = 0; slot < capacity; ++slot) {
+      uint8_t id;
+      int8_t order;
+      if (!orderRecord(kind, slot, id, order))
+        return false;
+      if ((kind == Kind::room && !id) || (kind != Kind::room && id == 255))
+        continue;
+      if (!id || id == 255)
+        return false;
+      for (uint8_t i = 0; i < total; ++i)
+        if (keys[i].id == id)
+          return false;
+      uint8_t at = total;
+      while (at && (keys[at - 1].order > order ||
+                    (keys[at - 1].order == order && keys[at - 1].id > id))) {
+        keys[at] = keys[at - 1];
+        --at;
+      }
+      keys[at] = {id, slot, order};
+      ++total;
+    }
+    for (uint8_t i = 0; i < total; ++i) {
+      ids[i] = keys[i].id;
+      slots[i] = keys[i].slot;
+      normalize |= keys[i].order != i;
+    }
+    count = total;
+    return true;
+  }
+  bool readOrderLabel(Kind kind, uint8_t slot, uint8_t expectedId,
+                      Value &out) override {
+    out = {};
+    uint8_t actual = 0;
+    int8_t order;
+    if (!authorization().allowed || !expectedId || expectedId == 255 ||
+        !orderRecord(kind, slot, actual, order, &out) || actual != expectedId) {
+      out = {};
+      return false;
+    }
+    return true;
+  }
+  ApplyResult applyOrder(Kind kind, const uint8_t *ids, uint8_t count,
+                         ArduinoJson::Allocator &allocator,
+                         Authorization expected, uint64_t revision) override {
+    auto admission = admitAuthority(expected, revision);
+    if (admission != Admission::accepted)
+      return {{}, admission};
+    if (!fullPermutation(kind, ids, count)) {
+      admission = admitAuthority(expected, revision);
+      if (admission != Admission::accepted)
+        return {{}, admission};
+      return invalid(proto_field_t::count,
+                     "Order must include every current ID exactly once");
+    }
+    JsonDocument request(&allocator);
+    auto array = request.to<JsonArray>();
+    for (uint8_t i = 0; i < count; ++i)
+      array.add(ids[i]);
+    if (request.overflowed())
+      return {{}, Admission::noMemory};
+    // Validate again after allocation, then read fresh authority immediately
+    // before the existing loop-owned mutation and complete fanout service.
+    const bool permutation = fullPermutation(kind, ids, count);
+    admission = admitAuthority(expected, revision);
+    if (admission != Admission::accepted)
+      return {{}, admission};
+    if (!permutation)
+      return invalid(proto_field_t::count,
+                     "Order must include every current ID exactly once");
+    model_edit_t edit;
+    edit.type = kind == Kind::room    ? model_edit_type_t::room_order
+                : kind == Kind::shade ? model_edit_type_t::shade_order
+                                      : model_edit_type_t::group_order;
+    swap(edit.doc, request);
+    return {applyModelEdit(edit)};
+  }
+  CommitResult retryOrderFile(Authorization expected,
+                              uint64_t revision) override {
+    const auto admission = admitAuthority(expected, revision);
     if (admission != Admission::accepted)
       return {{}, admission};
     return {applyModelCommit().file};

@@ -12,7 +12,7 @@ constexpr uint16_t background=rgb(0x111719),foreground=rgb(0xeaece8),muted=rgb(0
 const char *notice(Settings::Notice value) {
   switch(value) {
   case Settings::Notice::saved: return "Settings saved";
-  case Settings::Notice::savedRestartBlocked: return "Saved; restart blocked by uncertain storage.";
+  case Settings::Notice::savedRestartBlocked: return "Saved; restart request blocked.";
   case Settings::Notice::unchanged: return "No changes to save";
   case Settings::Notice::busy: return "Busy - retry Save when actions finish";
   case Settings::Notice::failed: return "Save failed - changes not applied";
@@ -27,6 +27,26 @@ const char *notice(Settings::Notice value) {
   case Settings::Notice::none: return "";
   }
   return "Settings unavailable";
+}
+// Compact equivalents of the typed restart refusals; no saved value is retried.
+const char *restartBlockText(RestartReason reason) {
+  switch(reason) {
+  case RestartReason::settingsUncertain: return "Settings storage uncertain. Review before Restart.";
+  case RestartReason::modelFailed: return "Model file save failed. Save model before Restart.";
+  case RestartReason::modelUncertain: return "Model file uncertain. Save model before Restart.";
+  case RestartReason::queuedOperations: return "Operations queued. Finish them, then request Restart.";
+  case RestartReason::pending: return "Another restart is already pending.";
+  case RestartReason::stale: return "State changed. Request Restart again.";
+  case RestartReason::cancelled: return "Restart request was cancelled.";
+  case RestartReason::exhausted: return "Restart history exhausted. Restart refused.";
+  case RestartReason::clock: return "Restart clock moved backward. Restart refused.";
+  case RestartReason::invalidRequest: return "Invalid restart request. Restart refused.";
+  case RestartReason::notReady: return "Restart service not ready. Try Restart later.";
+  case RestartReason::persistenceBusy: return "Storage/update I/O active. Request Restart later.";
+  case RestartReason::counterUncertain: return "Counter storage uncertain. Recovery required.";
+  case RestartReason::none: break;
+  }
+  return "Restart refused. Check System status.";
 }
 }
 // Use the font selected by the preceding Canvas::text call. Keep the newest
@@ -63,13 +83,20 @@ static void warningLines(Adafruit_GFX &canvas,const char *input,char (&first)[48
 }
 void Canvas::paintSettings(const Settings::FormView &view) {
   fillScreen(background);
-  text(12,24,view.title[0]?view.title:"Settings",true,accent,246);
+  const bool blocked=view.mode==Settings::Mode::closed && view.notice==Settings::Notice::savedRestartBlocked;
+  text(12,24,blocked?"Settings saved":view.title[0]?view.title:"Settings",true,accent,246);
   if(view.total) {
     char position[12];
     snprintf(position,sizeof(position),"%u/%u",unsigned(view.selected)+1,unsigned(view.total));
     text(268,21,position,false,muted,44);
   }
   drawFastHLine(12,33,296,divider);
+  if(blocked) {
+    text(12,58,"Restart request blocked",false,warning,296);
+    char first[48],second[48];warningLines(*this,restartBlockText(view.restartReason),first,second);
+    text(12,86,first,false,warning,296);text(12,110,second,false,warning,296);
+    text(12,161,"Press or Back: return Home",false,muted,296);return;
+  }
   if(view.mode==Settings::Mode::closed) {
     char first[48],second[48];warningLines(*this,notice(view.notice),first,second);
     text(12,78,first,false,view.notice==Settings::Notice::saved?accent:warning,296);

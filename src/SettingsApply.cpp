@@ -70,6 +70,7 @@ settings_apply_result_t applySettings(ConfigSettings &current, settings_section_
     if(out.saved()) {
       out.persistedParts = parts;
       out.restartBlocked=!settingsDurability().status().restartAllowed();
+      if(out.restartBlocked) out.restartReason=RestartReason::settingsUncertain;
       effects.completed(section,false);
     }
     return out;
@@ -140,7 +141,15 @@ settings_apply_result_t applySettings(ConfigSettings &current, settings_section_
   if(settingsSets(parts,settings_part_t::ethernet) && (current.connType==conn_types_t::ethernet || current.connType==conn_types_t::ethernetpref)) out.reboot=true;
 #endif
   out.restartBlocked=!settingsDurability().status().restartAllowed();
-  if(out.restartBlocked) out.reboot=false;
-  effects.completed(section,out.reboot);
+  if(out.restartBlocked) { out.reboot=false;out.restartReason=RestartReason::settingsUncertain; }
+  const bool requested=out.reboot;
+  const auto completion=effects.completed(section,requested);
+  if(requested) {
+    out.reboot=completion.admitted;
+    if(!out.reboot) {
+      out.restartBlocked=true;
+      out.restartReason=completion.reason==RestartReason::none ? RestartReason::notReady : completion.reason;
+    }
+  }
   return out;
 }

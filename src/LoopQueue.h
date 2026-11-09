@@ -2,6 +2,7 @@
 #define LOOP_QUEUE_H
 #include <stdint.h>
 #include "ShadeRequests.h"
+#include "GitUpdateOwner.h"
 #include "ProtoFrame.h"
 
 // The one queue through which other tasks hand work to loop(), which alone
@@ -46,6 +47,7 @@ struct loop_item_t {
   settings_save_t *save = nullptr; // proto_device: saveSettings' save, which loop() frees
   uint64_t localToken = 0;        // local_control: bounded adapter-owned slot
   bool localRadio = false;       // exact admitted protocol, never inferred from row/request type
+  GitUpdateOwnerToken externalOwner; // Exact queued upload/restore source; never request pointers.
 };
 static_assert(sizeof(loop_item_t)<=80,"Keep model contexts out of the 32 queue markers");
 
