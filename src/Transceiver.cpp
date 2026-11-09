@@ -39,6 +39,7 @@ static SemaphoreHandle_t radioMutex = nullptr;
 // and the async web server task all use it.
 static SemaphoreHandle_t txQueueMutex = nullptr;
 static TaskHandle_t txTaskHandle = nullptr;
+static bool radioUpdateResourcesReady(){return radioMutex && txQueueMutex;}
 // Number of tasks waiting for the radio to reconfigure it.  A job in flight
 // stops after its current frame so they never wait for a whole transmission.
 static std::atomic<uint32_t> txPreemptWaiters{0};
@@ -873,12 +874,13 @@ RadioUpdateActivity Transceiver::updateActivityLocked() const {
   return out;
 }
 bool Transceiver::updateActivity(RadioUpdateActivity &out) const {
+  if(!radioUpdateResourcesReady())return false;
   RadioLock radio(0);if(!radio.locked)return false;
   TxQueueLock queue(0);if(!queue.locked)return false;
   RxTaskLock receiveLock;out=this->updateActivityLocked();return true;
 }
 bool Transceiver::pauseForInstall(RadioInstallToken &out) {
-  if(out.generation)return false; // Never overwrite a retained capability.
+  if(out.generation || !radioUpdateResourcesReady())return false; // Never overwrite a retained capability.
   RadioLock radio(0);if(!radio.locked)return false;
   TxQueueLock queue(0);if(!queue.locked)return false;
   {
@@ -891,13 +893,14 @@ bool Transceiver::pauseForInstall(RadioInstallToken &out) {
   this->disableReceive();return true;
 }
 bool Transceiver::installPauseHeld(const RadioInstallToken &token) const {
-  if(!token.generation)return false;
+  if(!token.generation || !radioUpdateResourcesReady())return false;
   RadioLock radio(0);if(!radio.locked)return false;
   TxQueueLock queue(0);if(!queue.locked)return false;
   RxTaskLock receiveLock;
   return this->installActive && rxPausedForInstall && this->installGeneration==token.generation && this->sched.sealedForRestart();
 }
 RadioInstallResume Transceiver::resumeAfterInstall(const RadioInstallToken &token) {
+  if(!radioUpdateResourcesReady())return RadioInstallResume::busy;
   RadioLock radio(0);if(!radio.locked)return RadioInstallResume::busy;
   TxQueueLock queue(0);if(!queue.locked)return RadioInstallResume::busy;
   bool resume;

@@ -8,7 +8,7 @@ python3 - "$repo" "$scratch/production-radio.inc" <<'PY'
 from pathlib import Path
 import sys
 root=Path(sys.argv[1]);text=(root/'src/Transceiver.cpp').read_text();out=[]
-for name in ('somfy_rx_queue_t::init','Transceiver::begin','Transceiver::updateActivityLocked','Transceiver::updateActivity','Transceiver::pauseForInstall','Transceiver::resumeAfterInstall','Transceiver::installPauseHeld','Transceiver::enableReceive','Transceiver::disableReceive','Transceiver::clearReceived','Transceiver::handleReceive','Transceiver::receive'):
+for name in ('radioUpdateResourcesReady','somfy_rx_queue_t::init','Transceiver::begin','Transceiver::updateActivityLocked','Transceiver::updateActivity','Transceiver::pauseForInstall','Transceiver::resumeAfterInstall','Transceiver::installPauseHeld','Transceiver::enableReceive','Transceiver::disableReceive','Transceiver::clearReceived','Transceiver::handleReceive','Transceiver::receive'):
  at=text.find(name+'(')
  if at<0:continue
  start=text.rfind('\n',0,at)+1;brace=text.index('{',at);end=brace+1;depth=1
