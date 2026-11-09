@@ -14,7 +14,7 @@
 #define ESP_LOGW(...) ((void)0)
 #define ESP_LOGE(...) ((void)0)
 struct DummyFile {explicit operator bool()const{return false;}bool isDirectory(){return false;}void close(){}void flush(){}uint32_t position(){return 0;}};
-struct {std::string root;const char *mountpoint(){return root.c_str();}DummyFile open(const char *,const char *){return {};}} LittleFS;
+struct {unsigned writeOpens=0;std::string root;const char *mountpoint(){return root.c_str();}DummyFile open(const char *,const char *){++writeOpens;return {};}} LittleFS;
 struct Preferences {};
 struct restore_options_t{bool settings=false,shades=false,network=false,transceiver=false,repeaters=false,mqtt=false;};
 struct GitUpdateOwnerToken{};
@@ -51,7 +51,7 @@ struct ConfigFile:ConfigReader {
  bool readByte(uint8_t &)override;uint32_t position()override;bool seekRead(uint32_t);size_t readSize()const{return snapshot.size();}bool readHeader();
 };
 struct ShadeConfigFile:ConfigFile {
- using ConfigFile::begin;
+ bool begin(bool=false);bool begin(const char *,bool=false);
  bool restoreFile(SomfyShadeController *,const char *,restore_options_t &,const GitUpdateOwnerToken &);
  bool validate();bool loadFile(SomfyShadeController *,const char *filename="/shades.cfg");
  static ModelLoadStatus loadBoot(SomfyShadeController *);
@@ -63,6 +63,7 @@ struct Writer:ConfigWriter {std::string bytes;bool writeBytes(const uint8_t *p,s
 static std::string validModel(){Writer w;config_header_t h;h.version=SHADE_HDR_VER;h.length=SHADE_HDR_SIZE;h.shadeRecordSize=SHADE_REC_SIZE;h.groupRecordSize=GROUP_REC_SIZE;h.roomRecordSize=ROOM_REC_SIZE;h.roomRecords=h.shadeRecords=h.groupRecords=0;h.repeaterRecords=1;h.repeaterRecordSize=REPEATER_REC_SIZE;h.settingsRecordSize=h.netRecordSize=h.transRecordSize=0;assert(writeConfigHeader(w,h));uint32_t repeaters[SOMFY_MAX_REPEATERS]{};assert(writeRepeaterRecord(w,repeaters));return w.bytes;}
 static void write(const std::string &bytes){FILE *f=fopen((LittleFS.root+"/shades.cfg").c_str(),"wb");assert(f);assert(fwrite(bytes.data(),1,bytes.size(),f)==bytes.size());assert(fclose(f)==0);}
 int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));LittleFS.root=dir;SomfyShadeController model;
+ ShadeConfigFile noUncheckedWrite;assert(!noUncheckedWrite.begin(false)&&LittleFS.writeOpens==0);
  noteModelFilesystemMounted(false);assert(ShadeConfigFile::loadBoot(&model)==ModelLoadStatus::unavailable&&!model.adopted);
  noteModelFilesystemMounted(true);SomfyShadeController empty;assert(empty.begin()&&empty.modelLoad.usable()&&empty.gpio==1&&!empty.commits);assert(ShadeConfigFile::loadBoot(&model)==ModelLoadStatus::absent&&!model.adopted);
  const auto valid=validModel();write(valid);assert(ShadeConfigFile::loadBoot(&model)==ModelLoadStatus::loaded&&model.adopted==1&&model.repeatersRead==1);
