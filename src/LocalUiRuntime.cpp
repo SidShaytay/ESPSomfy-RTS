@@ -4,6 +4,7 @@
 #include "LocalUiCapture.h"
 #include "LocalUiAuthorizationAdapter.h"
 #include "LocalEntityRuntime.h"
+#include "LocalAdvancedRuntime.h"
 #include "BoardProfile.h"
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
@@ -93,7 +94,7 @@ bool sameMeaning(const View &a,const View &b,uint64_t page,uint64_t framePage,ui
 void *allocate(size_t size){return heap_caps_malloc(size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);}
 uint16_t transfer[screenWidth*bandHeight];
 }
-Runtime::Runtime():administration(EntityAdmin::runtimeBackend(),runtimeCatalogue(),Settings::runtimeMemory()) {}
+Runtime::Runtime():administration(EntityAdmin::runtimeBackend(),runtimeCatalogue(),Settings::runtimeMemory(),Advanced::runtimeBackend()) {}
 void Runtime::begin() {
   setCaptureProtected(true);controller.setPreferences(loadPreferences());
   pinMode(BoardProfile::backButton,INPUT_PULLUP);
@@ -107,6 +108,7 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
       graphicsMissing=true;
       settingsForm.discard();settingsActive=false;
       administration.discard();administrationActive=presentedAdministrationValid=false;
+      systemForm.discard();systemActive=false;
       frameAdministration={};presentedAdministration={};frameAdministrationEpoch=presentedAdministrationEpoch=0;
       controller.discardTransient();
       cancelUnsubmittedLocalControl();
@@ -129,12 +131,16 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
   const Model model=snapshotModel(s.running,controller.view());
   DispatchResult completion;
   if(takeLocalControlResult(completion)) controller.result(now,completion);
+  EntityAdmin::FormView systemView; // 352-byte loop stack view; no additional retained frame.
+  if(systemActive)systemForm.render(systemView);
   const View &before=controller.view();
   bool visible=hasPresented && presentedView.screen==before.screen;
   if(before.screen==Screen::home)visible &= before.selected==presentedView.selected;
   else if(before.screen==Screen::administration)
     visible &= administrationActive && presentedAdministrationValid &&
       presentedAdministrationEpoch==administration.epoch() && sameAdministration(administration.view(),presentedAdministration);
+  else if(before.screen==Screen::system)
+    visible &= systemActive && presentedAdministrationValid && sameAdministration(systemView,presentedAdministration);
   else if(before.screen==Screen::catalogue)
     visible &= model.pageToken && presentedPageToken==model.pageToken && before.cursor==model.page.cursor &&
       presentedView.cursor==model.page.cursor && presentedView.catalogue==before.catalogue && presentedView.room==before.room;
@@ -164,7 +170,7 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
   if(controller.takeCredentials(credentials)) controller.unlockResult(now,unlockAuthorization(credentials));
   credentials.clear();
   if(controller.view().screen==Screen::unlock || controller.view().screen==Screen::settings ||
-     controller.view().screen==Screen::administration) setCaptureProtected(true);
+     controller.view().screen==Screen::administration || controller.view().screen==Screen::system) setCaptureProtected(true);
   Command command;
   if(controller.take(command)) controller.result(now,dispatch(command));
   FormInput input;
@@ -207,6 +213,27 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
   if(controller.view().screen!=Screen::administration && administrationActive) {
     administration.discard();administrationActive=presentedAdministrationValid=false;
   }
+  if(controller.view().screen==Screen::system) {
+    if(!systemActive) {systemForm.open(settingsNow);systemActive=true;presentedAdministrationValid=false;attempted=false;}
+    systemForm.tick(settingsNow);systemForm.render(systemView);
+    if(controller.takeFormInput(input)) {
+      if(systemForm.closed()) {
+        if(input.back || (input.activate && presentedAdministrationValid &&
+            sameAdministration(systemView,presentedAdministration)))controller.closeForm();
+      } else if(input.back)systemForm.back(settingsNow);
+      else {
+        if(input.turn)systemForm.turn(input.turn,settingsNow);
+        systemForm.render(systemView);
+        if(input.activate && presentedAdministrationValid && sameAdministration(systemView,presentedAdministration))
+          systemForm.activate(settingsNow);
+      }
+    }
+    systemForm.render(systemView);
+    if(systemForm.closed() && systemView.notice==EntityAdmin::Notice::none)controller.closeForm();
+  }
+  if(controller.view().screen!=Screen::system && systemActive) {
+    systemForm.discard();systemActive=false;presentedAdministrationValid=false;
+  }
   if(!controller.brightness() && !wasSleeping) lockAuthorization();
   wasSleeping=!controller.brightness();light(controller.brightness());
   if(!controller.brightness()) {capturePoll(memory.pixels,bandIndex==43,0,revision);return true;}
@@ -216,19 +243,23 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
      (view.entity!=model.target.ref || (!view.openedToken && model.target.token))) return true;
   const uint64_t administrationEpoch=view.screen==Screen::administration?administration.epoch():0;
   const uint32_t desired=view.screen==Screen::settings?settingsHash(settingsForm.view()):
-    view.screen==Screen::administration?administrationHash(administration.view(),administrationEpoch):sceneHash(model,view,s);
+    view.screen==Screen::administration?administrationHash(administration.view(),administrationEpoch):
+    view.screen==Screen::system?administrationHash(systemView,0):sceneHash(model,view,s);
   const bool meaning=sameMeaning(view,frameView,model.pageToken,framePageToken,model.target.token,frameTargetToken) &&
     (view.screen!=Screen::settings || sameSettings(settingsForm.view(),frameSettings)) &&
-    (view.screen!=Screen::administration || (sameAdministration(administration.view(),frameAdministration) && administrationEpoch==frameAdministrationEpoch));
+    (view.screen!=Screen::administration || (sameAdministration(administration.view(),frameAdministration) && administrationEpoch==frameAdministrationEpoch)) &&
+    (view.screen!=Screen::system || sameAdministration(systemView,frameAdministration));
   if((desired!=scene || !meaning || !attempted) && (bandIndex==43 || !meaning || !attempted)) {
     const uint32_t start=micros();
     if(view.screen==Screen::settings) canvas.paintSettings(settingsForm.view());
     else if(view.screen==Screen::administration)canvas.paintEntity(administration.view());
+    else if(view.screen==Screen::system)canvas.paintEntity(systemView);
     else canvas.paint(model,view,s);
     const uint32_t elapsed=micros()-start;
     if(elapsed>maxPaintUs) maxPaintUs=elapsed;
     if(view.screen==Screen::settings) frameSettings=settingsForm.view();
     if(view.screen==Screen::administration) {frameAdministration=administration.view();frameAdministrationEpoch=administrationEpoch;}
+    if(view.screen==Screen::system) {frameAdministration=systemView;frameAdministrationEpoch=0;}
     frameView=view;frameTargetToken=model.target.ref==view.entity?model.target.token:0;
     framePageToken=model.pageToken;scene=desired;bandIndex=0;attempted=true;++revision;
   }
@@ -246,14 +277,14 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
   if(++bandIndex==43) {
     if(frameView.screen==Screen::settings) {presentedSettings=frameSettings;presentedSettingsValid=true;}
     else presentedSettingsValid=false;
-    if(frameView.screen==Screen::administration) {presentedAdministration=frameAdministration;presentedAdministrationEpoch=frameAdministrationEpoch;presentedAdministrationValid=true;}
+    if(frameView.screen==Screen::administration || frameView.screen==Screen::system) {presentedAdministration=frameAdministration;presentedAdministrationEpoch=frameAdministrationEpoch;presentedAdministrationValid=true;}
     else presentedAdministrationValid=false;
     presentedView=frameView;presentedTargetToken=frameTargetToken;presentedPageToken=framePageToken;hasPresented=true;
     if(frameView.screen==Screen::control && frameView.openedToken && frameView.openedToken==frameTargetToken) {
       stopPresentedRef=frameView.entity;stopPresentedToken=frameTargetToken;
       markControlPresented(frameView.entity,frameTargetToken,frameView.authorizedSelection,frameView.selectionAuthGeneration);
     }
-    if(frameView.screen!=Screen::unlock && frameView.screen!=Screen::settings && frameView.screen!=Screen::administration) setCaptureProtected(false);
+    if(frameView.screen!=Screen::unlock && frameView.screen!=Screen::settings && frameView.screen!=Screen::administration && frameView.screen!=Screen::system) setCaptureProtected(false);
   }
   return true;
 }

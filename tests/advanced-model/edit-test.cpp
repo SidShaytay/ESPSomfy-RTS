@@ -32,16 +32,17 @@ static edit_result_t request(model_edit_type_t type,uint8_t id){
   model_edit_t edit;edit.type=type;edit.doc["groupId"]=9;edit.doc["shadeId"]=id;return apply(edit);
 }
 int main(){
+  for(uint8_t staleId : {uint8_t(31),uint8_t(88)})
   for(auto file:{ModelCommitState::saved,ModelCommitState::failed,ModelCommitState::uncertain}){
-    somfy={};somfy.file=file;somfy.group.linkedShades[0]=7;somfy.group.linkedShades[29]=31;somfy.group.linkedShades[31]=31;
-    const auto result=request(model_edit_type_t::unlink_from_group,31);
+    somfy={};somfy.file=file;somfy.group.linkedShades[0]=7;somfy.group.linkedShades[29]=staleId;somfy.group.linkedShades[31]=staleId;
+    const auto result=request(model_edit_type_t::unlink_from_group,staleId);
     assert(result.applied);assert(result.ok==(file==ModelCommitState::saved));assert(result.persistence.state==file);
-    assert(result.id==9 && result.shadeId==31 && somfy.commits==1 && somfy.group.events==1);
+    assert(result.id==9 && result.shadeId==staleId && somfy.commits==1 && somfy.group.events==1);
     assert(somfy.group.linkedShades[0]==7);
     for(unsigned i=1;i<SOMFY_MAX_GROUPED_SHADES;i++)assert(somfy.group.linkedShades[i]==0);
   }
   somfy={};const auto refused=request(model_edit_type_t::link_to_group,31);assert(!refused.applied && refused.notFound && !somfy.commits);
   somfy={};somfy.exists=false;const auto missing=request(model_edit_type_t::unlink_from_group,31);assert(!missing.applied && !somfy.commits);
   somfy={};somfy.group.linkedShades[0]=7;const auto known=request(model_edit_type_t::unlink_from_group,7);assert(known.applied && !somfy.group.linkedShades[0] && somfy.commits==1);
-  puts("Actual group metadata repair branch: 6 cases passed (no radio endpoint)");
+  puts("Actual group metadata repair branch: 9 cases passed (no radio endpoint)");
 }

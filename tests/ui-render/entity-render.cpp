@@ -143,6 +143,34 @@ int main(int argc, char **argv) {
   strcpy(view.rows[1].label, "Save");
   strcpy(view.hint, "May change live GPIO, motor timing and RF identity.");
   save(canvas, pixels.data(), view, argv[1], "entity-device-save-confirm");
+  // Advanced uses this same borrowed frame/renderer. Check the complete
+  // configuration-only warning and maximum-width association identity.
+  view={};view.mode=EntityAdmin::Mode::confirm;view.rowCount=view.total=2;
+  strcpy(view.title,"#27 Office");strcpy(view.rows[0].label,"Cancel");view.rows[0].selected=true;
+  strcpy(view.rows[1].label,"Remove #4294967295");
+  const char *advancedWarnings[]={"Marker only. Motor pairing is unchanged.",
+    "Remove all stale links. No physical unpair.","Stop future repeats. No physical unpair.",
+    "Remove association. No physical unpair."};
+  for(unsigned i=0;i<4;i++) {
+    strcpy(view.hint,advancedWarnings[i]);
+    char file[48];snprintf(file,sizeof(file),"entity-advanced-confirm-%u",i);
+    save(canvas,pixels.data(),view,argv[1],file);
+    std::string first=view.hint,second;int16_t x,y;uint16_t width,height;
+    canvas.getTextBounds(first.c_str(),0,0,&x,&y,&width,&height);
+    while(width>296) {
+      const auto space=first.rfind(' ');assert(space!=std::string::npos);
+      second=first.substr(space+1)+(second.empty()?"":" ")+second;
+      first.resize(space);canvas.getTextBounds(first.c_str(),0,0,&x,&y,&width,&height);
+    }
+    canvas.getTextBounds(second.c_str(),0,0,&x,&y,&width,&height);assert(width<=296);
+    canvas.getTextBounds(view.rows[1].label,0,0,&x,&y,&width,&height);assert(width<=284);
+  }
+  const auto exactAddress=pixels;strcpy(view.rows[1].label,"Remove #4294967294");
+  save(canvas,pixels.data(),view,argv[1],"entity-advanced-confirm-address-changed");
+  bool addressChanged=false;
+  for(unsigned row=74;row<104;row++)for(unsigned col=130;col<308;col++)
+    addressChanged|=pixels[row*320+col]!=exactAddress[row*320+col];
+  assert(addressChanged); // The final identity digits are not clipped away.
   puts("Production entity renderer: fields, identity confirmation, complete "
        "applied/file-only failure and text states passed.");
 }
