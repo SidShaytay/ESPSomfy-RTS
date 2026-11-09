@@ -663,6 +663,33 @@ int main(int argc,char **argv){
   assert(Settings::runtimeMemory().used()==0 && !receiveHub().active());
   assert(!RuntimeTestAccess::systemContains(settingsUi,"123456"));
   busBusy=false;idle();back();idle();
+  auto beginDiagnostics=[&](){
+    for(unsigned i=0;i<5 && RuntimeTestAccess::view(settingsUi).screen!=Screen::home;++i){
+      if(RuntimeTestAccess::view(settingsUi).screen==Screen::status)click();else back();idle();
+    }
+    assert(RuntimeTestAccess::view(settingsUi).screen==Screen::home);
+    for(unsigned i=0;i<homeRows;++i){rotate(-1);idle();}
+    for(unsigned i=0;i<systemHomeIndex;++i){rotate(1);idle();}
+    click();idle();for(unsigned i=0;i<3;++i){rotate(1);idle();}click();idle();rotate(1);idle();click();idle();
+    assert(receiveHub().active());
+    assert(receiveHub().publish(diagnosticFrame,{diagnosticPulses,3,false}));idle();
+    assert(RuntimeTestAccess::systemContains(settingsUi,"123456"));
+  };
+  for(unsigned reason=0;reason<3;++reason){
+    beginDiagnostics();
+    if(reason==0){lockAuthorization();idle();}
+    else if(reason==1){
+      savedPixels=RuntimeTestAccess::losePixels(settingsUi);
+      assert(!settingsUi.tick(testNow,status,false,send,light));
+      RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();
+    }else{testNow+=120001;authTestNow=testNow;settingsUi.tick(testNow,status,false,send,light);idle();}
+    assert(!receiveHub().active() && Settings::runtimeMemory().used()==0);
+    assert(!RuntimeTestAccess::systemContains(settingsUi,"123456"));
+  }
+  for(unsigned i=0;i<5 && RuntimeTestAccess::view(settingsUi).screen!=Screen::home;++i){
+    if(RuntimeTestAccess::view(settingsUi).screen==Screen::status)click();else back();idle();
+  }
+  assert(submitted.size()==beforeWifiRF && settingsSaves==beforeWifiSaves);
   for(unsigned i=0;i<homeRows;i++){rotate(-1);idle();}for(unsigned i=0;i<systemHomeIndex;i++){rotate(1);idle();}
   click();idle();click();idle(); // default Restart confirmation
 

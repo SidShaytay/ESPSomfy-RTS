@@ -267,7 +267,7 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
     }
   }
   if(controller.view().screen!=Screen::system && systemActive) {
-    discardSystemChild();systemForm.discard();systemActive=false;presentedAdministrationValid=false;
+    discardSystemChild();wipeSystemProjection(systemView);systemForm.discard();systemActive=false;presentedAdministrationValid=false;
   }
   if(!controller.brightness() && !wasSleeping) lockAuthorization();
   wasSleeping=!controller.brightness();light(controller.brightness());
