@@ -26,8 +26,8 @@ static int digitalPinToInterrupt(int value){return value;}
 static void attachInterrupt(int,void(*)(),int){io();}
 static void detachInterrupt(int){io();}
 struct {float frequency=0,bandwidth=0;bool receiving=false;
- void setRxBW(float v){io();bandwidth=v;}void SetRx(){io();receiving=true;}
- void setMHZ(float v){io();frequency=v;}void setSidle(){io();receiving=false;}
+ void setRxBW(float v){assert(rxmode!=0||rxPausedForInstall);io();bandwidth=v;}void SetRx(){io();receiving=true;}
+ void setMHZ(float v){assert(rxmode!=0||rxPausedForInstall);io();frequency=v;}void setSidle(){io();receiving=false;}
  int getRssi(){io();return -65;}
 } ELECHOUSE_cc1101;
 struct {unsigned length=0;void init(){assert(rxHeld);length=0;}}rx_queue,tx_queue;

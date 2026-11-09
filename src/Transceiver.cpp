@@ -376,16 +376,17 @@ void Transceiver::endFrequencyScan() {
     { RxTaskLock receiveLock;
       rx_queue.init();somfy_rx.clear();
       noiseDetected=false;noiseStart=0;noiseCount=0;
-      rxPausedForInstall=false;
     }
     // Observation changes only tuning/RX state. Ending it must not persist,
     // run full radio initialization or retry its persistence markers.
     if(this->_available.load() && this->config.enabled) {
       ELECHOUSE_cc1101.setMHZ(this->config.frequency);
       ELECHOUSE_cc1101.setRxBW(this->config.rxBandwidth);
+      { RxTaskLock receiveLock;rxPausedForInstall=false; }
       if(scanResumeReceive) this->enableReceive();
       else ELECHOUSE_cc1101.setSidle();
     }
+    { RxTaskLock receiveLock;rxPausedForInstall=false; }
     scanResumeReceive = false;
     scanStopRequested = false;
     scanEmitPending = true;
