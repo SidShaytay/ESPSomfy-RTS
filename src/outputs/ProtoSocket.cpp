@@ -239,7 +239,7 @@ static void queueDeviceOp(AsyncWebSocketClient *client, const proto_message_t &m
   if(msg.type == static_cast<uint8_t>(proto_type_t::commitModel)) {
     const char *bad=parseModelCommitPayload(d);
     if(bad){replyError(client,msg.id,proto_error_t::badRequest,bad);return;}
-    if(!submitModelCommit(item.replyTo))replyError(client,msg.id,proto_error_t::busy,"Command queue full");
+    if(!submitModelCommit(item.replyTo,ModelCommitMode::counterFileRecovery))replyError(client,msg.id,proto_error_t::busy,"Command queue full");
     return;
   }
   if(msg.type == static_cast<uint8_t>(proto_type_t::getSettings)) {
@@ -504,14 +504,11 @@ static void sendReply(const proto_reply_to_t &to, BufferedJsonFormatter &json, c
   ws.text(to.client, buf, json.length());
 }
 void ProtoSocket::replyRequest(const proto_reply_to_t &to, const shade_request_t &req, shade_request_result_t result) {
-  if(!onLoopTask() || to.id == 0) return;
-  char buf[192];
-  BufferedJsonFormatter json;
-  json.setBuffer(buf, sizeof(buf));
-  const proto_error_t code = protoRequestError(result);
-  if(code == proto_error_t::none) writeOkReply(json, to.id);
-  else writeErrorReply(json, to.id, code, protoRequestErrorDesc(req, result));
-  sendReply(to, json, buf, sizeof(buf));
+  if(!onLoopTask() || to.id==0)return;
+  char buf[320];BufferedJsonFormatter json;json.setBuffer(buf,sizeof(buf));
+  beginFrame(json,proto_type_t::reply,to.id);ProtoWriter writer(json);
+  writeShadeRequestResult(writer,req,result);endFrame(json);
+  sendReply(to,json,buf,sizeof(buf));
 }
 
 // What an edit op's reply says: for an add, the new item's id; for a refused

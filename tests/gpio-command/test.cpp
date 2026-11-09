@@ -6,11 +6,14 @@ unsigned storageReads=0,storageWrites=0,behaviourCalls=0;
 uint8_t radioBitLength=56;
 SomfyShadeController somfy;
 static unsigned gpioWrites=0;
+static bool counterAllowed=true;
+bool counterCommandAllowed(uint32_t,somfy_commands){return counterAllowed;}
 static uint8_t levels[256];
 void pinMode(uint8_t,uint8_t){}
 void digitalWrite(uint8_t pin,uint8_t level){assert(pin!=255);++gpioWrites;levels[pin]=level;}
 void encodeRepeatJob(somfy_tx_job_t &,somfy_frame_t &,uint8_t){}
 void noteRepeatQueued(somfy_frame_t &,const somfy_tx_job_t &){}
+#include "production-rx.inc"
 int main(){
  { SomfyShade shade;shade.proto=radio_proto::GP_Remote;shade.gpioUp=17;shade.gpioDown=40;shade.gpioMy=42;
    somfy.modelLoad.fail();const auto before=gpioWrites;
@@ -18,6 +21,28 @@ int main(){
    shade.configureGPIOs();somfy.configureGPIOs();assert(gpioWrites==before);
    somfy.modelLoad.bootResult(ModelLoadStatus::loaded);
  }
+ counterAllowed=false;
+ SomfyShade blocked;blocked.proto=radio_proto::RTS;blocked.bitLength=0;
+ assert(!blocked.sendCommand(somfy_commands::Up));
+ assert(!blocked.sendCommandAfter(somfy_commands::Up,1,0,0).sent);
+ assert(!blocked.sendSensorCommand(1,1,1));
+ assert(!blocked.moveToTarget(80) && !blocked.moveToTiltTarget(80) && !blocked.sendTiltCommand(somfy_commands::Up));
+ assert(!blocked.setMyPosition(80) && !blocked.moveToMyPosition());
+ assert(!storageReads && !storageWrites && !gpioWrites && !behaviourCalls && !somfy.frames && !blocked.bitLength);
+ counterAllowed=true;
+ SomfyShade observed;observed.linkedRemotes[0].setRemoteAddress(12345);
+ observed.linkedRemotes[0].lastRollingCode=100;somfy.transceiver.blocked=12345;
+ somfy_frame_t incoming;incoming.valid=true;incoming.cmd=somfy_commands::Down;incoming.remoteAddress=12345;incoming.rollingCode=500;
+ observed.processFrame(incoming,false);observed.behaviour.tick(1);
+ assert(observed.state().direction==1 && observed.state().target==100 && observed.linkedRemotes[0].lastRollingCode==100);
+ assert(!storageReads && !storageWrites && !gpioWrites && !somfy.frames);
+ somfy.transceiver.blocked=0;incoming.cmd=somfy_commands::My;incoming.rollingCode=501;incoming.processed=false;
+ observed.processFrame(incoming,false);observed.behaviour.tick(2);
+ assert(observed.state().direction==0 && observed.linkedRemotes[0].lastRollingCode==501 && storageWrites==1);
+ incoming.cmd=somfy_commands::Down;incoming.rollingCode=400;incoming.processed=false;
+ observed.processFrame(incoming,false);
+ assert(observed.linkedRemotes[0].lastRollingCode==400 && storageWrites==2); // Existing unblocked RX is not global anti-replay.
+ storageReads=storageWrites=behaviourCalls=0;
 
  SomfyShade s;s.proto=radio_proto::GP_Remote;s.bitLength=56;s.lastFrame.cmd=somfy_commands::Up;
  assert(!s.sendCommandAfter(somfy_commands::Up,1,0,0).sent);

@@ -63,6 +63,7 @@ class SomfyRemote : public RemoteSettings {
     virtual uint32_t getRemoteAddress();
     uint16_t peekNextRollingCode();
     void commitRollingCode(uint16_t code);
+    // Automatic RX only; explicit corrections/linking use the checked domain.
     virtual uint16_t setRollingCode(uint16_t code);
     // Only the checked explicit domain calls this AFTER verified NVS. No I/O.
     void adoptExplicitCounter(uint16_t code);
@@ -144,8 +145,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     void restore(float pos, float tiltPos, float myPos, float myTiltPos) { this->behaviour.restore(pos, tiltPos, myPos, myTiltPos); }
     // Forgets the tilt of a shade that has none.
     void clearTilt() { this->behaviour.clearTilt(); }
-    // Link helpers change metadata/counters; the shared edit service commits.
-    bool linkRemote(uint32_t remoteAddress, uint16_t rollingCode = 0);
+    // Linking uses the shared checked received-counter domain; never an unchecked setter.
     bool unlinkRemote(uint32_t remoteAddress);
     // Marks the shade as changed; the change fan-out sends shadeState once per
     // loop() pass.

@@ -1,5 +1,6 @@
 #include "SomfyShadeOps.h"
 #include "Somfy.h"
+#include "CounterResults.h"
 #include "ShadeChanges.h"
 
 extern SomfyShadeController somfy;
@@ -38,7 +39,7 @@ bool SomfyShadeOps::repeatFrame(uint8_t shadeId, uint8_t repeat) { return somfy.
 bool SomfyShadeOps::sendSensorCommand(uint8_t shadeId, int8_t windy, int8_t sunny, uint8_t repeat) {
   SomfyShade *shade = somfy.getShadeById(shadeId);
   const bool sent = shade->sendSensorCommand(windy, sunny, repeat);
-  shade->emitState();
+  if(sent)shade->emitState();
   return sent;
 }
 bool SomfyShadeOps::setMyPosition(uint8_t shadeId, int8_t pos, int8_t tilt) {
@@ -63,13 +64,10 @@ void SomfyShadeOps::setUnpaired(uint8_t shadeId) {
   shade->save();
   shade->configChanged();
 }
-void SomfyShadeOps::setRollingCode(uint8_t shadeId, uint16_t code) {
-  // Only an explicit correction invalidates intentions; ordinary on-air code
-  // advancement must not revoke a continuing-movement STOP allowance.
-  ++somfy.configurationRevision;
-  ++somfy.getShadeById(shadeId)->configurationRevision;
-  somfy.getShadeById(shadeId)->setRollingCode(code);
+shade_request_result_t SomfyShadeOps::setRollingCode(uint8_t shadeId, uint16_t code) {
+  return counterRequestResult(correctExplicitCounter(shadeId,code));
 }
+
 bool SomfyShadeOps::sendGroupCommand(uint8_t groupId, somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
   return somfy.getGroupById(groupId)->sendCommand(cmd, repeat, stepSize);
 }
@@ -78,6 +76,6 @@ bool SomfyShadeOps::repeatGroupFrame(uint8_t groupId, uint8_t repeat) { return s
 bool SomfyShadeOps::sendGroupSensorCommand(uint8_t groupId, int8_t windy, int8_t sunny, uint8_t repeat) {
   SomfyGroup *group = somfy.getGroupById(groupId);
   const bool sent = group->sendSensorCommand(windy, sunny, repeat);
-  group->emitState();
+  if(sent)group->emitState();
   return sent;
 }
