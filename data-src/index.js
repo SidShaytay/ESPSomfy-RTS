@@ -18,6 +18,7 @@ var errors = [
     { code: -12, desc: "Pin setting in use on another motor.  Output pins cannot be re-used." },
     { code: -13, desc: "GPIO outputs must use distinct pads. None may be selected more than once." },
     { code: -14, desc: "Choose a valid output GPIO or None." },
+    { code: -15, desc: "GPIO ownership settings are unavailable. Repair radio/Ethernet settings first." },
     { code: -21, desc: "Git Update: Flash write failed." },
     { code: -22, desc: "Git Update: Flash erase failed." },
     { code: -23, desc: "Git Update: Flash read failed." },
