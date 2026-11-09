@@ -114,6 +114,8 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     // Where the shade is and where it is going.
     const ShadeBehaviour::State &state() const { return this->behaviour.state(); }
     bool isIdle() const { return this->behaviour.isIdle(); }
+    // Wait for actual GPIO pulse release observation, even past its deadline.
+    bool idleForAdministration() const { return this->behaviour.idleForAdministration() && this->gpioRelease==0; }
     uint8_t getFlags() override;
     // Sets the setting and state bits from a saved or sent flags byte.
     void setFlags(uint8_t flags);
