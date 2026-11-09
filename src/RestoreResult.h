@@ -12,9 +12,11 @@ struct RestoreSettingsResult {
   // SettingsNamespace bits, not UI sections (general/connection alias CFG).
   uint8_t requestedNamespaces=0,verifiedNamespaces=0,appliedNamespaces=0;
   bool saved()const {
-    return state==RestoreSettingsState::notSelected ? requestedNamespaces==0 :
-      state==RestoreSettingsState::saved && requestedNamespaces==verifiedNamespaces &&
-      requestedNamespaces==appliedNamespaces;
+    if(!persistence.saved())return false;
+    return state==RestoreSettingsState::notSelected ?
+      !requestedNamespaces && !verifiedNamespaces && !appliedNamespaces :
+      state==RestoreSettingsState::saved && requestedNamespaces &&
+      requestedNamespaces==verifiedNamespaces && requestedNamespaces==appliedNamespaces;
   }
 };
 struct RestoreApplyResult {
