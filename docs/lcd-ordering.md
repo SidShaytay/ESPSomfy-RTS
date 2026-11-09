@@ -1,15 +1,19 @@
 # Local list ordering
 
-The ordering component supports complete room, device and group lists. Parent
-navigation is a separate integration: this component alone does not add a
-reachable Reorder menu.
+Open **Home → Administration**, choose **Rooms**, **Devices** or **Groups**,
+then select **Reorder** after the configured entries. Add and existing entry
+positions keep their previous meaning; Reorder is appended and remains available
+when Add is full. The ordering screen covers the complete selected-kind list.
 
 Select an entry by its stable ID, press to pick it, turn to move it, then press
 to apply that move to the local draft. Back while moving restores the draft
 before that pick, preserving earlier applied draft moves. Nothing has been
 saved yet. Choose Save order and explicitly confirm; Cancel is selected first.
-Back from the list discards its entire draft. Empty and already unchanged,
-compact lists close without a save.
+Back from the list discards its entire draft. After a completed save/result,
+the parent list returns to the last explicitly picked stable ID if it still
+exists, rather than an old row number. Scrolling past other entries on the way
+to Save does not change that anchor. Empty and already unchanged, compact lists
+close without a save.
 
 Save renumbers the displayed complete list from zero. When legacy numbering is
 noncompact, Save remains available even without moving an entry. This repairs
@@ -37,11 +41,13 @@ slots with an expected-ID check; rows do not repeatedly scan the full catalogue.
 The component retains three 32-byte arrays: draft IDs, move rollback IDs and
 aligned physical slots. It borrows the parent's FormView for each render rather
 than retaining another frame. Native size is 160 bytes, guarded by a static
-bound. The existing native Administration size is 1,216 bytes, leaving room
-within its 1,536-byte bound for parent integration. Target size/build verification
-and parent presentation/admission tests remain required before integration.
-All output frames are protected; the parent must retain exact fully-presented
-frame admission, wake/debounce filtering and discard on sleep/graphics loss.
+bound. Native Administration is 1,376 bytes including Ordering and its existing
+borrowed frame, within its 1,536-byte bound. Target size/build
+verification remains a separate acceptance check. All output frames are
+protected; the parent retains exact fully-presented frame admission and
+wake/debounce filtering. Leaving Administration, sleep and graphics loss discard
+the order draft. A list change while Reorder is highlighted keeps the launcher
+selected and requires a fresh press after presentation.
 
 Native suites `test_localorder` and `test_localentityruntime` cover draft-only
 moves, partial-move cancellation, explicit default-Cancel Save, normalization,
@@ -51,5 +57,11 @@ applied file failure and COMMIT-only retry. Removing the second permutation
 check or selecting Save by default makes the relevant regression fail.
 `tools/preview-local-order.sh` uses the actual GFX renderer for representative
 list/move/confirmation/retry views and checks the fixed footer pixel widths.
+`tools/preview-local-ui.sh` also drives actual encoder journeys for all three
+kinds, blocked/unseen launcher/Save/confirmation, draft move undo, file failure
+and COMMIT-only retry, all 32 device rows, numbering repair that unblocks a new
+Add draft, and sleep/graphics-loss cleanup. Its fake filesystem tracks the order
+projection separately: a failed write retains the old projection, while a
+successful COMMIT captures the applied live order without replaying an edit.
 These tests and previews are offline; they do not access a controller or send
 motor/RF/HA commands.
