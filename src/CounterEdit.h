@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include "ModelCommitResult.h"
+#include "PrimaryCounterReview.h"
 // Explicit operator counter corrections only. Automatic TX/RX advancement
 // retains its existing algorithm. An uncertain write must never be rolled back
 // or replayed from a cached value.
@@ -10,6 +11,8 @@ struct CounterEditResult {
   bool saved() const { return state == CounterEditState::saved; }
 };
 CounterEditResult persistExplicitCounter(uint32_t address,uint16_t code);
+// Read only. False preserves out; only exact NOT_FOUND means absence.
+bool readExplicitCounter(uint32_t address,StoredCounter &out);
 // Received/linked codes may advance but never lower an existing identity.
 CounterEditResult persistObservedCounter(uint32_t address,uint16_t code,uint16_t aliasHighwater);
 enum class CounterQuarantine : uint8_t { none, nvsUnknown, filePending };

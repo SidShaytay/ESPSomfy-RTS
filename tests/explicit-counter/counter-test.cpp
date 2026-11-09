@@ -48,13 +48,14 @@ static bool requireCounterLease=true;
 static unsigned modelReplies=0,modelEvents=0,editReplies=0;
 static edit_result_t lastEdit;
 static ModelCommitReport lastModelReport;
+static void captureModelReport(ModelCommitReport report){lastModelReport=report;}
 #define PROTO_SOCKET_H
 struct ModelSocket {
   void replyEdit(const proto_reply_to_t &,model_edit_type_t,const edit_result_t &result){++editReplies;lastEdit=result;}
   void room(SomfyRoom &){assert(false);}void order(sort_list_t){assert(false);}void repeaters(){assert(false);}
   void shadeRemoved(uint8_t){assert(false);}void groupRemoved(uint8_t){assert(false);}void roomRemoved(uint8_t){assert(false);}
   void replyModelCommit(const proto_reply_to_t &,ModelCommitReport report){++modelReplies;lastModelReport=report;}
-  void modelPersistence(ModelCommitReport,uint32_t){++modelEvents;}
+  void modelPersistence(ModelCommitReport report,uint32_t){++modelEvents;captureModelReport(report);}
 } protoSocket;
 RestartResult requestRestart(uint32_t){assert(false);return {};}
 RestartResult requestOwnedRestart(const GitUpdateOwnerToken &,uint32_t){assert(false);return {};}
@@ -75,6 +76,7 @@ static unsigned fileWrites=0,forbidden=0,setupFrames=0;
 static bool allowSetupSend=false,setupEcho=false;
 static unsigned long modelNow=1;
 static unsigned long modelClock(){return modelNow;}
+struct ReviewWitness : CounterCorrectionWitness {bool authorized=true;unsigned calls=0;bool current() override {++calls;return authorized && modelNow<5000;}} reviewWitness;
 LoopQueue loopQueue;
 static ModelCommitResult fileResult{ModelCommitState::saved};
 static uint16_t diskShade[SOMFY_MAX_SHADES],diskGroup[SOMFY_MAX_GROUPS];
@@ -117,13 +119,14 @@ void SomfyShade::emitCommand(somfy_commands,const char*,uint32_t){}
 #undef millis
 #undef xQueueCreate
 #include "../../src/ExplicitCounter.cpp"
+#include "../../src/CounterRuntime.cpp"
 #include "../../src/CounterCommandGuard.cpp"
 #include "../../src/ModelCommitService.cpp"
 #include "production-link-dispatch.inc"
 #include "production-link-fanout.inc"
 static constexpr uint32_t address=12345;
 static void reset() {
-  assert(!gitUpdate.busy() && !forbidden);requireCounterLease=true;modelReplies=modelEvents=editReplies=0;lastModelReport={};lastEdit={};FakeNvs::reset();pendingRestart=false;fileWrites=forbidden=setupFrames=0;allowSetupSend=setupEcho=false;modelNow=1;fileResult={ModelCommitState::saved};
+  assert(!gitUpdate.busy() && !forbidden);requireCounterLease=true;modelReplies=modelEvents=editReplies=0;lastModelReport={};lastEdit={};FakeNvs::reset();pendingRestart=false;reviewWitness={};fileWrites=forbidden=setupFrames=0;allowSetupSend=setupEcho=false;modelNow=1;fileResult={ModelCommitState::saved};
   memset(diskShade,0,sizeof(diskShade));memset(diskGroup,0,sizeof(diskGroup));memset(diskLinks,0,sizeof(diskLinks));
   tx_queue.length=0;somfy.transceiver.sched={};somfy.transceiver.counterEdits={};somfy.configurationRevision=1;
   for(auto &s:somfy.shades){s.clear();s.lastFrame={};s.gpioRelease=0;s.configurationRevision=1;for(auto &remote:s.linkedRemotes)remote.lastRollingCode=0;}
@@ -144,6 +147,66 @@ int main(int argc,char **argv) {
     somfy_tx_job_t job;job.ticket=999;job.frame.remoteAddress=address;job.tx.bit_length=56;
     assert(!somfy.transceiver.submitTx(job) && !job.ticket && !notifies && !somfy.transceiver.sched.hasWork());
     assert(!FakeNvs::opens && !forbidden);return 0;
+  }
+  if(argc>1 && !strcmp(argv[1],"primaryCompletion")) {
+    for(bool reviewed:{false,true})for(unsigned failure=0;failure<4;++failure) {
+      reset();PrimaryCounterReview snapshot;
+      if(reviewed)assert(reviewPrimaryCounter(7,snapshot)==CounterDomainState::saved);
+      if(failure==1)fileResult={ModelCommitState::failed,ModelCommitStage::write};
+      if(failure==2)FakeNvs::failOpen=FakeNvs::opens+1;
+      if(failure==3)FakeNvs::failSet=FakeNvs::sets+1;
+      const auto result=reviewed?applyPrimaryCounterCorrection(7,10,snapshot,reviewWitness):applyPrimaryCounterCorrection(7,10);
+      assert(result.applied==(failure<2) && modelEvents==(failure<2?1:0));
+      assert(fileWrites==(failure<2?1:0) && !editReplies && !modelReplies);
+      if(result.applied)assert(lastModelReport.file.state==result.file.state);
+      if(failure==2)assert(result.state==CounterDomainState::nvsFailed && !FakeNvs::sets);
+      if(failure==3)assert(result.state==CounterDomainState::nvsUncertain && FakeNvs::sets==1);
+    }
+    assert(!forbidden);puts("Shared primary completion: one applied outcome event, exact operation file result, no duplicate alias edits or refused/uncertain fanout");return 0;
+  }
+  if(argc>1 && !strcmp(argv[1],"reviewedPrimary")) {
+    for(unsigned change=0;change<7;++change) {
+      reset();aliases();assert(persistExplicitCounter(address,1000).saved());
+      PrimaryCounterReview reviewed;assert(reviewPrimaryCounter(7,reviewed)==CounterDomainState::saved);
+      assert(reviewed.address==address && reviewed.primary==1000 && reviewed.stored.present && reviewed.stored.code==1000);
+      assert(primaryCounterReviewCurrent(7,reviewed));
+      assert(reviewed.aliasCount()==5 && !reviewed.reconciled(1000));
+      const auto revision=somfy.configurationRevision;const auto sets=FakeNvs::sets;
+      if(change==0)++somfy.shades[0].lastRollingCode;
+      if(change==1)++somfy.shades[1].lastRollingCode; // Still below the maximum alias: a high-water-only comparison misses this.
+      if(change==2)assert(persistExplicitCounter(address,1001).saved());
+      if(change==3)somfy.shades[2].linkedRemotes[6].setRemoteAddress(888);
+      if(change==4)FakeNvs::failRead=FakeNvs::reads+1;
+      if(change==6)reviewed.shadeId=22;
+      if(change==5)FakeNvs::beforeGet=[] {FakeNvs::beforeGet=nullptr;++somfy.shades[1].lastRollingCode;};
+      if(change==0 || change==1 || change==3 || change==6)assert(!primaryCounterReviewCurrent(7,reviewed));
+      const auto beforeWrites=FakeNvs::writeOpens;
+      const auto result=correctReviewedPrimaryCounter(7,10,reviewed,reviewWitness);
+      assert(!result.applied && result.state==(change==4?CounterDomainState::nvsFailed:CounterDomainState::stale));
+      assert(FakeNvs::sets==sets+(change==2?1:0) && FakeNvs::writeOpens==beforeWrites && !fileWrites);
+      assert(somfy.configurationRevision==revision && somfy.transceiver.counterQuarantine()==CounterQuarantine::none && !gitUpdate.busy());
+    }
+    for(bool expired:{false,true}) {
+      reset();PrimaryCounterReview reviewed;assert(reviewPrimaryCounter(7,reviewed)==CounterDomainState::saved);
+      FakeNvs::beforeGet=expired?+[] {FakeNvs::beforeGet=nullptr;modelNow=5000;}:+[] {FakeNvs::beforeGet=nullptr;reviewWitness.authorized=false;};
+      const auto result=correctReviewedPrimaryCounter(7,10,reviewed,reviewWitness);
+      assert(result.state==CounterDomainState::stale && !result.applied && reviewWitness.calls==1);
+      assert(!FakeNvs::writeOpens && !FakeNvs::sets && !fileWrites && somfy.configurationRevision==1);
+      assert(!gitUpdate.busy() && !somfy.transceiver.counterEditUncertain());
+    }
+    reset();aliases();PrimaryCounterReview absent;assert(reviewPrimaryCounter(7,absent)==CounterDomainState::saved && !absent.stored.present);
+    assert(!absent.reconciled(0));assert(persistExplicitCounter(address,0).saved());
+    const auto writes=FakeNvs::writeOpens;assert(correctReviewedPrimaryCounter(7,0,absent,reviewWitness).state==CounterDomainState::stale && FakeNvs::writeOpens==writes);
+    PrimaryCounterReview current;assert(reviewPrimaryCounter(7,current)==CounterDomainState::saved);
+    const auto lowered=correctReviewedPrimaryCounter(7,0,current,reviewWitness);assert(lowered.applied && lowered.saved() && fileWrites==1);
+    assert(somfy.shades[0].lastRollingCode==0 && somfy.shades[1].lastRollingCode==0 && somfy.shades[1].linkedRemotes[4].lastRollingCode==0);
+    assert(somfy.shades[2].linkedRemotes[6].lastRollingCode==0 && somfy.groups[3].lastRollingCode==0 && somfy.shades[2].lastRollingCode==777);
+    assert(reviewPrimaryCounter(7,current)==CounterDomainState::saved && current.reconciled(0));
+    reset();FakeNvs::failOpen=1;assert(reviewPrimaryCounter(7,current)==CounterDomainState::nvsFailed && !FakeNvs::writeOpens && !FakeNvs::sets && !current.address);
+    reset();FakeNvs::failRead=1;assert(reviewPrimaryCounter(7,current)==CounterDomainState::nvsFailed && !FakeNvs::writeOpens && !FakeNvs::sets && !current.address);
+    reset();fileResult={ModelCommitState::failed,ModelCommitStage::write};assert(correctExplicitCounter(7,10).applied);
+    assert(reviewPrimaryCounter(7,current)==CounterDomainState::quarantined && !current.address);
+    assert(!forbidden);puts("Reviewed primary correction: exact aliases/NVS presence, read-only failure, final freshness, deliberate lowering and reconciliation passed");return 0;
   }
   if(argc>1 && !strcmp(argv[1],"sharedLink")) {
     for(unsigned failure=0;failure<6;++failure) {

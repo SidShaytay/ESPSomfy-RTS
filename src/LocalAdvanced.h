@@ -4,6 +4,7 @@
 #include "LocalLearnQueue.h"
 #include "LocalTargetRead.h"
 namespace LocalUi {
+enum class PrimaryCounterEffect : uint8_t;
 namespace Advanced {
 enum class Scope : uint8_t { devices, groups, repeaters };
 struct Target {
@@ -59,9 +60,26 @@ struct LearnFileResult {
   EntityAdmin::Admission admission = EntityAdmin::Admission::accepted;
   LearnQueueReason freshness = LearnQueueReason::ready;
 };
+struct PrimaryReadResult {
+  CounterDomainState state = CounterDomainState::invalid;
+  EntityAdmin::Admission admission = EntityAdmin::Admission::accepted;
+};
+struct PrimaryApplyResult {
+  CounterDomainResult counter;
+  EntityAdmin::Admission admission = EntityAdmin::Admission::accepted;
+  LearnQueueReason freshness = LearnQueueReason::ready;
+};
 class Backend {
 public:
   virtual ~Backend() = default;
+  virtual PrimaryReadResult readPrimary(Target, const Context &,
+      EntityAdmin::Authorization, uint64_t, PrimaryCounterReview &) = 0;
+  // Live aliases/quarantine only; no NVS/owner/allocation. Safe in a final
+  // read-only grant witness while the domain owns the counter reservation.
+  virtual bool primaryCurrent(Target, const PrimaryCounterReview &) = 0;
+  virtual PrimaryApplyResult correctPrimary(Target, const Context &,
+      EntityAdmin::Authorization, uint64_t, const PrimaryCounterReview &,
+      uint16_t, LearnPending &) = 0;
   virtual ReceiveHub &receivedFrames() = 0;
   virtual LearnQueued queueLearn(LearnPending &, uint64_t) = 0;
   virtual bool cancelLearn(uint64_t, LearnPending &) = 0;
@@ -115,6 +133,8 @@ class Form {
   void learnCancelled(LearnQueueReason);
   void queueLearn(uint64_t, bool fileOnly);
   void learnFault(const char *, bool chooseFrame = false);
+  void primaryEffect(PrimaryCounterEffect effect, uint64_t now);
+  void runPrimary();
 
 public:
   static constexpr uint64_t timeoutMs = 120000;
