@@ -6,6 +6,7 @@
 class Effects : public SettingsEffects {
 public:
   uint8_t sections=0;unsigned calls=0;
+  bool networkPinsAvailable(const ConfigSettings &) const override{return true;}
   bool wifiClientsPresent() const override { TEST_FAIL_MESSAGE("No runtime query during reconcile");return false; }
   void hostnameChanged() override { TEST_FAIL_MESSAGE("No hostname apply"); }
   void timeChanged() override { TEST_FAIL_MESSAGE("No time apply"); }

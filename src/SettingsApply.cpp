@@ -63,6 +63,7 @@ const char *settingsApplyFailureDescription(const settings_apply_result_t &resul
     case settings_apply_refusal_t::passwordRequired: return "Password security requires a password; nothing was saved.";
     case settings_apply_refusal_t::unauthorized: return "Unlock again before saving; nothing was saved.";
     case settings_apply_refusal_t::stale: return "Settings changed; reopen the form before saving.";
+    case settings_apply_refusal_t::pinOwnership: return "Hardware pin ownership is unavailable or overlaps; nothing was saved.";
     case settings_apply_refusal_t::busy: return "Actions are queued; retry Save when they finish. Nothing was saved.";
     default: return settingsSaveFailureDescription(result.persistence.state);
   }
@@ -96,6 +97,8 @@ settings_apply_result_t applySettings(ConfigSettings &current, settings_section_
     const auto refusal = securityRefusal(current.Security,next.Security);
     if(refusal != settings_apply_refusal_t::none) return settings_apply_result_t::refused(refusal);
   }
+  if((settingsSets(parts,settings_part_t::conn) || settingsSets(parts,settings_part_t::ethernet)) &&
+     !effects.networkPinsAvailable(next))return settings_apply_result_t::refused(settings_apply_refusal_t::pinOwnership);
   auto persist = [&](settings_part_t part, auto &value) {
     if(!settingsSets(parts,part)) return true;
     out.persistence = value.save();

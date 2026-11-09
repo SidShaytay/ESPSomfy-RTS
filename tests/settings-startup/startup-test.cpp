@@ -6,6 +6,8 @@
 #include "SettingsRevisions.h"
 #include "ProtoSettings.h"
 #include "GitUpdate.h"
+#include "ManualUpdateLifecycle.h"
+#include <esp_timer.h>
 #include <nvs.h>
 #include <assert.h>
 #include <string.h>
@@ -18,7 +20,7 @@ struct {Transceiver transceiver;} somfy;
 ConfigSettings settings;
 static uint8_t marker(){auto i=FakeNvs::values.find("CC1101/radioInit");return i==FakeNvs::values.end()?1:i->second.bytes[0];}
 static void hardwareCall(){assert(marker()==0 && !somfy.transceiver.available());++hardware;}
-namespace BoardProfile {bool prepareRadio(float){hardwareCall();return true;} }
+namespace BoardProfile {bool usesPin(uint8_t){return false;}bool prepareRadio(float){hardwareCall();return true;} }
 struct {void begin(int,int,int,int){hardwareCall();}} SPI;
 struct {
 #define CONFIG(name) template<class...Args> void name(Args...){hardwareCall();}
@@ -42,8 +44,12 @@ static constexpr uint8_t INPUT=0;
 static void pinMode(uint8_t,uint8_t){++hardware;}
 bool Transceiver::installPauseHeld(const RadioInstallToken &token)const{return token.generation==17;}
 settings_save_result_t saveRadioConfiguration(Transceiver &radio,const transceiver_config_t &next){
- return radio.setConfigWhilePaused(next,radioPause,radioOwner);
+ return radio.setConfigWhilePaused(next,radioPause,radioOwner,currentRadioPinContext());
 }
+uint64_t retainedEthernetPinClaims(){return 0;}
+RadioPinContext currentRadioPinContext(){return {0,true};}
+RadioPinContext withRetainedEthernetClaims(RadioPinContext context){return context;}
+bool radioPinConfigurationAvailable(const transceiver_config_t &,RadioPinContext context){return context.qualified;}
 static unsigned rxmode=0;static bool scanEmitPending=false;uint8_t radioBitLength=56;
 static void warnBootPin(const char *,uint8_t){}
 static bool checkBoardRadio(float){hardwareCall();return boardReadback;}
@@ -101,9 +107,27 @@ int main(int argc,char **argv){assert(argc==2);const std::string mode=argv[1];
   puts("Actual setup order stages all namespaces before time/migration effects and never replays them");return 0;
  }
  auto &radio=somfy.transceiver.config;radio.enabled=true;
- if(mode=="liveFirst" || mode=="liveLast" || mode=="liveOpen" || mode=="stalePause" || mode=="foreignOwner" || mode=="wrongKind" || mode=="ownedRestore") {
+ if(mode=="scanApply") {
+  assert(somfy.transceiver.loadReadOnly());rxmode=3;const auto claims=somfy.transceiver.retainedPinClaims();
+  const auto result=radio.apply();assert(!result.saved()&&!hardware&&!FakeNvs::sets&&!disabledReceive&&rxmode==3&&somfy.transceiver.retainedPinClaims()==claims);return 0;
+ }
+ if(mode=="hotDisable") {
+  assert(somfy.transceiver.loadReadOnly());detected=false;radio.apply();assert(hardware && somfy.transceiver.retainedPinClaims());const auto claims=somfy.transceiver.retainedPinClaims();const auto calls=hardware;
+  radio.enabled=false;radio.apply();assert(hardware==calls+1 && somfy.transceiver.retainedPinClaims()==claims && !enabledReceive);return 0;
+ }
+ if(mode=="disabledCold") {
+  radio.enabled=false;assert(somfy.transceiver.loadReadOnly());radio.radioInit=true;radio.apply();
+  assert(!hardware && !enabledReceive && !somfy.transceiver.available());
+  puts("Disabled cold radio never touches CC1101/SPI/GPIO");return 0;
+ }
+ if(mode=="liveFirst" || mode=="liveLast" || mode=="liveOpen" || mode=="stalePause" || mode=="foreignOwner" || mode=="wrongKind" || mode=="ownedRestore" || mode=="liveExpiredEntry" || mode=="liveExpiredAfterSave") {
   assert(somfy.transceiver.loadReadOnly());radio.enabled=true;
-  assert(gitUpdate.acquireExternal(mode=="wrongKind"?GitUpdateExternalOwner::counter:mode=="ownedRestore"?GitUpdateExternalOwner::restore:GitUpdateExternalOwner::configuration,radioOwner));
+  const bool restoring=mode=="ownedRestore" || mode=="liveExpiredEntry" || mode=="liveExpiredAfterSave";
+  assert(gitUpdate.acquireExternal(mode=="wrongKind"?GitUpdateExternalOwner::counter:restoring?GitUpdateExternalOwner::restore:GitUpdateExternalOwner::configuration,radioOwner));
+  if(restoring) {
+   assert(gitUpdate.beginTransfer(radioOwner,ManualUpdateKind::restore,0));assert(gitUpdate.claimTransfer(radioOwner,0));
+   assert(gitUpdate.transferResource(radioOwner,true));assert(gitUpdate.queueTransfer(radioOwner));assert(gitUpdate.finishTransfer(radioOwner,0,true));assert(gitUpdate.claimTransfer(radioOwner,0,true));
+  }
   counters();const auto revision=deviceSettingsRevision(settings_section_t::radio);
   // The full namespace has 15 fields, followed by the before/after marker.
   if(mode=="liveFirst")FakeNvs::failSet=16;
@@ -111,11 +135,19 @@ int main(int argc,char **argv){assert(argc==2);const std::string mode=argv[1];
   if(mode=="liveOpen")FakeNvs::failOpen=2;
   if(mode=="stalePause")radioPause.generation=18;
   if(mode=="foreignOwner")++radioOwner.generation;
+  if(mode=="liveExpiredEntry")stubEspTimerMicros=30000000;
+  if(mode=="liveExpiredAfterSave")FakeNvs::beforeGet=[] {stubEspTimerMicros=30000000;};
   JsonDocument request;request["frequency"]=433.5;
   const auto result=runtimeSaveRadio(request.as<JsonObject>());
   if(mode=="ownedRestore") {
    assert(result.saved() && result.liveApplied && radio.frequency==433.5f && enabledReceive==1 && gitUpdate.ownsExternal(radioOwner));
    puts("Exact already-owned restore path applies without nested acquisition");return 0;
+  }
+  if(mode=="liveExpiredEntry" || mode=="liveExpiredAfterSave") {
+   assert(!result.saved() && !result.liveApplied && !hardware && !enabledReceive && radio.frequency!=433.5f && deviceSettingsRevision(settings_section_t::radio)==revision);
+   if(mode=="liveExpiredEntry")assert(!FakeNvs::sets && !result.radioNamespaceVerified);
+   else assert(result.state==settings_save_state_t::partial && result.radioNamespaceVerified && FakeNvs::sets==15 && !settingsDurability().status().restartAllowed());
+   puts("Real claimed restore expiry blocks first radio write or post-write live adoption without replay");return 0;
   }
   const bool stale=mode=="stalePause" || mode=="foreignOwner" || mode=="wrongKind";
   assert(!result.saved());

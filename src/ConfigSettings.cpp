@@ -281,13 +281,7 @@ bool WifiSettings::ssidExists(const char *ssid) {
 }
 #if HAS_ETHERNET
 
-bool EthernetSettings::usesPin(uint8_t pin) const {
-  if(ethClockPin(this->CLKMode) == pin) return true;
-  else if(this->PWRPin == pin) return true;
-  else if(this->MDCPin == pin) return true;
-  else if(this->MDIOPin == pin) return true;
-  return false;  
-}
+bool EthernetSettings::usesPin(uint8_t pin) const {return LivePinClaims::contains(pinClaims(),pin);}
 
 void EthernetSettings::print() {
   ESP_LOGD(TAG, "Ethernet Settings Board:%d PHYType:%d CLK:%d ADDR:%d PWR:%d MDC:%d MDIO:%d",

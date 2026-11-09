@@ -9,11 +9,12 @@ from pathlib import Path
 import sys
 root,out=map(Path,sys.argv[1:])
 fixture=(root/'tests/radio-update/radio-test.cpp').read_text().split('int main()')[0]
-fixture=fixture.replace('#include "RadioUpdateActivity.h"','#include "RadioUpdateActivity.h"\n#include "GitUpdate.h"\n#include "SettingsDurability.h"\n#include "RadioSettingsAdmission.h"\n#include <atomic>\n#include <string>')
+fixture=fixture.replace('#include "RadioUpdateActivity.h"','#include "RadioUpdateActivity.h"\n#include "GitUpdate.h"\n#include "SettingsDurability.h"\n#include "RadioSettingsAdmission.h"\n#include <atomic>\n#include <string>\n#include <esp_timer.h>\n#include "PinOwnership.h"')
 old='  struct {SettingsLoadStatus loadStatus{SettingsLoadState::loaded};bool enabled=true,noiseDetection=false,radioInit=true;int RXPin=8;void apply(){assert(!rxHeld);}}config;'
 assert old in fixture
-fixture=fixture.replace('struct Transceiver {','struct transceiver_config_t {SettingsLoadStatus loadStatus{SettingsLoadState::loaded};bool enabled=true,noiseDetection=false,radioInit=true;int RXPin=8,TXPin=3;void applyBoardPins(){}settings_save_result_t save();settings_save_result_t apply();};\nstruct Transceiver {')
-fixture=fixture.replace(old,'  transceiver_config_t config;\n  settings_save_result_t setConfig(const transceiver_config_t &);\n  settings_save_result_t setConfigWhilePaused(const transceiver_config_t &,const RadioInstallToken &,const GitUpdateOwnerToken &);')
+fixture=fixture.replace('struct Transceiver {','struct transceiver_config_t {SettingsLoadStatus loadStatus{SettingsLoadState::loaded};bool enabled=true,noiseDetection=false,radioInit=true;int RXPin=8,TXPin=3;void applyBoardPins(){}settings_save_result_t save();settings_save_result_t apply();settings_save_result_t applyWithPinContext(RadioPinContext){return apply();}};\nstruct Transceiver {')
+fixture=fixture.replace(old,'  transceiver_config_t config;\n  settings_save_result_t setConfig(const transceiver_config_t &);\n  settings_save_result_t setConfigWhilePaused(const transceiver_config_t &,const RadioInstallToken &,const GitUpdateOwnerToken &,RadioPinContext);')
+fixture=fixture.replace("assert(locks.size()==1 && locks.back()=='r')","assert(!locks.empty() && locks.back()=='r')")
 fixture=fixture.replace('explicit RadioLock(unsigned=0)','explicit RadioLock(unsigned=0,bool=false)')
 fixture=fixture.replace('struct Shade{uint8_t id=255;','struct Shade{bool idle=true;bool idleForAdministration()const{return idle;}uint8_t id=255;')
 fixture=fixture.replace(' bool isDirty=false;', ' struct Group{uint8_t id=255;int direction=0;somfy_frame_t lastFrame;uint8_t linkedShades[32]={};uint8_t getGroupId()const{return id;}}groups[16];\n Shade *getShadeById(uint8_t id){for(auto &s:shades)if(s.id==id)return &s;return nullptr;}\n bool isDirty=false;')
@@ -42,4 +43,4 @@ PY
 "${CXX:-c++}" -std=c++17 -O2 -pthread -I"$repo/src" -I"$json" -c "$repo/src/GitUpdate.cpp" -o "$scratch/owner.o"
 "${CXX:-c++}" -std=c++17 -O2 -ffunction-sections -fdata-sections -Wl,--gc-sections -pthread -DRADIO_SETTINGS_HOST_TEST -I"$scratch" -I"$repo/src" -I"$repo/test/stubs" -I"$json" \
  "$scratch/test.cpp" "$repo/src/RadioScheduler.cpp" "$repo/src/PulseDecoder.cpp" "$repo/src/SettingsDurability.cpp" "$repo/src/SomfyFrame.cpp" "$scratch/owner.o" -o "$scratch/test"
-for mode in owner movement held group groupCompleted pending producer radio scan restart untrusted lateMovement marker persist busyCleanup staleCleanup success;do "$scratch/test" "$mode";done
+for mode in pinConflict owner movement held group groupCompleted pending producer radio scan restart untrusted lateMovement marker persist busyCleanup staleCleanup success;do "$scratch/test" "$mode";done

@@ -1,12 +1,16 @@
 #ifndef SHADE_GPIO_ADMISSION_HOST_TEST
 #include "ConfigSettings.h"
 #include "Somfy.h"
+#include "ESPNetwork.h"
 #include <driver/gpio.h>
 #endif
 #include "ModelEditor.h"
 #include "ShadeGpioPolicy.h"
 extern SomfyShadeController somfy;
 extern ConfigSettings settings;
+#if HAS_ETHERNET
+extern ESPNetwork net;
+#endif
 int8_t SomfyShade::validateGPIOs(radio_proto protocol, uint8_t upPin,
                                  uint8_t downPin, uint8_t myPin) {
   if(ShadeGpioPolicy::physicalMask(protocol) &&
@@ -23,11 +27,10 @@ int8_t SomfyShade::validateGPIOs(radio_proto protocol, uint8_t upPin,
     return !GPIO_IS_VALID_OUTPUT_GPIO(pin);
   };
 #if HAS_ETHERNET
-  if (settings.connType == conn_types_t::ethernet ||
-      settings.connType == conn_types_t::ethernetpref)
-    ethernet.uses = [](uint8_t pin, void *) {
-      return settings.Ethernet.usesPin(pin);
-    };
+  ethernet.uses = [](uint8_t pin,void *) {
+    return LivePinClaims::contains(net.retainedPinClaims(),pin) ||
+      ((settings.connType==conn_types_t::ethernet || settings.connType==conn_types_t::ethernetpref) && settings.Ethernet.usesPin(pin));
+  };
 #endif
   others.ctx = this;
   others.uses = [](uint8_t pin, void *context) {

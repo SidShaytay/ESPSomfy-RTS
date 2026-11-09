@@ -4,7 +4,7 @@
 #include "RestartTypes.h"
 
 enum class settings_apply_refusal_t : uint8_t {
-  none, invalidPin, usernameRequired, passwordRequired, unauthorized, stale, busy
+  none, invalidPin, usernameRequired, passwordRequired, unauthorized, stale, busy, pinOwnership
 };
 struct settings_apply_result_t {
   settings_save_result_t persistence;
@@ -27,6 +27,7 @@ class SettingsEffects {
 public:
   virtual ~SettingsEffects() = default;
   virtual bool wifiClientsPresent() const = 0;
+  virtual bool networkPinsAvailable(const ConfigSettings &) const = 0;
   virtual void hostnameChanged() = 0;
   virtual void timeChanged() = 0;
   virtual void mqttChanged() = 0;
