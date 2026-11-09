@@ -253,6 +253,44 @@ bool ShadeConfigFile::prepareCounters(CounterLoadControl control) {
   return result.ready();
 }
 
+// Restore is an external input boundary. Boot keeps the historical codec,
+// while selected restore records must be complete before any narrowing cast.
+bool ShadeConfigFile::validateRestoreRecords(const restore_options_t &opts){
+  const uint32_t modelStart=position();
+  config_header_t checkedHeader;
+  if(!seekRead(0))return false;
+  beginCheckedValues();readConfigHeader(*this,checkedHeader);
+  const auto headerValues=endCheckedValues();const auto v=checkedHeader.version;
+  const unsigned headerFields=4+(v>=19?2:0)+(v>10?2:0)+(v>=21?2:0)+(v>13?4:0);
+  if(!headerValues.valid || headerValues.fields!=headerFields || readFailed || position()!=modelStart ||
+      !seekRead(modelStart))return false;
+  header=checkedHeader;
+  auto checked=[&](unsigned fields,auto decode){
+    beginCheckedValues();const bool parsed=decode();const auto values=endCheckedValues();
+    return parsed&&values.valid&&values.fields==fields&&!readFailed;
+  };
+  bool valid=true;
+  if(opts.shades){
+    const unsigned shadeFields=12+(v<5?5:SOMFY_MAX_LINKED_REMOTES)+(v<4?1:2)+
+        (v>6?1:0)+(v>1?1:0)+(v>5?1:0)+(v>7?1:0)+(v>=9?1:0)+(v>=10?1:0)+
+        (v>=12?1:0)+(v>=13?1:0)+(v>14?2:0)+(v>15?1:0)+(v>16?1:0)+(v>=19?1:0);
+    const unsigned groupFields=6+SOMFY_MAX_GROUPED_SHADES+(v>=23?1:0)+
+        (v>=12?1:0)+(v>=13?1:0)+(v>=18?1:0)+(v>=19?1:0);
+    for(unsigned i=0;valid&&i<header.roomRecords;++i)valid=checked(3,[&]{room_record_t rec;return readRoomRecord(*this,rec);});
+    for(unsigned i=0;valid&&i<header.shadeRecords;++i)valid=checked(shadeFields,[&]{shade_record_t rec;return readShadeRecord(*this,header,rec);});
+    for(unsigned i=0;valid&&i<header.groupRecords;++i)valid=checked(groupFields,[&]{group_record_t rec;return readGroupRecord(*this,header,rec);});
+  }else valid=skipRecords(*this,uint32_t(header.roomRecords)+header.shadeRecords+header.groupRecords);
+  if(opts.repeaters){
+    for(unsigned i=0;valid&&i<header.repeaterRecords;++i)valid=checked(SOMFY_MAX_REPEATERS,[&]{
+      uint32_t addresses[SOMFY_MAX_REPEATERS];if(!readRepeaterRecord(*this,addresses))return false;
+      for(auto address:addresses)if(address>0xffffff)return false;
+      return true;
+    });
+  }
+  const bool rewound=seekRead(modelStart);
+  return valid&&rewound&&!readFailed;
+}
+
 // Two bounded passes over the SAME immutable model: count physically touched
 // pads, then validate each assignment against projected settings and its peers.
 // No model draft, mutable-file reread, pin operation or counter I/O is needed.
@@ -643,6 +681,7 @@ RestoreApplyResult ShadeConfigFile::restoreFile(SomfyShadeController *s,const ch
     result.refusal=RestoreRefusal::incompleteModel;return result;
   }
   if(!opts.shades&&!opts.repeaters&&!opts.settings&&!opts.network&&!opts.mqtt&&!opts.transceiver)return result;
+  if(!validateRestoreRecords(opts)){result.refusal=RestoreRefusal::invalid;return result;}
   SelectedSettingsRestore stage;
   const bool selected=opts.settings||opts.network||opts.mqtt||opts.transceiver;
   const uint32_t modelStart=position();
@@ -652,18 +691,7 @@ RestoreApplyResult ShadeConfigFile::restoreFile(SomfyShadeController *s,const ch
     result.settings=stage.status();result.refusal=RestoreRefusal::settings;return result;
   }
   if(selected){
-    // An identifier must be proven before truncation/defaults can affect the
-    // same-board Ethernet decision. Keep ordinary boot parsing unchanged.
-    config_header_t checkedHeader;
-    if(!seekRead(0)){result.refusal=RestoreRefusal::invalid;return result;}
-    beginCheckedValues();readConfigHeader(*this,checkedHeader);
-    const auto checked=endCheckedValues();
-    const unsigned fields=4+(checkedHeader.version>=19?2:0)+(checkedHeader.version>10?2:0)+
-        (checkedHeader.version>=21?2:0)+(checkedHeader.version>13?4:0);
-    const bool strictHeader=checked.valid&&checked.fields==fields&&!readFailed&&position()==modelStart;
-    if(!strictHeader || !seekRead(modelStart)){result.refusal=RestoreRefusal::invalid;return result;}
-    const bool sameBoard=checkedHeader.serverId[0]&&settings.serverId[0]&&
-        !strcmp(checkedHeader.serverId,settings.serverId);
+    const bool sameBoard=header.serverId[0]&&settings.serverId[0]&&!strcmp(header.serverId,settings.serverId);
     if(!skipRecords(*this,uint32_t(header.roomRecords)+header.shadeRecords+header.groupRecords+header.repeaterRecords) ||
        !stage.prepare(settings,s->transceiver.config,opts,header,*this,
           sameBoard) || readFailed){

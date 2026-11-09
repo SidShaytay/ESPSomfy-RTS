@@ -125,6 +125,7 @@ static void releaseCounters(void *p,size_t n){modelLoadIo().release(p,n);}
 struct ShadeConfigFile:ConfigFile {
  CounterLoad counters{allocateCounters,releaseCounters};bool prepareCounters(CounterLoadControl control={});void readShade(SomfyShade *);void readGroup(SomfyGroup *);
  bool begin(bool=false);bool begin(const char *,bool=false);
+ bool validateRestoreRecords(const restore_options_t &);
  bool validateRestoreGPIOs(SomfyShadeController *,bool,const class SelectedSettingsRestore &);
  RestoreApplyResult restoreFile(SomfyShadeController *,const char *,restore_options_t &,const GitUpdateOwnerToken &,const RadioInstallToken &);
  bool validate();bool loadFile(SomfyShadeController *,const char *filename="/shades.cfg");
@@ -215,6 +216,11 @@ int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));Lit
  }
  FakeNvs::reset();stored(100,100);stored(101,900);write(aliasesModel(true,500,22));SomfyShadeController legacy;
  assert(legacy.begin()&&legacy.groups[0].lastRollingCode==300); // v22 has no authoritative group code.
+ // Restore keeps the legacy v22 group default while validating present fields.
+ FakeNvs::reset();stored(100,100);stored(101,900);writeAt("/shades.tmp",aliasesModel(true,500,22));restoreAllowed=true;
+ {SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);ShadeConfigFile file;restore_options_t opts;opts.shades=true;
+  const auto result=file.restoreFile(&live,"/shades.tmp",opts,RestoreOwner,RadioInstallToken{1});
+  assert(result.complete&&result.modelApplied&&live.groups[0].lastRollingCode==300);}
  for(unsigned failure=0;failure<9;++failure){
   FakeNvs::reset();stored(100,100);stored(101,900);write(aliasesModel(false));
   if(failure==0)FakeNvs::failOpen=1;if(failure==1)FakeNvs::failRead=1;if(failure==2)FakeNvs::failRead=2;
@@ -256,6 +262,18 @@ int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));Lit
   if(preopened)assert(file.counters.result().ready()&&file.counters.result().writeAttempted==promoted);
   file.end();expireAtReads=-1;afterReads=0;
  }
+ // Raw fields must be validated before legacy numeric casts can wrap them.
+ for(unsigned malformed=0;malformed<3;++malformed){
+  const char *only=getenv("RESTORE_RAW_CASE");if(only&&unsigned(atoi(only))!=malformed)continue;
+  auto bytes=gpioModel(17,40,255);const unsigned field=malformed==0?22+SOMFY_MAX_LINKED_REMOTES:malformed==1?3:12+SOMFY_MAX_LINKED_REMOTES;
+  size_t start=SHADE_HDR_SIZE;for(unsigned i=0;i<field;++i)start=bytes.find(',',start)+1;const auto end=bytes.find(',',start);
+  const char *raw=malformed==0?"257":malformed==1?"4294967396":"65536";assert(strlen(raw)==end-start);bytes.replace(start,end-start,raw);
+  FakeNvs::reset();stored(100,100);writeAt("/shades.tmp",bytes);restoreAllowed=true;
+  SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);ShadeConfigFile file;restore_options_t opts;opts.shades=true;
+  const auto result=file.restoreFile(&live,"/shades.tmp",opts,RestoreOwner,RadioInstallToken{1});
+  assert(!result.complete&&!result.modelApplied&&!result.counterWriteAttempted&&!FakeNvs::writeOpens&&!live.gpio&&live.modelLoad.publishable());
+ }
+ if(getenv("RESTORE_RAW_CASE"))return 0;
  // Projected physical policy rejects invalid pads and duplicate/unknown
  // owners before promotion, while valid joint pin changes use the candidate.
  for(unsigned mode=0;mode<4;++mode){
@@ -285,7 +303,7 @@ int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));Lit
   else malformed.replace(24,3,"257"); // Old uint8 conversion wraps to the existing one-record count.
   FakeNvs::reset();stored(100,100);writeAt("/shades.tmp",malformed);strcpy(settings.serverId,"ABCDEF");
   SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);ShadeConfigFile file;
-  assert(file.begin("/shades.tmp",true)&&file.validate()&&file.seekRead(0));restore_options_t opts;opts.shades=opts.transceiver=true;
+  assert(file.begin("/shades.tmp",true)&&file.validate()&&file.seekRead(0));restore_options_t opts;opts.shades=true;
   const auto result=file.restoreFile(&live,"/shades.tmp",opts,RestoreOwner,RadioInstallToken{1});
   assert(!result.complete&&!result.modelApplied&&!FakeNvs::writeOpens&&!live.gpio&&live.modelLoad.publishable());
   settings.serverId[0]=0;
