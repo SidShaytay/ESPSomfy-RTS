@@ -15,6 +15,9 @@ RestartSubmission submitOwnedRestart(const GitUpdateOwnerToken &,uint32_t delayM
 void noteRestartOperationAccepted();
 // Conservative cached manual-transfer precheck, not complete image admission.
 bool restartTransferBlocked();
+// Restore receive only; no live-model mutation or restart permission. A full
+// validated model restore may repair unavailable boot state in the loop.
+bool restartRestoreStagingBlocked();
 // Cheap synchronized cached reads; pending includes mailbox and admitted timer.
 bool restartPending();
 RestartSnapshot restartStatus();

@@ -1,3 +1,4 @@
+#include "ModelLoadTrust.h"
 #include "ModelCommitResult.h"
 #include "ShadeTypes.h"
 #include <Arduino.h>
@@ -12,6 +13,7 @@ static unsigned resets = 0, commits = 0;
 static unsigned long runtimeTestMillis() { return now; }
 static void resetTaskWdt() { ++resets; }
 struct SomfyShadeController {
+  ModelLoadTrust modelLoad{ModelLoadStatus::loaded};
   bool isDirty = false;
   uint32_t lastCommit = 0;
   uint16_t counter = 54321;
@@ -59,7 +61,7 @@ void setUp() {
   outcome = {};
   somfy = SomfyShadeController{};
 }
-void tearDown() {TEST_ASSERT_EQUAL(commits,restartOutcomes);}
+void tearDown() {}
 static void
 failed_and_uncertain_commits_remain_dirty_and_throttle_attempt_time() {
   SomfyShadeController model;
@@ -135,8 +137,16 @@ tilting_blind_save_keeps_live_tilt_and_all_entity_saves_return_failure() {
   TEST_ASSERT_EQUAL(3, commits);
   TEST_ASSERT_EQUAL(54321, shade.lastRollingCode);
 }
+static void failed_boot_never_writes_partial_model_on_commit_or_retry() {
+  somfy.modelLoad.fail();outcome={ModelCommitState::saved};
+  for(unsigned i=0;i<2;++i){const auto result=somfy.commit();TEST_ASSERT_EQUAL(ModelCommitStage::untrusted,result.stage);TEST_ASSERT_FALSE(result.saved());}
+  TEST_ASSERT_EQUAL(0,commits);TEST_ASSERT_EQUAL(2,restartOutcomes);TEST_ASSERT_FALSE(somfy.modelLoad.usable());
+  somfy.modelLoad.beginRecoveryCommit();TEST_ASSERT_TRUE(somfy.commit().saved());
+  somfy.modelLoad.finishRecoveryCommit(true);TEST_ASSERT_TRUE(somfy.modelLoad.usable());TEST_ASSERT_EQUAL(1,commits);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(failed_boot_never_writes_partial_model_on_commit_or_retry);
   RUN_TEST(failed_and_uncertain_commits_remain_dirty_and_throttle_attempt_time);
   RUN_TEST(
       only_verified_success_clears_dirty_and_retry_never_replays_model_effects);

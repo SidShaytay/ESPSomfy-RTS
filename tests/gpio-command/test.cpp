@@ -12,6 +12,13 @@ void digitalWrite(uint8_t pin,uint8_t level){assert(pin!=255);++gpioWrites;level
 void encodeRepeatJob(somfy_tx_job_t &,somfy_frame_t &,uint8_t){}
 void noteRepeatQueued(somfy_frame_t &,const somfy_tx_job_t &){}
 int main(){
+ { SomfyShade shade;shade.proto=radio_proto::GP_Remote;shade.gpioUp=17;shade.gpioDown=40;shade.gpioMy=42;
+   somfy.modelLoad.fail();const auto before=gpioWrites;
+   assert(!shade.sendCommand(somfy_commands::Up) && !shade.moveToTarget(100));
+   shade.configureGPIOs();somfy.configureGPIOs();assert(gpioWrites==before);
+   somfy.modelLoad.bootResult(ModelLoadStatus::loaded);
+ }
+
  SomfyShade s;s.proto=radio_proto::GP_Remote;s.bitLength=56;s.lastFrame.cmd=somfy_commands::Up;
  assert(!s.sendCommandAfter(somfy_commands::Up,1,0,0).sent);
  assert(!storageReads&&!storageWrites&&!gpioWrites&&!somfy.processed&&s.lastRollingCode==0);

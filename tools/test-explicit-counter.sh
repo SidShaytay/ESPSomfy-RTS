@@ -29,4 +29,4 @@ PY
   -o "$scratch/counter"
 cases=(core completedGroup unknownGroup pending pendingRecovery)
 if (($#));then cases=("$@");fi
-for case in "${cases[@]}";do "$scratch/counter" "$case";done
+for case in badLoad "${cases[@]}";do "$scratch/counter" "$case";done

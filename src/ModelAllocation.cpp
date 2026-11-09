@@ -60,6 +60,7 @@ int8_t SomfyShadeController::getMaxRoomOrder() {
 // Stable IDs are independent of storage slots: config loading packs records.
 // Both a free ID and an unused slot are required before mutating any record.
 SomfyShade *SomfyShadeController::addShade() {
+  if(!modelLoad.usable())return nullptr;
   const uint8_t shadeId = this->getNextShadeId();
   if(shadeId == 255) return nullptr;
   for(auto &shade : this->shades) {
@@ -84,6 +85,7 @@ SomfyShade *SomfyShadeController::addShade() {
 }
 
 SomfyRoom *SomfyShadeController::addRoom() {
+  if(!modelLoad.usable())return nullptr;
   const uint8_t roomId = this->getNextRoomId();
   if(roomId == 0) return nullptr;
   for(auto &room : this->rooms) {
@@ -98,6 +100,7 @@ SomfyRoom *SomfyShadeController::addRoom() {
 }
 
 SomfyGroup *SomfyShadeController::addGroup() {
+  if(!modelLoad.usable())return nullptr;
   const uint8_t groupId = this->getNextGroupId();
   if(groupId == 255) return nullptr;
   for(auto &group : this->groups) {

@@ -13,7 +13,8 @@ const char *restartReason(RestartReason reason) {
     "Invalid restart request.","Restart admission is not ready.","Storage or update I/O is active; explicitly request Restart again when finished.",
     "Counter storage is uncertain; managed restart and affected identity commands are blocked. No automatic counter recovery is available.",
     "Movement or a GPIO pulse is active; wait for it to finish before Restart.",
-    "Group movement cannot be verified; review untracked or missing members before Restart."};
+    "Group movement cannot be verified; review untracked or missing members before Restart.",
+    "Model could not be loaded safely; restore a complete validated model before Restart."};
   const auto index=static_cast<unsigned>(reason);
   return index<sizeof(text)/sizeof(*text) ? text[index] : "Restart refused.";
 }
