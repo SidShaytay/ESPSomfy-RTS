@@ -157,7 +157,7 @@ int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));Lit
  for(unsigned mode=0;mode<3;++mode){SomfyShadeController bad;bad.modelLoad.fail();ShadeConfigFile file;assert(file.begin("/shades.cfg",true));restore_options_t opts;opts.shades=mode==1;opts.repeaters=mode==2;
    assert(!file.restoreFile(&bad,"/shades.cfg",opts,{},RadioInstallToken{1}).complete);assert(!bad.adopted&&!bad.commits&&!bad.gpio&&!bad.modelLoad.usable());file.end();}
  for(bool success:{false,true}){SomfyShadeController bad;bad.modelLoad.fail();bad.saveOK=success;ShadeConfigFile file;assert(file.begin("/shades.cfg",true));restore_options_t opts;opts.shades=opts.repeaters=true;
-   assert(file.restoreFile(&bad,"/shades.cfg",opts,{},RadioInstallToken{1}).complete==success);assert(bad.adopted==1&&bad.commits==1);assert(bad.modelLoad.usable()==success);assert(bad.gpio==unsigned(success));file.end();}
+   const auto result=file.restoreFile(&bad,"/shades.cfg",opts,{},RadioInstallToken{1});assert(result.complete==success&&result.modelApplied&&result.modelFile.saved()==success);assert(bad.adopted==1&&bad.commits==1);assert(bad.modelLoad.usable()==success);assert(bad.gpio==unsigned(success));file.end();}
  assert(!settingEffects);
  for(bool highFirst:{false,true}) for(uint16_t groupFloor:{uint16_t(50),uint16_t(500)}) {
   FakeNvs::reset();stored(100,100);stored(101,900);write(aliasesModel(highFirst,groupFloor));SomfyShadeController loaded;
@@ -191,7 +191,7 @@ int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));Lit
   SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);live.shades[0].setShadeId(7);live.shades[0].setRemoteAddress(777);live.shades[0].lastRollingCode=80;
   gitUpdate.allowed=true;retireAfterWrite=false;if(cause==0)FakeNvs::beforeGet=retireRestore;if(cause==2)FakeNvs::failRead=1;failCounterAllocation=cause==3;
   ShadeConfigFile file;assert(file.begin("/shades.tmp",true));restore_options_t opts;opts.shades=opts.repeaters=true;
-  assert(!file.restoreFile(&live,"/shades.tmp",opts,{},RadioInstallToken{1}).complete&&live.modelLoad.usable()&&live.modelLoad.publishable());
+  const auto result=file.restoreFile(&live,"/shades.tmp",opts,{},RadioInstallToken{1});assert(!result.complete&&!result.modelApplied&&!result.counterWriteAttempted&&!result.modelFile.saved()&&live.modelLoad.usable()&&live.modelLoad.publishable());
   assert(!live.adopted&&!live.commits&&!live.gpio&&live.configurationRevision==1&&live.restoreRevision==1);
   assert(live.shades[0].getShadeId()==7&&live.shades[0].getRemoteAddress()==777&&live.shades[0].lastRollingCode==80);
   assert(!FakeNvs::writeOpens&&!FakeNvs::sets&&FakeNvs::handles.empty()&&readAt("/shades.cfg")==valid);file.end();failCounterAllocation=false;
@@ -203,7 +203,7 @@ int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));Lit
   gitUpdate.allowed=true;gitUpdate.expireAtReads=promoted?4:2;gitUpdate.afterReads=0;
   SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);live.shades[0].setShadeId(7);live.shades[0].setRemoteAddress(777);live.shades[0].lastRollingCode=80;
   ShadeConfigFile file;if(preopened)assert(file.begin("/shades.tmp",true));restore_options_t opts;opts.shades=opts.repeaters=true;
-  assert(!file.restoreFile(&live,"/shades.tmp",opts,{},RadioInstallToken{1}).complete&&live.modelLoad.usable()==!promoted);
+  const auto result=file.restoreFile(&live,"/shades.tmp",opts,{},RadioInstallToken{1});assert(!result.complete&&!result.modelApplied&&result.counterWriteAttempted==promoted&&result.partial()==promoted&&live.modelLoad.usable()==!promoted);
   assert(!live.adopted&&!live.commits&&!live.gpio&&live.shades[0].getRemoteAddress()==777&&live.shades[0].lastRollingCode==80);
   assert(FakeNvs::sets==unsigned(promoted)&&FakeNvs::commits==unsigned(promoted)&&FakeNvs::handles.empty()&&readAt("/shades.cfg")==valid);
   if(preopened)assert(file.counters.result().ready()&&file.counters.result().writeAttempted==promoted);
