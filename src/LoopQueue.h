@@ -59,7 +59,7 @@ static_assert(sizeof(loop_item_t)<=80,"Keep model contexts out of the 32 queue m
 inline bool loopItemMutates(const loop_item_t &item) {
   if(item.type==loop_item_type_t::proto_read) return false;
   if(item.type==loop_item_type_t::proto_device)
-    return item.op!=uint8_t(proto_type_t::getSettings) && item.op!=uint8_t(proto_type_t::scanWifi);
+    return item.op!=uint8_t(proto_type_t::getSettings) && item.op!=uint8_t(proto_type_t::reboot);
   return true;
 }
 // Whether the item sends anything on air.

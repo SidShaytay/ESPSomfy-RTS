@@ -4,7 +4,7 @@
 #include "MqttConnection.h"
 #include "Somfy.h"
 #include "Utils.h"
-#include "LegacyRestartSource.h"
+#include "SafeRestart.h"
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
 #include <Update.h>
@@ -13,7 +13,7 @@
 #include <stdlib.h>
 extern SomfyShadeController somfy;
 extern MqttConnection mqtt;
-extern rebootDelay_t rebootDelay;
+
 namespace {
 uint64_t now() { return uint64_t(esp_timer_get_time())/1000; }
 void close(ManualUploadState &state) {
@@ -55,7 +55,7 @@ ManualUploadState *begin(AsyncWebServerRequest *request,ManualUpdateKind kind) {
   if(!gitUpdate.acquireExternal(kind==ManualUpdateKind::restore ? GitUpdateExternalOwner::restore : GitUpdateExternalOwner::manual,state->owner)) { state->failed=true;return state; }
   // Checked AFTER owner acquisition: no counter edit can begin between this
   // observation and SDK begin/shutdown. The owner is held through cleanup.
-  if(somfy.transceiver.counterEditUncertain() || snapshotLegacyRestart(rebootDelay).reboot ||
+  if(restartTransferBlocked() ||
      !gitUpdate.beginTransfer(state->owner,kind,now())) {
     state->failed=true;gitUpdate.releaseExternal(state->owner);return state;
   }
@@ -108,9 +108,13 @@ void receiveManualImage(AsyncWebServerRequest *request,ManualUpdateKind kind,siz
       if(!queueModel(*state,true)) close(*state);
       return;
     }
-    const auto published=publishExternalLegacyRestart(rebootDelay,millis()+500,state->owner.generation,uint8_t(state->owner.kind));
-    state->restartQueued=published.admitted;state->restartReason=published.reason;
-    if(!published.admitted) { close(*state);return; }
+    if(!gitUpdate.finishTransfer(state->owner,now(),true)) {state->failed=true;return;}
+    const auto submitted=submitOwnedRestart(state->owner,500);
+    state->restartQueued=submitted==RestartSubmission::queued;
+    state->restartReason=state->restartQueued ? RestartReason::none :
+        (submitted==RestartSubmission::busy ? RestartReason::pending : RestartReason::notReady);
+    if(!state->restartQueued)gitUpdate.releaseRestartSource(state->owner,now());
+    return;
   }
   gitUpdate.finishTransfer(state->owner,now(),len!=0 || final);
 }

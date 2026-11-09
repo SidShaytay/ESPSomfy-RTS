@@ -4,6 +4,7 @@
 #include "DeviceOps.h"
 #include "LocalOperationAdmission.h"
 #include "LoopQueue.h"
+#include "SafeRestart.h"
 extern LoopQueue loopQueue;
 namespace LocalUi { namespace Settings {
 namespace {
@@ -28,7 +29,7 @@ public:
        revision(section)!=expectedRevision) {
       return settings_apply_result_t::refused(settings_apply_refusal_t::stale);
     }
-    if(loopQueue.pending()) return settings_apply_result_t::refused(settings_apply_refusal_t::busy);
+    if(loopQueue.pending() || restartPending()) return settings_apply_result_t::refused(settings_apply_refusal_t::busy);
     // Form supplied the shared validator's expanded request. Recheck ownership
     // immediately before the loop-owned domain call; no HTTP/socket loopback.
     return applyDeviceSettings(section,request);

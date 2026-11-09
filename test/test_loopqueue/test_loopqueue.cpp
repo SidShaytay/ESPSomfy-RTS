@@ -85,11 +85,11 @@ static void only_accepted_mutating_operations_invalidate_restart_history() {
     TEST_ASSERT_TRUE(loopItemMutates(item(type)));
   TEST_ASSERT_FALSE(loopItemMutates(item(loop_item_type_t::proto_read)));
   auto device=item(loop_item_type_t::proto_device);
-  for(auto op:{proto_type_t::getSettings,proto_type_t::scanWifi}) {
+  for(auto op:{proto_type_t::getSettings,proto_type_t::reboot}) {
     device.op=uint8_t(op);TEST_ASSERT_FALSE(loopItemMutates(device));
   }
-  for(auto op:{proto_type_t::saveSettings,proto_type_t::beginFrequencyScan,
-      proto_type_t::endFrequencyScan,proto_type_t::reboot,proto_type_t::commitModel}) {
+  for(auto op:{proto_type_t::saveSettings,proto_type_t::scanWifi,proto_type_t::beginFrequencyScan,
+      proto_type_t::endFrequencyScan,proto_type_t::commitModel}) {
     device.op=uint8_t(op);TEST_ASSERT_TRUE(loopItemMutates(device));
   }
   device.op=255;TEST_ASSERT_TRUE(loopItemMutates(device)); // Unknown future work fails conservatively.

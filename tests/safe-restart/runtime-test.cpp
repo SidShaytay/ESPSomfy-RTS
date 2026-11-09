@@ -63,7 +63,16 @@ int main(int argc,char **argv) {
   assert(argc==2);const std::string mode=argv[1];tick(100);
   assert(submitRestart()==RestartSubmission::refused);assert(!restartPending());assert(!clockReads);
   assert(!restartLoop());
-  if(mode=="asyncStale") {
+  if(mode=="readWaiting" || mode=="readFlood") {
+    assert(requestRestart(500).admitted);queued=1;tick(200);
+    assert(!restartLoop() && restartPending() && !commits);
+    const auto reads=clockReads;assert(requestRestart().reason==RestartReason::pending);assert(clockReads==reads);
+    tick(600);assert(!restartLoop() && restartPending() && !commits);
+    if(mode=="readWaiting") {queued=0;assert(restartLoop() && shutdowns==1);return 0;}
+    tick(5599);assert(!restartLoop() && restartPending());tick(5600);
+    assert(!restartLoop() && !restartPending() && !gitUpdate.busy() && !commits);
+    queued=0;
+  } else if(mode=="asyncStale") {
     const auto reads=clockReads;assert(submitRestart()==RestartSubmission::queued);assert(clockReads==reads);++somfy.configurationRevision;
     tick(101);assert(!restartLoop() && !commits && !restartPending());
   } else if(mode=="asyncAge") {

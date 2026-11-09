@@ -1,5 +1,7 @@
 #include "ESPAsyncWebServer.h"
 #include "ModelCommitService.h"
+#include "SafeRestart.h"
+#include "SomfyFrame.h"
 #include "LoopQueue.h"
 #include "Update.h"
 #include "Utils.h"
@@ -14,10 +16,20 @@ struct SomfyShadeController {
   struct Radio {
     bool uncertain=false;
     bool counterEditUncertain() const{return uncertain;}
+    bool sealed=false;
+    bool restartQuiescent() const{return true;}
+    bool sealForRestart(){sealed=true;return true;}
+    void reopenAfterRefusedRestart(){sealed=false;}
     bool txSuspended()const{return stops!=0;} bool txHasRoom()const{return true;}
     unsigned stops = 0;
     void end() { ++stops; }
   } transceiver;
+  uint64_t configurationRevision=1;
+  bool isDirty=false;
+  struct Shade {uint8_t id=255;uint8_t getShadeId(){return id;}bool idleForAdministration(){return true;}} shades[32];
+  struct Group {uint8_t id=255;int8_t direction=0;somfy_frame_t lastFrame;uint8_t linkedShades[32]{};uint8_t getGroupId(){return id;}} groups[16];
+  Shade *getShadeById(uint8_t id){for(auto &shade:shades)if(id && id!=255 && shade.id==id)return &shade;return nullptr;}
+  ModelCommitResult commit(){noteModelCommit({ModelCommitState::saved});return {ModelCommitState::saved};}
 } somfy;
 struct ConfigSettings { bool hasOtaSlot=true; } settings;
 #define configsettings_h
@@ -29,7 +41,7 @@ struct MqttConnection {
   void end() { ++stops; }
 } mqtt;
 FakeUpdate Update;
-rebootDelay_t rebootDelay;
+
 static bool admitted = true;
 static std::vector<bool> restarts;
 static unsigned resets = 0;
@@ -65,6 +77,8 @@ bool queueLoopItem(AsyncWebServerRequest *request,const loop_item_t &item){
   if(!queued)request->send(503,"application/json","{\"status\":\"ERROR\"}");
   return queued;
 }
+#include "../../src/SafeRestart.cpp"
+void performLegacyShutdown(){assert(false);}
 #include "restore-options.inc"
 static void resetTaskWdt() { ++resets; }
 const char _encoding_json[] = "application/json";
@@ -84,8 +98,8 @@ bool submitModelCommit(const proto_reply_to_t &, ModelCommitMode mode,const GitU
 #include "../../src/entryPoints/FirmwareUpload.cpp"
 #include "../../src/entryPoints/RestoreUpload.cpp"
 static void reset() {
+  cancelRestart();restartLoop();
   manualClockMs+=60000;manualUploadLoop();loopQueue.drain();
-  rebootDelay={};
   settings.hasOtaSlot=true;
   Update = {};
   somfy = {};
@@ -94,7 +108,7 @@ static void reset() {
   admitted = true;
   restarts.clear();
   LittleFS={};restoreValid=restoreQueue=true;validations=restores=0;restoreMarker={};
-  resets = 0;
+  resets = 0;restartLoop();
 }
 int main() {
   AsyncWebServer server;
@@ -107,7 +121,7 @@ int main() {
   assert(Update.begins==1 && Update.writes==1); // Shared SDK has one request owner.
   first.disconnected();
   reset();
-  somfy.transceiver.uncertain=true;
+  somfy.transceiver.uncertain=true;restartLoop();
   AsyncWebServerRequest uncertain;
   server.upload(&uncertain,String("x.bin"),0,&byte,1,true);server.complete(&uncertain);
   assert(Update.begins==0 && somfy.transceiver.stops==0 && uncertain.status==503);
@@ -240,32 +254,32 @@ int main() {
   AsyncWebServer firmwareServer;registerFirmwareUploadRoute(firmwareServer);
   settings.hasOtaSlot=false;AsyncWebServerRequest unsupported;
   firmwareServer.upload(&unsupported,String("x.bin"),0,&byte,1,true);firmwareServer.complete(&unsupported);
-  assert(unsupported.status==400 && !Update.begins && !rebootDelay.reboot);
+  assert(unsupported.status==400 && !Update.begins && !restartPending());
   reset();
   AsyncWebServerRequest appActive,firmwareOverlap;
   server.upload(&appActive,String("x.bin"),0,&byte,1,false);
   firmwareServer.upload(&firmwareOverlap,String("x.bin"),0,&byte,1,true);firmwareServer.complete(&firmwareOverlap);
-  assert(Update.begins==1 && firmwareOverlap.status==503 && !rebootDelay.reboot);
+  assert(Update.begins==1 && firmwareOverlap.status==503 && !restartPending());
   reset();
   AsyncWebServerRequest firmwareSuccess;
   firmwareServer.upload(&firmwareSuccess,String("x.bin"),0,&byte,1,true);firmwareServer.complete(&firmwareSuccess);
-  assert(firmwareSuccess.status==202 && rebootDelay.reboot && rebootDelay.externalOwnerGeneration && gitUpdate.busy());
+  assert(firmwareSuccess.status==202 && restartPending() && gitUpdate.busy());
   assert(restarts.empty());
   firmwareSuccess.disconnected();assert(gitUpdate.busy());
   reset();
   Update.beginOk=false;Update.running=true;AsyncWebServerRequest firmwareBeginFailed;
   firmwareServer.upload(&firmwareBeginFailed,String("x.bin"),0,&byte,1,true);firmwareServer.complete(&firmwareBeginFailed);
   firmwareBeginFailed.disconnected();manualUploadLoop();
-  assert(firmwareBeginFailed.status==503 && Update.running && !Update.aborts && !Update.writes && !Update.ends && !rebootDelay.reboot);
+  assert(firmwareBeginFailed.status==503 && Update.running && !Update.aborts && !Update.writes && !Update.ends && !restartPending());
   reset();
   AsyncWebServerRequest firmwareOld,appNew;
   firmwareServer.upload(&firmwareOld,String("x.bin"),0,&byte,1,false);
   manualClockMs+=30000;manualUploadLoop();
-  assert(Update.aborts==1 && !rebootDelay.reboot);
+  assert(Update.aborts==1 && !restartPending());
   server.upload(&appNew,String("x.bin"),0,&byte,1,false);
   const auto beforeLate=Update.writes;
   firmwareServer.upload(&firmwareOld,String("x.bin"),1,&byte,1,true);firmwareOld.disconnected();
-  assert(Update.writes==beforeLate && Update.aborts==1 && !rebootDelay.reboot);
+  assert(Update.writes==beforeLate && Update.aborts==1 && !restartPending());
   reset();
   AsyncWebServer restoreServer;registerRestoreUploadRoute(restoreServer);
   AsyncWebServerRequest busyImage,busyRestore;
@@ -278,7 +292,7 @@ int main() {
   assert(restoreSuccess.status==202 && restoreMarker.externalOwner.generation && restoreMarker.externalOwner.kind==GitUpdateExternalOwner::restore);
   const auto restoreSource=restoreMarker.externalOwner;
   restoreSuccess.disconnected();assert(gitUpdate.ownsExternal(restoreSource));
-  loopQueue.drain();assert(restores==1 && rebootDelay.reboot && rebootDelay.externalOwnerGeneration==restoreSource.generation);
+  loopQueue.drain();assert(restores==1 && restartPending() && !gitUpdate.ownsExternal(restoreSource));
   assert(!LittleFS.files.count("/shades.tmp") && gitUpdate.busy());
   reset();
   AsyncWebServerRequest staleRestore,newerRestore;
@@ -289,7 +303,7 @@ int main() {
   const auto beforeStaleRemove=LittleFS.removes;
   loopQueue.drain();restoreServer.complete(&staleRestore);staleRestore.disconnected();
   assert(restores==0 && LittleFS.removes==beforeStaleRemove && LittleFS.files["/shades.tmp"]==std::vector<uint8_t>{99});
-  assert(!rebootDelay.reboot);
+  assert(!restartPending());
   reset();
   for(unsigned i=0;i<LOOP_QUEUE_SIZE;++i){loop_item_t read;read.type=loop_item_type_t::proto_read;assert(loopQueue.submit(read));}
   AsyncWebServerRequest fullRestore;

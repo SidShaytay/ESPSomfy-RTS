@@ -5,13 +5,16 @@
 // Loop-owned immediate admission: checks settings/queue and commits the current
 // dirty model without replaying edits, counters, RF or GPIO commands.
 RestartResult requestRestart(uint32_t delayMs=500);
-// Any task: one bounded mailbox, never a claim that restart was admitted.
+// Any task: cached-only bounded mailbox, never a claim of admission. Its
+// maximum 60 s age includes the cached observation age; loop revalidates it.
 RestartSubmission submitRestart(uint32_t delayMs=500);
 // Exact completed transfer source; never falls back to a generic restart.
 RestartResult requestOwnedRestart(const GitUpdateOwnerToken &,uint32_t delayMs=500);
 RestartSubmission submitOwnedRestart(const GitUpdateOwnerToken &,uint32_t delayMs=500);
 // Accepted mutating/RF queue work, including work drained before the next poll.
 void noteRestartOperationAccepted();
+// Conservative cached manual-transfer precheck, not complete image admission.
+bool restartTransferBlocked();
 // Cheap synchronized cached reads; pending includes mailbox and admitted timer.
 bool restartPending();
 RestartSnapshot restartStatus();

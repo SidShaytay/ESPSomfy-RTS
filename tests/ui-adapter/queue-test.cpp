@@ -45,7 +45,7 @@ static Command command(const View &v,Action action) {
 static DispatchResult result() {DispatchResult r;assert(takeLocalControlResult(r));return r;}
 static View reset() {
   securityOverride=false;advanceOnSend=0;refuseAt=0;modelEditHook=nullptr;duringSend=nullptr;
-  setLocalControlsFrozen(true);somfy.transceiver.room=somfy.transceiver.ready=true;somfy.transceiver.suspended=false;rebootDelay.reboot=false;
+  setLocalControlsFrozen(true);somfy.transceiver.room=somfy.transceiver.ready=true;somfy.transceiver.suspended=false;pendingRestart=false;
   loopQueue.drain();DispatchResult ignored;while(takeLocalControlResult(ignored)) {}
   setLocalControlsFrozen(false);authTestNow+=1000000;authorization.configure(AuthMode::none,"","");
   sent.clear();loopReads=0;++somfy.configurationRevision;
@@ -97,7 +97,7 @@ static void age_clock_context_and_freeze_guards() {
     if(changed==0)++somfy.shades[13].configurationRevision;
     if(changed==1)++somfy.restoreRevision;
     if(changed==2)++somfy.transceiver.configurationRevision;
-    if(changed==3)rebootDelay.reboot=true;
+    if(changed==3)pendingRestart=true;
     loopQueue.drain();assert(sent.empty());assert(result()==(changed==3?DispatchResult::refused:DispatchResult::stale));
   }
   view=reset();somfy.transceiver.room=false;loop_item_t edit;edit.type=loop_item_type_t::model_edit;

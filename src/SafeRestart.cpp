@@ -35,6 +35,8 @@ struct Source {
   uint64_t intent=0,submittedAt=0;
   GitUpdateOwnerToken expected,reservation;
   bool owned=false,inFlight=false;
+  uint64_t admittedAt=0;
+  uint32_t delay=0;
 } source;
 RestartObservation cached;
 uint64_t publishedAt=0,operationEpoch=1;
@@ -52,7 +54,7 @@ RestartObservation observation() {
   if(stored.exhausted)out.refusal=RestartReason::exhausted;
   else if(!stored.restartAllowed())out.refusal=RestartReason::settingsUncertain;
   else if(somfy.transceiver.counterEditUncertain())out.refusal=RestartReason::counterUncertain;
-  else if(loopQueue.pending() || !somfy.transceiver.restartQuiescent())out.refusal=RestartReason::queuedOperations;
+  else if(!somfy.transceiver.restartQuiescent())out.refusal=RestartReason::queuedOperations;
   for(auto &shade:somfy.shades)
     if(out.refusal==RestartReason::none && shade.getShadeId()!=255 && !shade.idleForAdministration())
       out.refusal=RestartReason::activeMovement;
@@ -97,8 +99,9 @@ RestartSubmission submit(uint32_t delay,const GitUpdateOwnerToken &expected,bool
   if(source.intent)return RestartSubmission::busy;
   if(!initialized)return RestartSubmission::refused;
   const auto result=coordinator.submit(delay);
-  if(result==RestartSubmission::queued)
-    source={coordinator.snapshot().generation,publishedAt,expected,{},owned,false};
+  if(result==RestartSubmission::queued) {
+    source={coordinator.snapshot().generation,publishedAt,expected,{},owned,false};source.delay=delay;
+  }
   return result;
 }
 // No runtime lock spans owner acquisition, queries, persistence or shutdown.
@@ -109,6 +112,7 @@ RestartResult admit(RestartWork work,Source current) {
   if(!gitUpdate.acquireRestart(owner,at,current.owned ? current.expected : GitUpdateOwnerToken{}))
     failure=current.owned ? RestartReason::stale : RestartReason::persistenceBusy;
   auto fresh=observation();
+  if(fresh.refusal==RestartReason::none && loopQueue.pending())fresh.refusal=RestartReason::queuedOperations;
   bool mayWrite=false,recovery=false;
   {
     Guard guard;
@@ -128,13 +132,16 @@ RestartResult admit(RestartWork work,Source current) {
   {
     Guard guard;publish(at,fresh);
     result=coordinator.completeAdmission(work,at,cached,failure);
+    if(result.admitted)source.admittedAt=at;
     if(coordinator.release(work))source.inFlight=false;
     else {coordinator.cancel(RestartReason::stale);result={false,RestartReason::stale};}
   }
   cleanup(at);return result;
 }
 RestartResult request(uint32_t delay,const GitUpdateOwnerToken &expected,bool owned) {
+  {Guard guard;if(source.intent)return {false,RestartReason::pending};}
   auto at=now();cleanup(at);auto fresh=observation();
+  if(fresh.refusal==RestartReason::none && loopQueue.pending())fresh.refusal=RestartReason::queuedOperations;
   RestartWork work;Source current;RestartResult refusal;
   {
     Guard guard;publish(at,fresh);
@@ -142,7 +149,7 @@ RestartResult request(uint32_t delay,const GitUpdateOwnerToken &expected,bool ow
     if(source.intent)return {false,RestartReason::pending};
     work=coordinator.begin(delay,at,cached);
     if(work.ready()) {
-      source={work.intent,at,expected,{},owned,true};current=source;
+      source={work.intent,at,expected,{},owned,true};source.delay=delay;current=source;
     } else refusal={false,work.refusal};
   }
   if(!work.ready()) {
@@ -156,6 +163,11 @@ RestartResult requestRestart(uint32_t delay){return SafeRestartDetail::request(d
 RestartResult requestOwnedRestart(const GitUpdateOwnerToken &source,uint32_t delay){return SafeRestartDetail::request(delay,source,true);}
 RestartSubmission submitRestart(uint32_t delay){return SafeRestartDetail::submit(delay,{},false);}
 RestartSubmission submitOwnedRestart(const GitUpdateOwnerToken &source,uint32_t delay){return SafeRestartDetail::submit(delay,source,true);}
+bool restartTransferBlocked() {
+  SafeRestartDetail::Guard guard;
+  return !SafeRestartDetail::initialized || SafeRestartDetail::coordinator.snapshot().pending() ||
+      SafeRestartDetail::cached.refusal!=RestartReason::none || SafeRestartDetail::coordinator.requiresModelRecovery();
+}
 bool restartPending(){SafeRestartDetail::Guard guard;return SafeRestartDetail::coordinator.snapshot().pending();}
 RestartSnapshot restartStatus(){SafeRestartDetail::Guard guard;return SafeRestartDetail::coordinator.snapshot();}
 void cancelRestart() {
@@ -179,16 +191,26 @@ void noteRestartOperationAccepted() {
 }
 bool restartLoop() {
   using namespace SafeRestartDetail;
-  auto at=now();auto fresh=observation();
+  auto at=now();auto fresh=observation();const bool queuePending=loopQueue.pending()!=0;
   RestartWork work;Source current;bool admission=false;
   {
-    Guard guard;publish(at,fresh);
+    Guard guard;
+    if(coordinator.snapshot().phase==RestartPhase::queued && queuePending && fresh.refusal==RestartReason::none)
+      fresh.refusal=RestartReason::queuedOperations;
+    publish(at,fresh);
     const auto phase=coordinator.snapshot().phase;
     if(phase==RestartPhase::queued) {
       if(!source.intent || at<source.submittedAt || at-source.submittedAt>maximumMailboxAge)
         coordinator.cancel(RestartReason::stale);
       else {work=coordinator.prepareQueued(at,cached);admission=true;}
-    } else if(phase==RestartPhase::admitted)work=coordinator.prepareFinal(at,cached);
+    } else if(phase==RestartPhase::admitted) {
+      if(queuePending) {
+        // Read/duplicate requests drain normally. Never retain a restart owner
+        // indefinitely under continuous polling after its requested deadline.
+        if(at>=source.admittedAt && at-source.admittedAt>=source.delay &&
+            at-source.admittedAt-source.delay>=5000)coordinator.cancel(RestartReason::queuedOperations);
+      } else work=coordinator.prepareFinal(at,cached);
+    }
     if(work.ready()){source.inFlight=true;current=source;}
   }
   if(!work.ready()){cleanup(at);return false;}

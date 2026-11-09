@@ -8,12 +8,12 @@
 #include "Somfy.h"
 #include "SomfyEditor.h"
 #include "Utils.h"
-#include "LegacyRestartSource.h"
+#include "SafeRestart.h"
 #include <stdio.h>
 #include <string.h>
 extern SomfyShadeController somfy;
 extern LoopQueue loopQueue;
-extern rebootDelay_t rebootDelay;
+
 namespace LocalUi {
 namespace EntityAdmin {
 namespace {
@@ -279,7 +279,7 @@ class RuntimeBackend final : public Backend {
         expected.configurationGeneration != now.configurationGeneration ||
         revision != this->revision())
       return Admission::stale;
-    if (loopQueue.pending() || snapshotLegacyRestart(rebootDelay).reboot)
+    if (loopQueue.pending() || restartPending())
       return Admission::busy;
     return Admission::accepted;
   }
