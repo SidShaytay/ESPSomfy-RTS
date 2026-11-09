@@ -9,6 +9,7 @@
 #include "ModelCommitResult.h"
 #include "GitUpdate.h"
 #include "ModelLoadSnapshot.h"
+#include "CounterLoad.h"
 
 
 // Opens shades.cfg or a backup and writes or reads its values
@@ -41,6 +42,8 @@ class ConfigFile : public ConfigReader, public ConfigWriter {
 class ShadeConfigFile : public ConfigFile {
   protected:
     bool writeModel(SomfyShadeController *s,ConfigWriter &writer);
+    CounterLoad counters;
+    bool prepareCounters(CounterLoadControl control={});
     // Loading or restoring keeps the higher file/NVS rolling code for each address.
     void readModel(SomfyShadeController *s);
     void readRoom(SomfyRoom *room);

@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include <LittleFS.h>
-#include <Preferences.h>
 #include "esp_log.h"
 #include "ConfigFile.h"
 #include "GitUpdate.h"
@@ -9,10 +8,10 @@
 #include "Utils.h"
 #include "ConfigSettings.h"
 #include "ConfigValidation.h"
-#include "RollingCode.h"
 #include "BoardProfile.h"
 #include "ModelPersistence.h"
 #include "ModelRecords.h"
+#include "TaskWdt.h"
 
 static const char *TAG = "ConfigFile";
 
@@ -268,12 +267,32 @@ static void applyTransRecord(const trans_record_t &rec, transceiver_config_t &cf
   cfg.txPower = rec.txPower;
   cfg.noiseDetection = rec.noiseDetection;
 }
-// NVS keeps the last rolling code each remote sent.
-static uint16_t keepRollingCode(Preferences &pref, SomfyRemote *remote, uint16_t inFile) {
-  const uint16_t stored = pref.getUShort(remote->getRemotePrefId(), 0);
-  const uint16_t code = rollingCodeAfterLoad(stored, inFile);
-  if(code != stored) pref.putUShort(remote->getRemotePrefId(), code);
-  return code;
+// Counter values are collected from the same immutable bytes later adopted.
+// No model record, GPIO or NVS read is applied during adoption itself.
+static_assert(CounterLoad::maximumEntries==SOMFY_MAX_SHADES*(SOMFY_MAX_LINKED_REMOTES+1)+SOMFY_MAX_GROUPS,"Complete loaded counter address bound");
+static void cooperateCounterLoad(const void *){resetTaskWdt();delay(0);}
+static bool continueRestoreCounterLoad(const void *context){
+  return gitUpdate.transferRestoreClaimed(*static_cast<const GitUpdateOwnerToken *>(context),uint64_t(esp_timer_get_time())/1000);
+}
+bool ShadeConfigFile::prepareCounters(CounterLoadControl control) {
+  counters.clear();const uint32_t start=position();
+  if(!skipRecords(*this,header.roomRecords))return false;
+  for(unsigned i=0;i<header.shadeRecords;++i){
+    shade_record_t rec;
+    if(!readShadeRecord(*this,header,rec))return false;
+    if(rec.shadeId==255)continue;
+    if(!counters.include(rec.remoteAddress,rec.lastRollingCode))return false;
+    for(auto address:rec.linkedRemotes)if(!counters.include(address))return false;
+  }
+  for(unsigned i=0;i<header.groupRecords;++i){
+    group_record_t rec;
+    if(!readGroupRecord(*this,header,rec))return false;
+    if(rec.groupId!=255 && !counters.include(rec.remoteAddress,rec.hasRollingCode?rec.lastRollingCode:0))return false;
+  }
+  if(readFailed || !seekRead(start))return false;
+  const auto result=counters.resolve(control);
+  if(!result.ready())ESP_LOGE(TAG,"Model counter load failed at stage %u",unsigned(result.stage));
+  return result.ready();
 }
 
 void ShadeConfigFile::readRoom(SomfyRoom *room) {
@@ -290,8 +309,10 @@ void ShadeConfigFile::readShade(SomfyShade *shade) {
     shade->clear();
     return;
   }
-  Preferences pref;
-  pref.begin("ShadeCodes");
+  uint16_t ownCode=rec.lastRollingCode,linkedCodes[SOMFY_MAX_LINKED_REMOTES]={};
+  if(rec.remoteAddress && !counters.lookup(rec.remoteAddress,ownCode)){readFailed=true;return;}
+  for(unsigned i=0;i<SOMFY_MAX_LINKED_REMOTES;++i)
+    if(rec.linkedRemotes[i] && !counters.lookup(rec.linkedRemotes[i],linkedCodes[i])){readFailed=true;return;}
   shade->setShadeId(rec.shadeId);
   shade->paired = rec.paired;
   shade->shadeType = rec.shadeType;
@@ -307,11 +328,9 @@ void ShadeConfigFile::readShade(SomfyShade *shade) {
   for(uint8_t j = 0; j < SOMFY_MAX_LINKED_REMOTES; j++) {
     SomfyLinkedRemote *rem = &shade->linkedRemotes[j];
     rem->setRemoteAddress(rec.linkedRemotes[j]);
-    if(rem->getRemoteAddress() != 0) rem->lastRollingCode = pref.getUShort(rem->getRemotePrefId(), 0);
+    if(rem->getRemoteAddress() != 0) rem->lastRollingCode = linkedCodes[j];
   }
-  shade->lastRollingCode = rec.lastRollingCode;
-  if(shade->getRemoteAddress() != 0) shade->lastRollingCode = keepRollingCode(pref, shade, rec.lastRollingCode);
-  pref.end();
+  shade->lastRollingCode = ownCode;
   shade->setFlags(rec.flags);
   // The targets are where the shade is.
   shade->restore(rec.currentPos, rec.currentTiltPos, rec.myPos, rec.myTiltPos);
@@ -335,6 +354,8 @@ void ShadeConfigFile::readGroup(SomfyGroup *group) {
     group->clear();
     return;
   }
+  uint16_t ownCode=rec.lastRollingCode;
+  if(rec.remoteAddress && !counters.lookup(rec.remoteAddress,ownCode)){readFailed=true;return;}
   group->setGroupId(rec.groupId);
   group->groupType = rec.groupType;
   group->setRemoteAddress(rec.remoteAddress);
@@ -347,14 +368,7 @@ void ShadeConfigFile::readGroup(SomfyGroup *group) {
   group->sortOrder = rec.sortOrder;
   group->flipCommands = rec.flipCommands;
   group->roomId = rec.roomId;
-  group->lastRollingCode = rec.lastRollingCode;
-  if(group->getRemoteAddress() != 0) {
-    Preferences pref;
-    pref.begin("ShadeCodes");
-    // Before version 23 the file has no group code; keep this address's NVS value.
-    group->lastRollingCode = keepRollingCode(pref, group, rec.hasRollingCode ? rec.lastRollingCode : 0);
-    pref.end();
-  }
+  group->lastRollingCode = ownCode;
 }
 void ShadeConfigFile::readRepeaters(SomfyShadeController *s) {
   uint32_t repeaters[SOMFY_MAX_REPEATERS];
@@ -378,7 +392,7 @@ bool ShadeConfigFile::begin(const char *filename, bool readOnly) {
   if(!readOnly)return false;
   return ConfigFile::begin(filename,true);
 }
-void ShadeConfigFile::end() { ConfigFile::end(); }
+void ShadeConfigFile::end() { counters.clear();ConfigFile::end(); }
 bool ShadeConfigFile::writeModel(SomfyShadeController *s,
                                  ConfigWriter &writer) {
   this->header.version = SHADE_HDR_VER;
@@ -636,13 +650,22 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
   if(recovering && (!opts.shades || !opts.repeaters)) {
     if(opened)this->end();return false;
   }
-  if(opts.shades)s->modelLoad.fail();
+  if(opts.shades){
+    s->modelLoad.fail();
+    if(!prepareCounters({&owner,continueRestoreCounterLoad,cooperateCounterLoad})){
+      if(opened)this->end();return false;
+    }
+    if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000)){
+      if(opened)this->end();return false;
+    }
+  }
   invalidateDeviceSettingsRevisions();
   ++s->configurationRevision;
   ++s->restoreRevision;
   if(opts.shades) {
     ESP_LOGI(TAG, "Restoring the rooms, shades and groups");
     this->readModel(s);
+    if(readFailed){if(opened)this->end();return false;}
   }
   else {
     ESP_LOGI(TAG, "Shade data ignored");
@@ -713,7 +736,10 @@ bool ShadeConfigFile::loadFile(SomfyShadeController *s, const char *filename) {
     if(opened) this->end();
     return false;
   }
+  s->modelLoad.fail();
+  if(!prepareCounters({nullptr,nullptr,cooperateCounterLoad})){if(opened)this->end();return false;}
   this->readModel(s);
+  if(readFailed){if(opened)this->end();return false;}
   if(this->header.repeaterRecords > 0) {
     memset(s->repeaters, 0x00, sizeof(s->repeaters));
     for(uint8_t i = 0; i < this->header.repeaterRecords; i++) this->readRepeaters(s);
