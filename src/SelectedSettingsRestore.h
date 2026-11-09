@@ -6,6 +6,7 @@
 #include "ModelEditor.h"
 #include "GitUpdateOwner.h"
 #include "RadioUpdateActivity.h"
+#include "PinOwnership.h"
 #include <stddef.h>
 class Transceiver;
 struct transceiver_config_t;
@@ -28,10 +29,11 @@ public:
   // reader begins at the settings/net/radio tail of the immutable snapshot.
   // Checked decoding is scoped here; ordinary legacy read mode is restored.
   bool prepare(const ConfigSettings &,const transceiver_config_t &,const restore_options_t &,
-      const config_header_t &,ConfigReader &,bool sameBoard);
+      const config_header_t &,ConfigReader &,bool sameBoard,uint64_t retainedRadio,uint64_t retainedEthernet);
   int8_t validateGPIOs(radio_proto,uint8_t up,uint8_t down,uint8_t my,
       const ConfigSettings &,const transceiver_config_t &,
-      const pin_users_t &otherPins,const pin_users_t &invalidOutputs)const;
+      const pin_users_t &otherPins,const pin_users_t &invalidOutputs,
+      uint64_t retainedRadio,uint64_t retainedEthernet)const;
   const RestoreSettingsResult &status()const{return outcome;}
   // Existing claimed restore owner + exact pause, no nested acquisition.
   // Only all-success permits non-radio RAM adoption/runtime effects. A returned

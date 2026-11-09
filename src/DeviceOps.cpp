@@ -11,6 +11,7 @@
 #include "DeviceOps.h"
 #include "SettingsApply.h"
 #include "SelectedSettingsRestore.h"
+#include "PinOwnership.h"
 #include "SettingsCompletion.h"
 #include "SafeRestart.h"
 #include "SettingsDurability.h"
@@ -100,6 +101,7 @@ public:
     noteDeviceSettingsCompleted(section);
     return completeSettingsSave({section,securityBefore,settings.Security.type,originSocketClient,reboot},protoSocket,requestRestart);
   }
+  bool networkPinsAvailable(const ConfigSettings &candidate) const override {return networkPinConfigurationAvailable(candidate);}
   bool wifiClientsPresent() const override { return WiFi.softAPgetStationNum() != 0; }
   void hostnameChanged() override { net.updateHostname(); }
   void timeChanged() override { settings.NTP.apply(); }

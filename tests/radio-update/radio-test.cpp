@@ -72,6 +72,7 @@ struct PublishedBool {
  operator bool()const{return value;}PublishedBool &operator=(bool next){value=next;return *this;}
 };
 struct Transceiver {
+ bool radioBusInitialized=false;
   struct {SettingsLoadStatus loadStatus{SettingsLoadState::loaded};bool enabled=true,noiseDetection=false,radioInit=true;int RXPin=8;void apply(){assert(!rxHeld);}}config;
   bool available()const;
   PublishedBool _available{true},_administrationPaused{false};

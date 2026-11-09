@@ -2,9 +2,14 @@
 #include "Transceiver.h"
 #include "Secrets.h"
 #include "ProtoSettings.h"
+#include "EthPinClaims.h"
 
 #if HAS_ETHERNET
 EthernetSettings::EthernetSettings() {}
+uint64_t EthernetSettings::pinClaims()const {
+  return ethernetDataPinClaims()|LivePinClaims::pinMask(uint8_t(ethClockPin(CLKMode)))|
+    LivePinClaims::pinMask(uint8_t(PWRPin))|LivePinClaims::pinMask(uint8_t(MDCPin))|LivePinClaims::pinMask(uint8_t(MDIOPin));
+}
 #endif
 
 WifiSettings::WifiSettings() {}

@@ -12,7 +12,7 @@ static constexpr conn_types_t afterConnection=HAS_ETHERNET?conn_types_t::etherne
 static constexpr const char *connectionRequest=HAS_ETHERNET?R"({"connType":2})":R"({"connType":1})";
 class Effects : public SettingsEffects {
 public:
-  bool apClients=false;
+  bool apClients=false,pinOwners=true;
   int hostnames=0,times=0,mqtt=0,radio=0,completions=0;
   settings_section_t completedSection=settings_section_t::general;
   bool completedReboot=false;
@@ -27,6 +27,7 @@ public:
     if(observed) hostnameAtCompletion=observed->hostname;
     return reboot ? completionResult : RestartResult{};
   }
+  bool networkPinsAvailable(const ConfigSettings &) const override{return pinOwners;}
   bool wifiClientsPresent() const override { return apClients; }
   void hostnameChanged() override { hostnames++; }
   void timeChanged() override { times++; }
@@ -372,8 +373,15 @@ static void applied_radio_marker_failure_never_claims_unchanged_or_complete_save
  TEST_ASSERT_NULL(strstr(settingsApplyFailureDescription(result),"unchanged"));
  TEST_ASSERT_NOT_NULL(strstr(settingsApplyFailureDescription(result),"applied"));
 }
+static void network_pin_preflight_refuses_before_persistence_and_leaves_unrelated_work_usable(){
+ ConfigSettings cfg;qualifySettings(cfg);cfg.Security.loadState=SecurityLoadState::knownEmpty;Effects effects;effects.pinOwners=false;
+ auto refused=apply(cfg,settings_section_t::network,connectionRequest,effects);
+ TEST_ASSERT_FALSE(refused.saved());TEST_ASSERT_EQUAL(settings_apply_refusal_t::pinOwnership,refused.refusal);TEST_ASSERT_EQUAL(0,FakeNvs::writeOpens);TEST_ASSERT_EQUAL(0,effects.completions);
+ TEST_ASSERT_TRUE(apply(cfg,settings_section_t::general,R"({"ntpServer":"clock.example"})",effects).saved());
+}
 int main() {
-  UNITY_BEGIN();RUN_TEST(cleanup_fault_never_certifies_a_complete_save);RUN_TEST(applied_radio_marker_failure_never_claims_unchanged_or_complete_save);RUN_TEST(verified_cfg_repair_adopts_provenance_only_after_all_selected_writes);
+  UNITY_BEGIN();
+ RUN_TEST(network_pin_preflight_refuses_before_persistence_and_leaves_unrelated_work_usable);RUN_TEST(cleanup_fault_never_certifies_a_complete_save);RUN_TEST(applied_radio_marker_failure_never_claims_unchanged_or_complete_save);RUN_TEST(verified_cfg_repair_adopts_provenance_only_after_all_selected_writes);
   RUN_TEST(actual_completion_refusal_is_reported_without_replaying_effects);
   RUN_TEST(test_composite_failure_remarks_earlier_full_draft_namespace);
   RUN_TEST(test_unrelated_success_reports_saved_but_restart_blocked_before_completion);

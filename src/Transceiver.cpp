@@ -24,7 +24,9 @@
 #include "SettingsDurability.h"
 #include "RadioInitMarker.h"
 #include "RadioSettingsAdmission.h"
+#include "PinOwnership.h"
 #include "GitUpdate.h"
+#include <esp_timer.h>
 
 static const char *TAG = "Somfy";
 
@@ -490,10 +492,18 @@ settings_save_result_t Transceiver::setConfig(const transceiver_config_t &cfg) {
   return saveRadioConfiguration(*this,cfg);
 }
 settings_save_result_t Transceiver::setConfigWhilePaused(const transceiver_config_t &cfg,
-    const RadioInstallToken &pause,const GitUpdateOwnerToken &owner) {
+    const RadioInstallToken &pause,const GitUpdateOwnerToken &owner,RadioPinContext context) {
   if((owner.kind!=GitUpdateExternalOwner::configuration && owner.kind!=GitUpdateExternalOwner::restore) ||
      !gitUpdate.ownsExternal(owner) || !installPauseHeld(pause))
     return {settings_save_state_t::failed,"radio admission"};
+  auto freshSource=[&](){
+    if(owner.kind!=GitUpdateExternalOwner::restore)return true;
+    const auto micros=esp_timer_get_time();const uint64_t now=micros<0?UINT64_MAX:uint64_t(micros)/1000;
+    return gitUpdate.transferRestoreClaimed(owner,now);
+  };
+  if(!freshSource())return {settings_save_state_t::failed,"restore source"};
+  context=withRetainedEthernetClaims(context);
+  if(!radioPinConfigurationAvailable(cfg,context))return {settings_save_state_t::failed,"pin ownership"};
   // Persist before touching live pins/config. A partial NVS write is reported
   // honestly, without applying it to the running radio or claiming rollback.
   RadioLock lock(portMAX_DELAY, true);
@@ -502,18 +512,22 @@ settings_save_result_t Transceiver::setConfigWhilePaused(const transceiver_confi
   next.applyBoardPins();
   const auto result = next.save();
   if(!result.saved()) return result;
-  if(this->config.enabled && this->config.TXPin != next.TXPin) pinMode(this->config.TXPin, INPUT);
+  if(!freshSource() || !gitUpdate.ownsExternal(owner) || !installPauseHeld(pause) || !radioPinConfigurationAvailable(next,context)) {
+    settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::radio));
+    return {settings_save_state_t::partial,"restore source",false,false,true};
+  }
+  if(radioBusInitialized && this->config.enabled && this->config.TXPin!=255 && this->config.TXPin != next.TXPin) pinMode(this->config.TXPin, INPUT);
   ++configurationRevision;
   this->config = next;
-  auto applied=this->config.apply();
-  applied.liveApplied=true;
+  auto applied=this->config.applyWithPinContext(context);
+  applied.liveApplied=true;applied.radioNamespaceVerified=true;
   if(!applied.saved()) {
     applied.state=settings_save_state_t::partial;
     settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::radio));
   }
   return applied;
 }
-bool Transceiver::usesPin(uint8_t pin) {return config.usesPin(pin);}
+bool Transceiver::usesPin(uint8_t pin) {return config.usesPin(pin) || livePinClaims.usesPin(pin);}
 bool Transceiver::end() {
     // Nothing may transmit (and re-enable receive) after this.  It is not
     // resumed since the only caller is OTA, which reboots when the upload
@@ -633,28 +647,28 @@ static bool checkBoardRadio(float frequency) {
     (modem & 0x70) == 0x30 && actual > frequency - 0.01f && actual < frequency + 0.01f;
 }
 
-settings_save_result_t transceiver_config_t::apply() {
+settings_save_result_t transceiver_config_t::apply() {return applyWithPinContext(currentRadioPinContext());}
+settings_save_result_t transceiver_config_t::applyWithPinContext(RadioPinContext context) {
     if(!loadStatus.usable() || !validSettings(*this)) {
-      radioInit=false;somfy.transceiver._available=false;return {settings_save_state_t::failed,"radio configuration"};
+      if(!somfy.transceiver.radioBusInitialized){radioInit=false;somfy.transceiver._available=false;}
+      return {settings_save_state_t::failed,"radio configuration"};
     }
-    // A transmission in flight stops after its current frame so the radio can
-    // be reconfigured.  Queued frames are already encoded and go out with the
-    // new settings.
+    // Do not stop an already initialized bus on a later ownership/model fault.
+    if(!radioPinConfigurationAvailable(*this,context))return {settings_save_state_t::failed,"pin ownership"};
+    // Live callers already hold the exact administration pause. Startup has
+    // no traffic; never cancel or adopt another scan through config apply.
     RadioLock lock(portMAX_DELAY, true);
     if(!lock.locked){radioInit=false;somfy.transceiver._available=false;return {settings_save_state_t::failed,"radio configuration"};}
-    // Reconfiguring the radio ends a frequency scan so TX may resume.
-    const bool wasScanning = rxmode == 3;
+    if(rxmode==3)return {settings_save_state_t::failed,"radio scan"};
     somfy.transceiver.disableReceive();
     // Every board withholds availability until initialization and its NVS
     // safety marker have completed; an early failure is never radio readiness.
     somfy.transceiver._available = false;
-    if(wasScanning) {
-      somfy.transceiver.resumeTx(TX_SUSPEND_SCAN);
-      scanEmitPending = true;
-    }
     this->applyBoardPins();
     radioBitLength = this->type;    
     if(this->enabled) {
+      // Claims survive marker failure, RAM reassignment and later disable.
+      somfy.transceiver.livePinClaims.retain(pinClaims());
       this->radioInit = false;
       if(!startupInitAllowed) {
         ESP_LOGW(TAG,"Radio initialization previously interrupted; save radio settings to retry");return {settings_save_state_t::failed,"radioInit"};
@@ -686,6 +700,7 @@ settings_save_result_t transceiver_config_t::apply() {
       if(BoardProfile::integratedRadio)
         SPI.begin(this->SCKPin, this->MISOPin, this->MOSIPin, this->CSNPin);
       ELECHOUSE_cc1101.Init();
+      somfy.transceiver.radioBusInitialized=true;
       ELECHOUSE_cc1101.setCCMode(0);                            // set config for internal transmission mode.
       ELECHOUSE_cc1101.setMHZ(this->frequency);                 // Here you can set your basic frequency. The lib calculates the frequency automatically (default = 433.92).The cc1101 can: 300-348 MHZ, 387-464MHZ and 779-928MHZ. Read More info from datasheet.
       ELECHOUSE_cc1101.setRxBW(this->rxBandwidth);              // Set the Receive Bandwidth in kHz. Value from 58.03 to 812.50. Default is 812.50 kHz.
@@ -742,7 +757,7 @@ settings_save_result_t transceiver_config_t::apply() {
       
     }
     else {
-      if(this->radioInit) ELECHOUSE_cc1101.setSidle();
+      if(somfy.transceiver.radioBusInitialized) ELECHOUSE_cc1101.setSidle();
       somfy.transceiver.disableReceive();
       this->radioInit = false;
     }
@@ -757,8 +772,8 @@ bool Transceiver::begin() {
     if(!radioMutex) radioMutex = xSemaphoreCreateRecursiveMutex();
     if(!txQueueMutex) txQueueMutex = xSemaphoreCreateMutex();
     if(!radioMutex || !txQueueMutex){this->_available=false;return false;}
-    if(this->config.loadStatus.usable())this->config.apply();
-    else this->_available=false;
+    if(this->config.loadStatus.usable() && somfy.modelLoad.usable())this->config.apply();
+    else if(!this->radioBusInitialized)this->_available=false;
     ESP_LOGD(TAG,"Initializing RX Queue");
     { RxTaskLock receiveLock;rx_queue.init(); }
     this->startTxTask();

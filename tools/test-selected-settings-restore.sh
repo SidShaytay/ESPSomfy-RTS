@@ -15,7 +15,7 @@ PY
 for variant in wifi ethernet;do
  flags=();[[ "$variant" != ethernet ]] || flags=(-DCONFIG_ETH_USE_ESP32_EMAC=1)
  "${CXX:-c++}" -std=c++17 -O2 -ffunction-sections -fdata-sections -Wl,--gc-sections "${flags[@]}" -I"$scratch" -I"$repo/test/stubs" -I"$repo/src" -I"$json" -I"$unity" \
- "$repo/tests/selected-settings/test.cpp" "$repo/src/SelectedSettingsRestore.cpp" "$repo/src/SettingsTypedValidation.cpp" \
+ "$repo/tests/selected-settings/test.cpp" "$repo/src/SelectedSettingsRestore.cpp" "$repo/src/PinOwnershipContext.cpp" "$repo/src/LivePinClaims.cpp" "$repo/src/SettingsTypedValidation.cpp" \
  "$repo/src/SettingsPersistence.cpp" "$repo/src/SettingsValues.cpp" "$repo/src/SettingsLoad.cpp" "$repo/src/SettingsDurability.cpp" \
  "$repo/src/ConfigRecords.cpp" "$repo/src/Utils.cpp" "$repo/src/ModelEditor.cpp" \
  "$repo/src/ProtoSettings.cpp" "$repo/src/ProtoParse.cpp" "$repo/src/ProtoSchema.cpp" "$unity/unity.c" -o "$scratch/test"

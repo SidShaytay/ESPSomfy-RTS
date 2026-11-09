@@ -92,10 +92,22 @@ pads need qualified radio and, on Ethernet builds, CFG mode and ETH provenance.
 After complete writes and RAM adoption, existing hooks update hostname/time and
 defer MQTT reconnect to the ordinary loop; settings notifications request no
 restart. Namespace applied masks are published only after these hooks return.
-The restore resource consumer still requires independent joint qualification. Existing backups omit WiFi and
-MQTT credentials, so they cannot qualify unreadable uncovered fields using
-running defaults. New failed-namespace replacement flows remain pending Sid's
-choice and are not implemented here.
+The restore resource consumer still requires independent joint qualification.
+Two eight-byte synchronized ledgers retain radio and Ethernet pad claims for
+this boot. They add claims before hardware initialization attempts and never
+release them because RAM, enabled state or the init marker changed. Projected
+GPIO checks include those retained claims; reusing an old hardware pad requires
+a reboot and a second explicit edit. Ethernet includes the pinned SDK's fixed
+RMII data/clock pads as well as configured pins. Native pin lists are synthetic,
+not physical qualification. New radio/Ethernet activation also checks current
+model GPIO ownership before writes or SDK calls. A disabled cold radio never
+accesses a bus that has not actually been initialized.
+
+Restore checks its claimed source before each namespace write and before live
+adoption. Expiry after a verified write leaves a truthful partial outcome and
+marks unadopted durable drafts uncertain; it never replays old values. No source
+or token failure becomes automatic recovery. New failed-namespace
+replacement flows remain pending Sid's choice and are not implemented here.
 
 Native tests exercise actual loaders/writers/snapshots with fake NVS: complete
 absence, individual read failures, invalid originals, per-field IP repair,

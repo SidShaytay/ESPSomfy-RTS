@@ -39,6 +39,7 @@ struct ConfigSettings {
     bool usesPin(uint8_t pin) { return ethernetPads.count(pin); }
   } Ethernet;
 } settings;
+struct ESPNetwork {uint64_t retainedPinClaims()const{return 0;}}net;
 #include "../../src/ShadeGpioAdmission.cpp"
 #include "../../src/ShadeGpioConfig.cpp"
 void setUp() {

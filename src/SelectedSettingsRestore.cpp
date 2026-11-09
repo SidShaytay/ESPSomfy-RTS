@@ -5,6 +5,7 @@
 #include "ShadeGpioPolicy.h"
 #include "GitUpdate.h"
 #include <stdlib.h>
+#include <esp_timer.h>
 #include <new>
 #include <string.h>
 #if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
@@ -61,7 +62,7 @@ void SelectedSettingsRestore::clear(){
   prepared=false;
 }
 bool SelectedSettingsRestore::prepare(const ConfigSettings &current,const transceiver_config_t &radio,
-    const restore_options_t &opts,const config_header_t &header,ConfigReader &reader,bool sameBoard) {
+    const restore_options_t &opts,const config_header_t &header,ConfigReader &reader,bool sameBoard,uint64_t retainedRadio,uint64_t retainedEthernet) {
   static_assert(sizeof(Draft)<=maximumDraftBytes,"Keep one private restore settings draft bounded");
   clear();outcome={};
   if(opts.settings)outcome.requestedNamespaces|=namespaceBit(SettingsNamespace::cfg)|namespaceBit(SettingsNamespace::ntp);
@@ -150,6 +151,17 @@ bool SelectedSettingsRestore::prepare(const ConfigSettings &current,const transc
 #endif
   if(opts.mqtt && !validSettings(next.MQTT))return fail(RestoreSettingsState::refused,"MQTT value");
   if(opts.transceiver && !validSettings(draft->radio))return fail(RestoreSettingsState::refused,"radio value");
+  bool newEthernet=false;
+#if HAS_ETHERNET
+  newEthernet=opts.network && (next.connType==conn_types_t::ethernet || next.connType==conn_types_t::ethernetpref);
+#endif
+  if(opts.transceiver || newEthernet) {
+    const auto context=radioPinContext(next,retainedEthernet);
+    if(!context.qualified || !draft->radio.loadStatus.usable() || !validSettings(draft->radio))
+      return fail(RestoreSettingsState::unavailable,"hardware pin owners");
+    if((draft->radio.pinClaims()|retainedRadio)&context.ethernetClaims)
+      return fail(RestoreSettingsState::refused,"hardware pin overlap");
+  }
   outcome.state=RestoreSettingsState::prepared;prepared=true;return true;
 }
 RestoreSettingsResult SelectedSettingsRestore::apply(ConfigSettings &current,Transceiver &radio,
@@ -158,8 +170,12 @@ RestoreSettingsResult SelectedSettingsRestore::apply(ConfigSettings &current,Tra
   prepared=false;
   if(!outcome.requestedNamespaces)return outcome;
   auto finish=[&](){clear();return outcome;};
-  if(!draft || owner.kind!=GitUpdateExternalOwner::restore || !gitUpdate.ownsExternal(owner) ||
-      !radio.installPauseHeld(pause) || !current.Security.loadTrusted()) {
+  auto fresh=[&](){
+    const auto micros=esp_timer_get_time();const uint64_t now=micros<0?UINT64_MAX:uint64_t(micros)/1000;
+    return owner.kind==GitUpdateExternalOwner::restore && current.Security.loadTrusted() &&
+      gitUpdate.ownsExternal(owner) && gitUpdate.transferRestoreClaimed(owner,now) && radio.installPauseHeld(pause);
+  };
+  if(!draft || !fresh()) {
     outcome.state=RestoreSettingsState::refused;outcome.persistence={settings_save_state_t::failed,"restore ownership"};return finish();
   }
   auto failure=[&](settings_save_result_t result){
@@ -170,6 +186,7 @@ RestoreSettingsResult SelectedSettingsRestore::apply(ConfigSettings &current,Tra
   };
   auto persist=[&](SettingsNamespace space,auto &value){
     if(!(outcome.requestedNamespaces&namespaceBit(space)))return true;
+    if(!fresh()){failure({settings_save_state_t::failed,"restore source"});return false;}
     const auto result=value.save();if(!result.saved()){failure(result);return false;}
     outcome.verifiedNamespaces|=namespaceBit(space);return true;
   };
@@ -181,11 +198,15 @@ RestoreSettingsResult SelectedSettingsRestore::apply(ConfigSettings &current,Tra
 #endif
       )return finish();
   if(draft->options.transceiver) {
-    const auto result=radio.setConfigWhilePaused(draft->radio,pause,owner);
-    if(result.liveApplied){outcome.verifiedNamespaces|=namespaceBit(SettingsNamespace::radio);outcome.appliedNamespaces|=namespaceBit(SettingsNamespace::radio);}
+    if(!fresh()){failure({settings_save_state_t::failed,"restore source"});return finish();}
+    const auto result=radio.setConfigWhilePaused(draft->radio,pause,owner,radioPinContext(next,retainedEthernetPinClaims()));
+    if(result.radioNamespaceVerified || result.liveApplied)outcome.verifiedNamespaces|=namespaceBit(SettingsNamespace::radio);
+    if(result.liveApplied)outcome.appliedNamespaces|=namespaceBit(SettingsNamespace::radio);
     if(!result.saved()){failure(result);return finish();}
     outcome.verifiedNamespaces|=namespaceBit(SettingsNamespace::radio);outcome.persistence=result;
   }
+  if(!fresh()){failure({settings_save_state_t::failed,"restore source"});return finish();}
+  // One admitted RAM/effects unit follows the verified namespace writes.
   if(outcome.requestedNamespaces&namespaceBit(SettingsNamespace::cfg)) {
     text(current.hostname,next.hostname);current.ssdpBroadcast=next.ssdpBroadcast;current.checkForUpdate=next.checkForUpdate;
     current.connType=next.connType;current.loadStatus=next.loadStatus;
@@ -211,7 +232,7 @@ RestoreSettingsResult SelectedSettingsRestore::apply(ConfigSettings &current,Tra
 }
 int8_t SelectedSettingsRestore::validateGPIOs(radio_proto protocol,uint8_t up,uint8_t down,uint8_t my,
     const ConfigSettings &current,const transceiver_config_t &radio,
-    const pin_users_t &otherPins,const pin_users_t &invalidOutputs)const {
+    const pin_users_t &otherPins,const pin_users_t &invalidOutputs,uint64_t retainedRadio,uint64_t retainedEthernet)const {
   const auto &cfg=draft?draft->settings:current;const auto &rf=draft?draft->radio:radio;
   const uint8_t mask=ShadeGpioPolicy::physicalMask(protocol);
   const bool physical=((mask&ShadeGpioPolicy::up)&&up!=255) || ((mask&ShadeGpioPolicy::down)&&down!=255) || ((mask&ShadeGpioPolicy::my)&&my!=255);
@@ -220,14 +241,16 @@ int8_t SelectedSettingsRestore::validateGPIOs(radio_proto protocol,uint8_t up,ui
       || !cfg.loadStatus.usable() || !cfg.Ethernet.loadStatus.usable()
 #endif
       ))return PIN_STORAGE_UNAVAILABLE;
+  struct RadioClaims {const transceiver_config_t *cfg;uint64_t retained;} radioClaims{&rf,retainedRadio};
+  struct EthernetClaims {const ConfigSettings *cfg;uint64_t retained;} ethClaims{&cfg,retainedEthernet};
   pin_users_t radioPins,ethernetPins;
-  radioPins.ctx=const_cast<transceiver_config_t *>(&rf);radioPins.uses=[](uint8_t p,void *ctx){return static_cast<const transceiver_config_t *>(ctx)->usesPin(p);};
+  radioPins.ctx=&radioClaims;radioPins.uses=[](uint8_t p,void *ctx){const auto &claims=*static_cast<const RadioClaims *>(ctx);return claims.cfg->usesPin(p)||LivePinClaims::contains(claims.retained,p);};
+  ethernetPins.ctx=&ethClaims;ethernetPins.uses=[](uint8_t p,void *ctx){const auto &claims=*static_cast<const EthernetClaims *>(ctx);
+    return LivePinClaims::contains(claims.retained,p)
 #if HAS_ETHERNET
-  if(cfg.connType==conn_types_t::ethernet || cfg.connType==conn_types_t::ethernetpref){
-    ethernetPins.ctx=const_cast<EthernetSettings *>(&cfg.Ethernet);ethernetPins.uses=[](uint8_t p,void *ctx){return static_cast<const EthernetSettings *>(ctx)->usesPin(p);};
-  }
-#else
-  (void)cfg;
+      || ((claims.cfg->connType==conn_types_t::ethernet || claims.cfg->connType==conn_types_t::ethernetpref) && claims.cfg->Ethernet.usesPin(p))
 #endif
+      ;
+  };
   return gpioPinConflict(protocol,up,down,my,radioPins,ethernetPins,otherPins,invalidOutputs);
 }

@@ -124,6 +124,7 @@ class EthernetSettings: BaseSettings {
     settings_save_result_t save();
     void print();
     bool usesPin(uint8_t pin) const;
+    uint64_t pinClaims() const;
 };
 #endif
 class IPSettings: BaseSettings {

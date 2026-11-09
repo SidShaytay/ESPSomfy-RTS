@@ -8,10 +8,11 @@ struct settings_save_result_t {
   settings_save_state_t state;
   bool liveApplied; // A later radio-marker failure cannot claim RAM stayed unchanged.
   bool radioCleanupFault; // Exact resource capability became stale; no automatic retry.
+  bool radioNamespaceVerified; // Full radio namespace verified, independently of live adoption.
   const char *failedKey; // schema key only; never a stored value
   constexpr settings_save_result_t(settings_save_state_t value=settings_save_state_t::saved,
-      const char *key=nullptr,bool applied=false,bool cleanupFault=false):
-      state(value),liveApplied(applied),radioCleanupFault(cleanupFault),failedKey(key) {}
+      const char *key=nullptr,bool applied=false,bool cleanupFault=false,bool radioVerified=false):
+      state(value),liveApplied(applied),radioCleanupFault(cleanupFault),radioNamespaceVerified(radioVerified),failedKey(key) {}
   bool saved() const { return state == settings_save_state_t::saved && !radioCleanupFault; }
 };
 

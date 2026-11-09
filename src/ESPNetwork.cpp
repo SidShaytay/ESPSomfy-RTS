@@ -1,3 +1,4 @@
+#include "PinOwnership.h"
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <ESPmDNS.h>
@@ -368,6 +369,12 @@ bool ESPNetwork::connectWired() {
   this->connTarget = conn_types_t::ethernet;
   this->connType = conn_types_t::unset;
   if(!this->ethStarted) {
+    if(!ethernetActivationPinsAvailable(settings)) {
+      if(!this->connected())this->openSoftAP();
+      return false;
+    }
+    // Retain before any driver attempt, including a later partial failure.
+    liveEthernetPins.retain(settings.Ethernet.pinClaims());
     // Currently the ethernet module will leak memory if you call begin more than once.
     this->ethStarted = true;
     WiFi.mode(WIFI_OFF);

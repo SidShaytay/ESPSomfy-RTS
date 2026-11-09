@@ -2,6 +2,7 @@
 #error "Radio settings host hooks are forbidden in firmware"
 #endif
 #include "RadioSettingsAdmission.h"
+#include "PinOwnership.h"
 #ifndef RADIO_SETTINGS_HOST_TEST
 #include "Somfy.h"
 #include "LoopQueue.h"
@@ -38,18 +39,18 @@ void serviceRadioSettingsCleanup() {
 }
 settings_save_result_t saveRadioConfiguration(Transceiver &radio,const transceiver_config_t &next) {
   serviceRadioSettingsCleanup();
-  if(release.owner.generation || &radio!=&somfy.transceiver || !idle())return refused();
+  if(release.owner.generation || &radio!=&somfy.transceiver || !idle() || !currentRadioPinConfigurationAvailable(next))return refused();
   if(!gitUpdate.acquireExternal(GitUpdateExternalOwner::configuration,release.owner))return refused();
   if(!idle() || !loopQueue.sealForRestart()){serviceRadioSettingsCleanup();return refused();}
   release.queueSealed=true;
   if(!radio.pauseForRestore(release.radio)){serviceRadioSettingsCleanup();return refused();}
-  if(!gitUpdate.ownsExternal(release.owner) || loopQueue.pending() || !idle()) {
+  if(!gitUpdate.ownsExternal(release.owner) || loopQueue.pending() || !idle() || !currentRadioPinConfigurationAvailable(next)) {
     serviceRadioSettingsCleanup();return refused();
   }
-  auto result=radio.setConfigWhilePaused(next,release.radio,release.owner);
+  auto result=radio.setConfigWhilePaused(next,release.radio,release.owner,currentRadioPinContext());
   serviceRadioSettingsCleanup();
   if(release.cleanupFault) {
-    result.state=result.liveApplied?settings_save_state_t::partial:settings_save_state_t::failed;
+    result.state=(result.liveApplied || result.radioNamespaceVerified || result.state==settings_save_state_t::partial)?settings_save_state_t::partial:settings_save_state_t::failed;
     result.radioCleanupFault=true;result.failedKey="radio cleanup";
   }
   return result;
