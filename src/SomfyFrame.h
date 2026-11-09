@@ -33,6 +33,8 @@ enum class somfy_commands : byte {
     Favorite = 0xC1,
     Stop = 0xF1
 };
+// Static known-command label; nullptr means preserve/report the raw opcode.
+const char *somfyCommandLabel(somfy_commands cmd);
 String translateSomfyCommand(const somfy_commands cmd);
 somfy_commands translateSomfyCommand(const String& string);
 // The command with up and down swapped, for motors wired the other way round.

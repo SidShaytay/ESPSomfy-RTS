@@ -47,7 +47,7 @@ somfy_commands translateSomfyCommand(const String& string) {
     else if (string.length() == 1) return static_cast<somfy_commands>(strtol(string.c_str(), nullptr, 16));
     else return somfy_commands::My;
 }
-String translateSomfyCommand(const somfy_commands cmd) {
+const char *somfyCommandLabel(const somfy_commands cmd) {
     switch (cmd) {
     case somfy_commands::Up:
         return "Up";
@@ -82,8 +82,12 @@ String translateSomfyCommand(const somfy_commands cmd) {
     case somfy_commands::Stop:
         return "Stop";
     default:
-        return "Unknown(" + String((uint8_t)cmd) + ")";
+        return nullptr;
     }
+}
+String translateSomfyCommand(const somfy_commands cmd) {
+  const auto *name=somfyCommandLabel(cmd);
+  return name ? String(name) : "Unknown("+String(static_cast<uint8_t>(cmd))+")";
 }
 somfy_commands flipCommand(somfy_commands cmd) {
   switch(cmd) {

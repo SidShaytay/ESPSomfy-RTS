@@ -6,8 +6,7 @@ struct RadioUpdateActivity {
   bool observed=false,ready=false,schedulerIdle=false,suspended=false,txSealed=false,
        counterBusy=false,receivingFrame=false,scanning=false,receiverPaused=false;
   uint8_t receivedFrames=0,repeaterFrames=0;
-  // Configuration repair needs idle resources, even with disabled or
-  // unavailable radio hardware. Installer pause still requires ready below.
+  // Restore may repair unavailable hardware; install still needs ready.
   bool quiescent() const {
     return observed && schedulerIdle && !suspended && !txSealed && !counterBusy &&
         !receivingFrame && !scanning && !receiverPaused && !receivedFrames && !repeaterFrames;

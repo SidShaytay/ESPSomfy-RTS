@@ -13,7 +13,9 @@ enum class Mode : uint8_t {
   result,
   replace,
   draft,
-  validation
+  validation,
+  wifiReview,
+  wifiList
 };
 enum class Notice : uint8_t {
   none,

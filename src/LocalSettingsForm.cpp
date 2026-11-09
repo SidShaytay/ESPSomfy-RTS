@@ -296,6 +296,52 @@ bool Form::openSection(settings_section_t s, uint64_t now) {
   render();
   return !closed();
 }
+bool Form::openNetworkSSID(const char *ssid, uint64_t now,
+                           Authorization expected, uint64_t revision) {
+  discard();
+  const auto current = backend.authorization();
+  if (!current.allowed || !expected.allowed || !expected.generation || !expected.configurationGeneration ||
+      current.generation != expected.generation ||
+      current.configurationGeneration != expected.configurationGeneration ||
+      !revision || backend.revision(settings_section_t::network) != revision) {
+    close(Notice::changed); return false;
+  }
+  if (ssid && (!ssid[0] || strnlen(ssid,33)>32)) {
+    close(Notice::invalid); return false;
+  }
+  if (!openSection(settings_section_t::network, now)) return false;
+  if (admitted.generation != expected.generation ||
+      admitted.configurationGeneration != expected.configurationGeneration ||
+      admittedRevision != revision) { close(Notice::changed); return false; }
+  const settings_field_t *ssidField=nullptr;
+  for (uint8_t i=0;i<count();++i) {
+    const auto *field=settingsFieldAt(section,i,backend.hasEthernet());
+    if (field->field==proto_field_t::ssid) {selected=i;ssidField=field;}
+  }
+  if (!ssidField) {close(Notice::changed);return false;}
+  bool changed=false;
+  if (ssid) {
+    settings_value_t original;
+    const bool valid=readValue(*ssidField,original) && original.kind=='s' &&
+        memchr(original.text,0,sizeof(original.text));
+    changed=valid && strcmp(original.text,ssid)!=0;
+    wipe(&original,sizeof(original));
+    if (!valid) {close(Notice::changed);return false;}
+  }
+  if (changed) {
+    changes[protoField(proto_field_t::ssid).key]=ssid;
+    changes[protoField(proto_field_t::section).key]=settingsSectionName(section);
+    JsonDocument expanded(&allocator); proto_error_buffer_t why={};
+    settings_section_t parsed;
+    const char *error=expandSettingsPayload(changes.as<JsonObjectConst>(),
+        backend.hasEthernet(),parsed,expanded,why);
+    const bool noMemory=changes.overflowed() || expanded.overflowed();
+    changes.remove(protoField(proto_field_t::section).key);
+    if (noMemory || error) {close(noMemory?Notice::noMemory:Notice::invalid);return false;}
+  }
+  if (!guard(now)) return false;
+  render(); return !closed();
+}
 bool Form::readOnly(const settings_field_t &f) {
   if (f.field == proto_field_t::connMode && !backend.hasEthernet()) {
     settings_value_t value;
