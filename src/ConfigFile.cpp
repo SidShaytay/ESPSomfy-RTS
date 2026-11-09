@@ -269,6 +269,10 @@ bool ShadeConfigFile::validateRestoreRecords(const restore_options_t &opts){
     beginCheckedValues();const bool parsed=decode();const auto values=endCheckedValues();
     return parsed&&values.valid&&values.fields==fields&&!readFailed;
   };
+  const auto knownProtocol=[](radio_proto proto){
+    return proto==radio_proto::RTS || proto==radio_proto::RTW || proto==radio_proto::RTV ||
+        proto==radio_proto::GP_Relay || proto==radio_proto::GP_Remote;
+  };
   bool valid=true;
   if(opts.shades){
     const unsigned shadeFields=12+(v<5?5:SOMFY_MAX_LINKED_REMOTES)+(v<4?1:2)+
@@ -276,9 +280,20 @@ bool ShadeConfigFile::validateRestoreRecords(const restore_options_t &opts){
         (v>=12?1:0)+(v>=13?1:0)+(v>14?2:0)+(v>15?1:0)+(v>16?1:0)+(v>=19?1:0);
     const unsigned groupFields=6+SOMFY_MAX_GROUPED_SHADES+(v>=23?1:0)+
         (v>=12?1:0)+(v>=13?1:0)+(v>=18?1:0)+(v>=19?1:0);
-    for(unsigned i=0;valid&&i<header.roomRecords;++i)valid=checked(3,[&]{room_record_t rec;return readRoomRecord(*this,rec);});
-    for(unsigned i=0;valid&&i<header.shadeRecords;++i)valid=checked(shadeFields,[&]{shade_record_t rec;return readShadeRecord(*this,header,rec);});
-    for(unsigned i=0;valid&&i<header.groupRecords;++i)valid=checked(groupFields,[&]{group_record_t rec;return readGroupRecord(*this,header,rec);});
+    for(unsigned i=0;valid&&i<header.roomRecords;++i)valid=checked(3,[&]{
+      room_record_t rec;return readRoomRecord(*this,rec)&&rec.roomId<=SOMFY_MAX_ROOMS;
+    });
+    for(unsigned i=0;valid&&i<header.shadeRecords;++i)valid=checked(shadeFields,[&]{
+      shade_record_t rec;if(!readShadeRecord(*this,header,rec))return false;
+      return rec.shadeId==255 || (rec.shadeId>0 && rec.shadeId<=SOMFY_MAX_SHADES &&
+          uint8_t(rec.shadeType)<=uint8_t(shade_types::rgate1) &&
+          uint8_t(rec.tiltType)<=uint8_t(tilt_types::euromode) && knownProtocol(rec.proto));
+    });
+    for(unsigned i=0;valid&&i<header.groupRecords;++i)valid=checked(groupFields,[&]{
+      group_record_t rec;if(!readGroupRecord(*this,header,rec))return false;
+      return rec.groupId==255 || (rec.groupId>0 && rec.groupId<=SOMFY_MAX_GROUPS &&
+          rec.groupType==group_types::channel && knownProtocol(rec.proto));
+    });
   }else valid=skipRecords(*this,uint32_t(header.roomRecords)+header.shadeRecords+header.groupRecords);
   if(opts.repeaters){
     for(unsigned i=0;valid&&i<header.repeaterRecords;++i)valid=checked(SOMFY_MAX_REPEATERS,[&]{

@@ -278,6 +278,36 @@ int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));Lit
   assert(!result.complete&&!result.modelApplied&&!result.counterWriteAttempted&&!FakeNvs::writeOpens&&!live.gpio&&live.modelLoad.publishable());
  }
  if(getenv("RESTORE_RAW_CASE"))return 0;
+ // Bounded scalar decoding alone does not qualify active model identities/enums.
+ for(unsigned invalid=0;invalid<8;++invalid){
+  const char *only=getenv("RESTORE_SEMANTIC_CASE");if(only&&unsigned(atoi(only))!=invalid)continue;
+  auto bytes=invalid<4?gpioModel(17,40,255):aliasesModel(false);const unsigned field=invalid<4?(invalid<2?0:invalid==2?2:6):(invalid<6?0:invalid==6?1:4);
+  size_t start=SHADE_HDR_SIZE+(invalid<4?0:2*SHADE_REC_SIZE);for(unsigned i=0;i<field;++i)start=bytes.find(',',start)+1;const auto end=bytes.find(',',start);
+  const char *raw=invalid==0?" 33":invalid==1?"  0":invalid==2?" 17":invalid==3?"  7":invalid==4?" 17":invalid==5?"  0":invalid==6?"  1":"  7";assert(strlen(raw)==end-start);bytes.replace(start,end-start,raw);
+  FakeNvs::reset();stored(100,100);writeAt("/shades.tmp",bytes);restoreAllowed=true;
+  SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);ShadeConfigFile file;restore_options_t opts;opts.shades=true;
+  const auto result=file.restoreFile(&live,"/shades.tmp",opts,RestoreOwner,RadioInstallToken{1});
+  assert(!result.complete&&!result.modelApplied&&!result.counterWriteAttempted&&!FakeNvs::writeOpens&&!live.gpio&&live.modelLoad.publishable());
+ }
+ if(getenv("RESTORE_SEMANTIC_CASE"))return 0;
+ // Room zero is the actual unused sentinel; active room bounds remain 1..16.
+ for(uint8_t id:{uint8_t(0),uint8_t(SOMFY_MAX_ROOMS),uint8_t(SOMFY_MAX_ROOMS+1)}){
+  Writer writer;config_header_t h;h.version=SHADE_HDR_VER;h.length=SHADE_HDR_SIZE;h.shadeRecordSize=SHADE_REC_SIZE;h.groupRecordSize=GROUP_REC_SIZE;h.roomRecordSize=ROOM_REC_SIZE;h.roomRecords=1;
+  room_record_t room;room.roomId=id;assert(writeConfigHeader(writer,h)&&writeRoomRecord(writer,room));
+  FakeNvs::reset();writeAt("/shades.tmp",writer.bytes);restoreAllowed=true;SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);ShadeConfigFile file;restore_options_t opts;opts.shades=true;
+  const auto result=file.restoreFile(&live,"/shades.tmp",opts,RestoreOwner,RadioInstallToken{1});
+  assert(result.complete==(id<=SOMFY_MAX_ROOMS)&&result.modelApplied==(id<=SOMFY_MAX_ROOMS)&&!FakeNvs::writeOpens);
+ }
+ // Preserve every supported protocol and shade type at this model boundary.
+ for(auto proto:{radio_proto::RTS,radio_proto::RTW,radio_proto::RTV,radio_proto::GP_Relay,radio_proto::GP_Remote})for(unsigned type=0;type<=unsigned(shade_types::rgate1);++type){
+  auto bytes=gpioModel(17,40,255,proto);size_t start=SHADE_HDR_SIZE;for(unsigned i=0;i<2;++i)start=bytes.find(',',start)+1;char value[4];snprintf(value,sizeof(value),"%3u",type);bytes.replace(start,3,value);
+  FakeNvs::reset();stored(100,200);writeAt("/shades.tmp",bytes);restoreAllowed=true;SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);ShadeConfigFile file;restore_options_t opts;opts.shades=true;
+  assert(file.restoreFile(&live,"/shades.tmp",opts,RestoreOwner,RadioInstallToken{1}).complete);
+ }
+ // Deleted shade records keep the legacy 255 sentinel even when their dormant enum is unknown.
+ {auto bytes=gpioModel(17,40,255);bytes.replace(SHADE_HDR_SIZE,3,"255");size_t start=SHADE_HDR_SIZE;for(unsigned i=0;i<2;++i)start=bytes.find(',',start)+1;bytes.replace(start,3,"255");
+  FakeNvs::reset();writeAt("/shades.tmp",bytes);restoreAllowed=true;SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);ShadeConfigFile file;restore_options_t opts;opts.shades=true;
+  assert(file.restoreFile(&live,"/shades.tmp",opts,RestoreOwner,RadioInstallToken{1}).complete&&!FakeNvs::writeOpens);}
  // Projected physical policy rejects invalid pads and duplicate/unknown
  // owners before promotion, while valid joint pin changes use the candidate.
  for(unsigned mode=0;mode<4;++mode){
