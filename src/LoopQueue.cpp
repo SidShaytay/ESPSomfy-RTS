@@ -1,9 +1,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
-#include <LittleFS.h>
 #include "esp_log.h"
 #include "LoopQueue.h"
-#include "ConfigFile.h"
 #include "Somfy.h"
 #include "SomfyEditor.h"
 #include "Utils.h"
@@ -15,23 +13,12 @@
 #endif
 #include "ModelCommitService.h"
 #include "SafeRestart.h"
-#include <esp_timer.h>
+#include "RestoreExecution.h"
 
 static const char *TAG = "LoopQueue";
 
 extern SomfyShadeController somfy;
 extern ShadeRequests shadeRequests;
-
-static restore_options_t restoreOptions(uint8_t parts) {
-  restore_options_t opts;
-  opts.settings = parts & RESTORE_SETTINGS;
-  opts.shades = parts & RESTORE_SHADES;
-  opts.network = parts & RESTORE_NETWORK;
-  opts.transceiver = parts & RESTORE_TRANSCEIVER;
-  opts.repeaters = parts & RESTORE_REPEATERS;
-  opts.mqtt = parts & RESTORE_MQTT;
-  return opts;
-}
 
 void LoopQueue::begin() {
   if(!this->queue) this->queue = xQueueCreate(LOOP_QUEUE_SIZE, sizeof(loop_item_t));
@@ -41,7 +28,7 @@ bool LoopQueue::submit(const loop_item_t &item, bool first) {
   producers.fetch_add(1);
   // A producer observed before sealing keeps it from completing; a producer
   // arriving after sealing cannot enqueue. No mutex spans an RTOS queue call.
-  if(restartSealed.load()) {producers.fetch_sub(1);return false;}
+  if(restartSealed.load() || !protoSocket.acceptsMutation(item)) {producers.fetch_sub(1);return false;}
   // async_tcp also services the sockets, so it must never wait on loop() or
   // the radio.
   QueueHandle_t q = static_cast<QueueHandle_t>(this->queue);
@@ -53,6 +40,18 @@ bool LoopQueue::submit(const loop_item_t &item, bool first) {
     return false;
   }
   return true;
+}
+bool LoopQueue::beginSocketMutation(uint32_t clientId) {
+  if(!queue || restartSealed.load())return false;
+  producers.fetch_add(1);
+  if(restartSealed.load() || !protoSocket.acceptsClientMutation(clientId)){
+    producers.fetch_sub(1);return false;
+  }
+  return true;
+}
+void LoopQueue::endSocketMutation(bool accepted) {
+  if(accepted)noteRestartOperationAccepted();
+  producers.fetch_sub(1);
 }
 bool LoopQueue::sealForRestart() {
   bool expected=false;
@@ -76,6 +75,9 @@ void LoopQueue::drain() {
   loop_item_t item;
   // Items run in order, so only the one at the head can be held back.
   while(xQueuePeek(q, &item, 0) == pdTRUE) {
+    if(!protoSocket.acceptsMutation(item)){
+      xQueueReceive(q,&item,0);protoSocket.discardRetiredMutation(item);continue;
+    }
 #ifdef ESPSOMFY_LOCAL_UI
     if(item.type == loop_item_type_t::local_advanced && !LocalUi::localLearnTokenActive(item.localToken)) {
       xQueueReceive(q,&item,0);continue;
@@ -109,26 +111,9 @@ void LoopQueue::drain() {
         protoSocket.replyRequest(item.replyTo, item.request, result);
         break;
       }
-      case loop_item_type_t::restore_shades: {
-        const auto &owner=item.externalOwner;
-        if(!gitUpdate.claimTransfer(owner,uint64_t(esp_timer_get_time())/1000,true)) {
-          ESP_LOGW(TAG,"Restore source expired or is no longer owner; nothing applied or removed");break;
-        }
-        restore_options_t opts=restoreOptions(item.restoreParts);
-        const bool restored=ShadeConfigFile::restore(&somfy,"/shades.tmp",opts,owner);
-        // Only this claimed source may remove its temporary file. Stale
-        // markers never delete a newer request's backup at the same path.
-        LittleFS.remove("/shades.tmp");gitUpdate.transferResource(owner,false);
-        const auto time=uint64_t(esp_timer_get_time())/1000;
-        if(restored && gitUpdate.transferContinuing(owner,time) && gitUpdate.holdTransferRestart(owner)) {
-          const auto published=gitUpdate.finishTransfer(owner,time,true)
-              ? requestOwnedRestart(owner,1000) : RestartResult{false,RestartReason::stale};
-          if(published.admitted)break;
-          ESP_LOGW(TAG,"Restore applied; restart not admitted");
-        } else ESP_LOGW(TAG,"Restore refused, failed or expired; no restart scheduled");
-        if(gitUpdate.closeTransfer(owner)) gitUpdate.releaseExternal(owner);
+      case loop_item_type_t::restore_shades:
+        runOwnedRestore(item.externalOwner,item.restoreParts);
         break;
-      }
       case loop_item_type_t::model_commit:
         runModelCommit(item);
         break;

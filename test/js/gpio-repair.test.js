@@ -131,3 +131,12 @@ test('new GPIO domain failures have actionable canonical browser messages', () =
     assert.match(values.find(error => error.code === -13).desc, /distinct|unique/i);
     assert.match(values.find(error => error.code === -14).desc, /output.*GPIO|GPIO.*output/i);
 });
+
+test('unavailable pin-ownership storage has a distinct canonical failure description', () => {
+    const start = source.indexOf('var errors = [');
+    const end = source.indexOf('document.oncontextmenu', start);
+    const context = {}; vm.runInNewContext(source.slice(start, end), context);
+    const unavailable = context.errors.find(error => error.code === -15);
+    assert.match(unavailable.desc, /ownership settings are unavailable/);
+    assert.match(unavailable.desc, /radio\/Ethernet/);
+});

@@ -1,5 +1,6 @@
 #include "LocalSettingsForm.h"
 #include "SettingsRevisions.h"
+#include "BoardProfile.h"
 #include <float.h>
 #include <math.h>
 #include <stdlib.h>
@@ -34,6 +35,7 @@ struct Memory : ArduinoJson::Allocator {
 struct Fake : Backend {
   Authorization auth{true, 1, 1};
   SettingsRevisions revisions;
+  bool readUnavailable=false,liveApplied=false,cleanupFault=false;
   bool changeOnRead = false;
   bool rejectLate = false, busy = false, restartBlocked = false, ethernet = false, fixedPins = true;
   proto_field_t overrideField = proto_field_t::count;
@@ -49,6 +51,7 @@ struct Fake : Backend {
   bool fixedRadioPins() const override { return fixedPins; }
   void activity() override { ++activities; }
   bool read(settings_section_t s, SettingsSnapshotSink &sink) override {
+    if(readUnavailable)return false;
     if(changeOnRead){changeOnRead=false;revisions.completed(s);}
     for (unsigned i = 0; i < settingsFieldCount(s, ethernet); ++i) {
       const auto &m = *settingsFieldAt(s, i, ethernet);
@@ -92,7 +95,7 @@ struct Fake : Backend {
     ++saves;
     applied.set(request);
     settings_apply_result_t r;
-    r.persistence.state = outcome;
+    r.persistence.state = outcome;r.persistence.liveApplied=liveApplied;r.persistence.radioCleanupFault=cleanupFault;
     r.restartBlocked = restartBlocked;
     r.restartReason=restartCause;
     return r;
@@ -756,7 +759,7 @@ static void invalid_replacement_choices_nonfinite_and_readonly_stay_bounded() {
     form.turn(1, 1);
     form.activate(1);
     TEST_ASSERT_EQUAL(Mode::adjust, form.view().mode);
-    TEST_ASSERT_EQUAL_STRING(numeric ? "300.000" : "RTS", form.view().rows[0].value);
+    TEST_ASSERT_EQUAL_STRING(numeric ? "433.420" : "RTS", form.view().rows[0].value);
     TEST_ASSERT_FALSE(form.view().dirty);
     form.tick(30001);
     TEST_ASSERT_TRUE(form.closed());
@@ -868,8 +871,47 @@ static void current_scanned_ssid_is_clean_and_save_is_unchanged() {
   form.activate(40);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(Notice::unchanged,form.view().notice);
   TEST_ASSERT_EQUAL(0,backend.saves);TEST_ASSERT_EQUAL(0,memory.active);TEST_ASSERT_EQUAL(0,memory.allocations);
 }
+static void unsupported_frequency_requires_explicit_valid_replacement_without_losing_other_drafts() {
+ Memory mem;Fake backend;backend.overrideField=proto_field_t::frequency;
+ backend.overrideNumber=BoardProfile::integratedRadio?300.0f:700.0f;
+ const float original=backend.overrideNumber;Form form(backend,mem);
+ form.openSection(settings_section_t::radio,0);
+ turnTo(form,2);form.activate(1);form.turn(1,1);chooseNumericApply(form);
+ turnTo(form,7);TEST_ASSERT_NOT_NULL(strstr(form.view().rows[2].value,"Invalid"));
+ form.activate(1);TEST_ASSERT_EQUAL(Mode::replace,form.view().mode);TEST_ASSERT_EQUAL(0,form.view().selected);
+ form.activate(1);TEST_ASSERT_EQUAL(Mode::fields,form.view().mode);TEST_ASSERT_TRUE(form.view().dirty);
+ TEST_ASSERT_EQUAL_FLOAT(original,backend.overrideNumber);TEST_ASSERT_EQUAL(0,backend.saves);
+ form.activate(1);form.turn(1,1);form.activate(1);
+ TEST_ASSERT_EQUAL(Mode::adjust,form.view().mode);TEST_ASSERT_EQUAL_STRING("433.420",form.view().rows[0].value);
+ form.back(1);TEST_ASSERT_NOT_NULL(strstr(form.view().rows[2].value,"Invalid"));
+ form.activate(1);form.turn(1,1);form.activate(1);chooseNumericApply(form);
+ TEST_ASSERT_EQUAL_FLOAT(original,backend.overrideNumber);TEST_ASSERT_EQUAL(0,backend.saves);
+ turnTo(form,settingsFieldCount(settings_section_t::radio,false)-9);form.activate(1);
+ TEST_ASSERT_EQUAL(Mode::confirm,form.view().mode);TEST_ASSERT_EQUAL(0,form.view().selected);
+ form.turn(1,1);form.activate(1);TEST_ASSERT_EQUAL(1,backend.saves);
+ TEST_ASSERT_FLOAT_WITHIN(0.0001f,433.42f,backend.applied["frequency"].as<float>());
+ TEST_ASSERT_TRUE(backend.applied["enabled"].as<bool>());TEST_ASSERT_EQUAL(2,backend.applied.size());
+ TEST_ASSERT_EQUAL_FLOAT(original,backend.overrideNumber);
+}
+static void unavailable_snapshot_closes_without_default_replace_or_save() {
+ Fake state;Memory memory;Form form(state,memory);state.readUnavailable=true;
+ TEST_ASSERT_FALSE(form.openSection(settings_section_t::network,1));
+ TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(Notice::unavailable,form.view().notice);
+ TEST_ASSERT_FALSE(form.view().dirty);TEST_ASSERT_TRUE(form.view().protectedFrame);
+ form.activate(2);form.turn(1,3);TEST_ASSERT_EQUAL(0,state.saves);
+}
+static void applied_radio_failure_closes_and_wipes_without_replaying_save() {
+ for(bool fault:{false,true}) {
+ Memory mem;Fake backend;backend.outcome=settings_save_state_t::partial;backend.liveApplied=true;backend.cleanupFault=fault;
+ Form form(backend,mem);form.openSection(settings_section_t::radio,0);
+ turnTo(form,2);form.activate(1);form.turn(1,1);chooseNumericApply(form);
+ turnTo(form,settingsFieldCount(settings_section_t::radio,false)-2);form.activate(1);form.turn(1,1);form.activate(1);
+ TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_FALSE(form.view().dirty);TEST_ASSERT_EQUAL(fault?Notice::cleanupFault:Notice::appliedUncertain,form.view().notice);
+ TEST_ASSERT_EQUAL(0,mem.active);TEST_ASSERT_EQUAL(1,backend.saves);form.activate(2);TEST_ASSERT_EQUAL(1,backend.saves);
+ }
+}
 int main() {
-  UNITY_BEGIN();
+  UNITY_BEGIN();RUN_TEST(applied_radio_failure_closes_and_wipes_without_replaying_save);RUN_TEST(unsupported_frequency_requires_explicit_valid_replacement_without_losing_other_drafts);RUN_TEST(unavailable_snapshot_closes_without_default_replace_or_save);
   RUN_TEST(current_scanned_ssid_is_clean_and_save_is_unchanged);
   RUN_TEST(scanned_ssid_stages_only_after_exact_authority_and_network_revision);
   RUN_TEST(every_saved_restart_refusal_preserves_typed_reason_and_no_retry_draft);

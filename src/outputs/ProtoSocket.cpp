@@ -195,10 +195,15 @@ static void sendRemoteCommand(AsyncWebSocketClient *client, const proto_message_
   proto_error_buffer_t error;
   const char *bad = parseRemoteCommandOp(d, frame, repeats, error);
   if(bad) { replyError(client, req.id, proto_error_t::badRequest, bad); return; }
-  if(!somfy.sendFrame(frame, repeats)) {
-    replyError(client, req.id, proto_error_t::radioUnavailable, PROTO_RADIO_REFUSED);
-    return;
+  if(!loopQueue.beginSocketMutation(client->id())) {
+    replyError(client,req.id,proto_error_t::busy,"Model context changed or operations are paused; reconnect and retry.");return;
   }
+  struct Producer {
+    bool accepted=false;
+    ~Producer(){loopQueue.endSocketMutation(accepted);}
+  } producer;
+  producer.accepted=somfy.sendFrame(frame,repeats)!=0;
+  if(!producer.accepted){replyError(client,req.id,proto_error_t::radioUnavailable,PROTO_RADIO_REFUSED);return;}
   replyOk(client, req.id);
 }
 // An edit op: loop() applies it as its edit route does, and replies.
@@ -442,6 +447,32 @@ bool ProtoSocket::hasClients() const {
   for(const proto_slot_t &s : slots)
     if(s.clientId.load()) return true;
   return false;
+}
+static proto_reply_to_t queuedMutationOrigin(const loop_item_t &item) {
+  return item.type==loop_item_type_t::model_edit && item.edit ? item.edit->replyTo : item.replyTo;
+}
+bool ProtoSocket::acceptsClientMutation(uint32_t clientId) const {
+  return clientMayMutate(slots,PROTO_MAX_CLIENTS,clientId);
+}
+bool ProtoSocket::acceptsMutation(const loop_item_t &item) const {
+  if(item.type==loop_item_type_t::proto_read || (item.type==loop_item_type_t::proto_device &&
+      item.op==uint8_t(proto_type_t::getSettings)))return true;
+  const auto origin=queuedMutationOrigin(item);
+  return !origin.client || acceptsClientMutation(origin.client);
+}
+void ProtoSocket::discardRetiredMutation(const loop_item_t &item) {
+  const auto origin=queuedMutationOrigin(item);
+  if(item.type==loop_item_type_t::model_edit && item.edit)cancelModelEdit(item.edit);
+  if(item.type==loop_item_type_t::proto_device && item.save)freeSettingsSave(item.save);
+  replyRefused(origin,proto_error_t::busy,"Model context changed; reconnect before sending commands.");
+}
+void ProtoSocket::retireModelSessions() {
+  if(!onLoopTask())return;
+  uint32_t retired[PROTO_MAX_CLIENTS]={};unsigned count=0;
+  // Model restore holds the queue seal. Mark every captured identity before
+  // any close call; an asynchronous disconnect/new claim cannot retire its new ID.
+  for(proto_slot_t &slot:slots){const auto id=slot.clientId.load();if(id){retireSlot(slot,id);retired[count++]=id;}}
+  for(unsigned i=0;i<count;++i)ws.close(retired[i]);
 }
 bool ProtoSocket::sending() const { return onLoopTask() && this->hasClients(); }
 

@@ -43,9 +43,17 @@
 class ConfigReader {
   private:
     uint8_t _last = 0;
+    bool _checkedValues=false,_checkedError=false;
+    uint16_t _checkedFields=0;
+    bool readCheckedString(char *,size_t,bool quoted);
     bool next(uint8_t &val);
   public:
+    struct CheckedValues {bool valid;uint16_t fields;};
     virtual ~ConfigReader() {}
+    // Opt-in external restore validation only; ordinary legacy loads keep their
+    // historical defaults/casts. Counts distinguish absent fields from defaults.
+    void beginCheckedValues(){_checkedValues=true;_checkedError=false;_checkedFields=0;}
+    CheckedValues endCheckedValues(){_checkedValues=false;return {!_checkedError,_checkedFields};}
     // The next byte of the file; false at its end.
     virtual bool readByte(uint8_t &val) = 0;
     virtual uint32_t position() = 0;

@@ -8,6 +8,8 @@
 #include "SettingsRead.h"
 #include "SettingsReconcile.h"
 #include "SettingsRevisions.h"
+#include "RestoreResult.h"
+#include "RadioUpdateActivity.h"
 
 // Socket protocol 2's settings ops and the WiFi scan, run on loop()
 // (docs/PROTOCOL.md).  loop() also reads the settings while it runs the
@@ -40,4 +42,8 @@ settings_apply_result_t applyDeviceSettings(settings_section_t section, JsonObje
 settings_reconcile_result_t reconcileRunningDeviceSettings(uint32_t originSocketClient = 0);
 // loop(): runs a proto_device item and replies.
 void runDeviceOp(const loop_item_t &item);
+class SelectedSettingsRestore;
+class Transceiver;
+RestoreSettingsResult applyPreparedSettingsRestore(SelectedSettingsRestore &,Transceiver &,
+    const GitUpdateOwnerToken &,const RadioInstallToken &);
 #endif

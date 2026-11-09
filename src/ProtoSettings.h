@@ -52,6 +52,10 @@ struct settings_field_t {
       field == proto_field_t::pin ? proto_field_t::hasPin : proto_field_t::count;
   }
 };
+const settings_field_t *settingsFieldFor(settings_part_t,proto_field_t,bool hasEthernet);
+bool settingsIntegerValid(const settings_field_t &,int64_t);
+// Empty text clears an address. All other accepted values have four bounded octets.
+bool settingsAddressValid(const char *);
 uint8_t settingsFieldCount(settings_section_t section, bool hasEthernet);
 // Stable pointer into the save table, nullptr past the filtered section's end.
 const settings_field_t *settingsFieldAt(settings_section_t section, uint8_t index, bool hasEthernet);

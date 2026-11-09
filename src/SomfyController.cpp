@@ -1,4 +1,7 @@
+#include "RestoreExecution.h"
 #include "ModelLoadSnapshot.h"
+#include "SettingsDurability.h"
+#include "RadioSettingsAdmission.h"
 #include "LilygoBuild.h"
 #include "esp_log.h"
 #include <WiFi.h>
@@ -146,10 +149,13 @@ void setup() {
       ESP_LOGE(TAG, "LittleFS mount failed!");
   }
   settings.begin();
+  somfy.transceiver.loadReadOnly();
+  settings.applyStartup(somfy.transceiver.config);
   if(WiFi.status() == WL_CONNECTED) WiFi.disconnect(true);
   delay(10);
   // Before anything that can submit to it: the web servers and MQTT.
   loopQueue.begin();
+  beginRestoreExecution();
   webServer.startup();
   webServer.begin();
   delay(1000);
@@ -176,6 +182,7 @@ void loop() {
   // Times the whole pass for the memory event, including any time the loop task was
   // pre-empted, since that delays the loop too.
   ElapsedTimer pass;
+  serviceRadioSettingsCleanup();
   manualUploadLoop();
   if(restartLoop()) return;
   // Each step only logs when it holds up the loop for LOOP_SLOW_MS or more.
@@ -202,7 +209,10 @@ void loop() {
     esp_task_wdt_reset();
   }
   if(restartLoop()) return;
-  bool updateNetworkReady=net.connected() && somfy.modelLoad.usable() && settings.Security.loadTrusted();
+  bool updateNetworkReady=net.connected() && somfy.modelLoad.usable() && settings.settingsUsable() &&
+      somfy.transceiver.config.loadStatus.usable() &&
+      (!somfy.transceiver.config.enabled || somfy.transceiver.config.radioInit) &&
+      settingsDurability().status().restartAllowed() && !somfy.isDirty;
 #if defined(ESPSOMFY_BUNDLED_WEB)
   // Registration is necessary, but full installer health checks remain separate.
   updateNetworkReady=updateNetworkReady && bundledWebRoutesReady();

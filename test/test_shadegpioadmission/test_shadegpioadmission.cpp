@@ -1,4 +1,5 @@
 #include "ModelEditor.h"
+#include "SettingsLoadState.h"
 #include "ShadeGpioPolicy.h"
 #include <ArduinoJson.h>
 #include <set>
@@ -25,19 +26,26 @@ struct SomfyShade {
 struct SomfyShadeController {
   SomfyShade shades[2];
   struct Radio {
+    struct {SettingsLoadStatus loadStatus{SettingsLoadState::loaded};}config;
     bool usesPin(uint8_t pin) { return radioPads.count(pin); }
   } transceiver;
 } somfy;
 enum class conn_types_t { wifi, ethernet, ethernetpref };
 struct ConfigSettings {
+  SettingsLoadStatus loadStatus{SettingsLoadState::loaded};
   conn_types_t connType = conn_types_t::wifi;
   struct Ethernet {
+    SettingsLoadStatus loadStatus{SettingsLoadState::loaded};
     bool usesPin(uint8_t pin) { return ethernetPads.count(pin); }
   } Ethernet;
 } settings;
+struct ESPNetwork {uint64_t retainedPinClaims()const{return 0;}}net;
 #include "../../src/ShadeGpioAdmission.cpp"
 #include "../../src/ShadeGpioConfig.cpp"
 void setUp() {
+  somfy.transceiver.config.loadStatus={SettingsLoadState::loaded};
+  settings.loadStatus={SettingsLoadState::loaded};
+  settings.Ethernet.loadStatus={SettingsLoadState::loaded};
   radioPads.clear();
   ethernetPads.clear();
   somfy.shades[0] = {};
@@ -122,8 +130,22 @@ unsafe_legacy_assignments_remain_unchanged_and_can_be_explicitly_repaired() {
   request["proto"] = int(radio_proto::RTS);
   TEST_ASSERT_EQUAL(0, validate(request));
 }
+static void unavailable_pin_ownership_refuses_only_physical_gpio_without_mutation() {
+ for(unsigned source=0;source<3;++source){
+  somfy.transceiver.config.loadStatus={source?SettingsLoadState::loaded:SettingsLoadState::failed};
+  settings.Ethernet.loadStatus={source==1?SettingsLoadState::failed:SettingsLoadState::loaded};
+  settings.loadStatus={source==2?SettingsLoadState::failed:SettingsLoadState::loaded};
+  TEST_ASSERT_EQUAL(0,somfy.shades[0].validateGPIOs(radio_proto::GP_Remote,255,255,255));
+  TEST_ASSERT_EQUAL(0,somfy.shades[0].validateGPIOs(radio_proto::GP_Relay,255,255,19));
+  const auto before=somfy.shades[0];JsonDocument request;request["gpioUp"]=19;
+  TEST_ASSERT_EQUAL(PIN_STORAGE_UNAVAILABLE,validate(request));
+  TEST_ASSERT_EQUAL(before.gpioUp,somfy.shades[0].gpioUp);
+  TEST_ASSERT_EQUAL(before.gpioDown,somfy.shades[0].gpioDown);
+  TEST_ASSERT_EQUAL(0,somfy.shades[0].validateGPIOs(radio_proto::RTS,19,40,42));
+ }
+}
 int main() {
-  UNITY_BEGIN();
+  UNITY_BEGIN();RUN_TEST(unavailable_pin_ownership_refuses_only_physical_gpio_without_mutation);
   RUN_TEST(
       projected_admission_checks_every_physical_pad_independently_of_category);
   RUN_TEST(

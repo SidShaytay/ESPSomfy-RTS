@@ -4,7 +4,7 @@
 #include "RestartTypes.h"
 
 enum class settings_apply_refusal_t : uint8_t {
-  none, invalidPin, usernameRequired, passwordRequired, unauthorized, stale, busy
+  none, invalidPin, usernameRequired, passwordRequired, unauthorized, stale, busy, pinOwnership
 };
 struct settings_apply_result_t {
   settings_save_result_t persistence;
@@ -27,6 +27,7 @@ class SettingsEffects {
 public:
   virtual ~SettingsEffects() = default;
   virtual bool wifiClientsPresent() const = 0;
+  virtual bool networkPinsAvailable(const ConfigSettings &) const = 0;
   virtual void hostnameChanged() = 0;
   virtual void timeChanged() = 0;
   virtual void mqttChanged() = 0;
@@ -37,8 +38,9 @@ public:
   virtual RestartResult completed(settings_section_t section, bool reboot) = 0;
 };
 // loop() only, after expandSettingsPayload has validated/expanded the request.
-// Failed/partial persistence leaves the in-memory settings and runtime effects
-// unchanged, but durable keys may have changed. No transactional rollback claim.
+// General failed/partial persistence leaves RAM/effects unchanged. Radio may
+// fail its marker after live adoption: persistence.liveApplied reports that
+// distinct outcome. Durable keys may change; there is no rollback claim.
 settings_apply_result_t applySettings(ConfigSettings &current, settings_section_t section, JsonObject request, SettingsEffects &effects);
 const char *settingsSaveFailureDescription(settings_save_state_t state);
 const char *settingsApplyFailureDescription(const settings_apply_result_t &result);

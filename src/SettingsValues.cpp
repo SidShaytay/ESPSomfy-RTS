@@ -1,9 +1,15 @@
 #include "ConfigSettings.h"
 #include "Transceiver.h"
 #include "Secrets.h"
+#include "ProtoSettings.h"
+#include "EthPinClaims.h"
 
 #if HAS_ETHERNET
 EthernetSettings::EthernetSettings() {}
+uint64_t EthernetSettings::pinClaims()const {
+  return ethernetDataPinClaims()|LivePinClaims::pinMask(uint8_t(ethClockPin(CLKMode)))|
+    LivePinClaims::pinMask(uint8_t(PWRPin))|LivePinClaims::pinMask(uint8_t(MDCPin))|LivePinClaims::pinMask(uint8_t(MDIOPin));
+}
 #endif
 
 WifiSettings::WifiSettings() {}
@@ -63,13 +69,23 @@ bool NTPSettings::fromJSON(JsonObject &obj) {
   return true;
 }
 
+bool IPSettings::setAddress(uint8_t index,const char *text) {
+  if(index>=5 || !settingsAddressValid(text))return false;
+  IPAddress next;
+  if(*text && !next.fromString(text))return false;
+  IPAddress *dest[]={&ip,&gateway,&subnet,&dns1,&dns2};
+  *dest[index]=next;memset(invalidAddress[index],0,sizeof(invalidAddress[index]));return true;
+}
+void IPSettings::addressText(uint8_t index,char *out,size_t capacity) const {
+  if(index>=5){if(capacity)out[0]=0;return;}
+  if(invalidAddress[index][0]){strlcpy(out,invalidAddress[index],capacity);return;}
+  const IPAddress *source[]={&ip,&gateway,&subnet,&dns1,&dns2};
+  strlcpy(out,source[index]->toString().c_str(),capacity);
+}
 bool IPSettings::fromJSON(JsonObject &obj) {
-  if(!obj["dhcp"].isNull()) this->dhcp = obj["dhcp"];
-  this->parseIPAddress(obj, "ip", &this->ip);
-  this->parseIPAddress(obj, "gateway", &this->gateway);
-  this->parseIPAddress(obj, "subnet", &this->subnet);
-  this->parseIPAddress(obj, "dns1", &this->dns1);
-  this->parseIPAddress(obj, "dns2", &this->dns2);
+  if(!obj["dhcp"].isNull())dhcp=obj["dhcp"];
+  const char *keys[]={"ip","gateway","subnet","dns1","dns2"};
+  for(uint8_t i=0;i<5;++i)if(!obj[keys[i]].isNull() && !setAddress(i,obj[keys[i]].as<const char *>()))return false;
   return true;
 }
 

@@ -10,8 +10,12 @@
 #include "PulseDecoder.h"
 #include "BoardProfile.h"
 #include "SettingsSaveResult.h"
+#include "SettingsLoadState.h"
 #include "CounterEdit.h"
 #include "RadioUpdateActivity.h"
+#include "GitUpdateOwner.h"
+#include "LivePinClaims.h"
+#include "PinOwnership.h"
 
 // The CC1101 radio: receive decoding, the radio task that transmits radio
 // jobs, the frequency scan and the radio config.
@@ -29,6 +33,8 @@ struct somfy_rx_queue_t {
   bool pop(somfy_rx_t *rx);
 };
 struct transceiver_config_t {
+    SettingsLoadStatus loadStatus;
+    bool startupInitAllowed=true;
     bool printBuffer = false;
     bool enabled = BoardProfile::integratedRadio;
     uint8_t type = 56;                // 56 or 80 bit protocol.
@@ -49,11 +55,16 @@ struct transceiver_config_t {
     settings_save_result_t save();
     // Persistence-only reconciliation: preserve the stored init safety marker.
     settings_save_result_t savePreservingInit();
-    void load();
-    void apply();
+    bool loadReadOnly();
+    void applyChipDefaults();
+    settings_save_result_t apply();
+    settings_save_result_t applyWithPinContext(RadioPinContext);
     void applyBoardPins();
-    // Removes a key no longer used from the open CC1101 namespace.
-    void removeNVSKey(Preferences &pref, const char *key);
+    uint64_t pinClaims()const {uint64_t pins=0;for(uint8_t pin=0;pin<64;++pin)if(usesPin(pin))pins|=LivePinClaims::pinMask(pin);return pins;}
+    bool usesPin(uint8_t pin)const {
+      return BoardProfile::usesPin(pin) || (enabled &&
+        (SCKPin==pin || TXPin==pin || RXPin==pin || MOSIPin==pin || MISOPin==pin || CSNPin==pin));
+    }
 };
 class Transceiver {
   private:
@@ -64,11 +75,13 @@ class Transceiver {
     static void handleReceive();
     static void txTask(void *arg);
     bool _received = false;
+    bool radioBusInitialized=false;
     somfy_frame_t frame;
     // Only touched under the TX queue lock.
     RadioScheduler sched;
     CounterEditSafety counterEdits;
     uint64_t installGeneration=0,installConfigurationRevision=0;
+    LivePinClaims livePinClaims;
     bool installActive=false,installResumeReceive=false;
     RadioUpdateActivity updateActivityLocked() const;
     bool pauseForAdministration(RadioInstallToken &,bool requireReady);
@@ -83,12 +96,17 @@ class Transceiver {
     transceiver_config_t config;
     // Nonblocking read-only LCD snapshot; outputs are unchanged if busy.
     bool displayStatus(bool &ready, float &frequency) const;
+    uint64_t retainedPinClaims()const{return livePinClaims.snapshot();}
     bool available() const { return _available.load() && !_administrationPaused.load(); }
     bool printBuffer = false;
     bool fromJSON(JsonObject& obj);
     // Persists a prepared config before swapping/applying it. Failed or partial
     // persistence leaves the live config and hardware unchanged.
     settings_save_result_t setConfig(const transceiver_config_t &cfg);
+    // Already-owned restore/configuration path: exact radio and owner capability.
+    settings_save_result_t setConfigWhilePaused(const transceiver_config_t &,const RadioInstallToken &,
+        const GitUpdateOwnerToken &,RadioPinContext);
+    bool loadReadOnly();
     bool begin();
     void loop();
     bool end();
