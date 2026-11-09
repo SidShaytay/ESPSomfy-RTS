@@ -15,7 +15,8 @@ enum class ModelCommitStage : uint8_t {
   verifyRead,
   verifyBytes,
   verifyClose,
-  replace
+  replace,
+  untrusted
 };
 struct ModelCommitResult {
   ModelCommitState state = ModelCommitState::failed;

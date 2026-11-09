@@ -35,7 +35,14 @@ bool ConfigFile::begin(const char *filename, bool readOnly) {
   this->end();
   this->readOnly = readOnly;
   this->_writeFailed = false;
-  this->file = LittleFS.open(filename, readOnly ? "r" : "w");
+  if(readOnly) {
+    char path[256];
+    const int n=snprintf(path,sizeof(path),"%s%s",LittleFS.mountpoint(),filename);
+    snapshotStatus=n>0&&size_t(n)<sizeof(path) ? snapshot.capture(path,modelFilesystemMounted()) : ModelLoadStatus::unavailable;
+    readPosition=0;readFailed=false;beginRecord();
+    return this->_opened=snapshotStatus==ModelLoadStatus::loaded;
+  }
+  this->file = LittleFS.open(filename, "w");
   this->_opened = bool(this->file) && !this->file.isDirectory();
   if (!this->_opened)
     this->file.close();
@@ -59,15 +66,19 @@ void ConfigFile::end() {
       this->file.close();
     }
   }
+  snapshot.clear();readPosition=0;
   this->_opened = false;
 }
 bool ConfigFile::isOpen() { return this->_opened; }
 bool ConfigFile::readByte(uint8_t &val) {
-  if (!this->file)
-    return false;
-  return this->file.read(&val, 1) == 1;
+  if(!snapshot.data() || readPosition>=snapshot.size()){readFailed=true;return false;}
+  val=snapshot.data()[readPosition++];return true;
 }
-uint32_t ConfigFile::position() { return this->file.position(); }
+uint32_t ConfigFile::position() { return readOnly ? readPosition : this->file.position(); }
+bool ConfigFile::seekRead(uint32_t offset) {
+  if(offset>snapshot.size()){readFailed=true;return false;}
+  readPosition=offset;beginRecord();return true;
+}
 bool ConfigFile::writeBytes(const uint8_t *buf, size_t len) {
   if (!this->isOpen() || this->readOnly || this->_writeFailed)
     return false;
@@ -87,7 +98,7 @@ bool ConfigFile::writeHeader() {
 bool ConfigFile::readHeader() {
   if(!this->isOpen()) return false;
   readConfigHeader(*this, this->header);
-  ESP_LOGD(TAG, "version:%u len:%u roomSize:%u roomRecs:%u shadeSize:%u shadeRecs:%u groupSize:%u groupRecs: %u pos:%d", this->header.version, this->header.length, this->header.roomRecordSize, this->header.roomRecords, this->header.shadeRecordSize, this->header.shadeRecords, this->header.groupRecordSize, this->header.groupRecords, this->file.position());
+  ESP_LOGD(TAG, "version:%u len:%u roomSize:%u roomRecs:%u shadeSize:%u shadeRecs:%u groupSize:%u groupRecs: %u pos:%d", this->header.version, this->header.length, this->header.roomRecordSize, this->header.roomRecords, this->header.shadeRecordSize, this->header.shadeRecords, this->header.groupRecordSize, this->header.groupRecords, this->position());
   return true;
 }
 
@@ -361,7 +372,12 @@ void ShadeConfigFile::readModel(SomfyShadeController *s) {
   for(uint8_t i = this->header.groupRecords; i < SOMFY_MAX_GROUPS; i++) s->groups[i].clear();
 }
 bool ShadeConfigFile::begin(bool readOnly) { return this->begin("/shades.cfg", readOnly); }
-bool ShadeConfigFile::begin(const char *filename, bool readOnly) { return ConfigFile::begin(filename, readOnly); }
+bool ShadeConfigFile::begin(const char *filename, bool readOnly) {
+  // All disk model writes use the checked stage/verify/replace path. Backup
+  // serialization uses beginRAM and must never truncate the canonical file.
+  if(!readOnly)return false;
+  return ConfigFile::begin(filename,true);
+}
 void ShadeConfigFile::end() { ConfigFile::end(); }
 bool ShadeConfigFile::writeModel(SomfyShadeController *s,
                                  ConfigWriter &writer) {
@@ -410,6 +426,7 @@ bool ShadeConfigFile::writeModel(SomfyShadeController *s,
   return writeModelRecords(writer, this->header, records);
 }
 ModelCommitResult ShadeConfigFile::commitModel(SomfyShadeController *model) {
+  if(!model->modelLoad.mayCommit())return {ModelCommitState::failed,ModelCommitStage::untrusted};
   class Serializer : public ShadeConfigFile, public ModelSerializer {
     SomfyShadeController *model;
 
@@ -425,6 +442,7 @@ ModelCommitResult ShadeConfigFile::commitModel(SomfyShadeController *model) {
 }
 
 bool ShadeConfigFile::save(SomfyShadeController *s) {
+  if(!s->modelLoad.mayCommit())return false;
   this->header.settingsRecordSize = 0;
   this->header.netRecordSize = 0;
   this->header.transRecordSize = 0;
@@ -447,8 +465,8 @@ bool ShadeConfigFile::backup(SomfyShadeController *s) {
          writeTransRecord(*this, transRec) && !this->_writeFailed;
 }
 bool ShadeConfigFile::validate() {
-  this->readHeader();
-  if(this->header.version < 1) {
+  if(!this->readHeader() || readFailed)return false;
+  if(this->header.version < 1 || this->header.version > SHADE_HDR_VER) {
     ESP_LOGE(TAG, "Invalid Header Version:%u", this->header.version);
     return false;
   }
@@ -467,8 +485,8 @@ bool ShadeConfigFile::validate() {
       return false;
     }
   }
-  if(this->file.position() != this->header.length) {
-    ESP_LOGE(TAG, "File not positioned at %u end of header: %d", this->header.length, this->file.position());
+  if(this->position() != this->header.length) {
+    ESP_LOGE(TAG, "File not positioned at %u end of header: %d", this->header.length, this->position());
     return false;
   }
 
@@ -476,21 +494,21 @@ bool ShadeConfigFile::validate() {
   // 6 bytes short, and 4.0 backups from boards without Ethernet declare the
   // network record 28 bytes long.  Records are read to their newline.
   const uint32_t fsize = expectedFileBytes(this->header);
-  if(this->file.size() != fsize) {
-    ESP_LOGW(TAG, "File is %u bytes but its header adds up to %u", (unsigned)this->file.size(), (unsigned)fsize);
+  if(this->readSize() != fsize) {
+    ESP_LOGW(TAG, "File is %u bytes but its header adds up to %u", (unsigned)this->readSize(), (unsigned)fsize);
   }
   // Next check to see if the records match the header length.
   uint8_t recs = 0;
-  uint32_t startPos = this->file.position();
+  uint32_t startPos = this->position();
   if(this->header.version >= 19) {
     while(recs < this->header.roomRecords) {
-      uint32_t pos = this->file.position();
+      uint32_t pos = this->position();
       if(!this->seekChar(CFG_REC_END)) {
         ESP_LOGE(TAG, "Failed to find the room record end %d", recs);
         return false;
       }
-      if(this->file.position() - pos != this->header.roomRecordSize) {
-        ESP_LOGE(TAG, "Room record length is %d and should be %d", this->file.position() - pos, this->header.roomRecordSize);
+      if(this->position() - pos != this->header.roomRecordSize) {
+        ESP_LOGE(TAG, "Room record length is %d and should be %d", this->position() - pos, this->header.roomRecordSize);
         return false;
       }
       recs++;
@@ -498,65 +516,78 @@ bool ShadeConfigFile::validate() {
     recs = 0;
   }
   while(recs < this->header.shadeRecords) {
-    uint32_t pos = this->file.position();
+    uint32_t pos = this->position();
     if(!this->seekChar(CFG_REC_END)) {
       ESP_LOGE(TAG, "Failed to find the shade record end %d", recs);
       return false;
     }
-    if(this->file.position() - pos != this->header.shadeRecordSize) {
-      ESP_LOGE(TAG, "Shade record length is %d and should be %d", this->file.position() - pos, this->header.shadeRecordSize);
+    if(this->position() - pos != this->header.shadeRecordSize) {
+      ESP_LOGE(TAG, "Shade record length is %d and should be %d", this->position() - pos, this->header.shadeRecordSize);
       return false;
     }
-    const uint32_t endPos = this->file.position();
-    this->file.seek(pos, SeekSet);
+    const uint32_t endPos = this->position();
+    this->seekRead(pos);
     shade_record_t shade;
     if(!readShadeRecord(*this, this->header, shade)) {
       ESP_LOGE(TAG, "Unsupported bit length in shade record %u", recs);
       return false;
     }
-    this->file.seek(endPos, SeekSet);
+    this->seekRead(endPos);
     recs++;
   }
   if(this->header.version > 10) {
     recs = 0;
     while(recs < this->header.groupRecords) {
-      uint32_t pos = this->file.position();
+      uint32_t pos = this->position();
       if(!this->seekChar(CFG_REC_END)) {
         ESP_LOGE(TAG, "Failed to find the group record end %d", recs);
         return false;
       }
       recs++;
-      if(this->file.position() - pos != this->header.groupRecordSize) {
-        ESP_LOGE(TAG, "Group record length is %d and should be %d", this->file.position() - pos, this->header.groupRecordSize);
+      if(this->position() - pos != this->header.groupRecordSize) {
+        ESP_LOGE(TAG, "Group record length is %d and should be %d", this->position() - pos, this->header.groupRecordSize);
         return false;
       }
-      const uint32_t endPos = this->file.position();
-      this->file.seek(pos, SeekSet);
+      const uint32_t endPos = this->position();
+      this->seekRead(pos);
       group_record_t group;
       if(!readGroupRecord(*this, this->header, group)) {
         ESP_LOGE(TAG, "Unsupported bit length in group record %u", recs - 1);
         return false;
       }
-      this->file.seek(endPos, SeekSet);
+      this->seekRead(endPos);
     }
   }
   if(this->header.version >= 21) {
     recs = 0;
     while(recs < this->header.repeaterRecords) {
-      // Only logged: this also runs on shades.cfg at boot, and failing it
-      // there would start the device without its shades.
-      uint32_t pos = this->file.position();
+      uint32_t pos = this->position();
       if(!this->seekChar(CFG_REC_END)) {
         ESP_LOGE(TAG, "Failed to find the repeater record end %d", recs);
+        return false;
       }
-      else if(this->file.position() - pos != this->header.repeaterRecordSize) {
-        ESP_LOGW(TAG, "Repeater record length is %d and should be %d", this->file.position() - pos, this->header.repeaterRecordSize);
+      else if(this->position() - pos != this->header.repeaterRecordSize) {
+        ESP_LOGW(TAG, "Repeater record length is %d and should be %d", this->position() - pos, this->header.repeaterRecordSize);
+        return false;
       }
       recs++;
     }
   }
-  this->file.seek(startPos, SeekSet);
-  return true;
+  // Optional legacy record fields may default at newline, but physical EOF
+  // anywhere in a declared record is an error. Check all backup tails before
+  // adoption, including unselected settings, without writing settings/NVS.
+  if(header.settingsRecordSize){settings_record_t rec{};readSettingsRecord(*this,header,rec);}
+  if(header.netRecordSize){net_record_t rec{};readNetRecord(*this,header,rec,HAS_ETHERNET);}
+  if(header.transRecordSize){trans_record_t rec{};readTransRecord(*this,rec);}
+  const bool valid=!readFailed && position()==readSize();
+  this->seekRead(startPos);
+  return valid;
+}
+ModelLoadStatus ShadeConfigFile::loadBoot(SomfyShadeController *s) {
+  ShadeConfigFile file;
+  if(!file.begin("/shades.cfg",true))return file.snapshotStatus;
+  const bool loaded=file.loadFile(s);
+  file.end();return loaded?ModelLoadStatus::loaded:ModelLoadStatus::unavailable;
 }
 bool ShadeConfigFile::load(SomfyShadeController *s, const char *filename) {
   ShadeConfigFile file;
@@ -601,6 +632,11 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
   if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000) || s->transceiver.counterEditUncertain()) {
     if(opened) this->end();return false;
   }
+  const bool recovering=!s->modelLoad.usable();
+  if(recovering && (!opts.shades || !opts.repeaters)) {
+    if(opened)this->end();return false;
+  }
+  if(opts.shades)s->modelLoad.fail();
   invalidateDeviceSettingsRevisions();
   ++s->configurationRevision;
   ++s->restoreRevision;
@@ -612,7 +648,7 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
     ESP_LOGI(TAG, "Shade data ignored");
     skipRecords(*this, this->header.roomRecords + this->header.shadeRecords + this->header.groupRecords);
   }
-  if(opts.repeaters && this->header.repeaterRecords > 0) {
+  if(opts.repeaters) {
     ESP_LOGI(TAG, "Restoring Repeaters...");
     memset(s->repeaters, 0x00, sizeof(s->repeaters));
     for(uint8_t i = 0; i < this->header.repeaterRecords; i++) this->readRepeaters(s);
@@ -638,7 +674,12 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
   }
   // The repeaters are saved in shades.cfg too.  Left to somfy.loop(), they
   // race the reboot.
-  if(opts.shades || opts.repeaters) s->commit();
+  if(opts.shades || opts.repeaters) {
+    if(opts.shades)s->modelLoad.beginRecoveryCommit();
+    const auto saved=s->commit();
+    if(opts.shades)s->modelLoad.finishRecoveryCommit(saved.saved());
+    if(!saved.saved()){if(opened)this->end();return false;}
+  }
   if(opts.transceiver && this->header.transRecordSize > 0) {
     // Read into a copy so the radio task never transmits on a half restored config.
     trans_record_t rec = transRecord(s->transceiver.config);
@@ -681,6 +722,6 @@ bool ShadeConfigFile::loadFile(SomfyShadeController *s, const char *filename) {
     ESP_LOGI(TAG, "Closing shade config file");
     this->end();
   }
-  return true;
+  return !readFailed;
 }
 bool ShadeConfigFile::exists() { return LittleFS.exists("/shades.cfg"); }

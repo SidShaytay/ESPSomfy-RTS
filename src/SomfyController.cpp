@@ -1,3 +1,4 @@
+#include "ModelLoadSnapshot.h"
 #include "LilygoBuild.h"
 #include "esp_log.h"
 #include <WiFi.h>
@@ -133,7 +134,9 @@ void setup() {
 #undef CRASH_LOG
   }
   ESP_LOGI(TAG, "Mounting File System...");
-  if (LittleFS.begin()) {
+  const bool modelFsMounted=LittleFS.begin(false);
+  noteModelFilesystemMounted(modelFsMounted);
+  if (modelFsMounted) {
       ESP_LOGI(TAG, "Total: %d bytes", LittleFS.totalBytes());
       ESP_LOGI(TAG, "Used:  %d bytes", LittleFS.usedBytes());
       ESP_LOGI(TAG, "Free:  %d bytes", LittleFS.totalBytes() - LittleFS.usedBytes());
@@ -199,7 +202,7 @@ void loop() {
     esp_task_wdt_reset();
   }
   if(restartLoop()) return;
-  bool updateNetworkReady=net.connected();
+  bool updateNetworkReady=net.connected() && somfy.modelLoad.usable() && settings.Security.loadTrusted();
 #if defined(ESPSOMFY_BUNDLED_WEB)
   // Registration is necessary, but full installer health checks remain separate.
   updateNetworkReady=updateNetworkReady && bundledWebRoutesReady();

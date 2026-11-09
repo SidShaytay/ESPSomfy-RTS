@@ -1,3 +1,4 @@
+#include "ModelLoadTrust.h"
 #include "SomfyEditor.h"
 #include <string>
 #include <unity.h>
@@ -21,6 +22,7 @@ struct SomfyGroup {
 };
 struct SomfyRoom {};
 struct SomfyShadeController {
+  ModelLoadTrust modelLoad{ModelLoadStatus::loaded};
   SomfyShade shade;
   SomfyGroup group;
   SomfyRoom room;
@@ -96,8 +98,13 @@ static void refused_edit_never_fans_out_and_queued_owner_frees_it_once() {
   TEST_ASSERT_EQUAL(2, effects.size());
   TEST_ASSERT_EQUAL_STRING("reply", effects[1].c_str());
 }
+static void failed_boot_refuses_edit_before_mutation() {
+  somfy.modelLoad.fail();model_edit_t edit;const auto result=applyModelEdit(edit);
+  TEST_ASSERT_FALSE(result.ok);TEST_ASSERT_FALSE(result.applied);TEST_ASSERT_EQUAL(0,mutations);TEST_ASSERT_TRUE(effects.empty());
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(failed_boot_refuses_edit_before_mutation);
   RUN_TEST(applied_unsaved_edit_replies_then_fans_out_once_and_preserves_id);
   RUN_TEST(
       local_apply_has_same_fanout_without_socket_reply_and_delete_is_not_replayed);

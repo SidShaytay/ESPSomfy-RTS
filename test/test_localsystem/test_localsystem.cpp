@@ -52,6 +52,22 @@ static void refusal_does_not_claim_saved_or_replay() {
   TEST_ASSERT_EQUAL_STRING("Restart refused",view.title);TEST_ASSERT_EQUAL(EntityAdmin::Notice::none,view.notice);
   TEST_ASSERT_NOT_NULL(strstr(view.hint,"uncertain"));form.activate(5);TEST_ASSERT_EQUAL(1,state.restarts);
 }
+static void unreadable_model_requires_verified_restore_guidance() {
+  State state;state.result={false,RestartReason::modelUnavailable};
+  System::Form form(state);EntityAdmin::FormView view;
+  form.open(1);form.activate(2);form.turn(1,3);form.activate(4);form.render(view);
+  TEST_ASSERT_EQUAL_STRING("Restart refused",view.title);
+  TEST_ASSERT_EQUAL_STRING("Model not loaded. Use a verified full model restore.",view.hint);
+  form.activate(5);TEST_ASSERT_EQUAL(1,state.restarts);
+}
+static void unreadable_security_never_suggests_credentials_were_reset() {
+  State state;state.result={false,RestartReason::securityUnavailable};
+  System::Form form(state);EntityAdmin::FormView view;
+  form.open(1);form.activate(2);form.turn(1,3);form.activate(4);form.render(view);
+  TEST_ASSERT_EQUAL_STRING("Restart refused",view.title);
+  TEST_ASSERT_EQUAL_STRING("Security not loaded. Authentication is unavailable.",view.hint);
+  form.activate(5);TEST_ASSERT_EQUAL(1,state.restarts);
+}
 static void immediate_cancel_and_invalid_binding_never_claim_scheduled() {
   for(unsigned invalid=0;invalid<2;++invalid) {
     State state;state.immediateCancel=!invalid;state.zeroGeneration=invalid;
@@ -72,4 +88,4 @@ static void child_input_refreshes_inactivity_but_completion_does_not() {
  TEST_ASSERT_TRUE(f.wantsWifiScan());f.childActivity(119999);f.tick(120001);TEST_ASSERT_FALSE(f.closed());
  f.tick(240000);TEST_ASSERT_TRUE(f.closed());TEST_ASSERT_EQUAL(0,state.restarts);
 }
-int main(int,char**) {UNITY_BEGIN();RUN_TEST(child_input_refreshes_inactivity_but_completion_does_not);RUN_TEST(immediate_cancel_and_invalid_binding_never_claim_scheduled);RUN_TEST(superseded_generation_never_borrows_another_result);RUN_TEST(navigation_and_cancel_never_restart);RUN_TEST(explicit_restart_is_once_and_tracks_its_result);RUN_TEST(auth_change_expiry_and_backward_clock_discard_confirmation);RUN_TEST(refusal_does_not_claim_saved_or_replay);return UNITY_END();}
+int main(int,char**) {UNITY_BEGIN();RUN_TEST(child_input_refreshes_inactivity_but_completion_does_not);RUN_TEST(unreadable_security_never_suggests_credentials_were_reset);RUN_TEST(unreadable_model_requires_verified_restore_guidance);RUN_TEST(immediate_cancel_and_invalid_binding_never_claim_scheduled);RUN_TEST(superseded_generation_never_borrows_another_result);RUN_TEST(navigation_and_cancel_never_restart);RUN_TEST(explicit_restart_is_once_and_tracks_its_result);RUN_TEST(auth_change_expiry_and_backward_clock_discard_confirmation);RUN_TEST(refusal_does_not_claim_saved_or_replay);return UNITY_END();}

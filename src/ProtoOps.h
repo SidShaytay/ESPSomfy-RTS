@@ -31,6 +31,7 @@ bool protoCommand(const char *name, somfy_commands &cmd);
 
 // The reply to a shade request that loop() has run: none when it was done.
 proto_error_t protoRequestError(shade_request_result_t result);
+void writeShadeRequestResult(ProtoWriter &,const shade_request_t &,shade_request_result_t);
 // What that reply says.
 const char *protoRequestErrorDesc(const shade_request_t &req, shade_request_result_t result);
 #endif

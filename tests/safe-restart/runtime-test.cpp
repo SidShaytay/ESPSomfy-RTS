@@ -1,3 +1,4 @@
+#include "ModelLoadTrust.h"
 #include "Arduino.h"
 #include "Utils.h"
 #include "GitUpdate.h"
@@ -14,6 +15,8 @@
 #include <atomic>
 #include <future>
 #include <chrono>
+#define configsettings_h
+struct ConfigSettings { struct { bool trusted=true;bool loadTrusted()const{return trusted;} } Security; } settings;
 #define SOMFY_H
 namespace SafeRestartDetail { extern thread_local unsigned criticalDepth; }
 static unsigned commits=0;
@@ -26,6 +29,7 @@ uint32_t LoopQueue::pending() const {assert(!SafeRestartDetail::criticalDepth);r
 bool LoopQueue::sealForRestart() {if(queued || queueSealRefused)return false;queueSealed=true;return true;}
 void LoopQueue::reopenAfterRefusedRestart() {queueSealed=false;}
 struct SomfyShadeController {
+  ModelLoadTrust modelLoad{ModelLoadStatus::loaded};
   uint64_t configurationRevision=1;
   bool isDirty=false;
   struct {
@@ -60,6 +64,14 @@ static GitUpdateOwnerToken completedUpload(bool keepClaim=false) {
   if(!keepClaim)assert(gitUpdate.finishTransfer(source,100,true));return source;
 }
 int main(int argc,char **argv) {
+  if(argc>1 && std::string(argv[1])=="badLoad") {
+    somfy.modelLoad.fail();somfy.isDirty=true;tick(100);restartLoop();
+    assert(!requestRestart(500).admitted && commits==0);
+    assert(restartTransferBlocked() && !restartRestoreStagingBlocked());
+    assert(restartStatus().reason==RestartReason::modelUnavailable && !shutdowns);
+    return 0;
+  }
+
   assert(argc==2);const std::string mode=argv[1];tick(100);
   assert(submitRestart()==RestartSubmission::refused);assert(!restartPending());assert(!clockReads);
   assert(!restartLoop());
@@ -107,6 +119,10 @@ int main(int argc,char **argv) {
     if(mode=="cancelIO")duringCommit=[]{cancelRestart();};
     if(mode=="counter")somfy.transceiver.uncertain=true;
     if(mode=="settings")settingsDurability().markUncertain(1);
+    if(mode=="security"){
+      settings.Security.trusted=false;assert(!restartLoop());
+      const auto reads=clockReads;assert(restartTransferBlocked());assert(clockReads==reads);
+    }
     if(mode=="moving"){somfy.shades[31].id=7;somfy.shades[31].idle=false;}
     if(mode=="held"){somfy.shades[31].id=7;somfy.shades[31].pending=true;}
     if(mode=="pulse"){somfy.shades[31].id=7;somfy.shades[31].gpioRelease=1;}
@@ -114,10 +130,13 @@ int main(int argc,char **argv) {
     if(mode=="queue")queued=1;
     if(mode=="radio")somfy.transceiver.work=true;
     const auto result=requestRestart(500);
-    const bool initial=mode!="initialFailure" && mode!="cancelIO" && mode!="counter" && mode!="settings" && mode!="moving" && mode!="held" && mode!="pulse" && mode!="groupUnknown" && mode!="queue" && mode!="radio";
+    const bool initial=mode!="security" && mode!="initialFailure" && mode!="cancelIO" && mode!="counter" && mode!="settings" && mode!="moving" && mode!="held" && mode!="pulse" && mode!="groupUnknown" && mode!="queue" && mode!="radio";
+    if(mode=="security")assert(!result.admitted && result.reason==RestartReason::securityUnavailable && !commits);
     assert(result.admitted==initial);
     if(initial) {
       if(mode=="finalFailure")fileResult={ModelCommitState::uncertain,ModelCommitStage::replace};
+      if(mode=="lateSecurity")duringCommit=[]{settings.Security.trusted=false;};
+      if(mode=="beforeFinalSecurity")settings.Security.trusted=false;
       if(mode=="lateSettings")duringCommit=[]{settingsDurability().markUncertain(1);settingsDurability().fullSave(SettingsNamespace::cfg,{settings_save_state_t::saved});};
       if(mode=="lateHistory")duringCommit=[]{++somfy.configurationRevision;};
       if(mode=="cancelFinal")duringCommit=[]{cancelRestart();};

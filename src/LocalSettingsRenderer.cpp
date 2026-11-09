@@ -45,6 +45,8 @@ const char *restartBlockText(RestartReason reason) {
   case RestartReason::persistenceBusy: return "Storage/update I/O active. Request Restart later.";
   case RestartReason::counterUncertain: return "Counter storage uncertain. Recovery required.";
   case RestartReason::activeMovement: return "Movement/pulse active. Wait before Restart.";
+  case RestartReason::modelUnavailable:return "Model not loaded. Use a verified full model restore.";
+  case RestartReason::securityUnavailable:return "Security not loaded. Authentication is unavailable.";
   case RestartReason::unknownGroup: return "Group movement untracked. Review before Restart.";
   case RestartReason::none: break;
   }

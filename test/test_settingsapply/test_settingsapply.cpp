@@ -36,7 +36,7 @@ static settings_apply_result_t apply(ConfigSettings &settings, settings_section_
   return applySettings(settings,section,request.as<JsonObject>(),effects);
 }
 static void test_connection_change_reboots_only_after_verified_save() {
-  ConfigSettings settings;
+  ConfigSettings settings;settings.Security.loadState=SecurityLoadState::knownEmpty;
   settings.connType=conn_types_t::wifi;
   Effects effects;
   FakeNvs::failOpen=1;
@@ -51,7 +51,7 @@ static void test_connection_change_reboots_only_after_verified_save() {
   TEST_ASSERT_EQUAL(conn_types_t::ethernet,settings.connType);
 }
 static void test_partial_multisection_save_does_not_apply_runtime_changes() {
-  ConfigSettings settings;
+  ConfigSettings settings;settings.Security.loadState=SecurityLoadState::knownEmpty;
   strcpy(settings.hostname,"before");
   strcpy(settings.NTP.ntpServer,"old.clock");
   Effects effects;
@@ -67,7 +67,7 @@ static void test_partial_multisection_save_does_not_apply_runtime_changes() {
   TEST_ASSERT_NOT_NULL(strstr(settingsSaveFailureDescription(result.persistence.state),"partly persisted"));
 }
 static void test_success_applies_requested_sections_once_without_cross_section_aliases() {
-  ConfigSettings settings;
+  ConfigSettings settings;settings.Security.loadState=SecurityLoadState::knownEmpty;
   strcpy(settings.hostname,"device");
   strcpy(settings.MQTT.hostname,"broker");
   Effects effects;
@@ -81,7 +81,7 @@ static void test_success_applies_requested_sections_once_without_cross_section_a
   TEST_ASSERT_EQUAL(0,effects.mqtt);
 }
 static void test_wifi_retains_blank_secret_for_same_ssid_and_clears_for_changed_ssid() {
-  ConfigSettings settings;
+  ConfigSettings settings;settings.Security.loadState=SecurityLoadState::knownEmpty;
   settings.connType=conn_types_t::wifi;
   strcpy(settings.WIFI.ssid,"old network");
   strcpy(settings.WIFI.passphrase,"saved secret");
@@ -100,7 +100,7 @@ static void test_wifi_retains_blank_secret_for_same_ssid_and_clears_for_changed_
   TEST_ASSERT_FALSE(onAP.reboot);
 }
 static void test_mqtt_failure_never_disconnects_or_changes_live_secret() {
-  ConfigSettings settings;
+  ConfigSettings settings;settings.Security.loadState=SecurityLoadState::knownEmpty;
   strcpy(settings.MQTT.username,"user");
   strcpy(settings.MQTT.password,"before");
   Effects effects;
@@ -117,7 +117,7 @@ static void test_mqtt_failure_never_disconnects_or_changes_live_secret() {
   TEST_ASSERT_EQUAL(1,effects.mqtt);
 }
 static void test_mqtt_and_security_preserve_existing_secret_semantics() {
-  ConfigSettings settings;
+  ConfigSettings settings;settings.Security.loadState=SecurityLoadState::knownEmpty;
   strcpy(settings.MQTT.username,"user");
   strcpy(settings.MQTT.password,"mqtt secret");
   strcpy(settings.Security.username,"admin");
@@ -134,7 +134,7 @@ static void test_mqtt_and_security_preserve_existing_secret_semantics() {
   TEST_ASSERT_EQUAL(security_types::Password,settings.Security.type);
 }
 static void test_security_failure_keeps_live_authentication_unchanged() {
-  ConfigSettings settings;
+  ConfigSettings settings;settings.Security.loadState=SecurityLoadState::knownEmpty;
   settings.Security.type=security_types::Password;
   strcpy(settings.Security.password,"before");
   Effects effects;
@@ -145,7 +145,7 @@ static void test_security_failure_keeps_live_authentication_unchanged() {
   TEST_ASSERT_EQUAL_STRING("before",settings.Security.password);
 }
 static void test_radio_result_is_forwarded_without_other_effects() {
-  ConfigSettings settings;
+  ConfigSettings settings;settings.Security.loadState=SecurityLoadState::knownEmpty;
   Effects effects;
   effects.radioResult={settings_save_state_t::partial,"frequency"};
   auto result=apply(settings,settings_section_t::radio,R"({"frequency":433.42})",effects);
@@ -156,7 +156,7 @@ static void test_radio_result_is_forwarded_without_other_effects() {
   TEST_ASSERT_EQUAL(0,effects.hostnames+effects.times+effects.mqtt);
 }
 static void test_empty_request_fails_without_storage_or_effects() {
-  ConfigSettings settings;
+  ConfigSettings settings;settings.Security.loadState=SecurityLoadState::knownEmpty;
   Effects effects;
   auto result=apply(settings,settings_section_t::general,"{}",effects);
   TEST_ASSERT_FALSE(result.saved());
@@ -165,7 +165,7 @@ static void test_empty_request_fails_without_storage_or_effects() {
 }
 #if HAS_ETHERNET
 static void test_ethernet_failure_keeps_live_pins_and_no_restart() {
-  ConfigSettings settings;
+  ConfigSettings settings;settings.Security.loadState=SecurityLoadState::knownEmpty;
   settings.connType=conn_types_t::ethernet;
   const auto oldPin=settings.Ethernet.MDCPin;
   Effects effects;
@@ -182,7 +182,7 @@ static void test_ethernet_failure_keeps_live_pins_and_no_restart() {
 }
 #endif
 static void test_completion_occurs_once_after_live_apply_and_reboot_decision() {
-  ConfigSettings settings;
+  ConfigSettings settings;settings.Security.loadState=SecurityLoadState::knownEmpty;
   settings.connType=conn_types_t::wifi;
   Effects effects;
   effects.observed=&settings;
@@ -201,7 +201,7 @@ static void test_completion_occurs_once_after_live_apply_and_reboot_decision() {
 static void test_failed_and_partial_saves_never_complete() {
   for(int phase=0;phase<3;phase++) {
     FakeNvs::reset();
-    ConfigSettings settings;
+    ConfigSettings settings;settings.Security.loadState=SecurityLoadState::knownEmpty;
     settings.connType=conn_types_t::wifi;
     Effects effects;
     if(phase==0) FakeNvs::failOpen=1;
@@ -214,7 +214,7 @@ static void test_failed_and_partial_saves_never_complete() {
   }
 }
 static void test_radio_completion_uses_the_same_success_gate() {
-  ConfigSettings settings;
+  ConfigSettings settings;settings.Security.loadState=SecurityLoadState::knownEmpty;
   Effects effects;
   effects.radioResult={settings_save_state_t::failed,"CC1101"};
   TEST_ASSERT_FALSE(apply(settings,settings_section_t::radio,R"({"frequency":433.42})",effects).saved());
@@ -226,7 +226,7 @@ static void test_radio_completion_uses_the_same_success_gate() {
   TEST_ASSERT_FALSE(effects.completedReboot);
 }
 static void test_successful_noop_security_save_invalidates_history_but_failure_does_not() {
-  ConfigSettings settings;
+  ConfigSettings settings;settings.Security.loadState=SecurityLoadState::knownEmpty;
   Effects effects;
   const auto initial=effects.revisions.get(settings_section_t::security);
   TEST_ASSERT_TRUE(apply(settings,settings_section_t::security,R"({"type":0})",effects).saved());
@@ -239,7 +239,7 @@ static void test_successful_noop_security_save_invalidates_history_but_failure_d
   TEST_ASSERT_EQUAL_UINT64(initial+2,effects.revisions.get(settings_section_t::security));
 }
 static void test_enabling_pin_requires_four_effective_bytes_before_any_storage() {
-  ConfigSettings settings;
+  ConfigSettings settings;settings.Security.loadState=SecurityLoadState::knownEmpty;
   Effects effects;
   auto refused=apply(settings,settings_section_t::security,R"({"type":1})",effects);
   TEST_ASSERT_EQUAL(settings_apply_refusal_t::invalidPin,refused.refusal);
@@ -257,7 +257,7 @@ static void test_enabling_pin_requires_four_effective_bytes_before_any_storage()
   TEST_ASSERT_EQUAL_STRING("A B!",settings.Security.pin);
 }
 static void test_password_security_requires_effective_username_and_password_without_trimming() {
-  ConfigSettings settings;
+  ConfigSettings settings;settings.Security.loadState=SecurityLoadState::knownEmpty;
   Effects effects;
   auto refused=apply(settings,settings_section_t::security,R"({"type":2})",effects);
   TEST_ASSERT_EQUAL(settings_apply_refusal_t::usernameRequired,refused.refusal);
@@ -274,7 +274,7 @@ static void test_password_security_requires_effective_username_and_password_with
   TEST_ASSERT_EQUAL_STRING(" ",settings.Security.username);
 }
 static void test_unchanged_legacy_credentials_are_preserved_but_new_active_changes_must_be_valid() {
-  ConfigSettings settings;
+  ConfigSettings settings;settings.Security.loadState=SecurityLoadState::knownEmpty;
   Effects effects;
   settings.Security.type=security_types::PinEntry;
   strcpy(settings.Security.pin,"old");

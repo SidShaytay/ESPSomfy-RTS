@@ -9,6 +9,7 @@ class FakeShadeOps : public ShadeOps {
     std::map<uint8_t, shade_info_t> shades;
     std::map<uint8_t, uint8_t> groups;      // group id -> its repeats
     bool radioTakes = true;                 // false: the radio refuses everything
+    shade_request_result_t counterOutcome=shade_request_result_t::done;
     bool lastCommand = false;               // what isLastCommand answers
     std::string calls;
 
@@ -38,7 +39,7 @@ class FakeShadeOps : public ShadeOps {
     bool setMyPosition(uint8_t id, int8_t pos, int8_t tilt) override { return log("setMyPosition %u %d %d", id, pos, tilt); }
     void setPositions(uint8_t id, float pos, float tilt) override { log("setPositions %u %g %g", id, pos, tilt); }
     void setUnpaired(uint8_t id) override { log("setUnpaired %u", id); }
-    void setRollingCode(uint8_t id, uint16_t code) override { log("setRollingCode %u %u", id, code); }
+    shade_request_result_t setRollingCode(uint8_t id, uint16_t code) override { log("setRollingCode %u %u", id, code);return counterOutcome; }
     bool sendGroupCommand(uint8_t id, somfy_commands cmd, uint8_t repeat, uint8_t stepSize) override {
       return log("sendGroupCommand %u %s repeat=%u step=%u", id, name(cmd), repeat, stepSize);
     }
@@ -382,10 +383,18 @@ static void test_a_refused_command_is_reported() {
   TEST_ASSERT_EQUAL(shade_request_result_t::radio_refused, requests.run(req));
 }
 
+static void checked_counter_outcome_is_returned_without_claiming_success() {
+  FakeShadeOps ops;ops.shades[4]={};ShadeRequests requests(ops);
+  shade_request_t req;req.type=shade_request_type_t::set_rolling_code;req.id=4;req.rollingCode=1234;
+  for(auto result:{shade_request_result_t::counter_busy,shade_request_result_t::counter_uncertain,shade_request_result_t::counter_file_failed}) {
+    ops.counterOutcome=result;TEST_ASSERT_EQUAL(result,requests.run(req));
+  }
+}
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(checked_counter_outcome_is_returned_without_claiming_success);
   RUN_TEST(test_a_missing_shade_is_not_found);
   RUN_TEST(test_a_missing_group_is_not_found);
   RUN_TEST(test_a_shade_id_is_not_a_group_id);

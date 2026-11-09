@@ -41,7 +41,7 @@ int main(int argc,char **argv) {
   const RestartReason causes[]={RestartReason::none,RestartReason::settingsUncertain,RestartReason::modelFailed,
     RestartReason::modelUncertain,RestartReason::queuedOperations,RestartReason::pending,RestartReason::stale,
     RestartReason::cancelled,RestartReason::exhausted,RestartReason::clock,RestartReason::invalidRequest,
-    RestartReason::notReady,RestartReason::persistenceBusy,RestartReason::counterUncertain,RestartReason::activeMovement,RestartReason::unknownGroup,RestartReason(255)};
+    RestartReason::notReady,RestartReason::persistenceBusy,RestartReason::counterUncertain,RestartReason::activeMovement,RestartReason::unknownGroup,RestartReason::modelUnavailable,RestartReason::securityUnavailable,RestartReason(255)};
   std::vector<uint16_t> queued;
   for(const auto cause:causes) {
     blocked.restartReason=cause;
@@ -56,6 +56,8 @@ int main(int argc,char **argv) {
     if(cause==RestartReason::queuedOperations){queued=pixels;save(std::string(argv[1])+"/settings-restart-queued.ppm",pixels);assert(strstr(text,"uncertain")==nullptr);}
     if(cause==RestartReason::pending){save(std::string(argv[1])+"/settings-restart-pending.ppm",pixels);assert(strstr(text,"pending")!=nullptr);}
     if(cause==RestartReason::counterUncertain){assert(pixels!=queued);save(std::string(argv[1])+"/settings-restart-counter.ppm",pixels);}
+    if(cause==RestartReason::modelUnavailable){assert(strstr(text,"verified full model restore")!=nullptr);save(std::string(argv[1])+"/settings-restart-model-unavailable.ppm",pixels);}
+    if(cause==RestartReason::securityUnavailable){assert(strstr(text,"Authentication is unavailable")!=nullptr);save(std::string(argv[1])+"/settings-restart-security-unavailable.ppm",pixels);}
     if(cause==RestartReason::unknownGroup){assert(strstr(text,"Group")!=nullptr);save(std::string(argv[1])+"/settings-restart-group.ppm",pixels);}
     if(cause==RestartReason::modelFailed)save(std::string(argv[1])+"/settings-restart-model.ppm",pixels);
     if(cause==RestartReason(255)){assert(strstr(text,"uncertain")==nullptr);save(std::string(argv[1])+"/settings-restart-unknown.ppm",pixels);}

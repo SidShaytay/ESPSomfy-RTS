@@ -252,6 +252,10 @@
                             <button id="btnReloadApplication" type="button" onclick="general.reload();">
                                 Refresh Cache
                             </button>
+                            <button id="btnSaveCurrentModel" type="button" onclick="somfy.saveCurrentModel();">
+                                Save current model
+                            </button>
+                            <p class="instructions">Saves the current model file only. Does not write rolling codes or send motor commands.</p>
                             <div class="button-container" style="text-align:center;">
                                 <button id="btnBackup" style="width:47%;display:inline-block;" type="button" onclick="firmware.backup();">
                                     Backup

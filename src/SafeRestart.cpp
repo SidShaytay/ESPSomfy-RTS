@@ -5,6 +5,7 @@
 #include "GroupReadiness.h"
 #include "LoopQueue.h"
 #include "SettingsDurability.h"
+#include "ConfigSettings.h"
 #include <esp_timer.h>
 #if defined(ESP_PLATFORM)
 #include <freertos/FreeRTOS.h>
@@ -12,6 +13,7 @@
 #include <mutex>
 #endif
 extern SomfyShadeController somfy;
+extern ConfigSettings settings;
 extern LoopQueue loopQueue;
 // Hardware boundary: invoked only with the same reserved owner and both seals.
 void performLegacyShutdown();
@@ -51,10 +53,12 @@ RestartObservation observation() {
   const auto stored=settingsDurability().status();
   out.settingsEpoch=stored.epoch;
   out.modelConfigurationRevision=somfy.configurationRevision;
-  if(stored.exhausted)out.refusal=RestartReason::exhausted;
+  if(!settings.Security.loadTrusted())out.refusal=RestartReason::securityUnavailable;
+  else if(stored.exhausted)out.refusal=RestartReason::exhausted;
   else if(!stored.restartAllowed())out.refusal=RestartReason::settingsUncertain;
   else if(somfy.transceiver.counterEditUncertain())out.refusal=RestartReason::counterUncertain;
   else if(!somfy.transceiver.restartQuiescent())out.refusal=RestartReason::queuedOperations;
+  if(out.refusal==RestartReason::none && !somfy.modelLoad.usable())out.refusal=RestartReason::modelUnavailable;
   for(auto &shade:somfy.shades)
     if(out.refusal==RestartReason::none && shade.getShadeId()!=255 && !shade.idleForAdministration())
       out.refusal=RestartReason::activeMovement;
@@ -167,6 +171,12 @@ bool restartTransferBlocked() {
   SafeRestartDetail::Guard guard;
   return !SafeRestartDetail::initialized || !SafeRestartDetail::coordinator.updatePrecheck(SafeRestartDetail::cached) ||
       SafeRestartDetail::coordinator.requiresModelRecovery();
+}
+bool restartRestoreStagingBlocked() {
+  SafeRestartDetail::Guard guard;
+  auto current=SafeRestartDetail::cached;
+  if(current.refusal==RestartReason::modelUnavailable)current.refusal=RestartReason::none;
+  return !SafeRestartDetail::initialized || !SafeRestartDetail::coordinator.updatePrecheck(current);
 }
 bool restartPending(){SafeRestartDetail::Guard guard;return SafeRestartDetail::coordinator.snapshot().pending();}
 RestartSnapshot restartStatus(){SafeRestartDetail::Guard guard;return SafeRestartDetail::coordinator.snapshot();}

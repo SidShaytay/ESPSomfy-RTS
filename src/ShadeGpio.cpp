@@ -1,5 +1,6 @@
 #include "esp_log.h"
 #include "Somfy.h"
+extern SomfyShadeController somfy;
 #include "ShadeGpioPolicy.h"
 
 static const char *TAG = "Somfy";
@@ -14,9 +15,11 @@ static void writeAssignedGPIO(uint8_t pin,uint8_t value) {
   if(pin!=255)digitalWrite(pin,value);
 }
 void SomfyShadeController::configureGPIOs() {
+  if(!modelLoad.usable())return;
   for(auto &shade:this->shades)if(shade.getShadeId()!=255)shade.configureGPIOs();
 }
 void SomfyShade::configureGPIOs() {
+  if(!somfy.modelLoad.usable())return;
   if(unsafeGPIOs(*this))return;
   const uint8_t mask=ShadeGpioPolicy::physicalMask(this->proto);
   const uint8_t pins[]={this->gpioUp,this->gpioDown,this->gpioMy};
@@ -24,6 +27,7 @@ void SomfyShade::configureGPIOs() {
 }
 
 void SomfyShade::setGPIOs() {
+  if(!somfy.modelLoad.usable())return;
   if(unsafeGPIOs(*this)) return;
   if(this->proto == radio_proto::GP_Relay) {
     // Determine whether the direction needs to be set.
@@ -86,6 +90,7 @@ void SomfyShade::setGPIOs() {
 }
 void SomfyRemote::triggerGPIOs(somfy_frame_t &) { }
 void SomfyShade::triggerGPIOs(somfy_frame_t &frame) {
+  if(!somfy.modelLoad.usable())return;
   if(unsafeGPIOs(*this)) return;
   if(this->proto == radio_proto::GP_Remote) {
     uint8_t p_on = (this->gpioFlags & (uint8_t)gpio_flags_t::LowLevelTrigger) == 0x00 ? HIGH : LOW;

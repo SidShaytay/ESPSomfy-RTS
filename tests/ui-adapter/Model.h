@@ -1,3 +1,4 @@
+#include "ModelLoadTrust.h"
 #pragma once
 #define SOMFY_H
 #include "ShadeSettings.h"
@@ -44,6 +45,7 @@ struct SomfyGroup : RemoteSettings {
 };
 struct SomfyRoom {uint8_t roomId=0; int8_t sortOrder=0; char name[21]="Room";};
 struct SomfyShadeController {
+  ModelLoadTrust modelLoad{ModelLoadStatus::loaded};
   uint64_t configurationRevision=1,restoreRevision=1;
   SomfyShade shades[32]; SomfyGroup groups[16]; SomfyRoom rooms[16];uint32_t repeaters[7]{};
   struct Radio {
