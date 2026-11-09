@@ -155,7 +155,7 @@ bool ConfigSettings::begin() {
     (uint16_t)((chipId >> 8) & 0xff),
     (uint16_t)chipId & 0xff);
   this->load();
-  this->Security.begin();
+  const bool securityReady=this->Security.begin();
   this->IP.begin();
   this->WIFI.begin();
 #if HAS_ETHERNET
@@ -164,7 +164,7 @@ bool ConfigSettings::begin() {
   this->NTP.begin();
   this->MQTT.begin();
   this->print();
-  return true;
+  return securityReady;
 }
 bool ConfigSettings::load() {
   Preferences pref;
@@ -209,7 +209,7 @@ bool ConfigSettings::getAppVersion() {
 #endif
 }
 
-bool ConfigSettings::requiresAuth() { return this->Security.type != security_types::None; }
+bool ConfigSettings::requiresAuth() { return !Security.loadTrusted() || Security.type != security_types::None; }
 void ConfigSettings::print() {
   this->Security.print();
   ESP_LOGD(TAG, "Connection Type: %u", (unsigned int) this->connType);
@@ -294,22 +294,7 @@ bool IPSettings::load() {
   pref.end();
   return true;
 }
-bool SecuritySettings::begin() {
-  this->load();
-  return true;
-}
-// A device that had "Secure Config Only" keeps its PIN or password and so is
-// Secured. Its old permissions key is ignored and retained for compatibility.
-bool SecuritySettings::load() {
-  Preferences pref;
-  pref.begin("SEC");
-  this->type = static_cast<security_types>(pref.getChar("type", 0));
-  if(pref.isKey("username")) pref.getString("username", this->username, sizeof(this->username));
-  if(pref.isKey("password")) pref.getString("password", this->password, sizeof(this->password));
-  if(pref.isKey("pin")) pref.getString("pin", this->pin, sizeof(this->pin));
-  pref.end();
-  return true;
-}
+
 void SecuritySettings::print() {
   ESP_LOGD(TAG, "SECURITY   Type:%u Username:[%s] Password:[%s] Pin:[%s]",
     static_cast<uint8_t>(this->type), this->username, maskSecret(this->password), maskSecret(this->pin));
