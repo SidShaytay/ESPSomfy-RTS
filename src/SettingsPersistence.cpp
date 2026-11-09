@@ -3,6 +3,7 @@
 #include "ConfigSettings.h"
 #include "Secrets.h"
 #include "SettingsDurability.h"
+#include "SettingsTypedValidation.h"
 #include "Transceiver.h"
 
 namespace {
@@ -63,14 +64,16 @@ public:
 }
 
 settings_save_result_t ConfigSettings::save() {
+  if(!loadStatus.readable() || !validSettings(*this))return {settings_save_state_t::failed,"settings load"};
   SettingsWriter out(SettingsNamespace::cfg,"CFG");
   out.text("hostname", hostname);
   out.flag("ssdpBroadcast", ssdpBroadcast);
   out.i8("connType", static_cast<uint8_t>(connType));
   out.flag("checkForUpdate", checkForUpdate);
-  return out.result();
+  const auto result=out.result();if(result.saved())loadStatus={SettingsLoadState::loaded};return result;
 }
 settings_save_result_t MQTTSettings::save() {
+  if(!loadStatus.readable() || !validSettings(*this))return {settings_save_state_t::failed,"settings load"};
   SettingsWriter out(SettingsNamespace::mqtt,"MQTT");
   out.text("protocol", protocol);
   out.text("hostname", hostname);
@@ -81,15 +84,17 @@ settings_save_result_t MQTTSettings::save() {
   out.flag("enabled", enabled);
   out.flag("pubDisco", pubDisco);
   out.text("discoTopic", discoTopic);
-  return out.result();
+  const auto result=out.result();if(result.saved())loadStatus={SettingsLoadState::loaded};return result;
 }
 settings_save_result_t NTPSettings::save() {
+  if(!loadStatus.readable() || !validSettings(*this))return {settings_save_state_t::failed,"settings load"};
   SettingsWriter out(SettingsNamespace::ntp,"NTP");
   out.text("ntpServer", ntpServer);
   out.text("posixZone", posixZone);
-  return out.result();
+  const auto result=out.result();if(result.saved())loadStatus={SettingsLoadState::loaded};return result;
 }
 settings_save_result_t IPSettings::save() {
+  if(!loadStatus.readable() || !validSettings(*this))return {settings_save_state_t::failed,"settings load"};
   SettingsWriter out(SettingsNamespace::ip,"IP");
   out.flag("dhcp", dhcp);
   out.text("ip", ip.toString().c_str());
@@ -97,7 +102,7 @@ settings_save_result_t IPSettings::save() {
   out.text("subnet", subnet.toString().c_str());
   out.text("dns1", dns1.toString().c_str());
   out.text("dns2", dns2.toString().c_str());
-  return out.result();
+  const auto result=out.result();if(result.saved())loadStatus={SettingsLoadState::loaded};return result;
 }
 settings_save_result_t SecuritySettings::save() {
   if(!loadTrusted())return {settings_save_state_t::failed,"SEC load"};
@@ -109,15 +114,17 @@ settings_save_result_t SecuritySettings::save() {
   return out.result();
 }
 settings_save_result_t WifiSettings::save() {
+  if(!loadStatus.readable() || !validSettings(*this))return {settings_save_state_t::failed,"settings load"};
   SettingsWriter out(SettingsNamespace::wifi,"WIFI");
   out.text("ssid", ssid);
   out.text("passphrase", passphrase);
   out.flag("roaming", roaming);
   out.flag("hidden", hidden);
-  return out.result();
+  const auto result=out.result();if(result.saved())loadStatus={SettingsLoadState::loaded};return result;
 }
 #if HAS_ETHERNET
 settings_save_result_t EthernetSettings::save() {
+  if(!loadStatus.readable() || !validSettings(*this))return {settings_save_state_t::failed,"settings load"};
   SettingsWriter out(SettingsNamespace::ethernet,"ETH");
   out.i8("boardType", boardType);
   out.i8("phyAddress", phyAddress);
@@ -126,7 +133,7 @@ settings_save_result_t EthernetSettings::save() {
   out.i8("PWRPin", PWRPin);
   out.i8("MDCPin", MDCPin);
   out.i8("MDIOPin", MDIOPin);
-  return out.result();
+  const auto result=out.result();if(result.saved())loadStatus={SettingsLoadState::loaded};return result;
 }
 #endif
 static settings_save_result_t saveRadioSettings(const transceiver_config_t &cfg,bool marker) {

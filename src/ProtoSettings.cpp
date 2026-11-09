@@ -95,6 +95,16 @@ static const settings_field_t *forHardware(const settings_field_t &field, bool h
 static bool included(const settings_field_t &field, settings_section_t section, bool hasEthernet) {
   return sectionOf(field.part) == section && (hasEthernet || !field.ethernetOnly());
 }
+const settings_field_t *settingsFieldFor(settings_part_t part,proto_field_t key,bool hasEthernet) {
+  for(const auto &field:FIELDS)if(field.part==part && field.field==key && (hasEthernet || !field.ethernetOnly()))return forHardware(field,hasEthernet);
+  return nullptr;
+}
+bool settingsIntegerValid(const settings_field_t &field,int64_t value) {
+  if(value<field.lo || value>field.hi)return false;
+  if(!field.choiceCount)return true;
+  for(uint8_t i=0;i<field.choiceCount;++i)if(value==field.choices[i])return true;
+  return false;
+}
 uint8_t settingsFieldCount(settings_section_t section, bool hasEthernet) {
   uint8_t count=0;
   for(const auto &field : FIELDS) if(included(field,section,hasEthernet)) ++count;
@@ -123,7 +133,9 @@ const char *parseSettingsSection(JsonObjectConst d, settings_section_t &section)
 }
 
 // Four numbers 0-255 between dots.
-static bool isAddress(const char *s) {
+bool settingsAddressValid(const char *s) {
+  if(!s)return false;
+  if(!*s)return true;
   for(int part = 0; part < 4; part++) {
     if(part > 0 && *s++ != '.') return false;
     if(*s < '0' || *s > '9') return false;
@@ -138,20 +150,18 @@ static bool isAddress(const char *s) {
 // A value already of its field's kind: nullptr when it is in range.
 static const char *checkValue(const settings_field_t &s, const proto_field_info_t &f, JsonVariant value, proto_error_buffer_t &why) {
   if(f.kind == 'i') {
-    const bool inRange = value.is<int64_t>() && value.as<int64_t>() >= s.lo && value.as<int64_t>() <= s.hi;
-    bool listed = !s.choiceCount;
-    for(uint8_t i=0;i<s.choiceCount;i++) if(value.as<int>() == s.choices[i]) listed = true;
+    const bool valid=value.is<int64_t>() && settingsIntegerValid(s,value.as<int64_t>());
     if(s.field == proto_field_t::bitLength) {
-      if(inRange && listed) return nullptr;
+      if(valid) return nullptr;
       snprintf(why, sizeof(why), "%s must be 56 or 80", f.name);
       return why;
     }
     if(s.field == proto_field_t::proto) {
-      if(inRange && listed) return nullptr;
+      if(valid) return nullptr;
       snprintf(why, sizeof(why), "%s must be 0, 1, 2, 8 or 9", f.name);
       return why;
     }
-    if(inRange && listed) return nullptr;
+    if(valid) return nullptr;
     if(s.lo == s.hi) snprintf(why, sizeof(why), "%s must be %ld", f.name, (long)s.lo);
     else snprintf(why, sizeof(why), "%s must be %ld-%ld", f.name, (long)s.lo, (long)s.hi);
     return why;
@@ -173,7 +183,7 @@ static const char *checkValue(const settings_field_t &s, const proto_field_info_
   if(s.part != settings_part_t::ip) return nullptr;
   // The settings send 0.0.0.0 as "", so "" sets it back.
   if(!text[0]) value.set("0.0.0.0");
-  else if(!isAddress(text)) {
+  else if(!settingsAddressValid(text)) {
     snprintf(why, sizeof(why), "%s is not an IP address", f.name);
     return why;
   }

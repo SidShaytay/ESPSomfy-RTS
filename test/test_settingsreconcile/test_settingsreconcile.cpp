@@ -1,3 +1,4 @@
+#include "QualifiedSettings.h"
 #include <unity.h>
 #include <nvs.h>
 #include "SettingsReconcile.h"
@@ -18,10 +19,10 @@ public:
 void setUp() { FakeNvs::reset();settingsDurability()=SettingsDurability{}; }
 void tearDown() { TEST_ASSERT_TRUE(FakeNvs::handles.empty()); }
 static void reconcile_uses_running_values_not_failed_edit_and_never_restarts() {
-  ConfigSettings current;current.Security.loadState=SecurityLoadState::knownEmpty;strcpy(current.hostname,"running");
-  ConfigSettings abandoned;strcpy(abandoned.hostname,"old draft");
+  ConfigSettings current;qualifySettings(current);current.Security.loadState=SecurityLoadState::knownEmpty;strcpy(current.hostname,"running");
+  ConfigSettings abandoned;qualifySettings(abandoned);strcpy(abandoned.hostname,"old draft");
   FakeNvs::failCommit=1;TEST_ASSERT_FALSE(abandoned.save().saved());FakeNvs::failCommit=0;
-  Effects effects;transceiver_config_t radio;
+  Effects effects;transceiver_config_t radio;qualifySettings(radio);
   const auto result=reconcileRunningSettings(current,radio,effects);
   TEST_ASSERT_TRUE(result.saved());TEST_ASSERT_EQUAL_UINT8(1,result.reconciled);
   TEST_ASSERT_EQUAL_STRING("running",reinterpret_cast<const char *>(FakeNvs::values.at("CFG/hostname").bytes.data()));
@@ -30,7 +31,7 @@ static void reconcile_uses_running_values_not_failed_edit_and_never_restarts() {
 }
 static void failed_reconcile_keeps_uncertainty_and_notifies_only_verified_namespaces() {
   settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::cfg)|settingsNamespaceBit(SettingsNamespace::security));
-  ConfigSettings current;current.Security.loadState=SecurityLoadState::knownEmpty;Effects effects;transceiver_config_t radio;
+  ConfigSettings current;qualifySettings(current);current.Security.loadState=SecurityLoadState::knownEmpty;Effects effects;transceiver_config_t radio;qualifySettings(radio);
   FakeNvs::failOpen=2;
   const auto result=reconcileRunningSettings(current,radio,effects);
   TEST_ASSERT_FALSE(result.saved());TEST_ASSERT_EQUAL(settings_save_state_t::partial,result.persistence.state);
@@ -43,7 +44,7 @@ static void radio_reconcile_preserves_operational_guard_and_never_applies() {
     nvs_handle_t handle;TEST_ASSERT_EQUAL(ESP_OK,nvs_open("CC1101",NVS_READWRITE,&handle));
     TEST_ASSERT_EQUAL(ESP_OK,nvs_set_u8(handle,"radioInit",guard));nvs_close(handle);
     settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::radio));
-    ConfigSettings current;current.Security.loadState=SecurityLoadState::knownEmpty;Effects effects;transceiver_config_t radio;radio.radioInit=guard==0;
+    ConfigSettings current;qualifySettings(current);current.Security.loadState=SecurityLoadState::knownEmpty;Effects effects;transceiver_config_t radio;qualifySettings(radio);radio.radioInit=guard==0;
     const auto result=reconcileRunningSettings(current,radio,effects);
     TEST_ASSERT_TRUE(result.saved());TEST_ASSERT_EQUAL(guard,FakeNvs::values.at("CC1101/radioInit").bytes[0]);
     TEST_ASSERT_EQUAL(guard==0,radio.radioInit);TEST_ASSERT_EQUAL_UINT8(16,effects.sections);
@@ -51,7 +52,7 @@ static void radio_reconcile_preserves_operational_guard_and_never_applies() {
 }
 static void later_partial_failure_remains_partial_even_when_nothing_fully_reconciles() {
   settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::cfg)|settingsNamespaceBit(SettingsNamespace::ntp));
-  ConfigSettings current;current.Security.loadState=SecurityLoadState::knownEmpty;Effects effects;transceiver_config_t radio;
+  ConfigSettings current;qualifySettings(current);current.Security.loadState=SecurityLoadState::knownEmpty;Effects effects;transceiver_config_t radio;qualifySettings(radio);
   FakeNvs::failOpen=1;FakeNvs::failCommit=1;
   const auto result=reconcileRunningSettings(current,radio,effects);
   TEST_ASSERT_EQUAL(settings_save_state_t::partial,result.persistence.state);
@@ -69,7 +70,7 @@ static void radio_invalid_or_unreadable_guard_cannot_clear_uncertainty_or_write(
     if(failure==2) FakeNvs::failOpen=FakeNvs::opens+1;
     if(failure==3) FakeNvs::failRead=FakeNvs::reads+1;
     settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::radio));
-    ConfigSettings current;current.Security.loadState=SecurityLoadState::knownEmpty;Effects effects;transceiver_config_t radio;
+    ConfigSettings current;qualifySettings(current);current.Security.loadState=SecurityLoadState::knownEmpty;Effects effects;transceiver_config_t radio;qualifySettings(radio);
     const auto result=reconcileRunningSettings(current,radio,effects);
     TEST_ASSERT_FALSE(result.saved());TEST_ASSERT_EQUAL(before,FakeNvs::sets);
     TEST_ASSERT_EQUAL_UINT8(settingsNamespaceBit(SettingsNamespace::radio),result.durability.uncertain);
@@ -77,20 +78,20 @@ static void radio_invalid_or_unreadable_guard_cannot_clear_uncertainty_or_write(
   }
 }
 static void no_uncertainty_does_not_write_or_notify() {
-  ConfigSettings current;current.Security.loadState=SecurityLoadState::knownEmpty;Effects effects;transceiver_config_t radio;
+  ConfigSettings current;qualifySettings(current);current.Security.loadState=SecurityLoadState::knownEmpty;Effects effects;transceiver_config_t radio;qualifySettings(radio);
   const auto result=reconcileRunningSettings(current,radio,effects);
   TEST_ASSERT_TRUE(result.saved());TEST_ASSERT_EQUAL(0,FakeNvs::opens);TEST_ASSERT_EQUAL(0,effects.calls);
 }
 static void successful_security_reconcile_refreshes_history_even_without_value_changes() {
   settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::security));
-  ConfigSettings current;current.Security.loadState=SecurityLoadState::knownEmpty;Effects effects;transceiver_config_t radio;
+  ConfigSettings current;qualifySettings(current);current.Security.loadState=SecurityLoadState::knownEmpty;Effects effects;transceiver_config_t radio;qualifySettings(radio);
   strcpy(current.Security.password,"running secret");
   const auto result=reconcileRunningSettings(current,radio,effects);
   TEST_ASSERT_TRUE(result.saved());TEST_ASSERT_EQUAL_UINT8(8,effects.sections);TEST_ASSERT_EQUAL(1,effects.calls);
   TEST_ASSERT_EQUAL_STRING("running secret",reinterpret_cast<const char *>(FakeNvs::values.at("SEC/password").bytes.data()));
 }
 static void all_supported_namespaces_rewrite_once_and_complete_each_section_once() {
-  ConfigSettings current;current.Security.loadState=SecurityLoadState::knownEmpty;Effects effects;transceiver_config_t radio;
+  ConfigSettings current;qualifySettings(current);current.Security.loadState=SecurityLoadState::knownEmpty;Effects effects;transceiver_config_t radio;qualifySettings(radio);
   nvs_handle_t h;TEST_ASSERT_EQUAL(ESP_OK,nvs_open("CC1101",NVS_READWRITE,&h));
   TEST_ASSERT_EQUAL(ESP_OK,nvs_set_u8(h,"radioInit",0));nvs_close(h);
   uint8_t mask=255;
@@ -106,8 +107,8 @@ static void untrusted_security_load_cannot_be_declared_reconciled_even_with_empt
   for(bool dirty:{false,true}) {
     settingsDurability()=SettingsDurability{};FakeNvs::reset();
     if(dirty)settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::security));
-    ConfigSettings current;current.Security.loadState=SecurityLoadState::failed;
-    Effects effects;transceiver_config_t radio;
+    ConfigSettings current;qualifySettings(current);current.Security.loadState=SecurityLoadState::failed;
+    Effects effects;transceiver_config_t radio;qualifySettings(radio);
     const auto before=settingsDurability().status();
     const auto result=reconcileRunningSettings(current,radio,effects);
     TEST_ASSERT_FALSE(result.saved());TEST_ASSERT_EQUAL(0,result.reconciled);
