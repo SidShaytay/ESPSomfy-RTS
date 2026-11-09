@@ -1,6 +1,7 @@
 #include "LegacyRestartGuard.h"
 #include "LegacyRestartSource.h"
 #include "Somfy.h"
+#include "GroupReadiness.h"
 #include "Utils.h"
 #include "LoopQueue.h"
 #include "SettingsDurability.h"
@@ -19,8 +20,12 @@ RestartResult readiness() {
   for(auto &shade:somfy.shades)
     if(shade.getShadeId()!=255 && !shade.idleForAdministration())
       return {false,RestartReason::activeMovement};
-  for(auto &group:somfy.groups)
-    if(group.getGroupId()!=255 && group.direction) return {false,RestartReason::activeMovement};
+  for(auto &group:somfy.groups) {
+    if(group.getGroupId()==255)continue;
+    const auto current=readGroupReadiness(somfy,group);
+    if(current.activeMember)return {false,RestartReason::activeMovement};
+    if(current.unknownMovement())return {false,RestartReason::unknownGroup};
+  }
   return {true,RestartReason::none};
 }
 }
