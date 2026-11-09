@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include "RestartTypes.h"
 enum class ModelCommitState : uint8_t { saved, failed, uncertain };
 enum class ModelCommitStage : uint8_t {
   none,
@@ -27,6 +28,7 @@ struct ModelCommitReport {
   ModelCommitResult file;
   bool rebooting = false;
   bool restartDeferred = false;
+  RestartReason refusal = RestartReason::none;
 };
 // Safe static descriptions; no record names, paths or counter values.
 const char *modelCommitFailureDescription(ModelCommitState state);

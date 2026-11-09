@@ -674,6 +674,8 @@ void Form::save(uint64_t now) {
                                     admitted, admittedRevision);
   if (result.saved()) {
     close(result.restartBlocked ? Notice::savedRestartBlocked : Notice::saved);
+    if (result.restartBlocked)
+      frame.restartReason = result.restartReason;
     return;
   }
   if (result.refusal == settings_apply_refusal_t::unauthorized) {

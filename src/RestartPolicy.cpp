@@ -10,7 +10,8 @@ const char *restartReason(RestartReason reason) {
     "Operations remain queued; resolve them, then explicitly Restart.",
     "A restart request is already pending.","Restart request expired after state changed; explicitly request Restart again.",
     "Restart cancelled.","Restart history is exhausted.","Monotonic restart clock moved backward.",
-    "Invalid restart request.","Restart admission is not ready.","Storage or update I/O is active; explicitly request Restart again when finished."};
+    "Invalid restart request.","Restart admission is not ready.","Storage or update I/O is active; explicitly request Restart again when finished.",
+    "Counter storage is uncertain; managed restart and affected identity commands are blocked. No automatic counter recovery is available."};
   const auto index=static_cast<unsigned>(reason);
   return index<sizeof(text)/sizeof(*text) ? text[index] : "Restart refused.";
 }

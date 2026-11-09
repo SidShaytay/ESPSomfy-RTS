@@ -2,6 +2,8 @@
 #include "LoopQueue.h"
 #include "ModelCommitResult.h"
 #include "ModelCommitService.h"
+#include "ManualUpdateLifecycle.h"
+#include <esp_timer.h>
 #include <Arduino.h>
 #include <deque>
 #include <string.h>
@@ -29,6 +31,7 @@ struct rebootDelay_t {
   bool reboot = false;
   int rebootTime = 0;
   bool closed = false;
+  uint64_t externalOwnerGeneration=0;uint8_t externalOwnerKind=0;
 } rebootDelay;
 struct Socket {
   void replyModelCommit(const proto_reply_to_t &, ModelCommitReport value) {
@@ -52,11 +55,31 @@ bool LoopQueue::submit(const loop_item_t &item, bool first) {
   return true;
 }
 uint32_t LoopQueue::pending() const { return pendingItems.size(); }
+#include "../../src/GitUpdate.cpp"
+RestartResult legacyGenericRestartAdmission() { return {true,RestartReason::none}; }
+static GitUpdateOwnerToken source;
+static GitUpdateOwnerToken appSource() {
+  const auto time=uint64_t(stubEspTimerMicros)/1000;
+  TEST_ASSERT_TRUE(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,source));
+  TEST_ASSERT_TRUE(gitUpdate.beginTransfer(source,ManualUpdateKind::application,time));
+  TEST_ASSERT_TRUE(gitUpdate.claimTransfer(source,time));
+  TEST_ASSERT_TRUE(gitUpdate.transferResource(source,true));
+  TEST_ASSERT_TRUE(gitUpdate.transferResource(source,false));
+  TEST_ASSERT_TRUE(gitUpdate.holdTransferRestart(source));
+  TEST_ASSERT_TRUE(gitUpdate.finishTransfer(source,time,true));
+  return source;
+}
 static unsigned long clockNow() { return 100; }
 #define millis clockNow
 #include "../../src/ModelCommitService.cpp"
 #undef millis
 void setUp() {
+  const auto cleanup=gitUpdate.claimTransferCleanup(UINT64_MAX);
+  if(cleanup.token.generation) {
+    gitUpdate.transferResource(cleanup.token,false);
+    gitUpdate.closeTransfer(cleanup.token);gitUpdate.releaseExternal(cleanup.token);
+  }
+  stubEspTimerMicros=100000;
   admitted = true;
   queued = {};
   pendingItems.clear();
@@ -69,7 +92,7 @@ void setUp() {
 void tearDown() {}
 static void admission_has_no_model_effect_and_commit_item_cannot_use_radio() {
   TEST_ASSERT_TRUE(submitModelCommit(
-      {8, 7}, ModelCommitMode::applicationRecoveryAndRestart));
+      {8, 7}, ModelCommitMode::applicationRecoveryAndRestart,appSource()));
   TEST_ASSERT_EQUAL(loop_item_type_t::model_commit, queued.type);
   TEST_ASSERT_EQUAL(8, queued.replyTo.client);
   TEST_ASSERT_TRUE(queued.restartAfterCommit);
@@ -81,26 +104,20 @@ static void admission_has_no_model_effect_and_commit_item_cannot_use_radio() {
 }
 static void
 failed_or_uncertain_commit_never_restarts_and_retry_does_not_keep_restart_authority() {
-  loop_item_t item;
-  item.restartAfterCommit = true;
-  outcome.stage = ModelCommitStage::sync;
-  runModelCommit(item);
-  TEST_ASSERT_FALSE(rebootDelay.reboot);
-  TEST_ASSERT_EQUAL(1, commits);
-  outcome.state = ModelCommitState::uncertain;
-  runModelCommit(item);
-  TEST_ASSERT_FALSE(rebootDelay.reboot);
-  TEST_ASSERT_EQUAL(2, commits);
-  outcome = {ModelCommitState::saved, ModelCommitStage::none};
-  item.restartAfterCommit = false;
-  runModelCommit(item);
-  TEST_ASSERT_FALSE(rebootDelay.reboot);
-  TEST_ASSERT_EQUAL(3, commits);
+  for(auto state:{ModelCommitState::failed,ModelCommitState::uncertain}) {
+    loop_item_t item;item.restartAfterCommit=true;item.externalOwner=appSource();
+    outcome={state,ModelCommitStage::sync};const auto before=commits;
+    runModelCommit(item);TEST_ASSERT_FALSE(rebootDelay.reboot);TEST_ASSERT_EQUAL(before+1,commits);
+    runModelCommit(item);TEST_ASSERT_FALSE(rebootDelay.reboot);TEST_ASSERT_EQUAL(before+1,commits);
+  }
+  outcome={ModelCommitState::saved,ModelCommitStage::none};loop_item_t ordinary;
+  runModelCommit(ordinary);TEST_ASSERT_FALSE(rebootDelay.reboot);TEST_ASSERT_EQUAL(3,commits);
 }
 static void
 verified_upload_commit_replies_and_notifies_before_requested_restart() {
   loop_item_t item;
   item.restartAfterCommit = true;
+  item.externalOwner=appSource();
   outcome = {ModelCommitState::saved, ModelCommitStage::none};
   runModelCommit(item);
   TEST_ASSERT_TRUE(rebootDelay.reboot);
@@ -133,7 +150,7 @@ upload_recovery_bypasses_held_head_but_never_replays_or_drops_pending_operations
   TEST_ASSERT_TRUE(loopQueue.submit(edit));
   TEST_ASSERT_TRUE(holdLoopItem(pendingItems.front(), true, false));
   TEST_ASSERT_TRUE(
-      submitModelCommit({}, ModelCommitMode::applicationRecoveryAndRestart));
+      submitModelCommit({}, ModelCommitMode::applicationRecoveryAndRestart,appSource()));
   const auto marker = pendingItems.front();
   pendingItems.pop_front();
   TEST_ASSERT_EQUAL(loop_item_type_t::model_commit, marker.type);
@@ -159,7 +176,7 @@ pending_edit_alone_also_prevents_restart_and_no_authority_survives_retry() {
   edit.type = loop_item_type_t::model_edit;
   loopQueue.submit(edit);
   TEST_ASSERT_TRUE(
-      submitModelCommit({}, ModelCommitMode::applicationRecoveryAndRestart));
+      submitModelCommit({}, ModelCommitMode::applicationRecoveryAndRestart,appSource()));
   const auto marker = pendingItems.front();
   pendingItems.pop_front();
   outcome = {ModelCommitState::saved, ModelCommitStage::none};
@@ -192,8 +209,18 @@ static void local_commit_returns_the_notified_file_result_without_restart() {
   }
   TEST_ASSERT_EQUAL(3, commits);
 }
+static void stale_recovery_source_cannot_touch_a_newer_upload() {
+  loop_item_t old;old.externalOwner=appSource();old.restartAfterCommit=true;
+  stubEspTimerMicros=30100000;
+  const auto cleanup=gitUpdate.claimTransferCleanup(30100);
+  TEST_ASSERT_TRUE(gitUpdate.closeTransfer(cleanup.token));TEST_ASSERT_TRUE(gitUpdate.releaseExternal(cleanup.token));
+  const auto newer=appSource();
+  runModelCommit(old);TEST_ASSERT_EQUAL(0,commits);TEST_ASSERT_FALSE(rebootDelay.reboot);
+  TEST_ASSERT_EQUAL(RestartReason::stale,report.refusal);TEST_ASSERT_TRUE(gitUpdate.ownsExternal(newer));
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(stale_recovery_source_cannot_touch_a_newer_upload);
   RUN_TEST(local_commit_returns_the_notified_file_result_without_restart);
   RUN_TEST(admission_has_no_model_effect_and_commit_item_cannot_use_radio);
   RUN_TEST(

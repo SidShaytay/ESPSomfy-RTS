@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include "RestartTypes.h"
 namespace LocalUi {
 namespace Settings {
 enum class Mode : uint8_t {
@@ -39,6 +40,7 @@ struct FormView {
   uint8_t rowCount = 0, selected = 0, total = 0, offset = 0;
   Mode mode = Mode::closed;
   Notice notice = Notice::none;
+  RestartReason restartReason = RestartReason::none;
   bool protectedFrame = true, dirty = false;
 };
 } // namespace Settings

@@ -11,6 +11,8 @@
 #include "Somfy.h"
 #include "MqttConnection.h"
 #include "LoopQueue.h"
+#include "LegacyRestartGuard.h"
+#include "entryPoints/ManualUploadSession.h"
 #include "ShadeRequests.h"
 #include "SomfyShadeOps.h"
 #include "esp_core_dump.h"
@@ -158,18 +160,18 @@ void setup() {
   if(otaPending) ESP_LOGW(TAG, "Updated firmware, keeping it once it has run %ds with the network up", OTA_PROVEN_MS / 1000);
 }
 
+void performLegacyShutdown() {
+  net.end();ESP.restart();
+}
+
 void loop() {
   // put your main code here, to run repeatedly:
   //uint32_t heap = ESP.getFreeHeap();
   // Times the whole pass for the memory event, including any time the loop task was
   // pre-empted, since that delays the loop too.
   ElapsedTimer pass;
-  if(rebootDelay.reboot && millis() > rebootDelay.rebootTime) {
-    ESP_LOGI(TAG, "Rebooting after %lums", rebootDelay.rebootTime);
-    net.end();
-    ESP.restart();
-    return;
-  }
+  manualUploadLoop();
+  if(legacyRestartLoop()) return;
   // Each step only logs when it holds up the loop for LOOP_SLOW_MS or more.
   ElapsedTimer timing;
   net.loop();
@@ -193,10 +195,7 @@ void loop() {
     logIfSlow(TAG, "Loop sockets", timing.lap(), LOOP_SLOW_MS);
     esp_task_wdt_reset();
   }
-  if(rebootDelay.reboot && millis() > rebootDelay.rebootTime) {
-    net.end();
-    ESP.restart();
-  }
+  if(legacyRestartLoop()) return;
   if(otaPending && otaProven(net.connected(), millis(), OTA_PROVEN_MS)) {
     otaPending = false;
     if(esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) ESP_LOGI(TAG, "Updated firmware confirmed, rollback cancelled");

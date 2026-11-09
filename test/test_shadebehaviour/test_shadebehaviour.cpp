@@ -662,8 +662,40 @@ static void test_restore_set_position_and_clear_tilt() {
   TEST_ASSERT_EQUAL_FLOAT(-1.0f, r.st().myTiltPos);
 }
 
+static void test_administration_idle_rejects_a_held_frame_without_side_effects() {
+  Rig r;TEST_ASSERT_TRUE(r.b.idleForAdministration());
+  r.press(somfy_commands::My);
+  TEST_ASSERT_TRUE(r.b.isIdle());
+  const auto sent=r.link.sent.size();const auto saves=r.events.saves;
+  TEST_ASSERT_FALSE(r.b.idleForAdministration());
+  TEST_ASSERT_EQUAL(sent,r.link.sent.size());TEST_ASSERT_EQUAL(saves,r.events.saves);
+  r.wait(600);TEST_ASSERT_TRUE(r.b.idleForAdministration());
+}
+static void test_administration_idle_rejects_a_queued_hold_until_resolved() {
+  Rig r;r.b.onTxQueued(99,r.now);TEST_ASSERT_TRUE(r.b.isIdle());
+  TEST_ASSERT_FALSE(r.b.idleForAdministration());
+  r.event(tx_event_t::dropped,99);TEST_ASSERT_TRUE(r.b.idleForAdministration());
+}
+static void test_administration_idle_waits_for_the_stop_outcome() {
+  Rig r;TEST_ASSERT_TRUE(r.b.moveToTarget(40,-1,r.now));
+  TEST_ASSERT_FALSE(r.b.idleForAdministration());r.onAir();r.run(4100);
+  TEST_ASSERT_TRUE(r.b.isIdle());TEST_ASSERT_FALSE(r.b.idleForAdministration());
+  r.event(tx_event_t::finished,r.lastSent().ticket);
+  TEST_ASSERT_TRUE(r.b.idleForAdministration());
+}
+static void test_administration_idle_waits_for_favourite_programming() {
+  Rig r;r.b.restore(30,0,-1,-1);
+  TEST_ASSERT_TRUE(r.b.setMyPosition(30,-1,r.now));
+  TEST_ASSERT_TRUE(r.b.isIdle());TEST_ASSERT_FALSE(r.b.idleForAdministration());
+  r.event(tx_event_t::finished,r.lastSent().ticket);
+  TEST_ASSERT_TRUE(r.b.idleForAdministration());
+}
 int main(int argc, char **argv) {
   UNITY_BEGIN();
+  RUN_TEST(test_administration_idle_rejects_a_held_frame_without_side_effects);
+  RUN_TEST(test_administration_idle_rejects_a_queued_hold_until_resolved);
+  RUN_TEST(test_administration_idle_waits_for_the_stop_outcome);
+  RUN_TEST(test_administration_idle_waits_for_favourite_programming);
   RUN_TEST(test_down_waits_for_the_radio_then_travels);
   RUN_TEST(test_refused_command_moves_nothing);
   RUN_TEST(test_hold_times_out_without_a_radio_event);

@@ -1,6 +1,7 @@
 #pragma once
 #include "ConfigSettings.h"
 #include "ProtoSettings.h"
+#include "RestartTypes.h"
 
 enum class settings_apply_refusal_t : uint8_t {
   none, invalidPin, usernameRequired, passwordRequired, unauthorized, stale, busy
@@ -11,6 +12,7 @@ struct settings_apply_result_t {
   bool reboot = false;
   bool restartBlocked = false;
   settings_apply_refusal_t refusal = settings_apply_refusal_t::none;
+  RestartReason restartReason = RestartReason::none;
   bool saved() const { return refusal == settings_apply_refusal_t::none && persistence.saved(); }
   static settings_apply_result_t refused(settings_apply_refusal_t reason) {
     settings_apply_result_t result;
@@ -32,7 +34,7 @@ public:
   virtual settings_save_result_t saveRadio(JsonObject request) = 0;
   // Runs once after complete persistence/live apply and the reboot decision.
   // Failed or partial saves never notify, revoke clients or schedule restart.
-  virtual void completed(settings_section_t section, bool reboot) = 0;
+  virtual RestartResult completed(settings_section_t section, bool reboot) = 0;
 };
 // loop() only, after expandSettingsPayload has validated/expanded the request.
 // Failed/partial persistence leaves the in-memory settings and runtime effects

@@ -8,6 +8,7 @@
 #include "Somfy.h"
 #include "SomfyEditor.h"
 #include "Utils.h"
+#include "LegacyRestartSource.h"
 #include <stdio.h>
 #include <string.h>
 extern SomfyShadeController somfy;
@@ -278,7 +279,7 @@ class RuntimeBackend final : public Backend {
         expected.configurationGeneration != now.configurationGeneration ||
         revision != this->revision())
       return Admission::stale;
-    if (loopQueue.pending() || rebootDelay.reboot)
+    if (loopQueue.pending() || snapshotLegacyRestart(rebootDelay).reboot)
       return Admission::busy;
     return Admission::accepted;
   }
