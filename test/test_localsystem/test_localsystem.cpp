@@ -6,10 +6,10 @@ struct State : System::Backend {
   SecuritySnapshot auth{AuthMode::none,true,false,1,1};
   RestartSnapshot current;
   RestartResult result{true,RestartReason::none};
-  unsigned restarts=0;
+  unsigned restarts=0;bool immediateCancel=false,zeroGeneration=false;
   SecuritySnapshot authorization() override {return auth;}
   void activity() override {}
-  RestartResult restart(uint32_t session,uint32_t configuration) override {TEST_ASSERT_EQUAL(auth.generation,session);TEST_ASSERT_EQUAL(auth.configurationGeneration,configuration);++restarts;if(result.admitted)current.phase=RestartPhase::admitted;return result;}
+  RestartResult restart(uint32_t session,uint32_t configuration) override {TEST_ASSERT_EQUAL(auth.generation,session);TEST_ASSERT_EQUAL(auth.configurationGeneration,configuration);++restarts;if(result.admitted){current.generation=zeroGeneration?0:1;current.phase=immediateCancel?RestartPhase::cancelled:RestartPhase::admitted;current.reason=immediateCancel?RestartReason::cancelled:RestartReason::none;}return result;}
   RestartSnapshot status() override {return current;}
 };
 void setUp(){} void tearDown(){}
@@ -52,4 +52,19 @@ static void refusal_does_not_claim_saved_or_replay() {
   TEST_ASSERT_EQUAL_STRING("Restart refused",view.title);TEST_ASSERT_EQUAL(EntityAdmin::Notice::none,view.notice);
   TEST_ASSERT_NOT_NULL(strstr(view.hint,"uncertain"));form.activate(5);TEST_ASSERT_EQUAL(1,state.restarts);
 }
-int main(int,char**) {UNITY_BEGIN();RUN_TEST(navigation_and_cancel_never_restart);RUN_TEST(explicit_restart_is_once_and_tracks_its_result);RUN_TEST(auth_change_expiry_and_backward_clock_discard_confirmation);RUN_TEST(refusal_does_not_claim_saved_or_replay);return UNITY_END();}
+static void immediate_cancel_and_invalid_binding_never_claim_scheduled() {
+  for(unsigned invalid=0;invalid<2;++invalid) {
+    State state;state.immediateCancel=!invalid;state.zeroGeneration=invalid;
+    System::Form form(state);EntityAdmin::FormView view;form.open(1);form.activate(2);form.turn(1,3);form.activate(4);form.render(view);
+    TEST_ASSERT_EQUAL_STRING(invalid?"Restart status unknown":"Restart stopped",view.title);
+    TEST_ASSERT_EQUAL(1,state.restarts);
+  }
+}
+static void superseded_generation_never_borrows_another_result() {
+  State state;System::Form form(state);EntityAdmin::FormView view;form.open(1);form.activate(2);form.turn(1,3);form.activate(4);
+  state.current.generation=2;state.current.phase=RestartPhase::cancelled;state.current.reason=RestartReason::modelUncertain;
+  form.tick(5);form.render(view);TEST_ASSERT_EQUAL_STRING("Restart stopped",view.title);
+  TEST_ASSERT_NOT_NULL(strstr(view.hint,"State changed"));TEST_ASSERT_NULL(strstr(view.hint,"uncertain"));
+  form.activate(6);TEST_ASSERT_EQUAL(1,state.restarts);
+}
+int main(int,char**) {UNITY_BEGIN();RUN_TEST(immediate_cancel_and_invalid_binding_never_claim_scheduled);RUN_TEST(superseded_generation_never_borrows_another_result);RUN_TEST(navigation_and_cancel_never_restart);RUN_TEST(explicit_restart_is_once_and_tracks_its_result);RUN_TEST(auth_change_expiry_and_backward_clock_discard_confirmation);RUN_TEST(refusal_does_not_claim_saved_or_replay);return UNITY_END();}

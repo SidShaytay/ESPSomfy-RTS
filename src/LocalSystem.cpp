@@ -34,7 +34,7 @@ const char *refusal(RestartReason value) {
 void Form::discard() {
   page=Page::closed;generation=configurationGeneration=0;
   observedAt=activityAt=restartGeneration=0;cursor=file=0;
-  reason=RestartReason::none;notice=EntityAdmin::Notice::none;admitted=stopped=false;
+  reason=RestartReason::none;notice=EntityAdmin::Notice::none;admitted=stopped=statusUnknown=false;
 }
 bool Form::open(uint64_t now) {
   discard();const auto auth=backend.authorization();
@@ -58,7 +58,7 @@ bool Form::guard(uint64_t now) {
 void Form::touch(uint64_t now){activityAt=now;backend.activity();}
 void Form::tick(uint64_t now) {
   if(!guard(now))return;
-  if(page==Page::result && admitted) {
+  if(page==Page::result && admitted && !statusUnknown) {
     const auto current=backend.status();
     if(current.generation!=restartGeneration) {stopped=true;reason=RestartReason::stale;}
     else if(!current.pending()) {stopped=true;reason=current.reason;}
@@ -79,7 +79,15 @@ void Form::activate(uint64_t now) {
   case Page::confirm:
     if(!cursor){page=Page::menu;break;}
     {const auto result=backend.restart(generation,configurationGeneration);admitted=result.admitted;reason=result.reason;
-      restartGeneration=admitted?backend.status().generation:0;stopped=false;page=Page::result;cursor=0;}
+      restartGeneration=0;stopped=statusUnknown=false;
+      if(admitted) {
+        // Admission and this synchronized snapshot are separate operations:
+        // cancellation may already have won. Bind the entire observed result.
+        const auto current=backend.status();restartGeneration=current.generation;
+        if(!restartGeneration)statusUnknown=true;
+        else if(!current.pending()) {stopped=true;reason=current.reason;}
+      }
+      page=Page::result;cursor=0;}
     break;
   case Page::files:file=cursor;page=Page::guidance;cursor=0;break;
   case Page::guidance:page=Page::files;cursor=file;break;
@@ -112,8 +120,8 @@ void Form::render(EntityAdmin::FormView &out) const {
     } else if(page==Page::guidance) {
       title=files[file];hint=guidance[file];out.total=out.rowCount=1;strcpy(out.rows[0].label,"Back to files");
     } else {
-      title=admitted?(stopped?"Restart stopped":"Restart scheduled"):"Restart refused";
-      hint=refusal(reason);out.total=out.rowCount=1;strcpy(out.rows[0].label,"Back: System");
+      title=statusUnknown?"Restart status unknown":admitted?(stopped?"Restart stopped":"Restart scheduled"):"Restart refused";
+      hint=statusUnknown?"Restart status unavailable. No automatic retry.":refusal(reason);out.total=out.rowCount=1;strcpy(out.rows[0].label,"Back: System");
     }
   }
   snprintf(out.title,sizeof(out.title),"%s",title);snprintf(out.hint,sizeof(out.hint),"%s",hint);

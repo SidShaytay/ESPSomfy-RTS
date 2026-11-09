@@ -21,7 +21,7 @@ class Form {
   uint8_t cursor=0,file=0;
   EntityAdmin::Notice notice=EntityAdmin::Notice::none;
   RestartReason reason=RestartReason::none;
-  bool admitted=false,stopped=false;
+  bool admitted=false,stopped=false,statusUnknown=false;
   bool guard(uint64_t);
   void touch(uint64_t);
 public:
