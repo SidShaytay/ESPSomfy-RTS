@@ -11,6 +11,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <string>
+#include <mutex>
 static unsigned hardware=0,enabledReceive=0,disabledReceive=0,timeApplies=0;
 static bool detected=true,boardReadback=true,afterEffect=false;
 struct {Transceiver transceiver;} somfy;
@@ -37,7 +38,6 @@ static constexpr unsigned portMAX_DELAY=0;
 struct RadioLock {bool locked=true;RadioLock(unsigned,bool){}};
 static GitUpdateOwnerToken radioOwner;
 static RadioInstallToken radioPause{17};
-static SettingsRevisions settingsRevisions;
 static constexpr uint8_t INPUT=0;
 static void pinMode(uint8_t,uint8_t){++hardware;}
 bool Transceiver::installPauseHeld(const RadioInstallToken &token)const{return token.generation==17;}
@@ -101,10 +101,10 @@ int main(int argc,char **argv){assert(argc==2);const std::string mode=argv[1];
   puts("Actual setup order stages all namespaces before time/migration effects and never replays them");return 0;
  }
  auto &radio=somfy.transceiver.config;radio.enabled=true;
- if(mode=="liveFirst" || mode=="liveLast" || mode=="liveOpen" || mode=="stalePause" || mode=="foreignOwner") {
+ if(mode=="liveFirst" || mode=="liveLast" || mode=="liveOpen" || mode=="stalePause" || mode=="foreignOwner" || mode=="wrongKind" || mode=="ownedRestore") {
   assert(somfy.transceiver.loadReadOnly());radio.enabled=true;
-  assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::configuration,radioOwner));
-  counters();const auto revision=settingsRevisions.get(settings_section_t::radio);
+  assert(gitUpdate.acquireExternal(mode=="wrongKind"?GitUpdateExternalOwner::counter:mode=="ownedRestore"?GitUpdateExternalOwner::restore:GitUpdateExternalOwner::configuration,radioOwner));
+  counters();const auto revision=deviceSettingsRevision(settings_section_t::radio);
   // The full namespace has 15 fields, followed by the before/after marker.
   if(mode=="liveFirst")FakeNvs::failSet=16;
   if(mode=="liveLast")FakeNvs::failSet=17;
@@ -113,10 +113,14 @@ int main(int argc,char **argv){assert(argc==2);const std::string mode=argv[1];
   if(mode=="foreignOwner")++radioOwner.generation;
   JsonDocument request;request["frequency"]=433.5;
   const auto result=runtimeSaveRadio(request.as<JsonObject>());
-  const bool stale=mode=="stalePause" || mode=="foreignOwner";
+  if(mode=="ownedRestore") {
+   assert(result.saved() && result.liveApplied && radio.frequency==433.5f && enabledReceive==1 && gitUpdate.ownsExternal(radioOwner));
+   puts("Exact already-owned restore path applies without nested acquisition");return 0;
+  }
+  const bool stale=mode=="stalePause" || mode=="foreignOwner" || mode=="wrongKind";
   assert(!result.saved());
-  if(stale)assert(!result.liveApplied && !FakeNvs::sets && !hardware && settingsRevisions.get(settings_section_t::radio)==revision);
-  else assert(result.liveApplied && result.state==settings_save_state_t::partial && radio.frequency==433.5f && !enabledReceive && !radio.radioInit && !somfy.transceiver.available() && settingsRevisions.get(settings_section_t::radio)==revision+1 && !settingsDurability().status().restartAllowed());
+  if(stale)assert(!result.liveApplied && !FakeNvs::sets && !hardware && deviceSettingsRevision(settings_section_t::radio)==revision);
+  else assert(result.liveApplied && result.state==settings_save_state_t::partial && radio.frequency==433.5f && !enabledReceive && !radio.radioInit && !somfy.transceiver.available() && deviceSettingsRevision(settings_section_t::radio)==revision+1 && !settingsDurability().status().restartAllowed());
   puts("Actual full namespace save/marker failure reports applied partial and advances radio history; stale capabilities never write");return 0;
  }
 

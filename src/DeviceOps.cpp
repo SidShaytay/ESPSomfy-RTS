@@ -107,7 +107,7 @@ public:
     transceiver_config_t next = somfy.transceiver.config;
     next.fromJSON(request);
     const auto result=somfy.transceiver.setConfig(next);
-    if(result.liveApplied && !result.saved())settingsRevisions.completed(settings_section_t::radio);
+    if(result.liveApplied && !result.saved())noteDeviceSettingsCompleted(settings_section_t::radio);
     return result;
   }
 };

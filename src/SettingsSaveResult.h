@@ -15,6 +15,8 @@ struct settings_save_result_t {
   bool saved() const { return state == settings_save_state_t::saved && !radioCleanupFault; }
 };
 
+static_assert(sizeof(settings_save_result_t)<=2*sizeof(const char *),"Keep persistence results within their original pointer-aligned budget");
+
 // Legacy source cleanup is optional after the destination is verified. Failure
 // to remove obsolete source keys does not make the saved CFG uncertain.
 struct settings_migration_result_t {

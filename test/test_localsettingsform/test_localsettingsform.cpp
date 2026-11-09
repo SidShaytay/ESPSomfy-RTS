@@ -379,7 +379,6 @@ static void saved_section_reports_outstanding_restart_block_without_retaining_a_
   TEST_ASSERT_FALSE(form.view().dirty);TEST_ASSERT_EQUAL(0,mem.active);
   TEST_ASSERT_EQUAL(1,backend.saves);
   form.tick(2);form.activate(2);TEST_ASSERT_EQUAL(1,backend.saves);
- }
 }
 static void validation_and_save_transient_admission_fail_closed() {
   Memory mem;
