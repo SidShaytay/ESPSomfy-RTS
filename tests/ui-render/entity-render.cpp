@@ -2,6 +2,8 @@
 #include "LocalUiRenderer.h"
 #include "../../src/LocalEntityRenderer.cpp"
 #include <assert.h>
+#include <Fonts/FreeSans9pt7b.h>
+#include <Fonts/FreeSansBold12pt7b.h>
 #include <fstream>
 #include <string.h>
 #include <vector>
@@ -215,6 +217,36 @@ int main(int argc, char **argv) {
     lines(canvas,warning,firstLine,secondLine);assert(std::string(firstLine)+(secondLine[0]?" ":"")+secondLine==warning);
     canvas.getTextBounds(firstLine,0,0,&wx,&wy,&ww,&wh);assert(ww<=296);canvas.getTextBounds(secondLine,0,0,&wx,&wy,&ww,&wh);assert(ww<=296);
   }
+  EntityAdmin::FormView learn;learn.mode=EntityAdmin::Mode::learnReview;learn.total=learn.rowCount=2;
+  strcpy(learn.title,"#32 Office device");strcpy(learn.rows[0].label,"Cancel");learn.rows[0].selected=true;
+  strcpy(learn.rows[1].label,"Link received remote");strcpy(learn.rows[2].label,"#16777215 Code 65535");
+  strcpy(learn.rows[2].value,"RTW 80-bit MyUpDown RSSI unavailable");
+  strcpy(learn.hint,"Links address/counter; observed format is not a filter.");
+  save(canvas,pixels.data(),learn,argv[1],"entity-learn-review-max");const auto completeLearn=pixels;
+  for(const char*complete:{learn.rows[2].value,learn.hint}){
+    char first[48],second[48];lines(canvas,complete,first,second);
+    assert(std::string(first)+(second[0]?" ":"")+second==complete);
+    int16_t x,y;uint16_t w,h;canvas.getTextBounds(first,0,0,&x,&y,&w,&h);assert(w<=296);
+    canvas.getTextBounds(second,0,0,&x,&y,&w,&h);assert(w<=296);
+  }
+  learn.rows[2].label[8]='4';canvas.paintEntity(learn);bool exactAddressVisible=false;
+  for(unsigned y=35;y<58;y++)for(unsigned x=12;x<308;x++)exactAddressVisible|=pixels[y*320+x]!=completeLearn[y*320+x];assert(exactAddressVisible);
+  const char *learnHints[]={"Future received commands may affect device; Link sends no RF.","FIFO; expires after 5s. Back cancels. No automatic retry.","Counter/link applied. Commit file only; never Link again.","Link not applied; stored code unknown. Do not replay/reset.","Earlier link kept. Counter state unknown. Do not replay.","Received frame changed. Choose and review a frame again.","Stored/live code newer. Cancel, then Begin observation again.","Counter storage read/open failed. Nothing was linked."};
+  for(const char*hint:learnHints){
+    assert(strlen(hint)<sizeof(learn.hint));char first[48],second[48];lines(canvas,hint,first,second);
+    assert(std::string(first)+(second[0]?" ":"")+second==hint);
+    int16_t x,y;uint16_t w,h;canvas.getTextBounds(first,0,0,&x,&y,&w,&h);assert(w<=296);canvas.getTextBounds(second,0,0,&x,&y,&w,&h);assert(w<=296);
+  }
+  learn={};learn.mode=EntityAdmin::Mode::validation;learn.rowCount=learn.total=2;learn.selected=1;
+  strcpy(learn.title,"Linked; file uncertain");strcpy(learn.rows[0].label,"Retry model file save");strcpy(learn.rows[1].label,"Close");learn.rows[1].selected=true;
+  strcpy(learn.hint,learnHints[2]);save(canvas,pixels.data(),learn,argv[1],"entity-learn-file-uncertain");
+  learn.rowCount=learn.total=1;learn.selected=0;strcpy(learn.rows[0].label,"Close");learn.rows[0].selected=true;learn.rows[1]={};
+  strcpy(learn.title,"Counter uncertain");strcpy(learn.hint,learnHints[3]);save(canvas,pixels.data(),learn,argv[1],"entity-learn-counter-uncertain");
+  canvas.setFont(&FreeSansBold12pt7b);
+  for(const char*title:{"Remote linked","Linked; file not saved","Linked; file uncertain","Counter uncertain","Counter blocked","Link recovery blocked","Link queued","File save queued","Link not applied"}) {
+    int16_t x,y;uint16_t w,h;canvas.getTextBounds(title,0,0,&x,&y,&w,&h);assert(w<=296);
+  }
+  canvas.setFont(&FreeSans9pt7b);
   puts("Production entity renderer: fields, identity confirmation, complete "
        "applied/file-only failure and text states passed.");
 }
