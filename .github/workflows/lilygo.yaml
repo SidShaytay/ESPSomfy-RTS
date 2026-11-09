@@ -37,6 +37,7 @@ jobs:
           CXX=g++ bash tools/test-update-bootloader.sh
           CXX=g++ bash tools/test-update-assets.sh
           CXX=g++ bash tools/test-update-image.sh
+          CXX=g++ bash tools/test-radio-update.sh
           CXX=g++ bash tools/test-update-certificate.sh
           CXX=g++ bash tools/test-update-memory.sh
       - name: Build and validate shared CC1101 and Plus artifacts
