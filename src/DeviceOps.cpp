@@ -2,6 +2,11 @@
 #include <WiFi.h>
 #include <atomic>
 #include <new>
+#if defined(ESP_PLATFORM)
+#include <freertos/FreeRTOS.h>
+#else
+#include <mutex>
+#endif
 #include "esp_log.h"
 #include "DeviceOps.h"
 #include "SettingsApply.h"
@@ -26,10 +31,28 @@ extern MqttConnection mqtt;
 extern Web webServer;
 
 static std::atomic<bool> saveBusy(false);
-static SettingsRevisions settingsRevisions;
-uint64_t deviceSettingsRevision(settings_section_t section) { return settingsRevisions.get(section); }
-uint64_t securityConfigurationRevision() { return settingsRevisions.get(settings_section_t::security); }
-void invalidateDeviceSettingsRevisions() { settingsRevisions.invalidateAll(); }
+// Synchronized settings history: bounded memory only, never settings/SDK I/O.
+namespace SettingsHistoryDetail {
+SettingsRevisions revisions;
+#if defined(ESP_PLATFORM)
+portMUX_TYPE mutex=portMUX_INITIALIZER_UNLOCKED;
+struct Guard { Guard(){portENTER_CRITICAL(&mutex);}~Guard(){portEXIT_CRITICAL(&mutex);} };
+#else
+std::mutex mutex;
+struct Guard { std::lock_guard<std::mutex> lock;Guard():lock(mutex){} };
+#endif
+}
+uint64_t deviceSettingsRevision(settings_section_t section) {
+  SettingsHistoryDetail::Guard guard;return SettingsHistoryDetail::revisions.get(section);
+}
+uint64_t securityConfigurationRevision() { return deviceSettingsRevision(settings_section_t::security); }
+void invalidateDeviceSettingsRevisions() {
+  SettingsHistoryDetail::Guard guard;SettingsHistoryDetail::revisions.invalidateAll();
+}
+void noteDeviceSettingsCompleted(settings_section_t section) {
+  SettingsHistoryDetail::Guard guard;SettingsHistoryDetail::revisions.completed(section);
+}
+// End synchronized settings history.
 
 settings_save_t *newSettingsSave(bool &busy) {
   busy = saveBusy.exchange(true);
@@ -73,7 +96,7 @@ class RuntimeSettingsEffects : public SettingsEffects {
 public:
   explicit RuntimeSettingsEffects(uint32_t origin) : securityBefore(settings.Security.type), originSocketClient(origin) {}
   RestartResult completed(settings_section_t section, bool reboot) override {
-    settingsRevisions.completed(section);
+    noteDeviceSettingsCompleted(section);
     return completeSettingsSave({section,securityBefore,settings.Security.type,originSocketClient,reboot},protoSocket,requestRestart);
   }
   bool wifiClientsPresent() const override { return WiFi.softAPgetStationNum() != 0; }
