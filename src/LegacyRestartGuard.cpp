@@ -17,7 +17,7 @@ RestartResult readiness() {
   if(somfy.transceiver.counterEditUncertain()) return {false,RestartReason::counterUncertain};
   if(loopQueue.pending() || !somfy.transceiver.restartQuiescent()) return {false,RestartReason::queuedOperations};
   for(auto &shade:somfy.shades)
-    if(shade.getShadeId()!=255 && (!shade.isIdle() || shade.gpioRelease))
+    if(shade.getShadeId()!=255 && !shade.idleForAdministration())
       return {false,RestartReason::activeMovement};
   for(auto &group:somfy.groups)
     if(group.getGroupId()!=255 && group.direction) return {false,RestartReason::activeMovement};

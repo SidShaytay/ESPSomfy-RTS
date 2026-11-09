@@ -7,4 +7,4 @@ scratch="$(mktemp -d)"
 trap 'rm -rf -- "$scratch"' EXIT
 "${CXX:-c++}" -std=c++17 -O2 -pthread -I"$json" -I"$repo/test/stubs" -I"$repo/src" \
   "$repo/tests/legacy-restart/restart-test.cpp" "$repo/src/GitUpdate.cpp" "$repo/src/SettingsDurability.cpp" -o "$scratch/restart"
-for case in allowed counter manual expired handoff record modelFailed modelUncertain settings lateSettings lateHistory queue moving pulse groupMoving radio queueSealRace radioSealRace; do "$scratch/restart" "$case"; done
+for case in allowed counter manual expired handoff record modelFailed modelUncertain settings lateSettings lateHistory queue moving held pulse groupMoving radio queueSealRace radioSealRace; do "$scratch/restart" "$case"; done

@@ -32,7 +32,7 @@ struct SomfyShadeController {
     bool sealForRestart(){if(work || sealRefused)return false;sealed=true;return true;}
     void reopenAfterRefusedRestart(){sealed=false;}
   } transceiver;
-  struct Shade {uint8_t id=255;bool idle=true;uint32_t gpioRelease=0;uint8_t getShadeId(){return id;}bool isIdle(){return idle;}} shades[32];
+  struct Shade {uint8_t id=255;bool idle=true,pending=false;uint32_t gpioRelease=0;uint8_t getShadeId(){return id;}bool isIdle(){return idle;}bool idleForAdministration(){return idle&&!pending&&!gpioRelease;}} shades[32];
   struct Group {uint8_t id=255;int8_t direction=0;uint8_t getGroupId(){return id;}} groups[16];
   ModelCommitResult commit(){++commits;if(duringCommit)duringCommit();return fileResult;}
 } somfy;
@@ -111,6 +111,7 @@ int main(int argc,char **argv) {
   if(mode=="settings")settingsDurability().markUncertain(1);
   if(mode=="queue")queued=1;
   if(mode=="moving"){somfy.shades[31].id=7;somfy.shades[31].idle=false;}
+  if(mode=="held"){somfy.shades[0].id=3;somfy.shades[0].pending=true;}
   if(mode=="pulse"){somfy.shades[0].id=3;somfy.shades[0].gpioRelease=1;}
   if(mode=="groupMoving"){somfy.groups[15].id=8;somfy.groups[15].direction=-1;}
   if(mode=="radio")somfy.transceiver.work=true;
