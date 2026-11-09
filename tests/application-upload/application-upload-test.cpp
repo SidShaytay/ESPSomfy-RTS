@@ -125,7 +125,7 @@ int main() {
   server.upload(&refused,String("retired.bin"),1,&byte,1,true);server.complete(&refused);
   assert(refused.responses==1 && !Update.begins && !Update.writes && !Update.ends && !Update.aborts);
   assert(!LittleFS.opens && !LittleFS.writes && !LittleFS.removes && !somfy.transceiver.stops && !mqtt.stops);
-  assert(restarts.empty() && !rebootDelay.reboot && gitUpdate.ownsExternal(competing));
+  assert(restarts.empty() && !restartPending() && gitUpdate.ownsExternal(competing));
   assert(gitUpdate.releaseExternal(competing));
   AsyncWebServerRequest empty;server.complete(&empty);assert(empty.status==410 && !gitUpdate.busy());
   std::cout << "Bundled application upload retired before owner, SDK, filesystem or shutdown effects.\n";return 0;
