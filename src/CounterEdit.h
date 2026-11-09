@@ -4,12 +4,14 @@
 // Explicit operator counter corrections only. Automatic TX/RX advancement
 // retains its existing algorithm. An uncertain write must never be rolled back
 // or replayed from a cached value.
-enum class CounterEditState : uint8_t { saved, failed, uncertain };
+enum class CounterEditState : uint8_t { saved, failed, uncertain, stale };
 struct CounterEditResult {
   CounterEditState state = CounterEditState::failed;
   bool saved() const { return state == CounterEditState::saved; }
 };
 CounterEditResult persistExplicitCounter(uint32_t address,uint16_t code);
+// Received/linked codes may advance but never lower an existing identity.
+CounterEditResult persistObservedCounter(uint32_t address,uint16_t code,uint16_t aliasHighwater);
 enum class CounterQuarantine : uint8_t { none, nvsUnknown, filePending };
 enum class CounterEditAdmission : uint8_t { admitted, invalid, busy, blocked };
 // Every access is serialized by the owning TX queue lock in production. One
@@ -52,6 +54,7 @@ public:
   bool blocks(uint32_t address) const {
     return address && (address==editingAddress || address==uncertainAddress);
   }
+  uint32_t blockedAddress() const { return editingAddress ? editingAddress : uncertainAddress; }
   bool uncertain() const { return uncertainAddress!=0; }
   bool active() const { return editingAddress || uncertainAddress; }
 };

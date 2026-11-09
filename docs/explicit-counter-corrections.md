@@ -1,8 +1,8 @@
 # Checked explicit counter domain
 
-This checkpoint adds a loop-owned domain but does not expose or activate it.
-Existing browser setters are unchanged until the transport/RX guards and typed
-caller wiring are reviewed. The following describes the checked domain only.
+Browser primary-counter correction and remote linking use the checked loop-owned
+domain. This feature adds no LCD counter/learning screens and accesses no hardware
+during development.
 
 An explicit primary correction or linked-remote code acquires the existing
 GitUpdate counter owner, then reserves its identity under the TX queue lock.
@@ -16,8 +16,21 @@ any repeater work, TX suspension or a pending restart refuses the edit. There
 is no queue flush or radio operation. Before correction or linking, the loop
 queue must have no pending work (the current popped marker is excluded).
 Otherwise the operation refuses without changing history, preserving an already
-accepted unrelated STOP. File-only recovery does not change that history and
+accepted unrelated STOP. All live shades must also be administratively idle,
+including unrelated motion, held input, unresolved TX and GPIO pulses. This
+counter-edit restriction preserves ongoing/grace STOP context under the current
+global model-history binding; it does not freeze commands. File-only recovery does not change that history and
 retains its existing queue allowance. Locks are released before NVS/file I/O.
+
+Received/browser linking freshly reads retained NVS under the same reservation
+and compares the proposed code with NVS and every live RAM alias. It refuses a
+lower code, including a retained key after unlink and 65535-to-0; only exact key
+absence counts as zero. A read error refuses before writing, without inventing a
+zero value or a new quarantine. Deliberate lowering remains the separate explicit
+primary-counter correction operation. Received-link preflight checks RAM high-water
+before opening NVS, then probes existing storage read-only; only after admission
+may it open a writable namespace. Refused or unreadable learning cannot create
+the namespace.
 
 The NVS writer checks open, set, commit and readback. A definite pre-write
 failure leaves running counters and a proposed new link unchanged. Once a
@@ -38,7 +51,38 @@ new link stay applied; the identity remains quarantined as file pending. An
 explicit file-only recovery can serialize the current model again without
 writing NVS. Only a held known-NVS/file-pending recovery can clear this cause
 after verified file success. Unknown NVS state cannot be cleared this way.
-An unrelated save does not silently clear quarantine.
+An unrelated save does not silently clear quarantine. A browser counter correction
+that applied but failed file persistence closes its original dialog and offers
+only the existing **Retry Commit** action. The Firmware panel also always offers
+**Save current model**, independently of the warning banner; it saves the current
+model file, never writes rolling codes or sends motor commands. That deliberate browser COMMIT carries
+an internal counter-file-recovery mode through the same queue; generic metadata
+file retries and automatic saves cannot clear quarantine. Unknown NVS refuses this
+recovery without another write. Replies reuse existing applied/durable/model-file
+fields; neither the correction nor linking is replayed on persistence retry.
+
+While reserved or quarantined, the exact identity is rejected before counter
+peeking, frame/behaviour changes, GPIO output and scheduler admission. Unrelated
+commands remain available. A group containing a quarantined primary cannot start
+new movement. Its independent My STOP is allowed only for one unambiguous group
+with complete, ordinary RF-compatible members, all currently moving. Mixed/idle,
+toggle/dry-contact, missing-member or same-address alias contexts refuse; there
+is no idle My or fallback transmission. An existing unquarantined alias collision
+can start an idle alias's favourite; this feature preserves ordinary behaviour and
+refuses that ambiguity only for the quarantine STOP exception.
+
+Raw repeater frames captured after reservation/quarantine cannot retransmit the
+blocked identity (or a group start that would affect its primary). Only the
+refused head is retired; later unrelated frames stay in order. Decoding uses a
+copy only while the policy is active. Pre-existing waiting/taken/raw repeater
+work prevents correction admission, so correction does not flush accepted work.
+
+RX still observes motion while blocked counter writes are skipped. The guarantee
+is this requested operation's verified storage, not global RF anti-replay or motor
+acceptance: the existing unblocked RX path accepts a checksum-valid, non-Sensor
+linked frame without a monotonic comparison and can later write a lower code.
+The automatic TX/RX algorithm is unchanged. Future learning UI must independently
+bind candidate freshness, identity, session and observation high-water.
 
 NVS and the model file are separate stores. Managed restart must remain blocked
 while either quarantine cause exists. Sudden power loss between the stores can

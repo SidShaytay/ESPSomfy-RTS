@@ -14,11 +14,15 @@ struct Value { Type type; std::vector<uint8_t> bytes; };
 inline std::map<std::string,Value> values;
 inline std::map<nvs_handle_t,std::string> handles;
 inline int opens, sets, commits, reads, closes, erases;
+inline int readOnlyOpens=0,writeOpens=0;
+inline esp_err_t openError=ESP_FAIL;
+inline bool readOnlyNamespaceMissing=false;
 inline int failOpen, failSet, failCommit, failRead, corruptRead;
+inline void (*beforeGet)()=nullptr;
 inline void reset() {
   values.clear(); handles.clear();
   opens=sets=commits=reads=closes=erases=0;
-  failOpen=failSet=failCommit=failRead=corruptRead=0;
+  failOpen=failSet=failCommit=failRead=corruptRead=0;beforeGet=nullptr;readOnlyOpens=writeOpens=0;openError=ESP_FAIL;readOnlyNamespaceMissing=false;
 }
 inline esp_err_t set(nvs_handle_t h,const char *key,Type type,const void *data,size_t size) {
   if(++sets == failSet || !handles.count(h)) return ESP_FAIL;
@@ -27,6 +31,7 @@ inline esp_err_t set(nvs_handle_t h,const char *key,Type type,const void *data,s
   return ESP_OK;
 }
 inline esp_err_t get(nvs_handle_t h,const char *key,Type type,void *data,size_t *size) {
+  if(beforeGet)beforeGet();
   if(++reads == failRead || !handles.count(h)) return ESP_FAIL;
   auto it=values.find(handles[h]+"/"+key);
   if(it==values.end()) return ESP_ERR_NVS_NOT_FOUND;
@@ -41,8 +46,10 @@ inline esp_err_t get(nvs_handle_t h,const char *key,Type type,void *data,size_t 
   return ESP_OK;
 }
 }
-inline esp_err_t nvs_open(const char *space,int,nvs_handle_t *h) {
-  if(++FakeNvs::opens==FakeNvs::failOpen) return ESP_FAIL;
+inline esp_err_t nvs_open(const char *space,int mode,nvs_handle_t *h) {
+  if(mode==NVS_READONLY)++FakeNvs::readOnlyOpens;else ++FakeNvs::writeOpens;
+  if(++FakeNvs::opens==FakeNvs::failOpen) return FakeNvs::openError;
+  if(mode==NVS_READONLY && FakeNvs::readOnlyNamespaceMissing)return ESP_ERR_NVS_NOT_FOUND;
   *h=FakeNvs::opens;
   FakeNvs::handles[*h]=space;
   return ESP_OK;
