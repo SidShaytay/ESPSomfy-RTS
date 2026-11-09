@@ -647,8 +647,35 @@ static void projection_discard_event_survives_cache_and_session_erasure_once() {
   TEST_ASSERT_TRUE(form.takePrivateProjectionDiscard());
   TEST_ASSERT_FALSE(form.takePrivateProjectionDiscard());
 }
+static void sensor_zero_and_observed_format_are_honest_without_fake_rssi() {
+  Model model;
+  JsonAllocator memory(4096, acquire, release);
+  Advanced::Form form(model, memory);
+  openLearn(form);
+  form.turn(1, 5);
+  form.activate(6);
+  ReceiveObservation event;
+  event.observedAt = 7;
+  event.address = 123;
+  event.rollingCode = 0;
+  event.command = static_cast<uint8_t>(somfy_commands::Sensor);
+  event.protocol = 2;
+  event.bits = 80;
+  event.flags = ReceiveObservation::validFlag;
+  TEST_ASSERT_TRUE(model.received.publish(event));
+  form.activate(8);
+  FormView view;
+  form.render(view);
+  TEST_ASSERT_NOT_NULL(strstr(view.rows[2].label, "Code 0"));
+  TEST_ASSERT_NOT_NULL(strstr(view.rows[2].value, "RTV 80-bit Sensor"));
+  TEST_ASSERT_NOT_NULL(strstr(view.rows[2].value, "RSSI unavailable"));
+  TEST_ASSERT_NOT_NULL(strstr(view.hint, "not a filter"));
+  form.discard();
+  TEST_ASSERT_EQUAL(0, model.links);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(sensor_zero_and_observed_format_are_honest_without_fake_rssi);
   RUN_TEST(projection_discard_event_survives_cache_and_session_erasure_once);
   RUN_TEST(uncertain_nvs_has_no_retry_and_observation_or_queue_expiry_wipes);
   RUN_TEST(

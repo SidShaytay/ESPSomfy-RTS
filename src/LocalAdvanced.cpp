@@ -735,13 +735,17 @@ void Form::render(FormView &out) {
                unsigned(candidate.command));
       const char *command =
           somfyCommandLabel(static_cast<somfy_commands>(candidate.command));
-      snprintf(out.rows[2].value, sizeof(out.rows[2].value),
-               "%s %u-bit %s %ddBm",
+      char signal[20];
+      if (candidate.rssi)
+        snprintf(signal, sizeof(signal), "%ddBm", int(candidate.rssi));
+      else
+        snprintf(signal, sizeof(signal), "RSSI unavailable");
+      snprintf(out.rows[2].value, sizeof(out.rows[2].value), "%s %u-bit %s %s",
                s.selection.protocol == 0   ? "RTS"
                : s.selection.protocol == 1 ? "RTW"
                                            : "RTV",
                unsigned(s.selection.bits), command ? command : rawCommand,
-               int(candidate.rssi));
+               signal);
       strcpy(out.hint,
              "Links address/counter; observed format is not a filter.");
     } else if (s.page == Session::Page::learnPending) {

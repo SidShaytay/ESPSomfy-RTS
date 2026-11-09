@@ -142,12 +142,13 @@ void Canvas::paintEntity(const EntityAdmin::FormView &view) {
     // The complete target ID/title and received address/code/format are part
     // of the same protected frame identity as the default-Cancel actions.
     text(12,53,view.rows[2].label,false,foreground,296);
-    text(12,75,view.rows[2].value,false,muted,296);
+    char first[48],second[48];lines(*this,view.rows[2].value,first,second);
+    text(12,71,first,false,muted,296);text(12,89,second,false,muted,296);
     for(uint8_t i=0;i<2;i++) {
-      const int top=83+i*24;if(view.rows[i].selected)fillRoundRect(8,top,304,22,4,selection);
-      text(14,top+17,view.rows[i].label,false,foreground,284);
+      const int top=96+i*24;if(view.rows[i].selected)fillRoundRect(8,top,304,22,4,selection);
+      text(14,top+15,view.rows[i].label,false,foreground,284);
     }
-    char first[48],second[48];lines(*this,view.hint,first,second);
+    lines(*this,view.hint,first,second);
     text(12,148,first,false,warning,296);text(12,166,second,false,warning,296);return;
   }
   if (view.mode == Mode::result) {
