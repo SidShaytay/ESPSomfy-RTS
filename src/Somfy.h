@@ -61,7 +61,9 @@ class SomfyRemote : public RemoteSettings {
     char *getRemotePrefId() {return m_remotePrefId;}
     virtual void setRemoteAddress(uint32_t address);
     virtual uint32_t getRemoteAddress();
-    uint16_t peekNextRollingCode();
+    // Read-only; false leaves code unchanged and must refuse before dispatch.
+    // A successful zero is the existing 16-bit rollover, not a failure.
+    bool peekNextRollingCode(uint16_t &code);
     void commitRollingCode(uint16_t code);
     // Automatic RX only; explicit corrections/linking use the checked domain.
     virtual uint16_t setRollingCode(uint16_t code);
