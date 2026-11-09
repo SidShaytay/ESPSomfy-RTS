@@ -97,6 +97,20 @@ bool LoopQueue::submit(const loop_item_t &item, bool) {
   learnedMarker = item;
   return true;
 }
+static unsigned primaryWrites=0;
+static bool primaryMatches=true;
+static void (*afterPrimaryRead)()=nullptr;
+CounterDomainState reviewPrimaryCounter(uint8_t id,PrimaryCounterReview &out) {
+  TEST_ASSERT_FALSE(gitUpdate.busy());out={};out.shadeId=id;out.address=100;out.primary=1000;out.stored={1000,true};out.codes[0]=1000;out.matching[0]=1;
+  if(afterPrimaryRead){auto callback=afterPrimaryRead;afterPrimaryRead=nullptr;callback();}
+  return CounterDomainState::saved;
+}
+bool primaryCounterReviewCurrent(uint8_t id,const PrimaryCounterReview &review) {return primaryMatches && id==review.shadeId && review.address==100;}
+CounterDomainResult applyPrimaryCounterCorrection(uint8_t,uint16_t,const PrimaryCounterReview &,CounterCorrectionWitness &witness) {
+  TEST_ASSERT_FALSE(gitUpdate.busy());GitUpdateOwnerToken owner;TEST_ASSERT_TRUE(gitUpdate.acquireExternal(GitUpdateExternalOwner::counter,owner));
+  const bool current=witness.current();if(current)++primaryWrites;TEST_ASSERT_TRUE(gitUpdate.releaseExternal(owner));
+  return current?CounterDomainResult{CounterDomainState::saved,true,{ModelCommitState::saved}}:CounterDomainResult{CounterDomainState::stale};
+}
 static unsigned linkWrites = 0;
 static CounterDomainState linkState = CounterDomainState::saved;
 static void *acquire(size_t n) {
@@ -234,7 +248,7 @@ void setUp() {
   linkState = CounterDomainState::saved;
   queueAccepts = true;
   expireAllocation = restartAllocation = memberMoves = blockAllocation = false;
-  pendingRestart = false;
+  pendingRestart = false;primaryWrites=0;primaryMatches=true;afterPrimaryRead=nullptr;
   file = ModelCommitState::saved;
   TEST_ASSERT_FALSE(gitUpdate.busy());
 }
@@ -541,7 +555,7 @@ static void final_link_witness_auth_queue_owner_and_memory_are_fresh() {
     TEST_ASSERT_EQUAL(0, linkWrites);
     witness.state = LearnQueueReason::ready;
     pendingCount = 0;
-    pendingRestart = false;
+    pendingRestart = false;primaryWrites=0;primaryMatches=true;afterPrimaryRead=nullptr;
     expireAllocation = false;
     if (reason == 3) {
       source().capture(target, context);
@@ -583,8 +597,41 @@ counter_file_retry_uses_shared_special_mode_without_nested_owner_or_link() {
   TEST_ASSERT_EQUAL(RestartReason::counterUncertain, result.report.refusal);
   TEST_ASSERT_EQUAL(0, linkWrites);
 }
+static void primary_counter_read_and_final_apply_share_fresh_context_without_nested_owner() {
+  const Target target{Scope::devices,7};Context context;source().capture(target,context);
+  const auto auth=source().authorization();const auto history=source().revision();
+  PrimaryCounterReview reviewed;
+  auto read=source().readPrimary(target,context,auth,history,reviewed);
+  TEST_ASSERT_EQUAL(Admission::accepted,read.admission);TEST_ASSERT_EQUAL(CounterDomainState::saved,read.state);
+  TEST_ASSERT_EQUAL(1000,reviewed.primary);TEST_ASSERT_TRUE(source().primaryCurrent(target,reviewed));
+  Witness witness;auto result=source().correctPrimary(target,context,auth,history,reviewed,10,witness);
+  TEST_ASSERT_EQUAL(Admission::accepted,result.admission);TEST_ASSERT_TRUE(result.counter.applied);TEST_ASSERT_TRUE(result.counter.file.saved());
+  TEST_ASSERT_EQUAL(1,primaryWrites);TEST_ASSERT_EQUAL(0,linkWrites);TEST_ASSERT_EQUAL(0,applies);
+}
+static void primary_final_read_side_effect_and_witness_changes_refuse_without_correction() {
+  for(unsigned which=0;which<6;++which) {
+    setUp();const Target target{Scope::devices,7};Context context;source().capture(target,context);
+    const auto auth=source().authorization();const auto history=source().revision();PrimaryCounterReview reviewed;
+    if(which==0)afterPrimaryRead=[]{++LocalUi::security.generation;};
+    if(which==1)afterPrimaryRead=[]{pendingCount=1;};
+    if(which==2)afterPrimaryRead=[]{pendingRestart=true;};
+    auto read=source().readPrimary(target,context,auth,history,reviewed);
+    if(which<3) {TEST_ASSERT_EQUAL(which==0?Admission::stale:Admission::busy,read.admission);TEST_ASSERT_FALSE(reviewed.address);continue;}
+    Witness witness;
+    if(which==3)witness.state=LearnQueueReason::expired;
+    if(which==4)primaryMatches=false;
+    GitUpdateOwnerToken owner;if(which==5)TEST_ASSERT_TRUE(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,owner));
+    auto result=source().correctPrimary(target,context,auth,history,reviewed,10,witness);
+    if(which==3)TEST_ASSERT_EQUAL(LearnQueueReason::expired,result.freshness);
+    if(which==4)TEST_ASSERT_EQUAL(Admission::stale,result.admission);
+    if(which==5) {TEST_ASSERT_EQUAL(Admission::busy,result.admission);TEST_ASSERT_TRUE(gitUpdate.releaseExternal(owner));}
+    TEST_ASSERT_EQUAL(0,primaryWrites);
+  }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(primary_counter_read_and_final_apply_share_fresh_context_without_nested_owner);
+  RUN_TEST(primary_final_read_side_effect_and_witness_changes_refuse_without_correction);
   RUN_TEST(checked_link_uses_only_address_counter_and_domain_owned_lease);
   RUN_TEST(final_link_witness_auth_queue_owner_and_memory_are_fresh);
   RUN_TEST(
