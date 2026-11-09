@@ -9,6 +9,8 @@ public:
   explicit ModelLoadTrust(ModelLoadStatus initial=ModelLoadStatus::unknown):value(initial){}
   ModelLoadStatus status()const{return value;}
   bool usable()const{return value==ModelLoadStatus::loaded||value==ModelLoadStatus::absent;}
+  bool publishable()const{return value==ModelLoadStatus::loaded;}
+  void committed(bool saved){if(saved && value==ModelLoadStatus::absent)value=ModelLoadStatus::loaded;}
   bool mayCommit()const{return usable()||recoveryWrite;}
   void fail(){value=ModelLoadStatus::unavailable;recoveryWrite=false;}
   void bootResult(ModelLoadStatus result){value=result;recoveryWrite=false;}
