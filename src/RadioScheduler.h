@@ -34,6 +34,7 @@ class RadioScheduler {
       if(restartSealed || hasWork()) return false;
       restartSealed=true;return true;
     }
+    bool sealedForRestart() const { return restartSealed; }
     void reopenAfterRefusedRestart() { restartSealed=false; }
     // Read-only counter-edit admission checks; include taken/on-air work.
     bool hasPendingFor(uint32_t remoteAddress) const;
