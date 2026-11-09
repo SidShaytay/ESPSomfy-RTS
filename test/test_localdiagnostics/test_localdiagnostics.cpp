@@ -16,7 +16,7 @@ struct Backend : Diagnostics::Backend {
 };
 static void heard(Backend &b,unsigned at,unsigned code,ReceivePulses pulses={}) {
   b.time=at;ReceiveObservation frame;frame.observedAt=at;frame.address=0xabcdef;
-  frame.rollingCode=code;frame.bits=56;frame.rssi=-65;
+  frame.rollingCode=code;frame.bits=56;frame.rssi=-65;frame.command=2;
   b.source.publish(frame,pulses); // Invalid frames remain useful diagnostics.
 }
 static void start(Diagnostics::Form &form){TEST_ASSERT_TRUE(form.open(0));form.turn(1,1);form.activate(2);}
@@ -37,7 +37,10 @@ static void selecting_freezes_all_32_bit_pulses_and_clear_only_wipes_view() {
   unsigned int pulses[300];for(unsigned i=0;i<300;++i)pulses[i]=i+10;pulses[0]=UINT32_MAX;
   heard(b,3,123,{pulses,300,false});pulses[0]=1;
   form.activate(4);TEST_ASSERT_FALSE(b.source.active());
-  for(unsigned i=0;i<15;++i)form.turn(1,5);
+  for(unsigned i=0;i<6;++i)form.turn(1,5);
+  EntityAdmin::FormView metadata;form.render(metadata);
+  TEST_ASSERT_EQUAL_STRING("Up (0x02)",metadata.rows[0].value);
+  for(unsigned i=0;i<9;++i)form.turn(1,5);
   form.activate(6);EntityAdmin::FormView view;form.render(view);
   TEST_ASSERT_NOT_NULL(strstr(view.rows[0].value,"4294967295"));
   TEST_ASSERT_EQUAL(101,view.total);TEST_ASSERT_TRUE(view.protectedFrame);

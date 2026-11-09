@@ -1,6 +1,7 @@
 #include "LocalDiagnostics.h"
 #include "LocalJsonAllocator.h"
 #include "PulseDecoder.h"
+#include "SomfyFrame.h"
 #include <new>
 #include <stdio.h>
 #include <string.h>
@@ -9,6 +10,7 @@ using namespace EntityAdmin;
 namespace {
 void wipe(void *data,size_t size){auto *p=static_cast<volatile unsigned char *>(data);while(size--)*p++=0;}
 constexpr uint8_t detailRows=17,pulsesAction=15;
+static_assert((MAX_TIMINGS+2)/3+1<=255,"Timing rows fit bounded navigation");
 }
 struct Form::Session final:ReceiveSink {
   struct Record {ReceiveObservation frame;unsigned int pulses[MAX_TIMINGS]{};uint16_t count=0;bool clipped=false;} records[2];
@@ -151,7 +153,8 @@ void Form::render(FormView &out)const{
       case 0:case 1:snprintf(row.value,sizeof(row.value),"%llu",static_cast<unsigned long long>(i?f.observedAt:f.sequence));break;
       case 2:snprintf(row.value,sizeof(row.value),"%06lX",static_cast<unsigned long>(f.address));break;
       case 4:snprintf(row.value,sizeof(row.value),"%s (%u)",f.protocol==0?"RTS":f.protocol==1?"RTW":f.protocol==2?"RTV":"Unknown",f.protocol);break;
-      case 6:snprintf(row.value,sizeof(row.value),"0x%02X",f.command);break;
+      case 6:{const auto *name=somfyCommandLabel(static_cast<somfy_commands>(f.command));
+        snprintf(row.value,sizeof(row.value),"%s (0x%02X)",name?name:"Unknown",f.command);break;}
       case 7:case 8:snprintf(row.value,sizeof(row.value),"0x%02X",i==7?f.rawCommand:f.encodingKey);break;
       case 12:case 13:strcpy(row.value,(i==12?f.valid():f.scanning())?"Yes":"No");break;
       case 14:snprintf(row.value,sizeof(row.value),"%u%s",record.count,record.clipped?" (clipped)":"");break;
