@@ -40,6 +40,8 @@ struct Shade {
   bool idleForAdministration() { return idle; }
 };
 struct Group {
+  int8_t direction = 1;
+  somfy_frame_t lastFrame;
   uint8_t id = 255;
   uint32_t address = 200;
   uint64_t configurationRevision = 1;
@@ -55,6 +57,10 @@ struct SomfyShadeController {
   struct {
     uint64_t configurationRevision = 1;
     bool quiet = true;
+    uint32_t blocked = 0;
+    bool counterBlocksIdentity(uint32_t address) {
+      return address && blocked == address;
+    }
     bool restartQuiescent() { return quiet; }
   } transceiver;
   Shade *getShadeById(uint8_t id) {
@@ -74,7 +80,7 @@ LoopQueue loopQueue;
 rebootDelay_t rebootDelay;
 static unsigned pendingCount = 0, applies = 0, commits = 0;
 static bool expireAllocation = false, restartAllocation = false,
-            memberMoves = false;
+            memberMoves = false, blockAllocation = false;
 static ModelCommitState file = ModelCommitState::saved;
 uint32_t LoopQueue::pending() const { return pendingCount; }
 static void *acquire(size_t n) {
@@ -84,6 +90,8 @@ static void *acquire(size_t n) {
     rebootDelay.reboot = true;
   if (memberMoves)
     somfy.shades[0].idle = false;
+  if (blockAllocation)
+    somfy.transceiver.blocked = 100;
   return malloc(n);
 }
 static void release(void *p) { free(p); }
@@ -164,7 +172,7 @@ void setUp() {
   somfy.repeaters[6] = 654321;
   LocalUi::security = {AuthMode::none, true, false, 1, 1};
   pendingCount = applies = commits = 0;
-  expireAllocation = restartAllocation = memberMoves = false;
+  expireAllocation = restartAllocation = memberMoves = blockAllocation = false;
   rebootDelay = {};
   file = ModelCommitState::saved;
   TEST_ASSERT_FALSE(gitUpdate.busy());
@@ -242,7 +250,7 @@ static void refuses_stale_busy_nonmissing_and_nonidle_without_mutation() {
   TEST_ASSERT_EQUAL(revision, somfy.configurationRevision);
 }
 static void final_authority_after_allocation_and_owner_exclusion() {
-  for (unsigned which = 0; which < 3; which++) {
+  for (unsigned which = 0; which < 4; which++) {
     setUp();
     JsonAllocator memory(65536, acquire, release);
     Context context;
@@ -251,6 +259,7 @@ static void final_authority_after_allocation_and_owner_exclusion() {
     expireAllocation = which == 0;
     restartAllocation = which == 1;
     memberMoves = which == 2;
+    blockAllocation = which == 3;
     auto result =
         source().apply(target, {ActionKind::setPaired, 0, 0, true}, context,
                        source().authorization(), source().revision(), memory);
@@ -356,6 +365,67 @@ static void parser_preserves_exact_out_of_capacity_legacy_member_id() {
                                      error));
   TEST_ASSERT_EQUAL(88, expanded["shadeId"].as<unsigned>());
 }
+static void full_association_capacity_and_exact_repeater_context() {
+  for (uint8_t i = 0; i < 7; i++) {
+    somfy.shades[0].linkedRemotes[i].address = 100 + i;
+    somfy.shades[0].linkedRemotes[i].lastRollingCode = 200 + i;
+    somfy.repeaters[i] = 1000 + i;
+  }
+  Item item;
+  TEST_ASSERT_EQUAL(7, source().itemCount({Scope::devices, 7}));
+  TEST_ASSERT_TRUE(source().itemAt({Scope::devices, 7}, 6, item));
+  TEST_ASSERT_EQUAL(106, item.key);
+  TEST_ASSERT_EQUAL(206, item.rollingCode);
+  TEST_ASSERT_EQUAL(7, source().itemCount({Scope::repeaters, 0}));
+  TEST_ASSERT_TRUE(source().itemAt({Scope::repeaters, 0}, 6, item));
+  TEST_ASSERT_EQUAL(1006, item.key);
+  Context context;
+  Target target{Scope::repeaters, 0};
+  source().capture(target, context);
+  somfy.repeaters[0] = 99;
+  JsonAllocator memory(65536, acquire, release);
+  auto result = source().apply(
+      target, {ActionKind::unlinkRepeater, 1006, 6, false}, context,
+      source().authorization(), source().revision(), memory);
+  TEST_ASSERT_EQUAL(Admission::stale, result.admission);
+  TEST_ASSERT_EQUAL(0, applies);
+  TEST_ASSERT_EQUAL(1006, somfy.repeaters[6]);
+}
+static void exact_identity_quarantine_cannot_be_hidden_by_metadata() {
+  JsonAllocator memory(65536, acquire, release);
+  Context context;
+  Target shade{Scope::devices, 7};
+  source().capture(shade, context);
+  somfy.transceiver.blocked = 100;
+  auto result =
+      source().apply(shade, {ActionKind::setPaired, 0, 0, true}, context,
+                     source().authorization(), source().revision(), memory);
+  TEST_ASSERT_EQUAL(Admission::busy, result.admission);
+  TEST_ASSERT_NOT_NULL(strstr(result.reason, "Counter recovery"));
+  TEST_ASSERT_EQUAL(0, applies);
+  somfy.transceiver.blocked = 123456;
+  result = source().apply(shade, {ActionKind::unlinkRemote, 123456, 6, false},
+                          context, source().authorization(),
+                          source().revision(), memory);
+  TEST_ASSERT_EQUAL(Admission::busy, result.admission);
+  TEST_ASSERT_EQUAL(123456, somfy.shades[0].linkedRemotes[6].address);
+  // Quarantine of an unrelated address must not disable missing-member repair
+  // or removal of an unrelated repeater. Neither operation clears quarantine.
+  Target group{Scope::groups, 9};
+  source().capture(group, context);
+  result = source().apply(
+      group, {ActionKind::removeMissingMember, 88, 31, false}, context,
+      source().authorization(), source().revision(), memory);
+  TEST_ASSERT_TRUE(result.edit.applied);
+  TEST_ASSERT_EQUAL(123456, somfy.transceiver.blocked);
+  Target repeaters{Scope::repeaters, 0};
+  source().capture(repeaters, context);
+  result = source().apply(
+      repeaters, {ActionKind::unlinkRepeater, 654321, 6, false}, context,
+      source().authorization(), source().revision(), memory);
+  TEST_ASSERT_TRUE(result.edit.applied);
+  TEST_ASSERT_EQUAL(123456, somfy.transceiver.blocked);
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(read_stable_targets_and_every_physical_association);
@@ -365,5 +435,7 @@ int main() {
   RUN_TEST(repeater_work_pending_queue_and_file_retry);
   RUN_TEST(no_memory_invalid_action_and_uncertain_do_not_replay);
   RUN_TEST(parser_preserves_exact_out_of_capacity_legacy_member_id);
+  RUN_TEST(full_association_capacity_and_exact_repeater_context);
+  RUN_TEST(exact_identity_quarantine_cannot_be_hidden_by_metadata);
   return UNITY_END();
 }

@@ -1,5 +1,6 @@
 #ifdef ESPSOMFY_LOCAL_UI
 #include "LocalAdvancedRuntime.h"
+#include "GroupReadiness.h"
 #include "LegacyRestartSource.h"
 #include "LocalEntityRuntime.h"
 #include "LocalOperationAdmission.h"
@@ -75,14 +76,7 @@ class RuntimeBackend final : public Backend {
       return false;
     // Missing members remain repairable. Only present physical members must
     // be idle; cached group.direction is the last command, not live motion.
-    for (const auto id : group->linkedShades) {
-      if (!id || id == 255)
-        continue;
-      auto *shade = somfy.getShadeById(id);
-      if (shade && !shade->idleForAdministration())
-        return false;
-    }
-    return true;
+    return !readGroupReadiness(somfy, *group).activeMember;
   }
   bool matches(Target target, const Action &action) {
     if (action.kind == ActionKind::setPaired)
@@ -101,6 +95,24 @@ class RuntimeBackend final : public Backend {
                  action.key > 0 && action.key < 255;
       }
     return false;
+  }
+
+  bool identityBlocked(Target target, const Action &action) {
+    uint32_t address = 0;
+    if (action.kind == ActionKind::setPaired) {
+      auto *shade = somfy.getShadeById(target.id);
+      if (shade)
+        address = shade->getRemoteAddress();
+    } else if (action.kind == ActionKind::unlinkRemote ||
+               action.kind == ActionKind::unlinkRepeater)
+      address = action.key;
+    return address && somfy.transceiver.counterBlocksIdentity(address);
+  }
+  static ApplyResult counterRefused() {
+    ApplyResult result;
+    result.admission = Admission::busy;
+    strcpy(result.reason, "Counter recovery is required for this identity.");
+    return result;
   }
 
 public:
@@ -241,6 +253,8 @@ public:
       return {{}, Admission::busy};
     if (!matches(target, action))
       return {{}, Admission::invalid};
+    if (identityBlocked(target, action))
+      return counterRefused();
     ConfigurationLease lease;
     admission = admit(target, context, expected, revision, &lease);
     if (admission != Admission::accepted)
@@ -279,6 +293,8 @@ public:
       return {{}, Admission::busy};
     if (!matches(target, action))
       return {{}, Admission::stale};
+    if (identityBlocked(target, action))
+      return counterRefused();
     model_edit_t edit;
     edit.type = type;
     swap(edit.doc, doc);

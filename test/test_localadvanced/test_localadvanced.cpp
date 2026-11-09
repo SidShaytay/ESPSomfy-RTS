@@ -316,6 +316,33 @@ static void confirmation_names_exact_association_and_configuration_effect() {
   }
   TEST_ASSERT_EQUAL(0, model.saves);
 }
+static void busy_mutation_has_visible_refusal_and_explicit_review_again() {
+  Model model;
+  JsonAllocator memory(4096, acquire, release);
+  Advanced::Form form(model, memory);
+  form.open(Scope::devices, 10);
+  form.activate(11);
+  form.activate(12);
+  form.turn(1, 13);
+  model.refusal = Admission::busy;
+  form.activate(14);
+  FormView view;
+  form.render(view);
+  TEST_ASSERT_EQUAL(Mode::validation, view.mode);
+  TEST_ASSERT_NOT_NULL(strstr(view.hint, "Busy"));
+  TEST_ASSERT_EQUAL(0, model.saves);
+  model.refusal = Admission::accepted;
+  form.activate(15);
+  form.render(view);
+  TEST_ASSERT_EQUAL(Mode::confirm, view.mode);
+  TEST_ASSERT_EQUAL(0, view.selected);
+  form.activate(16);
+  TEST_ASSERT_EQUAL(0, model.saves);
+  form.activate(17);
+  form.turn(1, 18);
+  form.activate(19);
+  TEST_ASSERT_EQUAL(1, model.saves);
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(cancel_is_default_and_rotation_never_applies);
@@ -327,5 +354,6 @@ int main() {
   RUN_TEST(stable_label_identity_is_required);
   RUN_TEST(confirmation_names_exact_association_and_configuration_effect);
   RUN_TEST(linked_remote_list_keeps_readonly_counter_visible);
+  RUN_TEST(busy_mutation_has_visible_refusal_and_explicit_review_again);
   return UNITY_END();
 }

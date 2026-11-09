@@ -7,7 +7,7 @@ namespace LocalUi {
 namespace Advanced {
 using namespace EntityAdmin;
 struct Form::Session {
-  enum class Page : uint8_t { picker, menu, list, confirm, result };
+  enum class Page : uint8_t { picker, menu, list, confirm, result, refused };
   Context context;
   OrderIds ids{}, slots{};
   Authorization auth;
@@ -15,6 +15,7 @@ struct Form::Session {
   Target target;
   Action action;
   Page page = Page::picker, returnPage = Page::menu;
+  char refusal[64]{};
   uint8_t count = 0, cursor = 0, selectedSlot = 0;
   bool paired = false;
 };
@@ -140,6 +141,7 @@ void Form::turn(int direction, uint64_t now) {
   case Session::Page::menu:
   case Session::Page::confirm:
   case Session::Page::result:
+  case Session::Page::refused:
     count = 2;
     break;
   case Session::Page::list:
@@ -149,7 +151,7 @@ void Form::turn(int direction, uint64_t now) {
   if (count)
     s.cursor = (s.cursor + (direction > 0 ? 1 : count - 1)) % count;
 }
-void Form::refused(Admission a) {
+void Form::refused(Admission a, const char *reason) {
   if (a == Admission::noMemory) {
     close(Notice::noMemory);
     return;
@@ -163,6 +165,14 @@ void Form::refused(Admission a) {
     return;
   }
   status = a == Admission::busy ? Notice::busy : Notice::failed;
+  if (session->page != Session::Page::result) {
+    session->page = Session::Page::refused;
+    snprintf(session->refusal, sizeof(session->refusal), "%.63s",
+             reason && *reason ? reason
+             : a == Admission::busy
+                 ? "Busy. Wait for queued or radio work to finish."
+                 : "Configuration refused. Review current state.");
+  }
   session->cursor = 0;
 }
 void Form::apply() {
@@ -170,12 +180,11 @@ void Form::apply() {
   const auto result = backend.apply(s.target, s.action, s.context, s.auth,
                                     s.revision, allocator);
   if (result.admission != Admission::accepted) {
-    refused(result.admission);
+    refused(result.admission, result.reason);
     return;
   }
   if (!result.edit.applied) {
-    status = Notice::failed;
-    s.cursor = 0;
+    refused(Admission::invalid);
     return;
   }
   if (result.edit.persistence.saved()) {
@@ -261,6 +270,15 @@ void Form::activate(uint64_t now) {
     } else
       apply();
     break;
+  case Session::Page::refused:
+    if (s.cursor) {
+      close(Notice::none);
+      return;
+    }
+    s.page = Session::Page::confirm;
+    s.cursor = 0;
+    status = Notice::none;
+    break;
   case Session::Page::result: {
     if (s.cursor) {
       close(Notice::none);
@@ -291,7 +309,11 @@ void Form::back(uint64_t now) {
     return;
   touch(now);
   auto &s = *session;
-  if (s.page == Session::Page::confirm) {
+  if (s.page == Session::Page::refused) {
+    s.page = Session::Page::confirm;
+    s.cursor = 0;
+    status = Notice::none;
+  } else if (s.page == Session::Page::confirm) {
     s.action = {};
     s.page = s.returnPage;
     s.cursor = 0;
@@ -332,7 +354,13 @@ void Form::render(FormView &out) {
     snprintf(out.title, sizeof(out.title), "%s", label.label);
   }
   strcpy(out.hint, "Press: choose   Back: cancel");
-  if (s.page == Session::Page::confirm) {
+  if (s.page == Session::Page::refused) {
+    out.mode = Mode::validation;
+    out.total = out.rowCount = 2;
+    strcpy(out.rows[0].label, "Back to review");
+    strcpy(out.rows[1].label, "Close");
+    snprintf(out.hint, sizeof(out.hint), "%s", s.refusal);
+  } else if (s.page == Session::Page::confirm) {
     out.mode = Mode::confirm;
     out.total = out.rowCount = 2;
     strcpy(out.rows[0].label, "Cancel");

@@ -1,15 +1,15 @@
 # Advanced configuration
 
-The Advanced component is not connected to production navigation yet. This
-checkpoint supplies the bounded screen state and production metadata backend. It does not
-implement radio commands, learning, counter changes or Favorite programming.
+Use **Home → Administration → Devices/Groups → Advanced** to select a configured
+device or group. Open **Administration → More → Repeaters** for repeater entries.
+These screens change configuration only; RF programming, learning, counter
+correction and Favorite programming are separate workflows.
 
-The approved first screen flow is Administration → More, with Advanced selectors
-for configured devices and groups, and a repeater list. Existing entry positions
-are preserved. Device/group selection uses stable IDs and cached physical slots,
-with the ID shown before the name. Every screen is protected from capture.
+Advanced follows Reorder, preserving existing list entry positions. More is the
+fourth paginated Administration entry. Select the target explicitly by its stable
+ID; the ID appears before its name. All these screens are protected from capture.
 
-The first operations change configuration only:
+You can:
 
 - Change the paired marker, without claiming the motor paired or unpaired.
 - Remove a linked remote association.
@@ -48,7 +48,7 @@ never represented by an invented entity ID. The runtime backend must freshly
 validate the chosen association and all applicable idle/owner admission rules
 before applying a shared domain operation.
 
-Native component tests cover Cancel, file-only retry, busy retry, allocation
+Native and actual encoder/Runtime tests cover Cancel, file-only retry, busy retry, allocation
 failure, timeout, all 32 picker entries, stable-ID label validation and context or
 authorization changes. Releases inspect every returned byte for zeroization.
 The isolated model harness compiles the actual group edit branch and actual
@@ -70,3 +70,18 @@ quiescent query without sealing, flushing or cancelling accepted work. Shared
 and notification outcomes. Only the first changes metadata. Linked-remote lists
 retain the current read-only rolling-code display; no counter correction API is
 exposed by these screens.
+
+A quarantined counter identity cannot be hidden by changing its paired marker or
+removing that linked remote/repeater association. The refusal explains that counter
+recovery is required. Unrelated metadata and missing-member repair remain available
+under their normal admission rules. Saving or removing unrelated configuration
+does not clear counter quarantine, and a saved model file does not certify NVS
+counter recovery.
+
+The integrated tests use the actual configuration-owner service with scripted
+model/file boundaries. They cover unseen launchers and confirmations during SPI
+contention, applied file failure and COMMIT-only retry, all physical list slots,
+read-only rolling codes, missing member ID 88, radio-busy refusal, identity
+quarantine, and graphics/sleep erasure. The runtime uses its unchanged 4096-byte
+allocator cap with target-like JSON pools; this is an allocation-path check rather
+than a physical heap benchmark.

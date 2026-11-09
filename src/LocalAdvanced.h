@@ -79,7 +79,7 @@ class Form {
   void touch(uint64_t);
   bool select();
   void apply();
-  void refused(EntityAdmin::Admission);
+  void refused(EntityAdmin::Admission, const char *reason = nullptr);
 
 public:
   static constexpr uint64_t timeoutMs = 120000;
