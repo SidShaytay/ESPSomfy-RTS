@@ -26,6 +26,7 @@ const char *refusal(RestartReason value) {
   case RestartReason::persistenceBusy:return "Storage or update active. Finish it before Restart.";
   case RestartReason::counterUncertain:return "Counter storage uncertain. Resolve counter failure first.";
   case RestartReason::activeMovement:return "Movement or GPIO pulse active. Wait before Restart.";
+  case RestartReason::modelUnavailable:return "Model not loaded. Use a verified full model restore.";
   case RestartReason::unknownGroup:return "Group motion unknown. Review missing or untracked members.";
   }
   return "Restart refused. Review device state before trying again.";
