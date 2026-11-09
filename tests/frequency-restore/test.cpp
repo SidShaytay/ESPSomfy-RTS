@@ -21,8 +21,9 @@ static std::atomic<bool> scanEmitPending{false};
 static unsigned storageWrites=0,enabled=0,driverWrites=0;
 static constexpr int INPUT=0,CHANGE=1,TX_SUSPEND_SCAN=2;
 static constexpr unsigned portMAX_DELAY=1000;
+static void (*duringLock)()=nullptr;
 static bool lockAvailable=true;static unsigned lastWait=portMAX_DELAY;
-struct RadioLock{bool locked;explicit RadioLock(unsigned wait=portMAX_DELAY,bool=false):locked(lockAvailable){lastWait=wait;}};
+struct RadioLock{bool locked;explicit RadioLock(unsigned wait=portMAX_DELAY,bool=false):locked(lockAvailable){lastWait=wait;if(locked && duringLock){auto action=duringLock;duringLock=nullptr;action();}}};
 static void pinMode(int,int){}
 static int digitalPinToInterrupt(int pin){return pin;}
 static void attachInterrupt(int,void(*)(),int){}
@@ -48,6 +49,7 @@ struct Transceiver {
  void processFrequencyScan(bool=false);void emitFrequencyScan(){}void serviceScanStop();
 };
 #include "scan.inc"
+static Transceiver *stopDuringLock=nullptr;
 int main(){
  for(uint8_t prior:{0,1}) {
   Transceiver radio;rxmode=prior;enabled=storageWrites=driverWrites=0;
@@ -69,5 +71,12 @@ int main(){
  lockAvailable=true;scanNow=200;lastScan=0;radio.processFrequencyScan(false);
  assert(driverWrites==writes && rxmode==3);
  radio.serviceScanStop();assert(rxmode==1 && !scanStopRequested.load() && !storageWrites);
+ // A Stop may arrive after process checked the latch but before acquiring its lock.
+ rxmode=1;radio.beginFrequencyScan();stopDuringLock=&radio;
+ const auto beforeRace=driverWrites;scanNow=500;lastScan=0;
+ duringLock=[] {lockAvailable=false;stopDuringLock->endFrequencyScan();lockAvailable=true;};
+ radio.processFrequencyScan(false);
+ assert(scanStopRequested.load() && driverWrites==beforeRace && "Stop arriving during lock admission must prevent retuning");
+ radio.serviceScanStop();
  puts("Actual frequency scan end restores configured tuning and prior RX without NVS");
 }

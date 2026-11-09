@@ -326,7 +326,7 @@ void Transceiver::beginFrequencyScan() {
 void Transceiver::processFrequencyScan(bool received) {
   if(scanStopRequested.load()) return;
   RadioLock lock(0);
-  if(!lock.locked) return;
+  if(!lock.locked || scanStopRequested.load()) return;
   if(this->available() && rxmode == 3) {
     if(received) {
       currRSSI = ELECHOUSE_cc1101.getRssi();
