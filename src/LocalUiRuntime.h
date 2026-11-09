@@ -6,7 +6,9 @@
 #include "LocalSettingsRuntime.h"
 #include "LocalAdministration.h"
 #include "LocalSystem.h"
+#include "LocalWifiScan.h"
 namespace LocalUi {
+static_assert(sizeof(System::Form)+sizeof(WifiScan::Form)+2<=128,"System/WiFi state borrows existing presentation storage");
 class Runtime {
 #ifdef UI_RUNTIME_HOST_TEST
   friend struct RuntimeTestAccess;
@@ -19,7 +21,8 @@ class Runtime {
   Settings::FormView frameSettings, presentedSettings;
   Administration administration;
   System::Form systemForm{System::runtimeBackend()};
-  bool systemActive=false;
+  WifiScan::Form wifiScanForm{WifiScan::runtimeBackend(),Settings::runtimeMemory()};
+  bool systemActive=false,wifiScanActive=false;
   EntityAdmin::FormView frameAdministration,presentedAdministration;
   uint64_t frameAdministrationEpoch=0,presentedAdministrationEpoch=0;
   bool administrationActive=false,presentedAdministrationValid=false;
