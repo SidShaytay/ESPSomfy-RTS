@@ -9,6 +9,7 @@
 #include "Utils.h"
 #include "RollingCode.h"
 #include "LoopQueue.h"
+#include "SafeRestart.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include <nvs.h>
@@ -33,7 +34,10 @@ static std::mutex txLock;
 struct TxQueueLock {std::lock_guard<std::mutex> held;TxQueueLock():held(txLock){}};
 SomfyShadeController::SomfyShadeController() : startingAddress(100) {}
 SomfyShadeController somfy;
-rebootDelay_t rebootDelay;
+static bool pendingRestart=false;
+bool restartPending(){return pendingRestart;}
+// Queue/history forwarding is exercised by the actual queue/service harness.
+void noteRestartOperationAccepted(){}
 static unsigned fileWrites=0,forbidden=0,setupFrames=0;
 static bool allowSetupSend=false;
 static unsigned long modelNow=1;
@@ -77,7 +81,7 @@ void SomfyShade::emitCommand(somfy_commands,const char*,uint32_t){}
 #include "../../src/ExplicitCounter.cpp"
 static constexpr uint32_t address=12345;
 static void reset() {
-  assert(!gitUpdate.busy() && !forbidden);FakeNvs::reset();rebootDelay={};fileWrites=forbidden=setupFrames=0;allowSetupSend=false;modelNow=1;fileResult={ModelCommitState::saved};
+  assert(!gitUpdate.busy() && !forbidden);FakeNvs::reset();pendingRestart=false;fileWrites=forbidden=setupFrames=0;allowSetupSend=false;modelNow=1;fileResult={ModelCommitState::saved};
   memset(diskShade,0,sizeof(diskShade));memset(diskGroup,0,sizeof(diskGroup));memset(diskLinks,0,sizeof(diskLinks));
   tx_queue.length=0;somfy.transceiver.sched={};somfy.transceiver.counterEdits={};somfy.configurationRevision=1;
   for(auto &s:somfy.shades){s.clear();s.lastFrame={};s.gpioRelease=0;s.configurationRevision=1;}
@@ -193,7 +197,7 @@ int main(int argc,char **argv) {
   reset();GitUpdateOwnerToken foreign;assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,foreign));
   assert(correctExplicitCounter(7,100).state==CounterDomainState::busy && !FakeNvs::opens);
   assert(gitUpdate.ownsExternal(foreign));assert(gitUpdate.releaseExternal(foreign));
-  reset();rebootDelay.reboot=true;assert(!correctExplicitCounter(7,100).saved() && !FakeNvs::opens);
+  reset();pendingRestart=true;assert(!correctExplicitCounter(7,100).saved() && !FakeNvs::opens);
   reset();auto &related=somfy.groups[2];related.setGroupId(9);related.setRemoteAddress(654);related.linkedShades[0]=7;
   somfy_tx_job_t job;job.frame.remoteAddress=654;
   assert(somfy.transceiver.sched.submit(job,false,0,0));

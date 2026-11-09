@@ -1,12 +1,11 @@
 #include "ExplicitCounter.h"
 #include "Somfy.h"
 #include "GitUpdate.h"
-#include "LegacyRestartSource.h"
+#include "SafeRestart.h"
 #include "Utils.h"
 #include "LoopQueue.h"
 #include "GroupReadiness.h"
 extern SomfyShadeController somfy;
-extern rebootDelay_t rebootDelay;
 extern LoopQueue loopQueue;
 namespace {
 static_assert(SOMFY_MAX_SHADES<=32 && SOMFY_MAX_GROUPS<=16,"Keep affected-target masks bounded");
@@ -85,7 +84,7 @@ CounterDomainResult correct(SomfyShade &shade,uint32_t address,uint16_t code,Som
   Owner owner;if(!owner)return {CounterDomainState::busy};
   const auto context=affected(address,slot ? &shade : nullptr);
   if(loopQueue.pending())return {CounterDomainState::busy};
-  const auto admitted=somfy.transceiver.reserveCounterEdit(address,context.idle,context.groups,snapshotLegacyRestart(rebootDelay).reboot);
+  const auto admitted=somfy.transceiver.reserveCounterEdit(address,context.idle,context.groups,restartPending());
   if(admitted!=CounterEditAdmission::admitted)return {admission(admitted)};
   const auto persisted=persistExplicitCounter(address,code);
   if(!persisted.saved()) {
@@ -121,7 +120,7 @@ CounterDomainResult linkExplicitRemote(uint8_t shadeId,uint32_t address,uint16_t
 }
 CounterDomainResult recoverExplicitCounterFile() {
   Owner owner;if(!owner)return {CounterDomainState::busy};
-  const auto admitted=somfy.transceiver.reserveCounterFileRecovery(snapshotLegacyRestart(rebootDelay).reboot);
+  const auto admitted=somfy.transceiver.reserveCounterFileRecovery(restartPending());
   if(admitted!=CounterEditAdmission::admitted)return {admission(admitted)};
   const auto file=somfy.commit();somfy.transceiver.finishCounterFileRecovery(file);
   return {file.saved() ? CounterDomainState::saved : file.state==ModelCommitState::uncertain ? CounterDomainState::modelUncertain : CounterDomainState::modelFailed,false,file};

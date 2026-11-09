@@ -1,5 +1,7 @@
 #include <unity.h>
+#include <initializer_list>
 #include "LoopQueue.h"
+#include "ProtoSchema.h"
 
 static loop_item_t request(shade_request_type_t type) {
   loop_item_t item;
@@ -77,10 +79,26 @@ static void test_local_markers_are_small_and_use_the_exact_protocol_flag() {
   local.localRadio=false;TEST_ASSERT_FALSE(loopItemUsesRadio(local));TEST_ASSERT_FALSE(holdLoopItem(local,false,false));
   local.localRadio=true;local.localToken=0;TEST_ASSERT_FALSE(loopItemUsesRadio(local));
 }
+static void only_accepted_mutating_operations_invalidate_restart_history() {
+  for(auto type:{loop_item_type_t::shade_request,loop_item_type_t::restore_shades,
+      loop_item_type_t::model_edit,loop_item_type_t::model_commit,loop_item_type_t::local_control})
+    TEST_ASSERT_TRUE(loopItemMutates(item(type)));
+  TEST_ASSERT_FALSE(loopItemMutates(item(loop_item_type_t::proto_read)));
+  auto device=item(loop_item_type_t::proto_device);
+  for(auto op:{proto_type_t::getSettings,proto_type_t::reboot}) {
+    device.op=uint8_t(op);TEST_ASSERT_FALSE(loopItemMutates(device));
+  }
+  for(auto op:{proto_type_t::saveSettings,proto_type_t::scanWifi,proto_type_t::beginFrequencyScan,
+      proto_type_t::endFrequencyScan,proto_type_t::commitModel}) {
+    device.op=uint8_t(op);TEST_ASSERT_TRUE(loopItemMutates(device));
+  }
+  device.op=255;TEST_ASSERT_TRUE(loopItemMutates(device)); // Unknown future work fails conservatively.
+}
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(only_accepted_mutating_operations_invalidate_restart_history);
   RUN_TEST(test_only_position_and_rolling_code_requests_stay_off_the_radio);
   RUN_TEST(test_off_radio_items_are_never_held);
   RUN_TEST(test_radio_request_waits_for_room);

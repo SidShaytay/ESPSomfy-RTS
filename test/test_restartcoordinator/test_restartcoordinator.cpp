@@ -120,10 +120,12 @@ static void exclusive_update_refuses_missing_history_bindings_without_a_lease() 
   for(unsigned field=0;field<2;++field) {
     StorageLeaseGate storage;RestartCoordinator coordinator(storage);RestartObservation current;
     if(field==0)current.modelConfigurationRevision=0;else current.operationEpoch=0;
-    StorageLease token;TEST_ASSERT_FALSE(coordinator.acquireUpdate(current,token));
+    StorageLease token;TEST_ASSERT_FALSE(coordinator.updatePrecheck(current));
+    TEST_ASSERT_FALSE(coordinator.acquireUpdate(current,token));
     TEST_ASSERT_FALSE(storage.busy());TEST_ASSERT_EQUAL_UINT64(0,token.generation);
     current.modelConfigurationRevision=current.operationEpoch=1;
-    TEST_ASSERT_TRUE(coordinator.acquireUpdate(current,token));TEST_ASSERT_TRUE(storage.release(token));
+    TEST_ASSERT_TRUE(coordinator.updatePrecheck(current));
+    TEST_ASSERT_TRUE(coordinator.acquireUpdate(current,token));TEST_ASSERT_FALSE(coordinator.updatePrecheck(current));TEST_ASSERT_TRUE(storage.release(token));
   }
 }
 int main() {

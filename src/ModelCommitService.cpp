@@ -2,13 +2,12 @@
 #include "LoopQueue.h"
 #include "Somfy.h"
 #include "Utils.h"
-#include "LegacyRestartSource.h"
-#include "LegacyRestartGuard.h"
+#include "SafeRestart.h"
 #include "outputs/ProtoSocket.h"
 #include <esp_timer.h>
 extern LoopQueue loopQueue;
 extern SomfyShadeController somfy;
-extern rebootDelay_t rebootDelay;
+
 namespace {
 uint64_t now() { return uint64_t(esp_timer_get_time())/1000; }
 void notify(const proto_reply_to_t &to,ModelCommitReport report) {
@@ -17,28 +16,19 @@ void notify(const proto_reply_to_t &to,ModelCommitReport report) {
 ModelCommitReport commit(const proto_reply_to_t &to,ModelCommitMode mode,const GitUpdateOwnerToken *owner) {
   ModelCommitReport report{somfy.commit()};
   const bool requested=mode==ModelCommitMode::applicationRecoveryAndRestart && report.file.saved();
-  RestartResult admission;
   if(requested) {
-    if(loopQueue.pending()) admission={false,RestartReason::queuedOperations};
-    else if(owner) admission={gitUpdate.transferRestartHeld(*owner,now()),RestartReason::stale};
-    else admission=legacyGenericRestartAdmission();
-    if(snapshotLegacyRestart(rebootDelay).reboot) admission={false,RestartReason::pending};
+    RestartResult admission;
+    if(owner) {
+      // Retire this exact file-operation claim before handing the source to
+      // restart admission; no callback/cleanup can overtake a held claim.
+      admission=gitUpdate.finishTransfer(*owner,now(),false)
+          ? requestOwnedRestart(*owner,500) : RestartResult{false,RestartReason::stale};
+    } else admission=requestRestart(500);
     report.restartDeferred=!admission.admitted;
-    if(report.restartDeferred) report.refusal=admission.reason;
+    report.refusal=admission.reason;
     report.rebooting=admission.admitted;
   }
   notify(to,report);
-  // Owned recovery retains its operation claim through notification and source
-  // publication; another upload/counter edit cannot replace that authority.
-  if(report.rebooting) {
-    const auto published=owner
-        ? publishExternalLegacyRestart(rebootDelay,millis()+500,owner->generation,uint8_t(owner->kind))
-        : publishGenericLegacyRestart(rebootDelay,millis()+500);
-    if(!published.admitted) {
-      report.rebooting=false;report.restartDeferred=true;report.refusal=published.reason;
-      protoSocket.modelPersistence(report,to.client);
-    }
-  }
   return report;
 }
 }
@@ -62,6 +52,5 @@ void runModelCommit(const loop_item_t &item) {
   const auto mode=item.restartAfterCommit ? ModelCommitMode::applicationRecoveryAndRestart : ModelCommitMode::save;
   const auto result=commit(item.replyTo,mode,owner.generation ? &owner : nullptr);
   if(!owner.generation) return;
-  if(result.rebooting) gitUpdate.finishTransfer(owner,now(),false);
-  else if(gitUpdate.closeTransfer(owner)) gitUpdate.releaseExternal(owner);
+  if(!result.rebooting && gitUpdate.closeTransfer(owner)) gitUpdate.releaseExternal(owner);
 }

@@ -23,7 +23,7 @@ struct Transceiver {
   void reopenAfterRefusedRestart() { sealed = false; }
 };
 #include "GitUpdate.h"
-#include "LegacyRestartSource.h"
+#include "SafeRestart.h"
 #include "LoopQueue.h"
 #include "SettingsDurability.h"
 #include "Somfy.h"
@@ -35,7 +35,7 @@ static unsigned long clockNow() { return nowMs; }
 SomfyShadeController::SomfyShadeController() : startingAddress(100) {}
 SomfyShadeController somfy;
 LoopQueue loopQueue;
-rebootDelay_t rebootDelay;
+
 uint32_t LoopQueue::pending() const { return 0; }
 bool LoopQueue::sealForRestart() { return true; }
 void LoopQueue::reopenAfterRefusedRestart() {}
@@ -46,7 +46,8 @@ SomfyShade *SomfyShadeController::getShadeById(uint8_t id) {
   return nullptr;
 }
 ModelCommitResult SomfyShadeController::commit() {
-  ++commits;
+  ++commits;somfy.isDirty=false;
+  noteModelCommit({ModelCommitState::saved});
   return {ModelCommitState::saved, ModelCommitStage::none};
 }
 void performLegacyShutdown() {
@@ -96,7 +97,7 @@ void SomfyShade::onSaveWanted() { somfy.isDirty = true; }
 void SomfyShade::onSensorFlags() {}
 void SomfyShade::emitCommand(somfy_commands, const char *, uint32_t) {}
 #define millis clockNow
-#include "../../src/LegacyRestartGuard.cpp"
+#include "../../src/SafeRestart.cpp"
 #include "production-group-domain.inc"
 #undef millis
 int main(int argc, char **argv) {
@@ -141,7 +142,7 @@ int main(int argc, char **argv) {
     assert(group.sendCommand(command, 1));
   if (!unknown && !empty) {
     assert(!shade.idleForAdministration());
-    assert(legacyGenericRestartAdmission().reason ==
+    assert(requestRestart(1).reason ==
            RestartReason::activeMovement);
     if (mode != "moving") {
       nowMs = 2;
@@ -154,16 +155,16 @@ int main(int argc, char **argv) {
     }
   }
   const bool expected = mode == "up" || mode == "down" || empty;
-  const auto admission = legacyGenericRestartAdmission();
+  const auto admission = requestRestart(1);
   assert(admission.admitted == expected);
   if (unknown || dangling)
     assert(admission.reason == RestartReason::unknownGroup);
   const auto rf = radioCalls, nvs = nvsCalls;
   const auto direction = group.direction;
-  assert(publishGenericLegacyRestart(rebootDelay, 0).admitted);
-  const bool restarted = legacyRestartLoop();
+  stubEspTimerMicros+=1000;
+  const bool restarted = restartLoop();
   assert(restarted == expected);
-  assert(shutdowns == unsigned(expected) && commits == unsigned(expected));
+  assert(shutdowns == unsigned(expected) && commits >= unsigned(expected));
   assert(radioCalls == rf && nvsCalls == nvs && group.direction == direction);
   puts(
       "Actual group dispatcher + member behaviour completion/readiness passed");

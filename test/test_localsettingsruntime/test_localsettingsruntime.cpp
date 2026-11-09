@@ -25,8 +25,10 @@ settings_apply_result_t applyDeviceSettings(settings_section_t section,JsonObjec
   TEST_ASSERT_EQUAL_STRING("local-name",request["hostname"].as<const char *>());
   ++saves; origin=caller; return {};
 }
+static bool pendingRestart=false;
+bool restartPending(){return pendingRestart;}
 #include "../../src/LocalSettingsRuntime.cpp"
-void setUp() { state={LocalUi::AuthMode::pin,true,false,3,5,0}; frozen=false;sectionRevision=1;saves=reads=activities=0;origin=99;pendingItems=0; }
+void setUp() { pendingRestart=false; state={LocalUi::AuthMode::pin,true,false,3,5,0}; frozen=false;sectionRevision=1;saves=reads=activities=0;origin=99;pendingItems=0; }
 void tearDown() {}
 struct Sink : SettingsSnapshotSink { void field(proto_field_t,const settings_value_t &) override {} };
 static JsonDocument request() { JsonDocument doc; doc["hostname"]="local-name"; return doc; }
@@ -82,8 +84,14 @@ static void pending_work_refuses_save_without_hiding_later_auth_changes() {
   TEST_ASSERT_EQUAL(settings_apply_refusal_t::unauthorized,backend.apply(settings_section_t::general,doc.as<JsonObject>(),expected,1).refusal);
   TEST_ASSERT_EQUAL(1,saves);
 }
+static void admitted_or_queued_restart_refuses_local_settings_before_effects() {
+  auto &backend=LocalUi::Settings::runtimeBackend();auto doc=request();
+  const auto expected=backend.authorization();pendingRestart=true;
+  const auto result=backend.apply(settings_section_t::general,doc.as<JsonObject>(),expected,1);
+  TEST_ASSERT_EQUAL(settings_apply_refusal_t::busy,result.refusal);TEST_ASSERT_EQUAL(0,saves);
+}
 int main() {
-  UNITY_BEGIN();
+  UNITY_BEGIN();RUN_TEST(admitted_or_queued_restart_refuses_local_settings_before_effects);
   RUN_TEST(current_authorized_draft_uses_loop_owned_shared_domain);
   RUN_TEST(fresh_expiry_or_auth_replacement_refuses_before_storage);
   RUN_TEST(same_value_section_save_and_invalid_history_refuse_stale_drafts);

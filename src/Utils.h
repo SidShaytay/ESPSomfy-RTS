@@ -45,13 +45,6 @@ static void _rtrim(char *str) {
   while(e >= 0 && (str[e] == ' ' || str[e] == '\n' || str[e] == '\r' || str[e] == '\t' || str[e] == '"')) {str[e] = '\0'; e--;}
 }
 [[maybe_unused]] static void _trim(char *str) { _ltrim(str); _rtrim(str); }
-struct rebootDelay_t {
-  bool reboot = false;
-  int rebootTime = 0;
-  bool closed = false;
-  uint64_t externalOwnerGeneration = 0;
-  uint8_t externalOwnerKind = 0;
-};
 [[maybe_unused]] static bool toBoolean(const char *str, bool def) {
   if(!str) return def;
   if(strlen(str) == 0) return def;

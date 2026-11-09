@@ -67,6 +67,8 @@ public:
   // Atomic handoff to the same non-expiring owner, held through actual shutdown.
   // A nonzero expected source never falls back to a generic owner-none restart.
   bool acquireRestart(GitUpdateOwnerToken &result,uint64_t now,const GitUpdateOwnerToken &expected = {});
+  // Cancel only an exact completed source before restart handoff; no I/O claim/resource may remain.
+  bool releaseRestartSource(const GitUpdateOwnerToken &,uint64_t now);
   bool finishTransfer(const GitUpdateOwnerToken &,uint64_t now,bool progress);
   bool retireTransfer(const GitUpdateOwnerToken &);
   ManualUpdateCleanup claimTransferCleanup(uint64_t now);
