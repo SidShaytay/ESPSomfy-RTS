@@ -28,7 +28,7 @@ bool LoopQueue::submit(const loop_item_t &item, bool first) {
   producers.fetch_add(1);
   // A producer observed before sealing keeps it from completing; a producer
   // arriving after sealing cannot enqueue. No mutex spans an RTOS queue call.
-  if(restartSealed.load()) {producers.fetch_sub(1);return false;}
+  if(restartSealed.load() || !protoSocket.acceptsMutation(item)) {producers.fetch_sub(1);return false;}
   // async_tcp also services the sockets, so it must never wait on loop() or
   // the radio.
   QueueHandle_t q = static_cast<QueueHandle_t>(this->queue);
@@ -40,6 +40,18 @@ bool LoopQueue::submit(const loop_item_t &item, bool first) {
     return false;
   }
   return true;
+}
+bool LoopQueue::beginSocketMutation(uint32_t clientId) {
+  if(!queue || restartSealed.load())return false;
+  producers.fetch_add(1);
+  if(restartSealed.load() || !protoSocket.acceptsClientMutation(clientId)){
+    producers.fetch_sub(1);return false;
+  }
+  return true;
+}
+void LoopQueue::endSocketMutation(bool accepted) {
+  if(accepted)noteRestartOperationAccepted();
+  producers.fetch_sub(1);
 }
 bool LoopQueue::sealForRestart() {
   bool expected=false;
@@ -63,6 +75,9 @@ void LoopQueue::drain() {
   loop_item_t item;
   // Items run in order, so only the one at the head can be held back.
   while(xQueuePeek(q, &item, 0) == pdTRUE) {
+    if(!protoSocket.acceptsMutation(item)){
+      xQueueReceive(q,&item,0);protoSocket.discardRetiredMutation(item);continue;
+    }
 #ifdef ESPSOMFY_LOCAL_UI
     if(item.type == loop_item_type_t::local_advanced && !LocalUi::localLearnTokenActive(item.localToken)) {
       xQueueReceive(q,&item,0);continue;

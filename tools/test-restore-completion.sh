@@ -8,7 +8,7 @@ python3 - "$repo" "$scratch/socket.inc" <<'PY'
 from pathlib import Path
 import sys
 text=(Path(sys.argv[1])/'src/outputs/ProtoSocket.cpp').read_text();out=[]
-for name in ['beginEvent','finishEvent','ProtoSocket::hasClients','ProtoSocket::sending','ProtoSocket::resyncAll','ProtoSocket::modelPersistence']:
+for name in ['beginEvent','finishEvent','ProtoSocket::hasClients','ProtoSocket::sending','ProtoSocket::retireModelSessions','ProtoSocket::modelPersistence']:
  a=text.index(name+'(');start=text.rfind('\n',0,a)+1;b=text.index('{',a);end=b+1;depth=1
  while depth:depth+=(text[end]=='{')-(text[end]=='}');end+=1
  out.append(text[start:end])

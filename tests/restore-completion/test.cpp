@@ -15,8 +15,8 @@ static char frameBuffer[PROTO_MAX_FRAME];
 static BufferedJsonFormatter eventJson;
 static bool loopAllowed=true;
 static bool onLoopTask(){return loopAllowed;}
-struct Wire {bool drop=false;std::vector<std::pair<uint32_t,std::string>> messages;bool text(uint32_t id,const char *bytes,size_t count){if(drop)return false;messages.emplace_back(id,std::string(bytes,count));return true;}}ws;
-class ProtoSocket {public:bool hasClients()const;bool sending()const;void resyncAll();void modelPersistence(ModelCommitReport,uint32_t=0);}protoSocket;
+struct Wire {std::vector<uint32_t> closed;void close(uint32_t id){closed.push_back(id);}bool drop=false;std::vector<std::pair<uint32_t,std::string>> messages;bool text(uint32_t id,const char *bytes,size_t count){if(drop)return false;messages.emplace_back(id,std::string(bytes,count));return true;}}ws;
+class ProtoSocket {public:bool hasClients()const;bool sending()const;void retireModelSessions();void modelPersistence(ModelCommitReport,uint32_t=0);}protoSocket;
 struct MqttConnection {bool suspended=true;uint64_t lastConnect=99;unsigned disconnects=0;bool disconnect(){++disconnects;return true;}}mqtt;
 #include "socket.inc"
 #include "../../src/RestoreCompletion.cpp"
@@ -35,8 +35,8 @@ int main(){
  result.modelApplied=true;result.modelFile={ModelCommitState::failed,ModelCommitStage::write};
  completeRestoreModel(result);assert(ws.messages.size()==2&&ws.messages[0].first==11&&ws.messages[1].first==22&&mqtt.disconnects==1&&mqtt.lastConnect==0&&mqtt.suspended);
  for(auto &message:ws.messages){JsonDocument doc;assert(!deserializeJson(doc,message.second));assert(doc["t"]==static_cast<unsigned>(proto_type_t::modelPersistence));assert(doc["d"][protoField(proto_field_t::modelSaveState).key]==int(ModelCommitState::failed));assert(!doc["d"][protoField(proto_field_t::durable).key].as<bool>());}
- for(unsigned i=0;i<2;++i){assert(slots[i].wants.load()&WANTS_SYNC_AGAIN);assert(nextSyncStep(slots[i],100)==sync_step_t::send);assert(slots[i].cur.section==sync_section_t::header&&slots[i].cur.index==0);Source source;char bytes[4096];assert(writeSyncFrame(source,slots[i].cur,bytes,sizeof(bytes)));assert(!slots[i].cur.active());}
- assert(!slots[2].wants.load());
+ for(unsigned i=0;i<2;++i){assert(!clientMayMutate(slots,PROTO_MAX_CLIENTS,slots[i].clientId.load()));slots[i].wants.fetch_or(WANTS_NEXT|WANTS_SYNC_AGAIN);nextSyncStep(slots[i],100);assert(!clientMayMutate(slots,PROTO_MAX_CLIENTS,slots[i].clientId.load()));}
+ assert(ws.closed.size()==2&&!slots[2].wants.load());
  // Returned applied MQTT proof includes the deferred hook: do not duplicate it.
  ws.messages.clear();mqtt.disconnects=0;mqtt.lastConnect=99;
  result.modelFile={ModelCommitState::saved};
@@ -48,5 +48,5 @@ int main(){
  completeRestoreModel(result);assert(mqtt.disconnects==1&&mqtt.lastConnect==0);
  // Transport failure cannot prevent reducing-authority broker cleanup.
  ws.drop=true;const auto calls=mqtt.disconnects;completeRestoreModel(result);assert(mqtt.disconnects==calls+1);
- clear();loopAllowed=false;protoSocket.resyncAll();assert(!slots[0].wants.load());
+ clear();loopAllowed=false;protoSocket.retireModelSessions();assert(!slots[0].wants.load());
 }

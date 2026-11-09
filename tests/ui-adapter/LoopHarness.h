@@ -48,6 +48,9 @@ inline void runDeviceOp(const loop_item_t &) {}
 inline void runModelCommit(const loop_item_t &) {}
 inline unsigned loopReads=0,loopModelEvents=0;
 struct ProtoSocket {
+  bool acceptsMutation(const loop_item_t &)const{return true;}
+  bool acceptsClientMutation(uint32_t)const{return true;}
+  void discardRetiredMutation(const loop_item_t &){assert(false); }
   void modelPersistence(ModelCommitReport,uint32_t){++loopModelEvents;}
   void replyRequest(const proto_reply_to_t &,const shade_request_t &,shade_request_result_t) {}
   void replyRead(const proto_reply_to_t &,uint8_t,uint8_t) {++loopReads;}

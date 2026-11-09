@@ -22,6 +22,7 @@ static unsigned randomCalls=0;static bool randomFailed=false;
 uint32_t restoreTestRandom(){++randomCalls;return randomFailed?0:0x12340000+randomCalls;}
 static bool pendingRestart=false;bool restartPending(){return pendingRestart;}
 void noteRestartOperationAccepted(){}
+struct {bool acceptsMutation(const loop_item_t &)const{return true;}}protoSocket;
 LoopQueue loopQueue;static QueueHandle_t capturedQueue=nullptr;
 static void *captureCreate(unsigned count,unsigned bytes){capturedQueue=xQueueCreate(count,bytes);return capturedQueue;}
 #define xQueueCreate captureCreate

@@ -5,9 +5,9 @@
 extern MqttConnection mqtt;
 void completeRestoreModel(const RestoreApplyResult &result){
   if(!result.modelApplied)return;
-  protoSocket.resyncAll();
   ModelCommitReport report;report.file=result.modelFile;
   protoSocket.modelPersistence(report);
+  protoSocket.retireModelSessions();
   // A returned applied MQTT bit certifies its live hook completed. Merely
   // requesting/verifying storage is not a reason to skip model reconnection.
   if(result.settings.saved() &&

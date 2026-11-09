@@ -261,7 +261,7 @@ class ProtoClient {
             const expanded = this.schema.expand(device);
             // Every full device sync starts with its header, including an
             // unsolicited restore refresh or a restart of an in-flight sync.
-            if (expanded.header) this.model.beginSync();
+            if (expanded.header) { this.ready = false; this.model.beginSync(); }
             this.model.applySync(expanded);
         }
         this.ws.send(JSON.stringify({ v: ProtoClient.VERSION, t: ProtoClient.NEXT }));
