@@ -364,6 +364,31 @@ LocalUi::SecuritySnapshot LocalUi::pollAuthorization(){
 void LocalUi::authorizationActivity(){authorization.activity(testNow);}
 void LocalUi::lockAuthorization(){++locks;authorization.lock();}
 LocalUi::AuthResult LocalUi::unlockAuthorization(Credentials &given){auto result=authorization.unlock(given,testNow);given.clear();return result;}
+namespace LocalUi {namespace Updates {
+struct PreviewBackend final:Backend {
+  GitUpdateSnapshot value;GitUpdateBootStatus bootValue;
+  unsigned checks=0,installs=0,cancels=0;uint64_t next=400;
+  PreviewBackend(){value.supported=true;value.phase=GitUpdatePhase::idle;value.reason=GitUpdateReason::none;strcpy(value.installed,"v4.0.2");}
+  SecuritySnapshot authorization()override{return pollAuthorization();}
+  void activity()override{authorizationActivity();}
+  GitUpdateSnapshot status()override{return value;}
+  GitUpdateBootStatus boot()override{return bootValue;}
+  GitUpdateRequest check(uint32_t session,uint32_t security,uint64_t &operation)override{
+    const auto auth=pollAuthorization();assert(auth.allowed && auth.generation==session && auth.configurationGeneration==security);
+    ++checks;operation=value.operation=++next;value.busy=value.cancellable=true;value.canInstall=false;value.phase=GitUpdatePhase::checking;return GitUpdateRequest::accepted;
+  }
+  GitUpdateRequest install(uint64_t candidate,uint32_t session,uint32_t security,uint64_t &operation)override{
+    const auto auth=pollAuthorization();assert(auth.allowed && auth.generation==session && auth.configurationGeneration==security);
+    if(candidate!=value.candidate.generation)return GitUpdateRequest::invalidCandidate;
+    ++installs;operation=value.operation=++next;value.busy=value.cancellable=true;value.canInstall=false;value.phase=GitUpdatePhase::downloading;return GitUpdateRequest::accepted;
+  }
+  bool cancel(uint64_t operation,uint32_t,uint32_t)override{
+    if(operation!=value.operation || !value.cancellable)return false;
+    ++cancels;value.busy=value.cancellable=false;value.phase=GitUpdatePhase::cancelled;value.reason=GitUpdateReason::cancelled;return true;
+  }
+} previewBackend;
+Backend &runtimeBackend(){return previewBackend;}
+}}
 void LocalUi::setCaptureProtected(bool value){captureProtected=value;}
 void LocalUi::capturePoll(const uint16_t *,bool,uint8_t,uint32_t){}
 static bool send(uint8_t y,uint8_t rows,const uint8_t *data,size_t bytes){
@@ -908,6 +933,25 @@ int main(int argc,char **argv){
   for(unsigned i=0;i<5 && RuntimeTestAccess::view(settingsUi).screen!=Screen::home;++i){
     if(RuntimeTestAccess::view(settingsUi).screen==Screen::status)click();else back();idle();
   }
+  assert(submitted.size()==beforeDiagnosticsRequests && settingsSaves==beforeWifiSaves);
+  // Standalone updates: actual navigation, shared presentation proof and full
+  // release identity. Only the service boundary is scripted here.
+  auto openUpdates=[&](){
+    for(unsigned i=0;i<5 && RuntimeTestAccess::view(settingsUi).screen!=Screen::home;++i){if(RuntimeTestAccess::view(settingsUi).screen==Screen::status)click();else back();idle();}
+    for(unsigned i=0;i<homeRows;++i){rotate(-1);idle();}for(unsigned i=0;i<systemHomeIndex;++i){rotate(1);idle();}
+    click();idle();for(unsigned i=0;i<6;++i){rotate(1);idle();}click();idle();
+    assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"System updates"));
+  };
+  auto &update=Updates::previewBackend;openUpdates();assert(!update.checks && captureProtected);
+  saveFrame(preview,"runtime-updates-home");click();idle();assert(update.checks==1 && !update.installs);
+  saveFrame(preview,"runtime-updates-checking");update.value.busy=update.value.cancellable=false;update.value.phase=GitUpdatePhase::available;update.value.canInstall=true;
+  update.value.candidate.generation=600;strcpy(update.value.candidate.version,"v4294967295.4294967295.4294967295");idle();rotate(1);idle();click();idle();
+  auto updateReview=RuntimeTestAccess::system(settingsUi);assert(updateReview.mode==EntityAdmin::Mode::updateReview && updateReview.selected==0);
+  assert(!strcmp(updateReview.rows[2].value,update.value.candidate.version));saveFrame(preview,"runtime-updates-confirm-wide");
+  click();idle();assert(!update.installs);rotate(1);idle();click();idle();busBusy=true;rotate(1);click();assert(!update.installs);
+  busBusy=false;idle();click();idle();assert(update.installs==1 && update.value.busy);saveFrame(preview,"runtime-updates-downloading");
+  update.value.progress=60;update.value.phase=GitUpdatePhase::writing;idle();saveFrame(preview,"runtime-updates-writing");
+  back();idle();assert(update.cancels==1 && Settings::runtimeMemory().used()==0 && !update.value.busy);back();idle();
   assert(submitted.size()==beforeDiagnosticsRequests && settingsSaves==beforeWifiSaves);
   for(unsigned i=0;i<homeRows;i++){rotate(-1);idle();}for(unsigned i=0;i<systemHomeIndex;i++){rotate(1);idle();}
   click();idle();click();idle(); // default Restart confirmation

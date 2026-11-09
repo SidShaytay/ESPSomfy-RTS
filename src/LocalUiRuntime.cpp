@@ -249,8 +249,8 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
         if(input.activate && presentedAdministrationValid && sameAdministration(systemView,presentedAdministration))systemForm.activate(settingsNow);
       }
     }
-    if(systemChild==SystemChild::none && (systemForm.wantsWifiScan() || systemForm.wantsDiagnostics() || systemForm.wantsRadioScan())) {
-      systemChild=systemForm.wantsWifiScan()?SystemChild::wifi:systemForm.wantsDiagnostics()?SystemChild::diagnostics:SystemChild::radio;
+    if(systemChild==SystemChild::none && (systemForm.wantsWifiScan() || systemForm.wantsDiagnostics() || systemForm.wantsRadioScan() || systemForm.wantsUpdates())) {
+      systemChild=systemForm.wantsWifiScan()?SystemChild::wifi:systemForm.wantsDiagnostics()?SystemChild::diagnostics:systemForm.wantsRadioScan()?SystemChild::radio:SystemChild::updates;
       visitSystemChild([&](auto &form){form.open(settingsNow);});
       presentedAdministrationValid=false;attempted=false;
     }

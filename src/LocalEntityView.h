@@ -21,7 +21,8 @@ enum class Mode : uint8_t {
   membershipReview,
   programmingReview,
   groupProgrammingReview,
-  sensorReview
+  sensorReview,
+  updateReview
 };
 enum class Notice : uint8_t {
   none,

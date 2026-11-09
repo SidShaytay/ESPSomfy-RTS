@@ -1,0 +1,149 @@
+#include "LocalUpdates.h"
+#include <new>
+#include <cstdio>
+#include <cstring>
+namespace LocalUi {namespace Updates {
+using namespace EntityAdmin;
+namespace {
+const char *message(GitUpdateReason reason) {
+  switch(reason){
+  case GitUpdateReason::none:return "Firmware and Web update together. No automatic checks.";
+  case GitUpdateReason::development:return "Development build: stable updates unavailable.";
+  case GitUpdateReason::clock:return "Clock is unset. Connect to the network and try again.";
+  case GitUpdateReason::certificateTime:return "HTTPS certificate date refused. Check the device clock.";
+  case GitUpdateReason::memory:return "Not enough update memory. No automatic retry.";
+  case GitUpdateReason::cancelled:return "Update cancelled; controls resume after cleanup.";
+  case GitUpdateReason::timeout:return "Update timed out; controls resume after cleanup.";
+  case GitUpdateReason::candidateChanged:case GitUpdateReason::invalidCandidate:return "Release changed. Check and review it again.";
+  case GitUpdateReason::activationFailed:return "Boot selection uncertain. Controls paused. Recovery required.";
+  case GitUpdateReason::writeFailed:return "Firmware write failed. Wait for cleanup before retrying.";
+  case GitUpdateReason::admission:return "Controller busy or state changed. No automatic retry.";
+  case GitUpdateReason::bootloader:case GitUpdateReason::assets:case GitUpdateReason::layout:return "Installed image is not qualified for GitHub updates.";
+  case GitUpdateReason::transport:return "Verified download failed. Check the network and try again.";
+  case GitUpdateReason::digest:case GitUpdateReason::invalidImage:return "Release verification failed. Update refused.";
+  case GitUpdateReason::noNewerRelease:return "This firmware is current. No newer stable release.";
+  default:return "Update unavailable. Review network, clock and compatibility.";
+  }
+}
+const char *progress(GitUpdatePhase phase) {
+  switch(phase){
+  case GitUpdatePhase::queued:return "Waiting for checks";
+  case GitUpdatePhase::checking:return "Checking GitHub";
+  case GitUpdatePhase::downloading:return "Downloading update";
+  case GitUpdatePhase::verifying:return "Verifying update";
+  case GitUpdatePhase::writing:return "Installing firmware";
+  case GitUpdatePhase::written:return "Final restart checks";
+  case GitUpdatePhase::cleanupPending:return "Cleanup pending";
+  default:return "Update in progress";
+  }
+}
+bool checkable(const GitUpdateSnapshot &value,GitUpdateBootStatus boot) {
+  return value.supported && value.phase!=GitUpdatePhase::unavailable && !value.busy && !boot.pending;
+}
+}
+struct Form::Session {
+  SecuritySnapshot auth;
+  uint64_t observed=0,activity=0,candidate=0,operation=0;
+  enum class Page:uint8_t {menu,confirm,progress,result}page=Page::menu;
+  GitUpdateReason reason=GitUpdateReason::none;
+  uint8_t cursor=1;
+};
+void Form::close(Notice reason){
+  if(session){
+    if(session->operation)backend.cancel(session->operation,session->auth.generation,session->auth.configurationGeneration);
+    session->~Session();allocator.deallocate(session);session=nullptr;
+  }
+  notice=reason;
+}
+bool Form::open(uint64_t now){
+  discard();const auto auth=backend.authorization();
+  if(!auth.allowed || !auth.generation || !auth.configurationGeneration){notice=Notice::locked;return false;}
+  auto *memory=allocator.allocate(sizeof(Session));if(!memory){notice=Notice::noMemory;return false;}
+  session=new(memory)Session{};session->auth=auth;session->observed=session->activity=now;return true;
+}
+bool Form::guard(uint64_t now){
+  if(!session)return false;
+  const auto auth=backend.authorization();Notice reason=Notice::none;
+  if(now<session->observed || now<session->activity || now-session->activity>=120000)reason=Notice::expired;
+  else if(!auth.allowed)reason=Notice::locked;
+  else if(auth.generation!=session->auth.generation || auth.configurationGeneration!=session->auth.configurationGeneration)reason=Notice::changed;
+  if(reason!=Notice::none){close(reason);return false;}
+  session->observed=now;return true;
+}
+void Form::touch(uint64_t now){session->activity=now;backend.activity();}
+void Form::tick(uint64_t now){
+  if(!guard(now))return;
+  auto &s=*session;const auto value=backend.status();
+  if(s.page==Session::Page::confirm && (s.candidate!=value.candidate.generation || !value.canInstall || value.busy)){
+    s.candidate=0;s.page=Session::Page::menu;s.cursor=1;notice=Notice::changed;
+  }else if(s.page==Session::Page::progress){
+    if(s.operation!=value.operation){s.operation=0;s.page=Session::Page::result;s.reason=GitUpdateReason::invalidCandidate;notice=Notice::changed;}
+    else if(!value.busy){s.operation=0;s.page=Session::Page::menu;s.cursor=1;s.reason=value.reason;}
+  }
+}
+void Form::turn(int direction,uint64_t now){
+  if(!direction || !guard(now))return;touch(now);auto &s=*session;
+  if(s.page==Session::Page::confirm)s.cursor=direction>0?1:0;
+  else if(s.page==Session::Page::menu){
+    const auto value=backend.status();s.cursor=direction>0 && value.canInstall && !value.busy && !backend.boot().pending?2:1;
+  }
+}
+void Form::activate(uint64_t now){
+  if(!guard(now))return;touch(now);auto &s=*session;
+  const auto value=backend.status();const auto boot=backend.boot();
+  if(s.page==Session::Page::progress){
+    if(s.operation==value.operation && value.cancellable)backend.cancel(s.operation,s.auth.generation,s.auth.configurationGeneration);
+    return;
+  }
+  if(s.page==Session::Page::result)return;
+  if(s.page==Session::Page::confirm && !s.cursor){s.page=Session::Page::menu;s.cursor=1;s.candidate=0;return;}
+  if(s.page==Session::Page::menu && s.cursor==2){
+    if(!value.canInstall || value.busy || boot.pending)return;
+    s.candidate=value.candidate.generation;s.page=Session::Page::confirm;s.cursor=0;notice=Notice::none;return;
+  }
+  GitUpdateRequest result;uint64_t operation=0;
+  if(s.page==Session::Page::confirm){
+    if(s.candidate!=value.candidate.generation || !value.canInstall || value.busy || boot.pending){s.page=Session::Page::menu;s.cursor=1;notice=Notice::changed;return;}
+    result=backend.install(s.candidate,s.auth.generation,s.auth.configurationGeneration,operation);
+  }else{
+    if(!checkable(value,boot)){discard();return;}
+    result=backend.check(s.auth.generation,s.auth.configurationGeneration,operation);
+  }
+  if(result==GitUpdateRequest::accepted && operation){s.operation=operation;s.page=Session::Page::progress;s.cursor=0;notice=Notice::none;}
+  else{s.page=Session::Page::result;s.reason=result==GitUpdateRequest::invalidCandidate?GitUpdateReason::invalidCandidate:GitUpdateReason::admission;}
+}
+void Form::back(uint64_t now){
+  if(!guard(now))return;touch(now);
+  if(session->page==Session::Page::confirm){session->page=Session::Page::menu;session->cursor=1;session->candidate=0;}
+  else discard();
+}
+void Form::render(FormView &out)const{
+  out={};out.notice=notice;if(!session)return;
+  const auto &s=*session;const auto value=backend.status();const auto boot=backend.boot();
+  out.mode=Mode::stackedRows;const char *title="System updates",*hint=message(value.reason);
+  if(s.page==Session::Page::confirm){
+    out.mode=Mode::updateReview;title="Install update?";hint="Firmware + Web; saves current state, then restarts.";
+    out.rowCount=3;out.total=2;out.selected=s.cursor;
+    strcpy(out.rows[0].label,"Cancel");strcpy(out.rows[1].label,"Install and restart");
+    strcpy(out.rows[2].label,"GitHub release");
+    if(value.candidate.generation==s.candidate)snprintf(out.rows[2].value,sizeof(out.rows[2].value),"%s",value.candidate.version);
+  }else if(s.page==Session::Page::progress){
+    title=progress(value.phase);hint=value.phase==GitUpdatePhase::cleanupPending?"Controls stay paused until cleanup completes.":value.cancellable?"Keep power connected. Back cancels this update.":"Keep power connected. Back leaves this screen.";
+    out.rowCount=out.total=2;snprintf(out.rows[0].label,sizeof(out.rows[0].label),"Progress: %u%%",unsigned(value.progress));
+    strcpy(out.rows[1].label,value.cancellable?"Cancel update":"Final checks; please wait");out.selected=1;
+    if(value.phase==GitUpdatePhase::error){title="Update needs recovery";hint=message(value.reason);strcpy(out.rows[0].label,"Controls paused");strcpy(out.rows[1].label,"Back: System");}
+  }else if(s.page==Session::Page::result){
+    title="Update refused";hint=message(s.reason);out.rowCount=out.total=1;strcpy(out.rows[0].label,"Back: System");
+  }else{
+    out.rowCount=out.total=3;out.selected=s.cursor;
+    strcpy(out.rows[0].label,"Installed");snprintf(out.rows[0].value,sizeof(out.rows[0].value),"%s",value.installed);
+    strcpy(out.rows[1].label,checkable(value,boot)?"Check GitHub release":"Back: System");
+    strcpy(out.rows[2].label,value.canInstall?"Review latest release":"Latest release");
+    snprintf(out.rows[2].value,sizeof(out.rows[2].value),"%s",value.candidate.version);
+    if(boot.pending){title=boot.rollbackRequired?"Rollback needs attention":"Verifying new firmware";hint=boot.rollbackRequired?"Boot health failed. Recovery action requires review.":"Waiting for continuous healthy operation.";}
+    else if(notice==Notice::changed)hint="Release changed. Check and review it again.";
+  }
+  for(uint8_t i=0;i<out.rowCount;++i)out.rows[i].selected=i==out.selected;
+  snprintf(out.title,sizeof(out.title),"%s",title);snprintf(out.hint,sizeof(out.hint),"%s",hint);
+}
+}}

@@ -1,0 +1,36 @@
+# Update firmware from the LCD
+
+**System → GitHub updates** checks and installs a newer stable release from
+`SidShaytay/ESPSomfy-RTS` without a computer. The shared CC1101 / Plus image
+includes the controller, LCD and web interface together.
+
+This workflow is under review. Development builds show updates unavailable;
+managed rollback controls are still being completed.
+
+1. Unlock with the controller's configured PIN or password, if enabled.
+2. Choose **Check GitHub release**. Opening the screen starts no download.
+3. Choose **Review latest release** and read the full release version.
+4. Turn from the default **Cancel** to **Install and restart**, then press.
+5. Keep power connected while the controller verifies and installs the update.
+
+Installation saves the current model and checks that movement and pending work
+have finished. If the release or controller state changes, it can refuse and
+require a new review. No failed operation retries automatically.
+
+During reversible work, **Cancel update** or the Back button cancels the
+operation. Controls resume after cleanup finishes. The Cancel action disappears
+during final restart checks; Back then leaves the status screen. The original
+session must remain valid, and progress updates do not extend its two-minute
+inactivity timeout.
+
+After restart, **Verifying new firmware** means that continuous boot-health
+checks are still running. Confirmation needs 60 healthy seconds. A failure at
+the 180-second deadline displays **Rollback needs attention**; the current
+development implementation records that failure without an immediate reboot.
+
+**Controls paused** or **Update needs recovery** means cleanup or activation
+could not be verified. Leaving the screen does not release those locks or start
+another update. A later check does not silently retry the failed installation.
+
+Use **System → Browser files & Web** for the existing browser backup, restore
+and manual firmware file workflows.

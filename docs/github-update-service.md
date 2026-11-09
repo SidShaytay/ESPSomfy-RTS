@@ -1,6 +1,6 @@
 # Inactive GitHub update service and installer draft
 
-`GitUpdateClass` is the single shared service reconciled from the issue #12 audit. It supplies latest-release Check, candidate-bound metadata Prepare, and installation through the controller adapter described below. Canonical startup initializes it and its loop adapter without scheduling network requests. Web/LCD controls remain unfinished. `prepared` means verified metadata only; `canInstall` remains false unless all installation callbacks are supplied. Web and LCD adapters must use this service rather than create another installer.
+`GitUpdateClass` is the single shared service reconciled from the issue #12 audit. It supplies latest-release Check, candidate-bound metadata Prepare, and installation through the controller adapter described below. Canonical startup initializes it and its loop adapter without scheduling network requests. The standalone LCD adapter is implemented; web controls remain unfinished. `prepared` means verified metadata only; `canInstall` remains false unless all installation callbacks are supplied. Web and LCD adapters must use this service rather than create another installer.
 
 ## Ownership and candidate confirmation
 
@@ -33,7 +33,7 @@ The worker requests a 12 KiB internal stack and checks at least 48 KiB free inte
 
 The mbedTLS allocator hook is global. Canonical startup installs it **before any mbedTLS allocation**, including the web API token HMAC, display/capture or web initialization. Switching after existing allocations would mismatch allocator/free pairs. Failed startup initialization leaves the updater unavailable and does not trigger a later hook switch. Token HMAC failure refuses authentication. The certificate adapter itself is per-client: synchronous HTTP cleanup completes while its callback context is alive, and other clients keep their own bundle callbacks.
 
-The controller callbacks supply fresh authorization, model admission, quiescence, cleanup and the final SafeRestart handoff. User-facing confirmation and managed rollback remain unfinished. [Continuous boot health](github-update-boot-health.md) now qualifies confirmation and emits a deadline failure intent. Existing settings durability tracks uncertainty by complete persisted namespace (general/connection share CFG); installer admission uses it. Historical bootloader/assets migration is a separate explicitly authorized stage. There is no live access or provisioning authorization here.
+The controller callbacks supply fresh authorization, model admission, quiescence, cleanup and the final SafeRestart handoff. Standalone LCD confirmation is implemented. Managed rollback execution remains unfinished. [Continuous boot health](github-update-boot-health.md) now qualifies confirmation and emits a deadline failure intent. Existing settings durability tracks uncertainty by complete persisted namespace (general/connection share CFG); installer admission uses it. Historical bootloader/assets migration is a separate explicitly authorized stage. There is no live access or provisioning authorization here.
 
 ## Offline evidence and limits
 
@@ -66,9 +66,9 @@ commands and stores no credentials in its source record.
 
 Startup invokes the adapter after global TLS allocator initialization. The main
 loop services network/UI while `gitUpdateControllerPaused()` and defers normal
-model/queue execution until cleanup or final shutdown. LCD controls and managed
-rollback remain unfinished; these tests do not establish complete user-facing
-updater acceptance.
+model/queue execution until cleanup or final shutdown. Managed rollback execution remains unfinished; these tests do not establish
+complete updater acceptance. The LCD adapter is described in
+[lcd-github-updates.md](lcd-github-updates.md).
 
 `tools/test-update-worker.sh` compiles production service/policy/certificate code against scripted SDK boundaries and local SHA256. It exercises valid and changed candidates, stale/reboot generations, cancellation/deadlines, ownership races, malformed metadata/digests/redirects, allocation/resource failures and certificate errors. Fakes assert no critical-section SDK calls, leaks, partition writes or model effects. A mutation removing manifest-digest binding fails the changed-manifest regression.
 
