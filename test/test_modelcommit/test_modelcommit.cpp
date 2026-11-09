@@ -144,8 +144,14 @@ static void failed_boot_never_writes_partial_model_on_commit_or_retry() {
   somfy.modelLoad.beginRecoveryCommit();TEST_ASSERT_TRUE(somfy.commit().saved());
   somfy.modelLoad.finishRecoveryCommit(true);TEST_ASSERT_TRUE(somfy.modelLoad.usable());TEST_ASSERT_EQUAL(1,commits);
 }
+static void first_verified_current_model_commit_establishes_publishable_model() {
+  somfy.modelLoad.bootResult(ModelLoadStatus::absent);outcome={ModelCommitState::failed};
+  TEST_ASSERT_FALSE(somfy.commit().saved());TEST_ASSERT_EQUAL(ModelLoadStatus::absent,somfy.modelLoad.status());
+  outcome={ModelCommitState::saved};TEST_ASSERT_TRUE(somfy.commit().saved());TEST_ASSERT_EQUAL(ModelLoadStatus::loaded,somfy.modelLoad.status());
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(first_verified_current_model_commit_establishes_publishable_model);
   RUN_TEST(failed_boot_never_writes_partial_model_on_commit_or_retry);
   RUN_TEST(failed_and_uncertain_commits_remain_dirty_and_throttle_attempt_time);
   RUN_TEST(
