@@ -3,6 +3,8 @@
 #include "BundledWebRoutes.h"
 #include "ESPAsyncWebServer.h"
 #include "HttpAccess.h"
+#include "UpdateSha256.h"
+#include <mbedtls/sha256.h>
 #include <cassert>
 #include <cstring>
 #include <cstdio>
@@ -10,6 +12,9 @@
 int hashFailure=0;unsigned activeHashes=0;
 static unsigned yields=0;static bool stopAfterYield=false;static unsigned stopAt=0;
 static bool stopped(){return stopAfterYield;}
+static unsigned finalHash=0;
+static void stopOnFinish(){if(FakeSha256::finishes==finalHash)stopAfterYield=true;}
+static void stopOnFree(){if(FakeSha256::frees==finalHash)stopAfterYield=true;}
 static void cooperate(){if(++yields==stopAt)stopAfterYield=true;}
 static bool failNothrow=false;
 void *operator new(std::size_t n,const std::nothrow_t &)noexcept {
@@ -44,6 +49,19 @@ int main(){
  assert(BundledWeb::verify(ESPSOMFY_APP_COMPAT,cancel)==UpdateAttestation::interrupted&&!activeHashes);
  for(stopAt=1;stopAt<=4;++stopAt){yields=0;stopAfterYield=false;UpdateAttestationControl interrupted{stopped,cooperate};assert(gitUpdateAssetsStatus(interrupted)==UpdateAttestation::interrupted&&yields==stopAt&&!activeHashes);}
  for(int failure=1;failure<=3;++failure){hashFailure=failure;assert(BundledWeb::verify(ESPSOMFY_APP_COMPAT)==UpdateAttestation::hashError&&!activeHashes);}
- hashFailure=0;
+ hashFailure=0;stopAt=0;
+ for(bool onFree:{false,true}) {
+  stopAfterYield=false;char hex[65];
+  finalHash=onFree ? FakeSha256::frees+1 : FakeSha256::finishes+1;
+  if(onFree)FakeSha256::afterFree=stopOnFree;else FakeSha256::afterFinish=stopOnFinish;
+  assert(updateSha256(index->data,index->size,hex,{stopped,nullptr})==UpdateAttestation::interrupted);
+  assert(hex[0]==0 && !activeHashes);
+  FakeSha256::afterFinish=FakeSha256::afterFree=nullptr;
+  stopAfterYield=false;
+  finalHash=onFree ? FakeSha256::frees+5 : FakeSha256::finishes+5;
+  if(onFree)FakeSha256::afterFree=stopOnFree;else FakeSha256::afterFinish=stopOnFinish;
+  assert(BundledWeb::verify(ESPSOMFY_APP_COMPAT,{stopped,nullptr})==UpdateAttestation::interrupted);
+  assert(!activeHashes);FakeSha256::afterFinish=FakeSha256::afterFree=nullptr;
+ }
  puts("Immutable bundle HTTP: exact paths, no filesystem fallback, gzip/MIME/cache, source version and byte attestation passed");
 }
