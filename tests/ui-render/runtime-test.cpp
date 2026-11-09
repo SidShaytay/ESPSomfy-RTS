@@ -18,6 +18,8 @@ struct RuntimeTestAccess {
   static uint16_t *losePixels(Runtime &ui) {auto *pixels=ui.memory.pixels;ui.memory.pixels=nullptr;return pixels;}
   static void restorePixels(Runtime &ui,uint16_t *pixels) {ui.memory.pixels=pixels;}
   static const View &view(const Runtime &ui) {return ui.controller.view();}
+  static const Settings::FormView &settings(const Runtime &ui) {return ui.settingsForm.view();}
+  static void settingsRestartReason(Runtime &ui,RestartReason reason) {const_cast<Settings::FormView &>(ui.settingsForm.view()).restartReason=reason;}
   static const EntityAdmin::FormView &administration(const Runtime &ui) {return ui.administration.view();}
   static bool noPresentation(const Runtime &ui) {
     return !ui.hasPresented && !ui.presentedSettingsValid && !ui.stopPresentedToken && !ui.validBands;
@@ -30,6 +32,7 @@ bool settingsAllocateOK=true;
 std::map<void *,size_t> settingsAllocations;
 uint64_t authTestNow=0;
 static unsigned settingsSaves=0;
+static RestartReason settingsRestartCause=RestartReason::none;
 static unsigned entityEdits=0,entityCommits=0;
 static ModelCommitState entitySaveState=ModelCommitState::saved;
 static uint64_t settingsRevision=1;
@@ -49,7 +52,8 @@ bool readDeviceSettings(settings_section_t section,SettingsSnapshotSink &sink) {
 }
 settings_apply_result_t applyDeviceSettings(settings_section_t section,JsonObject request,uint32_t origin) {
   assert(section==settings_section_t::general && origin==0 && request["ssdpBroadcast"].as<bool>());
-  ++settingsSaves;++settingsRevision;return {};
+  ++settingsSaves;++settingsRevision;
+  settings_apply_result_t result;result.restartBlocked=settingsRestartCause!=RestartReason::none;result.restartReason=settingsRestartCause;return result;
 }
 int testPins[64]={};uint32_t testNow=0;
 SomfyShadeController somfy;
@@ -273,9 +277,17 @@ int main(int argc,char **argv){
   rotate(1);idle();click();idle(); // Apply to draft
   assert(Settings::runtimeMemory().used()>0 && settingsSaves==0);
   busBusy=true;for(unsigned i=0;i<3;i++) rotate(1);click();assert(settingsSaves==0); // unseen Save blocked
+  settingsRestartCause=RestartReason::queuedOperations;
   busBusy=false;idle();click();idle();assert(settingsSaves==1 && captureProtected);saveFrame(preview,"runtime-settings-saved");
+  assert(RuntimeTestAccess::settings(settingsUi).restartReason==RestartReason::queuedOperations);
+  // A new typed cause is a different protected result even if all other
+  // fields are unchanged. Unseen acknowledgement must wait for the new frame.
+  busBusy=true;RuntimeTestAccess::settingsRestartReason(settingsUi,RestartReason::counterUncertain);
+  click();assert(lastQuery.screen==Screen::settings && captureProtected && settingsSaves==1);
+  busBusy=false;idle();saveFrame(preview,"runtime-settings-counter-blocked");
   assert(Settings::runtimeMemory().used()==0 && settingsAllocations.empty());
   back();idle();assert(lastQuery.screen==Screen::home && !captureProtected);
+  settingsRestartCause=RestartReason::none;
   click();idle();click();idle();rotate(1);idle();click();idle();rotate(1);idle();click();idle();rotate(1);idle();click();idle();
   assert(Settings::runtimeMemory().used()>0);
   testNow+=21000;authTestNow=testNow;settingsUi.tick(testNow,status,false,send,light);idle();
