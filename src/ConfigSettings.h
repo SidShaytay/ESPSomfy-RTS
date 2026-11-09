@@ -123,7 +123,7 @@ class EthernetSettings: BaseSettings {
     bool load();
     settings_save_result_t save();
     void print();
-    bool usesPin(uint8_t pin);
+    bool usesPin(uint8_t pin) const;
 };
 #endif
 class IPSettings: BaseSettings {

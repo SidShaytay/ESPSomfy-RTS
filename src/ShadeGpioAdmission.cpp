@@ -12,7 +12,7 @@ int8_t SomfyShade::validateGPIOs(radio_proto protocol, uint8_t upPin,
   if(ShadeGpioPolicy::physicalMask(protocol) &&
      (!somfy.transceiver.config.loadStatus.usable()
 #if HAS_ETHERNET
-      || !settings.Ethernet.loadStatus.usable()
+      || !settings.loadStatus.usable() || !settings.Ethernet.loadStatus.usable()
 #endif
      ))return PIN_STORAGE_UNAVAILABLE;
   pin_users_t radio, ethernet, others, invalid;

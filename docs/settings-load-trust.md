@@ -69,7 +69,30 @@ notification. The operator must reopen Radio; a button cannot replay the old
 draft. The compact result keeps its original 16-byte host/8-byte target size,
 and the existing 64-byte restore-status budget remains unchanged.
 
-Selected restore outcome integration remains required. Existing backups omit WiFi and
+Selected restore stages private typed namespace drafts from the same immutable
+backup snapshot before counter promotion or live adoption. Opt-in checked record
+decoding rejects truncation, cast wrapping, malformed tokens and required missing
+fields while ordinary boot decoding keeps its legacy defaults. Whole selected
+namespaces must validate before any writer runs; later failures re-mark earlier
+verified draft writes uncertain when RAM remains unchanged. Radio runs last
+under the existing exact owner/pause capability. Its applied partial result
+retains the radio verified/applied mask without certifying other RAM adoption.
+
+Existing backups omit WiFi and MQTT credentials. WiFi is never rewritten or
+qualified by Network restore. MQTT needs readable carried enabled/credential
+fields; otherwise it refuses before effects. Only fully covered CFG/NTP/IP/radio
+records can qualify failed namespaces. Legacy missing checkForUpdate needs a
+readable carried CFG; MQTT records before version 22 cannot stand in for settings.
+Foreign or incomplete Ethernet records preserve qualified current hardware
+values, while complete same-source records require checked source identity.
+
+Projected GPIO validation uses the final candidate radio/Ethernet claims before
+model adoption, without exposing private values. None owns no pad. Real output
+pads need qualified radio and, on Ethernet builds, CFG mode and ETH provenance.
+After complete writes and RAM adoption, existing hooks update hostname/time and
+defer MQTT reconnect to the ordinary loop; settings notifications request no
+restart. Namespace applied masks are published only after these hooks return.
+The restore resource consumer still requires independent joint qualification. Existing backups omit WiFi and
 MQTT credentials, so they cannot qualify unreadable uncovered fields using
 running defaults. New failed-namespace replacement flows remain pending Sid's
 choice and are not implemented here.
