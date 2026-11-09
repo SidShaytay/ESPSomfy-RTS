@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 import re
 import struct
+import tempfile
+from html.parser import HTMLParser
 import zlib
 from update_assets import (FILENAME, HEADER, MAX_FILES, MAX_FILE, MAX_MANIFEST,
                            compatibility, verify_manifest)
@@ -13,6 +15,19 @@ MIME = {'.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
         '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon'}
 MAX_EXPANDED = 8 * 1024 * 1024
 REQUIRED = {'/index.html', '/index.js', '/app.css', '/appversion'}
+
+
+class WebMode(HTMLParser):
+    def __init__(self):
+        super().__init__(); self.modes=[]
+    def handle_starttag(self,tag,attributes):
+        if tag!='meta':return
+        names=[value for key,value in attributes if key=='name']
+        if not any(value and value.lower()=='espsomfy-web-mode' for value in names):return
+        contents=[value for key,value in attributes if key=='content']
+        if len(names)!=1 or len(contents)!=1:
+            raise ValueError('ambiguous browser web-mode attributes')
+        self.modes.append(contents[0])
 
 
 def records(manifest):
@@ -85,6 +100,7 @@ def extract(firmware):
         position += count
         if hashlib.sha256(payload).hexdigest() != entry['sha256']:
             raise ValueError('bundled asset digest mismatch')
+        expanded = payload
         if entry['gzip']:
             try:
                 stream = zlib.decompressobj(16 + zlib.MAX_WBITS)
@@ -93,6 +109,13 @@ def extract(firmware):
                     raise ValueError('bundled gzip exceeds bounds or has trailing content')
             except (OSError, EOFError, zlib.error) as error:
                 raise ValueError('invalid bundled gzip') from error
+        if entry['path'] == '/index.html':
+            marker=b'<meta name="espsomfy-web-mode" content="bundled">'
+            mode=WebMode()
+            try:mode.feed(expanded.decode('utf-8'))
+            except UnicodeError as error:raise ValueError('bundled HTML is not UTF-8') from error
+            if expanded.count(marker)!=1 or mode.modes!=['bundled']:
+                raise ValueError('firmware web UI must contain exactly one bundled-mode marker')
         if entry['path'] == '/appversion':
             try:
                 version = payload.decode('ascii').strip()
@@ -130,7 +153,11 @@ def generate(directory, output):
     data = ''.join(chunks).encode('ascii')
     output.parent.mkdir(parents=True, exist_ok=True)
     if not output.exists() or output.read_bytes() != data:
-        temporary = output.with_suffix(output.suffix + '.tmp')
-        temporary.write_bytes(data)
-        temporary.replace(output)
+        with tempfile.NamedTemporaryFile(dir=output.parent,prefix=output.name+'.',suffix='.tmp',delete=False) as file:
+            temporary=Path(file.name)
+            try:file.write(data)
+            except BaseException:
+                temporary.unlink(missing_ok=True);raise
+        try:temporary.replace(output)
+        finally:temporary.unlink(missing_ok=True)
     return result

@@ -1,4 +1,5 @@
 #include "BundledWeb.h"
+#include "GitUpdateAssets.h"
 #include "BundledWebRoutes.h"
 #include "ESPAsyncWebServer.h"
 #include "HttpAccess.h"
@@ -7,6 +8,9 @@
 #include <cstdio>
 #include <new>
 int hashFailure=0;unsigned activeHashes=0;
+static unsigned yields=0;static bool stopAfterYield=false;static unsigned stopAt=0;
+static bool stopped(){return stopAfterYield;}
+static void cooperate(){if(++yields==stopAt)stopAfterYield=true;}
 static bool failNothrow=false;
 void *operator new(std::size_t n,const std::nothrow_t &)noexcept {
  if(failNothrow)return nullptr;
@@ -33,10 +37,12 @@ int main(){
  }
  AsyncWebServerRequest post;post.verb=HTTP_POST;assert(!server.handler->canHandle(&post));
  post.verb=HTTP_GET;post.http=false;assert(!server.handler->canHandle(&post));
+ assert(gitUpdateAssetsStatus()==UpdateAttestation::verified&&gitUpdateAssetsMatch()&&!activeHashes);
  assert(BundledWeb::verify(ESPSOMFY_APP_COMPAT)==UpdateAttestation::verified&&!activeHashes);
  assert(BundledWeb::verify("sha256:0000000000000000000000000000000000000000000000000000000000000000")==UpdateAttestation::mismatch);
  UpdateAttestationControl cancel;cancel.stop=[](){return true;};
  assert(BundledWeb::verify(ESPSOMFY_APP_COMPAT,cancel)==UpdateAttestation::interrupted&&!activeHashes);
+ for(stopAt=1;stopAt<=4;++stopAt){yields=0;stopAfterYield=false;UpdateAttestationControl interrupted{stopped,cooperate};assert(gitUpdateAssetsStatus(interrupted)==UpdateAttestation::interrupted&&yields==stopAt&&!activeHashes);}
  for(int failure=1;failure<=3;++failure){hashFailure=failure;assert(BundledWeb::verify(ESPSOMFY_APP_COMPAT)==UpdateAttestation::hashError&&!activeHashes);}
  hashFailure=0;
  puts("Immutable bundle HTTP: exact paths, no filesystem fallback, gzip/MIME/cache, source version and byte attestation passed");

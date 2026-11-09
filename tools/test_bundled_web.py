@@ -12,7 +12,7 @@ class BundleTests(unittest.TestCase):
     def setUp(self):
         self.tmp=tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
         self.root=Path(self.tmp.name);self.data=self.root/'data';self.data.mkdir()
-        (self.data/'index.html.gz').write_bytes(gzip.compress(b'<html>test</html>',mtime=0))
+        (self.data/'index.html.gz').write_bytes(gzip.compress(b'<html><meta name="espsomfy-web-mode" content="bundled"></html>',mtime=0))
         (self.data/'index.js.gz').write_bytes(gzip.compress(b'window.test=1;',mtime=0))
         (self.data/'app.css.gz').write_bytes(gzip.compress(b'body{}',mtime=0))
         (self.data/'appversion').write_bytes(b'4.0.1\n')
@@ -66,6 +66,13 @@ class BundleTests(unittest.TestCase):
         with self.assertRaises(ValueError):bundled_web_assets.generate(self.data,self.root/'bad.h')
         update_assets.write_manifest(self.data)
         with self.assertRaises(ValueError):bundled_web_assets.generate(self.data,self.root/'bad.h')
+    def test_bundle_requires_exact_bundled_browser_mode(self):
+        for text in (b'<meta name="espsomfy-web-mode" content="filesystem">',
+                     b'<meta name="espsomfy-web-mode" content="bundled">'*2,
+                     b"<meta name='espsomfy-web-mode' content='filesystem'>"+b'<meta name="espsomfy-web-mode" content="bundled">',
+                     b'<meta name="espsomfy-web-mode" name="other" content="bundled">'):
+            (self.data/'index.html.gz').write_bytes(gzip.compress(text,mtime=0));update_assets.write_manifest(self.data)
+            with self.assertRaises(ValueError):bundled_web_assets.generate(self.data,self.root/'bad.h')
     def test_gzip_expansion_is_bounded(self):
         (self.data/'index.js.gz').write_bytes(gzip.compress(b'x'*(bundled_web_assets.MAX_EXPANDED+1),mtime=0))
         update_assets.write_manifest(self.data)

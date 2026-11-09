@@ -53,5 +53,4 @@ jobs:
           path: |
             build/lilygo-t-embed-cc1101/artifacts/
             build/lilygo-t-embed-cc1101/build.log
-            build/lilygo-t-embed-cc1101/filesystem.log
           retention-days: 5

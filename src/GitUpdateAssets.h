@@ -1,5 +1,5 @@
 #pragma once
 #include "GitUpdateAttestation.h"
-// Read-only point-in-time check. Future updater ownership must exclude writes.
+// Hashes the immutable canonical firmware bundle; generic targets are unsupported.
 UpdateAttestation gitUpdateAssetsStatus(UpdateAttestationControl control={});
 bool gitUpdateAssetsMatch();
