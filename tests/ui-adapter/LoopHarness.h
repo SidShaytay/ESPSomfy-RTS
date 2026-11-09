@@ -14,6 +14,10 @@
 #include "LoopQueue.h"
 #include "GitUpdate.h"
 #include "SafeRestart.h"
+#include "RestoreExecution.h"
+#ifndef LOCAL_QUEUE_REAL_RESTORE_EXECUTION
+inline void runOwnedRestore(const GitUpdateOwnerToken &,uint8_t){}
+#endif
 #ifdef LOCAL_QUEUE_FAKE_RESTORE_OPTIONS
 struct restore_options_t {bool settings=false,shades=false,network=false,transceiver=false,repeaters=false,mqtt=false;};
 #endif

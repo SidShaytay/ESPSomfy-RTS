@@ -1,9 +1,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
-#include <LittleFS.h>
 #include "esp_log.h"
 #include "LoopQueue.h"
-#include "ConfigFile.h"
 #include "Somfy.h"
 #include "SomfyEditor.h"
 #include "Utils.h"
@@ -14,23 +12,12 @@
 #endif
 #include "ModelCommitService.h"
 #include "SafeRestart.h"
-#include <esp_timer.h>
+#include "RestoreExecution.h"
 
 static const char *TAG = "LoopQueue";
 
 extern SomfyShadeController somfy;
 extern ShadeRequests shadeRequests;
-
-static restore_options_t restoreOptions(uint8_t parts) {
-  restore_options_t opts;
-  opts.settings = parts & RESTORE_SETTINGS;
-  opts.shades = parts & RESTORE_SHADES;
-  opts.network = parts & RESTORE_NETWORK;
-  opts.transceiver = parts & RESTORE_TRANSCEIVER;
-  opts.repeaters = parts & RESTORE_REPEATERS;
-  opts.mqtt = parts & RESTORE_MQTT;
-  return opts;
-}
 
 void LoopQueue::begin() {
   if(!this->queue) this->queue = xQueueCreate(LOOP_QUEUE_SIZE, sizeof(loop_item_t));
@@ -99,26 +86,9 @@ void LoopQueue::drain() {
         protoSocket.replyRequest(item.replyTo, item.request, result);
         break;
       }
-      case loop_item_type_t::restore_shades: {
-        const auto &owner=item.externalOwner;
-        if(!gitUpdate.claimTransfer(owner,uint64_t(esp_timer_get_time())/1000,true)) {
-          ESP_LOGW(TAG,"Restore source expired or is no longer owner; nothing applied or removed");break;
-        }
-        restore_options_t opts=restoreOptions(item.restoreParts);
-        const bool restored=ShadeConfigFile::restore(&somfy,"/shades.tmp",opts,owner);
-        // Only this claimed source may remove its temporary file. Stale
-        // markers never delete a newer request's backup at the same path.
-        LittleFS.remove("/shades.tmp");gitUpdate.transferResource(owner,false);
-        const auto time=uint64_t(esp_timer_get_time())/1000;
-        if(restored && gitUpdate.transferContinuing(owner,time) && gitUpdate.holdTransferRestart(owner)) {
-          const auto published=gitUpdate.finishTransfer(owner,time,true)
-              ? requestOwnedRestart(owner,1000) : RestartResult{false,RestartReason::stale};
-          if(published.admitted)break;
-          ESP_LOGW(TAG,"Restore applied; restart not admitted");
-        } else ESP_LOGW(TAG,"Restore refused, failed or expired; no restart scheduled");
-        if(gitUpdate.closeTransfer(owner)) gitUpdate.releaseExternal(owner);
+      case loop_item_type_t::restore_shades:
+        runOwnedRestore(item.externalOwner,item.restoreParts);
         break;
-      }
       case loop_item_type_t::model_commit:
         runModelCommit(item);
         break;

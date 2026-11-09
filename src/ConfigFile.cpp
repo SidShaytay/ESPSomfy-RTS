@@ -15,6 +15,8 @@
 #include "ModelIdleForAdministration.h"
 #include "LoopQueue.h"
 #include "SafeRestart.h"
+#include "RestoreExecution.h"
+#include "SettingsDurability.h"
 
 static const char *TAG = "ConfigFile";
 
@@ -215,70 +217,13 @@ static trans_record_t transRecord(const transceiver_config_t &cfg) {
   rec.noiseDetection = cfg.noiseDetection;
   return rec;
 }
-static void applySettingsRecord(const settings_record_t &rec) {
-  strlcpy(settings.hostname, rec.hostname, sizeof(settings.hostname));
-  strlcpy(settings.NTP.ntpServer, rec.ntpServer, sizeof(settings.NTP.ntpServer));
-  strlcpy(settings.NTP.posixZone, rec.posixZone, sizeof(settings.NTP.posixZone));
-  settings.ssdpBroadcast = rec.ssdpBroadcast;
-  settings.checkForUpdate = rec.checkForUpdate;
-}
-static void applyNetRecord(const net_record_t &rec, const restore_options_t &opts, bool sameBoard) {
-  if(opts.network) {
-    settings.connType = static_cast<conn_types_t>(rec.connType);
-    settings.IP.dhcp = rec.dhcp;
-    settings.IP.ip.fromString(rec.ip);
-    settings.IP.gateway.fromString(rec.gateway);
-    settings.IP.subnet.fromString(rec.subnet);
-    settings.IP.dns1.fromString(rec.dns1);
-    settings.IP.dns2.fromString(rec.dns2);
-#if HAS_ETHERNET
-    if(sameBoard) {
-      ESP_LOGI(TAG, "Restoring Ethernet adapter settings");
-      settings.Ethernet.boardType = rec.ethBoardType;
-      settings.Ethernet.phyType = rec.ethPhyType;
-      settings.Ethernet.CLKMode = rec.ethClkMode;
-      settings.Ethernet.phyAddress = rec.ethPhyAddress;
-      settings.Ethernet.PWRPin = rec.ethPWRPin;
-      settings.Ethernet.MDCPin = rec.ethMDCPin;
-      settings.Ethernet.MDIOPin = rec.ethMDIOPin;
-    }
-#else
-    (void)sameBoard;
-#endif
-  }
-  if(opts.mqtt) {
-    strlcpy(settings.MQTT.protocol, rec.mqttProtocol, sizeof(settings.MQTT.protocol));
-    strlcpy(settings.MQTT.hostname, rec.mqttHostname, sizeof(settings.MQTT.hostname));
-    settings.MQTT.port = rec.mqttPort;
-    settings.MQTT.pubDisco = rec.mqttPubDisco;
-    strlcpy(settings.MQTT.rootTopic, rec.mqttRootTopic, sizeof(settings.MQTT.rootTopic));
-    strlcpy(settings.MQTT.discoTopic, rec.mqttDiscoTopic, sizeof(settings.MQTT.discoTopic));
-  }
-}
-static void applyTransRecord(const trans_record_t &rec, transceiver_config_t &cfg) {
-  cfg.enabled = rec.enabled;
-  cfg.proto = rec.proto;
-  cfg.type = rec.type;
-  cfg.SCKPin = rec.SCKPin;
-  cfg.CSNPin = rec.CSNPin;
-  cfg.MOSIPin = rec.MOSIPin;
-  cfg.MISOPin = rec.MISOPin;
-  cfg.TXPin = rec.TXPin;
-  cfg.RXPin = rec.RXPin;
-  cfg.frequency = rec.frequency;
-  cfg.rxBandwidth = rec.rxBandwidth;
-  cfg.deviation = rec.deviation;
-  cfg.txPower = rec.txPower;
-  cfg.noiseDetection = rec.noiseDetection;
-}
 // Counter values are collected from the same immutable bytes later adopted.
 // No model record, GPIO or NVS read is applied during adoption itself.
 static_assert(CounterLoad::maximumEntries==SOMFY_MAX_SHADES*(SOMFY_MAX_LINKED_REMOTES+1)+SOMFY_MAX_GROUPS,"Complete loaded counter address bound");
 static void cooperateCounterLoad(const void *){resetTaskWdt();delay(0);}
-static bool restoreIdle(SomfyShadeController *model){
+static bool restoreIdle(SomfyShadeController *model,const RadioInstallToken &radio){
   if(loopQueue.pending() || restartPending() || !modelIdleForAdministration(*model))return false;
-  RadioUpdateActivity activity;
-  return model->transceiver.updateActivity(activity) && activity.quiescent();
+  return model->transceiver.installPauseHeld(radio);
 }
 static bool continueRestoreCounterLoad(const void *context){
   return gitUpdate.transferRestoreClaimed(*static_cast<const GitUpdateOwnerToken *>(context),uint64_t(esp_timer_get_time())/1000);
@@ -629,112 +574,72 @@ bool ShadeConfigFile::validateFile(const char *filename) {
   file.end();
   return valid;
 }
-bool ShadeConfigFile::restore(SomfyShadeController *s, const char *filename, restore_options_t &opts, const GitUpdateOwnerToken &owner) {
-  if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000) || s->transceiver.counterEditUncertain()) return false;
+RestoreApplyResult ShadeConfigFile::restore(SomfyShadeController *s,const char *filename,
+    restore_options_t &opts,const GitUpdateOwnerToken &owner,const RadioInstallToken &radio){
   ShadeConfigFile file;
-  if(file.begin(filename, true)) {
-    bool success = file.restoreFile(s, filename, opts, owner);
-    file.end();
-    return success;
-  }
-  return false;
+  return file.restoreFile(s,filename,opts,owner,radio);
 }
-bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename, restore_options_t &opts, const GitUpdateOwnerToken &owner) {
-  if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000) || s->transceiver.counterEditUncertain()) return false;
-  bool opened = false;
-  if(!this->isOpen()) {
-    ESP_LOGI(TAG, "Opening shade restore file");
-    this->begin(filename, true);
-    opened = true;
+RestoreApplyResult ShadeConfigFile::restoreFile(SomfyShadeController *s,const char *filename,
+    restore_options_t &opts,const GitUpdateOwnerToken &owner,const RadioInstallToken &radio){
+  RestoreApplyResult result;
+  if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000) ||
+      !restoreExecutionHolds(owner,radio)) {result.refusal=RestoreRefusal::ownership;return result;}
+  if(s->transceiver.counterEditUncertain()){result.refusal=RestoreRefusal::busy;return result;}
+  bool opened=false;
+  if(!isOpen()){begin(filename,true);opened=true;}
+  struct CloseOpened{ShadeConfigFile &file;bool active;~CloseOpened(){if(active)file.end();}}close{*this,opened};
+  if(!validate())return result;
+  if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000)){
+    result.refusal=RestoreRefusal::ownership;return result;
   }
-  if(!this->validate()) {
-    ESP_LOGE(TAG, "Shade restore file invalid!");
-    if(opened) this->end();
-    return false;
-  }
-  if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000) || s->transceiver.counterEditUncertain()) {
-    if(opened) this->end();return false;
-  }
-  if(!restoreIdle(s)){if(opened)this->end();return false;}
+  if(!restoreIdle(s,radio)){result.refusal=RestoreRefusal::busy;return result;}
   const bool recovering=!s->modelLoad.usable();
-  if(recovering && (!opts.shades || !opts.repeaters)) {
-    if(opened)this->end();return false;
+  if(recovering && (!opts.shades || !opts.repeaters)){
+    result.refusal=RestoreRefusal::incompleteModel;return result;
+  }
+  if(!opts.shades&&!opts.repeaters&&!opts.settings&&!opts.network&&!opts.mqtt&&!opts.transceiver)return result;
+  if(opts.settings||opts.network||opts.mqtt||opts.transceiver){
+    // This feature stays off main until the independently reviewed staged
+    // selected-settings writer replaces this refusal. Never replay the legacy
+    // unchecked live-before-save path or certify an unverified full restore.
+    result.settings.state=RestoreSettingsState::unavailable;
+    if(opts.settings)result.settings.requestedNamespaces|=settingsNamespaceBit(SettingsNamespace::cfg)|settingsNamespaceBit(SettingsNamespace::ntp);
+    if(opts.network)result.settings.requestedNamespaces|=settingsNamespaceBit(SettingsNamespace::cfg)|settingsNamespaceBit(SettingsNamespace::ip);
+    if(opts.mqtt)result.settings.requestedNamespaces|=settingsNamespaceBit(SettingsNamespace::mqtt);
+    if(opts.transceiver)result.settings.requestedNamespaces|=settingsNamespaceBit(SettingsNamespace::radio);
+    result.refusal=RestoreRefusal::settings;return result;
   }
   if(opts.shades){
     const bool prepared=prepareCounters({&owner,continueRestoreCounterLoad,cooperateCounterLoad});
-    if(!prepared || !gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000) || !restoreIdle(s)){
-      // A failed read/invalid import never revokes a previously proven model.
-      // Any attempted promotion may have changed durable maxima, including a
-      // verified READY result whose owner expired before live adoption.
-      if(counters.result().writeAttempted)s->modelLoad.fail();
-      if(opened)this->end();return false;
+    result.counterWriteAttempted=counters.result().writeAttempted;
+    if(!prepared){
+      if(result.counterWriteAttempted)s->modelLoad.fail();
+      result.refusal=RestoreRefusal::counterStorage;return result;
     }
-    s->modelLoad.fail(); // Actual live-model adoption starts below.
-  }
-  invalidateDeviceSettingsRevisions();
-  ++s->configurationRevision;
-  ++s->restoreRevision;
-  if(opts.shades) {
-    ESP_LOGI(TAG, "Restoring the rooms, shades and groups");
-    this->readModel(s);
-    if(readFailed){if(opened)this->end();return false;}
-  }
-  else {
-    ESP_LOGI(TAG, "Shade data ignored");
-    skipRecords(*this, this->header.roomRecords + this->header.shadeRecords + this->header.groupRecords);
-  }
-  if(opts.repeaters) {
-    ESP_LOGI(TAG, "Restoring Repeaters...");
-    memset(s->repeaters, 0x00, sizeof(s->repeaters));
-    for(uint8_t i = 0; i < this->header.repeaterRecords; i++) this->readRepeaters(s);
-  }
-  else skipRecords(*this, this->header.repeaterRecords);
-  if(this->header.settingsRecordSize > 0) {
-    if(opts.settings) {
-      settings_record_t rec = settingsRecord();
-      readSettingsRecord(*this, this->header, rec);
-      applySettingsRecord(rec);
+    if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000) || !restoreIdle(s,radio)){
+      if(result.counterWriteAttempted)s->modelLoad.fail();
+      result.refusal=RestoreRefusal::ownership;return result;
     }
-    else skipRecords(*this, 1);
+    s->modelLoad.fail();
   }
-  if(this->header.netRecordSize > 0) {
-    if(opts.network || opts.mqtt) {
-      // Only the board that wrote the Ethernet settings takes them back.
-      const bool sameBoard = HAS_ETHERNET && strncmp(settings.serverId, this->header.serverId, sizeof(settings.serverId)) == 0;
-      net_record_t rec = netRecord();
-      readNetRecord(*this, this->header, rec, sameBoard);
-      applyNetRecord(rec, opts, sameBoard);
-    }
-    else skipRecords(*this, 1);
-  }
-  // The repeaters are saved in shades.cfg too.  Left to somfy.loop(), they
-  // race the reboot.
-  if(opts.shades || opts.repeaters) {
+  invalidateDeviceSettingsRevisions();++s->configurationRevision;++s->restoreRevision;
+  if(opts.shades){
+    result.modelApplied=true;readModel(s);
+    if(readFailed){result.refusal=RestoreRefusal::invalid;return result;}
+  }else skipRecords(*this,header.roomRecords+header.shadeRecords+header.groupRecords);
+  if(opts.repeaters){
+    result.modelApplied=true;memset(s->repeaters,0,sizeof(s->repeaters));
+    for(unsigned i=0;i<header.repeaterRecords;++i)readRepeaters(s);
+  }else skipRecords(*this,header.repeaterRecords);
+  if(readFailed){if(result.modelApplied)s->modelLoad.fail();return result;}
+  if(opts.shades||opts.repeaters){
     if(opts.shades)s->modelLoad.beginRecoveryCommit();
-    const auto saved=s->commit();
-    if(opts.shades)s->modelLoad.finishRecoveryCommit(saved.saved());
-    if(!saved.saved()){if(opened)this->end();return false;}
+    result.modelFile=s->commit();
+    if(opts.shades)s->modelLoad.finishRecoveryCommit(result.modelFile.saved());
+    if(!result.modelFile.saved()){result.refusal=RestoreRefusal::modelStorage;return result;}
   }
-  if(opts.transceiver && this->header.transRecordSize > 0) {
-    // Read into a copy so the radio task never transmits on a half restored config.
-    trans_record_t rec = transRecord(s->transceiver.config);
-    readTransRecord(*this, rec);
-    transceiver_config_t cfg = s->transceiver.config;
-    applyTransRecord(rec, cfg);
-    s->transceiver.setConfig(cfg);
-  }
-  if(opts.settings || opts.network) settings.save();
-  if(opts.settings && settings.NTP.save().saved()) settings.NTP.apply();
-  if(opts.network) {
-    settings.IP.save();
-    settings.WIFI.save();
-#if HAS_ETHERNET
-    settings.Ethernet.save();
-#endif
-  }
-  if(opts.mqtt) settings.MQTT.save();
-  if(opts.shades) s->configureGPIOs();
-  return true;
+  if(opts.shades)s->configureGPIOs();
+  result.complete=result.settings.saved();result.refusal=RestoreRefusal::none;return result;
 }
 bool ShadeConfigFile::loadFile(SomfyShadeController *s, const char *filename) {
   bool opened = false;

@@ -1,3 +1,5 @@
+#include "RestoreExecution.h"
+#include "SettingsDurability.h"
 #include "ModelLoadTrust.h"
 #include "ESPAsyncWebServer.h"
 #include "ModelCommitService.h"
@@ -18,7 +20,11 @@ struct SomfyShadeController {
   struct Radio {
     bool uncertain=false;
     bool counterEditUncertain() const{return uncertain;}
-    bool sealed=false;
+    bool sealed=false,restorePaused=false;uint64_t restoreGeneration=0;
+    bool pauseForRestore(RadioInstallToken &out){if(sealed||uncertain||out.generation)return false;sealed=restorePaused=true;out.generation=++restoreGeneration;return true;}
+    bool installPauseHeld(const RadioInstallToken &token)const{return restorePaused&&sealed&&token.generation==restoreGeneration;}
+    RadioInstallResume resumeAfterInstall(const RadioInstallToken &token){if(!installPauseHeld(token))return RadioInstallResume::stale;restorePaused=sealed=false;return RadioInstallResume::resumed;}
+
     bool restartQuiescent() const{return true;}
     bool sealForRestart(){sealed=true;return true;}
     void reopenAfterRefusedRestart(){sealed=false;}
@@ -60,16 +66,28 @@ struct restore_options_t {
 };
 struct ShadeConfigFile {
   static bool validateFile(const char*){++validations;if(duringValidation)duringValidation();if(expireDuringValidation)manualClockMs+=30001;return restoreValid;}
-  static bool restore(SomfyShadeController*,const char*,restore_options_t&,const GitUpdateOwnerToken &owner) {
-    assert(gitUpdate.transferRestoreClaimed(owner,manualClockMs));
-    if(somfy.transceiver.uncertain)return false;
-    ++restores;return restoreValid;
+  static RestoreApplyResult restore(SomfyShadeController*,const char*,restore_options_t &opts,const GitUpdateOwnerToken &owner,const RadioInstallToken &radio) {
+    assert(gitUpdate.transferRestoreClaimed(owner,manualClockMs)&&restoreExecutionHolds(owner,radio));
+    RestoreApplyResult result;
+    if(somfy.transceiver.uncertain)return result;
+    ++restores;result.complete=restoreValid;result.refusal=restoreValid?RestoreRefusal::none:RestoreRefusal::invalid;
+    result.modelApplied=opts.shades||opts.repeaters;result.modelFile={ModelCommitState::saved};
+    if(opts.settings||opts.network||opts.mqtt||opts.transceiver){
+      result.settings.state=RestoreSettingsState::saved;
+      if(opts.settings)result.settings.requestedNamespaces|=settingsNamespaceBit(SettingsNamespace::cfg)|settingsNamespaceBit(SettingsNamespace::ntp);
+      if(opts.network)result.settings.requestedNamespaces|=settingsNamespaceBit(SettingsNamespace::cfg)|settingsNamespaceBit(SettingsNamespace::ip);
+      if(opts.mqtt)result.settings.requestedNamespaces|=settingsNamespaceBit(SettingsNamespace::mqtt);
+      if(opts.transceiver)result.settings.requestedNamespaces|=settingsNamespaceBit(SettingsNamespace::radio);
+      result.settings.verifiedNamespaces=result.settings.appliedNamespaces=result.settings.requestedNamespaces;
+    }
+    return result;
   }
 };
 struct RecordingRequests {shade_request_result_t run(const shade_request_t&){return shade_request_result_t::done;}} shadeRequests;
 #define LOCAL_QUEUE_EXTERNAL_REBOOT
 #define LOCAL_QUEUE_EXTERNAL_CONFIG_FILE
 #define LOCAL_QUEUE_REAL_UPDATE_OWNER
+#define LOCAL_QUEUE_REAL_RESTORE_EXECUTION
 #include "../ui-adapter/LoopHarness.h"
 bool asyncHasParam(AsyncWebServerRequest *request,const char*){return request->hasRestoreOptions;}
 String asyncParam(AsyncWebServerRequest *request,const char*){return String(request->restoreOptions);}
@@ -95,6 +113,8 @@ bool submitModelCommit(const proto_reply_to_t &, ModelCommitMode mode,const GitU
   restarts.push_back(mode == ModelCommitMode::applicationRecoveryAndRestart);
   return admitted;
 }
+uint32_t restoreTestRandom(){return 42;}
+#include "../../src/RestoreExecution.cpp"
 #include "../../src/entryPoints/ManualUploadSession.cpp"
 #include "../../src/entryPoints/ApplicationUpload.cpp"
 #include "../../src/entryPoints/FirmwareUpload.cpp"
@@ -113,6 +133,7 @@ static void reset() {
   resets = 0;restartLoop();
 }
 int main() {
+  assert(beginRestoreExecution());
   AsyncWebServer server;
   registerApplicationUploadRoute(server);
   uint8_t byte = 42;loopQueue.begin();

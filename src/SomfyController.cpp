@@ -1,3 +1,4 @@
+#include "RestoreExecution.h"
 #include "ModelLoadSnapshot.h"
 #include "LilygoBuild.h"
 #include "esp_log.h"
@@ -150,6 +151,7 @@ void setup() {
   delay(10);
   // Before anything that can submit to it: the web servers and MQTT.
   loopQueue.begin();
+  beginRestoreExecution();
   webServer.startup();
   webServer.begin();
   delay(1000);
