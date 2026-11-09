@@ -216,6 +216,11 @@ def process_file(src_path: str, dst_path: str) -> dict:
             with open(src_path, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
 
+            if _verified_updates() and os.path.normpath(dst_path) == os.path.join(_dst_dir(), "index.html"):
+                marker = '<meta name="espsomfy-web-mode" content="filesystem">'
+                if content.count(marker) != 1:
+                    raise ValueError("canonical HTML requires exactly one source web-mode marker")
+                content = content.replace(marker, '<meta name="espsomfy-web-mode" content="bundled">')
             minifier = MINIFIERS.get(ext)
             if minifier:
                 content = minifier(content)

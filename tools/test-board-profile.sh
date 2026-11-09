@@ -20,7 +20,7 @@ done
 "$scratch/generic-test"
 # Compile exactly the same production feature checks as SomfyController.cpp.
 printf '#include "LilygoBuild.h"\nint main() {}\n' > "$scratch/features.cpp"
-features=(-DESPSOMFY_STATUS_DISPLAY -DESPSOMFY_LOCAL_UI -DESPSOMFY_LOCAL_COMMANDS)
+features=(-DESPSOMFY_STATUS_DISPLAY -DESPSOMFY_LOCAL_UI -DESPSOMFY_LOCAL_COMMANDS -DESPSOMFY_BUNDLED_WEB)
 reject() {
   if "$compiler" "${common[@]}" "$@" "$scratch/features.cpp" -o "$scratch/rejected" > "$scratch/rejected.log" 2>&1; then
     echo "Invalid LILYGO configuration accepted: $*" >&2
@@ -30,7 +30,7 @@ reject() {
 for board in ESPSOMFY_LILYGO_T_EMBED_CC1101; do
   "$compiler" "${common[@]}" -D"$board" -DCONFIG_IDF_TARGET_ESP32S3 "${features[@]}" "$scratch/features.cpp" -o "$scratch/features"
   reject -D"$board" "${features[@]}"
-  for removed in ESPSOMFY_STATUS_DISPLAY ESPSOMFY_LOCAL_UI ESPSOMFY_LOCAL_COMMANDS; do
+  for removed in ESPSOMFY_STATUS_DISPLAY ESPSOMFY_LOCAL_UI ESPSOMFY_LOCAL_COMMANDS ESPSOMFY_BUNDLED_WEB; do
     reject -D"$board" -DCONFIG_IDF_TARGET_ESP32S3 "${features[@]}" -U"$removed"
     reject -D"$board" -DCONFIG_IDF_TARGET_ESP32S3 "${features[@]}" -U"$removed" -D"$removed"=0
     reject -D"$board" -DCONFIG_IDF_TARGET_ESP32S3 "${features[@]}" -U"$removed" -D"$removed"=2

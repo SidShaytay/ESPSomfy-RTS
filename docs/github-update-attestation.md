@@ -1,6 +1,6 @@
 # Offline updater prerequisite attestation
 
-This slice extracts and narrows issue #12's committed bootloader and web-asset checks from `baf01473f28a67e689b0a2565c78d83903a784b3`. It builds on the schema-2 shared CC1101/Plus policy. It adds no worker, network request, startup invocation, installer, flashing path or bootstrap operation. The checks below are callable read-only prerequisites for the later single updater service.
+This slice extracts and narrows issue #12's committed bootloader and web-asset checks from `baf01473f28a67e689b0a2565c78d83903a784b3`. The current shared CC1101/Plus policy is schema 3 with bundled web assets; the original filesystem implementation is retained only in Git history. It adds no worker, network request, startup invocation, installer, flashing path or bootstrap operation. The checks below are callable read-only prerequisites for the later single updater service.
 
 ## Typed results and ownership
 
@@ -16,23 +16,19 @@ SCons dependencies force bootloader conversion before generation and compilation
 
 The runtime hook refuses encrypted flash configurations, then streams raw reads through an aligned 512-byte buffer and the pinned SDK SHA256 implementation. Read, hash and mismatch errors are distinct typed refusals. The result is cached for the boot because this updater never writes the bootloader. Test boundaries inject encryption, read/start/update/finish failures and changed bytes; generic checks require no SDK flash implementation.
 
-## Exact served web namespace
+## Immutable served web assets
 
-The asset hook authenticates `/update-assets.txt` against the compiled schema-2 application compatibility digest, then validates every listed file's exact size and digest. Bounds remain 128 listed files, 16 KiB manifest, 127-character absolute safe paths, 224-byte line buffer, and aggregate file payload no larger than the canonical 0x180000-byte filesystem partition. The file hashing buffer is 1 KiB; no complete filesystem or manifest is staged in RAM. Empty files are supported. Malformed, duplicate, unsorted, truncated, overflowing, missing, mismatched and unreadable inputs fail closed. Directories cannot satisfy listed file records.
+Sid selected bundling the public web UI inside the shared application image. The canonical asset check hashes the compiled manifest against `ESPSOMFY_APP_COMPAT`, then hashes each immutable table entry using the same read-only `BundledWeb` implementation used by the HTTP routes. It never opens private configuration, enumerates LittleFS or reads a filesystem web version. Generic boards return unsupported here and retain their existing filesystem serving behavior.
 
-Root directory metadata is enumerated through `opendir(LittleFS.mountpoint())`, `readdir` with a cleared errno, and checked `closedir`. The pinned Arduino `File::openNextFile()` collapses iterator errors into end-of-directory, which cannot meet the required error contract. POSIX metadata enumeration permits explicit open/iterator/close errors, empty/omitted results, duplicate entries and excessive names/counts to be refused. At most 256 root entries and 127-character entry names are accepted.
+The generator accepts at most 128 exact root public assets and a 16 KiB canonical manifest. Each packed file is bounded by the existing 0x180000-byte asset limit; gzip expansion is bounded at 8 MiB and must terminate with no appended stream. Required HTML, JavaScript, CSS and source-version entries must exist. Private paths, aliases/shadows, unknown assets, malformed gzip, missing files and mismatched size/digest fail the build. The HTML must contain exactly one bundled-mode marker before the compatibility digest is calculated.
 
-The existing `HttpAccess.h::isWebAsset()` defines the served root namespace. Every unlisted root entry with a served-shaped name, or a `.gz` counterpart of one, is refused regardless of whether its reported type is a file, directory or unknown. This catches plain/gzip shadows and unrelated extra served files. It also catches directories such as `unexpected.js`, since the pinned static handler can append its default `index.html` after an unsuccessful file lookup. Listed root entries must be regular files and all expected served root entries must appear exactly once in metadata.
-
-Ordinary directories and nonservable private configuration/temporary names are ignored. Directory contents are not enumerated; private configuration/counter files are never opened or hashed. Listed nested packaged files still receive their required digest checks, while the current root-only web access policy rejects direct nested URLs. No web serving policy changes are made.
-
-To avoid storing a large name table, root membership is resolved by rescanning the bounded manifest, with watchdog resets. The manifest is hashed again after verification to detect changes during the check. This remains a point-in-time check: the future updater's exclusive ownership/quiescence must prevent filesystem uploads or other relevant writes throughout check/install/health operations. No atomic whole-filesystem snapshot or physical latency qualification is claimed.
+The runtime hashes in 1 KiB chunks, checking cooperative cancellation before I/O and between chunks and releasing hash state on all exits. HTTP uses immutable flash pointers with the existing MIME, gzip, ETag and no-cache behavior, and never falls back to filesystem web files. Registration failure remains observable through route readiness; this is not complete postboot-health acceptance.
 
 ## Offline tests
 
 - `python3 -m unittest discover -s tools -p 'test_update_*.py'`: existing release/profile/assets tests plus bootloader generation, rollback/offset and corrupt/oversized image rejection.
 - `bash tools/test-update-bootloader.sh`: production read/hash/cache code with fake flash/hash/encryption boundaries and generic unsupported checks.
-- `bash tools/test-update-assets.sh`: production parser, hashing and root enumeration with local fixture files, an independent host SHA256 oracle, injected metadata/hash/read failures, unexpected served files/directories, private-file open traps and authenticated malformed manifests.
+- `bash tools/test-update-assets.sh`: production bundled hashing and HTTP routes with an independent host SHA256 oracle, hash/cancellation failures, immutable/private-path checks, registration failures, generated manifest validation and compiled-versus-filesystem version tests.
 - Full native suite, existing canonical package/board/auth harnesses, and serial shared/generic firmware builds retain current behavior. The fresh shared build log establishes bootloader conversion → header generation → attestation compilation ordering; the built image contains exactly one matching bootloader marker.
 
 All tests are local/fake or build-only. Successful compilation and matching packaged markers establish no installed bootloader state, power-loss rollback behavior, physical flash access, radio behavior or controller recovery acceptance.

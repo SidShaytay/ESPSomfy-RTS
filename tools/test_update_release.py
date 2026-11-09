@@ -31,7 +31,7 @@ class IdentityTests(unittest.TestCase):
         record = {'revision': '1' * 40, 'dirty': False, 'input_sha256': {}}
         identity = i.identity(record, 'sha256:' + 'a' * 64, ['v4.0.3'])
         self.assertEqual(identity['version'], 'v4.0.3')
-        self.assertEqual(identity['marker'], 'ESPSOMFY_UPDATE_ID:2|lilygo-t-embed-cc1101|default_8MB|' + '1' * 40 + '|v4.0.3|sha256:' + 'a' * 64)
+        self.assertEqual(identity['marker'], 'ESPSOMFY_UPDATE_ID:3|lilygo-t-embed-cc1101|default_8MB|' + '1' * 40 + '|v4.0.3|bundled|sha256:' + 'a' * 64)
 
     def test_dirty_tagged_build_is_development(self):
         result = i.identity({'revision': '1' * 40, 'dirty': True}, 'sha256:' + 'a' * 64, ['v4.0.3'])
@@ -62,8 +62,9 @@ class ReleaseTests(unittest.TestCase):
         self.epoch_patch=patch.object(r,'source_epoch',return_value=1760000000)
         self.epoch_patch.start();self.addCleanup(self.epoch_patch.stop)
         self.record = dict(self.manifest['source'])
-        self.identity = i.identity(self.record, 'sha256:' + 'a' * 64, ['v4.0.3'])
+        self.identity = i.identity(self.record, self.bundleCompat, ['v4.0.3'])
         for name,key in (('ESPSOMFY_SOURCE_SHA','source_sha'), ('ESPSOMFY_RELEASE_TAG','version'), ('ESPSOMFY_APP_COMPAT','app_compat')):
+            definitions[:]=[entry for entry in definitions if not entry.startswith(name+'=')]
             definitions.append(name+'="'+self.identity[key]+'"')
         definitions.append('ESPSOMFY_SOURCE_EPOCH=1760000000')
         (self.out/'compiler-metadata.json').write_text(json.dumps(compiler))
@@ -72,7 +73,7 @@ class ReleaseTests(unittest.TestCase):
         raw = firmware.read_bytes()
         bootloader = (self.out / 'bootloader.bin').read_bytes()
         boot_marker = f'ESPSOMFY_BOOT_ID:{self.profile["bootloader_address"]}:{len(bootloader)}:{hashlib.sha256(bootloader).hexdigest()}'.encode() + b'\0'
-        payload = (self.identity['marker'].encode() + b'\0' + boot_marker).ljust(1024, b'\0')
+        payload = (self.identity['marker'].encode() + b'\0' + boot_marker + self.bundleBlob).ljust(1024, b'\0')
         import struct
         image = bytearray(raw[:24]) + struct.pack('<II', 0x3c000000, len(payload)) + payload
         checksum = 0xef
@@ -87,16 +88,16 @@ class ReleaseTests(unittest.TestCase):
         (self.out / 'update-source.json').write_text(json.dumps({'source': self.record, 'identity': self.identity}))
 
     def package(self):
-        with patch.object(r.build, 'source_record', return_value=self.record), patch.object(r, 'tags_at_head', return_value=['v4.0.3']), patch.object(r, 'read_app_compat', return_value='sha256:' + 'a' * 64):
+        with patch.object(r.build, 'source_record', return_value=self.record), patch.object(r, 'tags_at_head', return_value=['v4.0.3']), patch.object(r, 'read_app_compat', return_value=self.bundleCompat):
             return r.release_manifest(self.out, Path('/source'), 'v4.0.3')
 
     def test_release_binds_actual_image_identity_and_digest(self):
         manifest = self.package()
-        self.assertEqual(manifest['schema'],2)
-        self.assertEqual(manifest['features'],7)
+        self.assertEqual(manifest['schema'],3)
+        self.assertEqual(manifest['features'],15)
         self.assertEqual(manifest['compatible_boards'],[i.BOARD, i.BOARD+'-plus'])
         self.assertEqual(manifest['source_sha'], self.record['revision'])
-        self.assertEqual(manifest['app_compat'], 'sha256:' + 'a' * 64)
+        self.assertEqual(manifest['app_compat'], self.bundleCompat)
         self.assertEqual(manifest['size'], (self.out / 'firmware.bin').stat().st_size)
         self.assertEqual(manifest['sha256'], hashlib.sha256((self.out / 'firmware.bin').read_bytes()).hexdigest())
         self.assertEqual(manifest['asset'], 'firmware-lilygo-t-embed-cc1101.bin')
@@ -114,7 +115,7 @@ class ReleaseTests(unittest.TestCase):
             self.package()
 
     def test_rejects_relabelled_version(self):
-        with patch.object(r.build, 'source_record', return_value=self.record), patch.object(r, 'tags_at_head', return_value=['v4.0.4']), patch.object(r, 'read_app_compat', return_value='sha256:' + 'a' * 64):
+        with patch.object(r.build, 'source_record', return_value=self.record), patch.object(r, 'tags_at_head', return_value=['v4.0.4']), patch.object(r, 'read_app_compat', return_value=self.bundleCompat):
             with self.assertRaises(ValueError):
                 r.release_manifest(self.out, Path('/source'), 'v4.0.4')
 
@@ -132,7 +133,7 @@ class ReleaseTests(unittest.TestCase):
         boot_marker=f'ESPSOMFY_BOOT_ID:{self.profile["bootloader_address"]}:{len(bootloader)}:{hashlib.sha256(bootloader).hexdigest()}'.encode()+b'\0'
         for suffix in (b'',boot_marker+boot_marker,boot_marker+b'ESPSOMFY_BOOT_ID:malformed\0'):
             with self.subTest(suffix=suffix):
-                payload=(self.identity['marker'].encode()+b'\0'+suffix).ljust(1024,b'\0')
+                payload=(self.identity['marker'].encode()+b'\0'+suffix+self.bundleBlob).ljust(1024,b'\0')
                 (self.out/'firmware.bin').write_bytes(image(9,payload=payload))
                 record=r.build.artifact_manifest(self.out)
                 record['source']=self.record
@@ -176,7 +177,7 @@ class ReleaseTests(unittest.TestCase):
         path.write_text(json.dumps(original))
 
     def test_untagged_source_and_retired_environment_never_release(self):
-        with patch.object(r.build, 'source_record', return_value=self.record), patch.object(r, 'tags_at_head', return_value=[]), patch.object(r, 'read_app_compat', return_value='sha256:'+'a'*64):
+        with patch.object(r.build, 'source_record', return_value=self.record), patch.object(r, 'tags_at_head', return_value=[]), patch.object(r, 'read_app_compat', return_value=self.bundleCompat):
             with self.assertRaises(ValueError): r.release_manifest(self.out,Path('/source'),'v4.0.3')
         self.profile_patch.stop()
         for environment in ('esp32s3', 'lilygo-t-embed-cc1101-plus', 'lilygo-t-embed-cc1101-ui'):

@@ -13,5 +13,6 @@ constexpr uint32_t app0Address=0x10000, app1Address=0x340000;
 constexpr uint32_t fsAddress=0x670000, fsBytes=0x180000;
 constexpr uint32_t nvsAddress=0x9000, nvsBytes=0x5000;
 constexpr uint16_t chipId=9;
-constexpr uint8_t features=7; // display, interactive UI, local commands
+constexpr const char *assetsMode="bundled";
+constexpr uint8_t features=15; // display1, interactive UI2, local commands4, bundled web8
 }

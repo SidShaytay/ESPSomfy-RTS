@@ -101,6 +101,21 @@ int main() {
   registerApplicationUploadRoute(server);
   uint8_t byte = 42;loopQueue.begin();
   reset();
+#if defined(ESPSOMFY_BUNDLED_WEB)
+  GitUpdateOwnerToken competing;
+  assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,competing));
+  AsyncWebServerRequest refused;
+  server.upload(&refused,String("retired.bin"),0,&byte,1,false);
+  assert(refused.status==410 && refused.responses==1 && !refused._tempObject);
+  assert(!refused.getAttribute("manualAttempted",false));
+  server.upload(&refused,String("retired.bin"),1,&byte,1,true);server.complete(&refused);
+  assert(refused.responses==1 && !Update.begins && !Update.writes && !Update.ends && !Update.aborts);
+  assert(!LittleFS.opens && !LittleFS.writes && !LittleFS.removes && !somfy.transceiver.stops && !mqtt.stops);
+  assert(restarts.empty() && !rebootDelay.reboot && gitUpdate.ownsExternal(competing));
+  assert(gitUpdate.releaseExternal(competing));
+  AsyncWebServerRequest empty;server.complete(&empty);assert(empty.status==410 && !gitUpdate.busy());
+  std::cout << "Bundled application upload retired before owner, SDK, filesystem or shutdown effects.\n";return 0;
+#endif
   AsyncWebServerRequest first, overlap;
   server.upload(&first,String("a.bin"),0,&byte,1,false);
   server.upload(&overlap,String("b.bin"),0,&byte,1,false);
