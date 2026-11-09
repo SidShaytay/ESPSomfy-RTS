@@ -45,7 +45,7 @@ def records(manifest):
         if not match:
             raise ValueError('unsafe or non-root bundled asset')
         digest, size, name = match.group(1), int(match.group(2)), match.group(3)
-        if name <= previous or '..' in name or size > MAX_FILE - total:
+        if len(name) + 1 > 127 or name <= previous or '..' in name or size > MAX_FILE - total:
             raise ValueError('bundled asset order or size invalid')
         previous, total = name, total + size
         compressed = name.endswith('.gz')

@@ -73,6 +73,14 @@ class BundleTests(unittest.TestCase):
                      b'<meta name="espsomfy-web-mode" name="other" content="bundled">'):
             (self.data/'index.html.gz').write_bytes(gzip.compress(text,mtime=0));update_assets.write_manifest(self.data)
             with self.assertRaises(ValueError):bundled_web_assets.generate(self.data,self.root/'bad.h')
+    def test_extracted_manifest_rejects_overlong_root_names(self):
+        import struct
+        blob=bundled_web_assets.build_blob(self.data)
+        start=len(bundled_web_assets.MAGIC)+4
+        size=struct.unpack_from('>I',blob,len(bundled_web_assets.MAGIC))[0]
+        manifest=blob[start:start+size]+(hashlib.sha256(b'x').hexdigest()+' 1 /'+'x'*128+'.js\n').encode()
+        forged=bundled_web_assets.MAGIC+struct.pack('>I',len(manifest))+manifest+blob[start+size:]+b'x'
+        with self.assertRaises(ValueError):bundled_web_assets.extract(forged)
     def test_gzip_expansion_is_bounded(self):
         (self.data/'index.js.gz').write_bytes(gzip.compress(b'x'*(bundled_web_assets.MAX_EXPANDED+1),mtime=0))
         update_assets.write_manifest(self.data)
