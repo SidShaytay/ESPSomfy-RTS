@@ -662,6 +662,8 @@ static void order_rechecks_full_permutation_and_authority_after_allocation() {
     LocalUi::security.generation = 1;
     pendingCount = 0;
     rebootDelay = {};
+    expectedAllocator = &memory;
+    expectedType = model_edit_type_t::shade_order;
     const uint8_t ids[] = {7};
     const auto result = runtimeBackend().applyOrder(Kind::shade, ids, 1, memory,
                                                     {true, 1, 1}, 1);
