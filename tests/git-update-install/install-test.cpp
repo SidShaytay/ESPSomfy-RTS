@@ -35,12 +35,15 @@ int main(int argc,char **argv){
   manifest["sha256"]=hash(image);release["assets"][0]["digest"]="sha256:"+hash(image);
   Fake::responses[imageUrl].body=image;publish();
   gitUpdate.begin(admit,{sourceCurrent,prepare,cleanup,imageWritten});
-  CHECK(gitUpdate.requestCheck()==GitUpdateRequest::accepted);pump();
+  uint64_t checkOperation=0;CHECK(gitUpdate.requestCheck(checkOperation)==GitUpdateRequest::accepted && checkOperation);
+  CHECK(gitUpdate.snapshot().operation==checkOperation);pump();
   const auto candidate=gitUpdate.snapshot().candidate;
   CHECK(gitUpdate.snapshot().canInstall && candidate.generation);
   auto changed=candidate;changed.imageSha[0]=changed.imageSha[0]=='a'?'b':'a';
   uint64_t unchanged=99;CHECK(gitUpdate.requestInstall(changed,unchanged)==GitUpdateRequest::invalidCandidate && unchanged==99);
   CHECK(gitUpdate.requestInstall(candidate,installOperation)==GitUpdateRequest::accepted);
+  CHECK(installOperation!=checkOperation && installOperation!=candidate.generation);
+  CHECK(!gitUpdate.requestCancel(checkOperation)); // A completed screen cannot cancel the new install.
   CHECK(installOperation && preparations==0 && Fake::otaBegins==0);
   if(scenario=="notifyFail")Fake::notifyFail=true;
   if(scenario=="beginFail")Fake::failBegin=true;

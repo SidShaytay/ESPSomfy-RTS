@@ -12,6 +12,7 @@ using byte=uint8_t;
 static bool bootPending=false;
 GitUpdateBootStatus gitUpdateBootStatus(){return {bootPending,false};}
 static std::string controllerScenario;
+static uint64_t controllerOperation=0;
 static bool filesystemReady=true,queueHeld=false,queuePending=false,localPending=false;
 static bool saveOkay=true,pauseOkay=true,resumeBusy=false;
 static unsigned modelSaves=0,shutdownCalls=0,resumeCalls=0;
@@ -79,13 +80,15 @@ int main(int argc,char **argv){
   release["assets"][0]["size"]=image.size();release["assets"][0]["digest"]="sha256:"+hash(image);
   const std::string url=std::string("https://github.com/")+GitUpdatePolicy::REPOSITORY+"/releases/download/"+tag+"/"+GitUpdatePolicy::FIRMWARE_ASSET;
   Fake::responses[url].body=image;publish();restartLoop();beginGitUpdateController();
-  CHECK(requestLocalGitUpdateCheck(2,5)==GitUpdateRequest::unavailable);
-  CHECK(requestLocalGitUpdateCheck(3,5)==GitUpdateRequest::accepted);controllerPump();
+  uint64_t checkOperation=0;
+  CHECK(requestLocalGitUpdateCheck(2,5,checkOperation)==GitUpdateRequest::unavailable);
+  CHECK(requestLocalGitUpdateCheck(3,5,checkOperation)==GitUpdateRequest::accepted);controllerPump();
   const auto candidate=gitUpdate.snapshot().candidate;CHECK(candidate.generation && gitUpdate.snapshot().canInstall);
-  uint64_t operation=0;
+  uint64_t &operation=controllerOperation;
   CHECK(requestLocalGitUpdateInstall(candidate,3,4,operation)==GitUpdateRequest::unavailable && !operation);
   bootPending=true;CHECK(requestLocalGitUpdateInstall(candidate,3,5,operation)==GitUpdateRequest::unavailable && !operation);bootPending=false;
-  CHECK(requestLocalGitUpdateInstall(candidate,3,5,operation)==GitUpdateRequest::accepted && operation==candidate.generation);
+  CHECK(requestLocalGitUpdateInstall(candidate,3,5,operation)==GitUpdateRequest::accepted && operation!=candidate.generation);
+  CHECK(!cancelLocalGitUpdate(3,5,checkOperation));
   if(controllerScenario=="moving"){somfy.shades[0].id=1;somfy.shades[0].idle=false;}
   if(controllerScenario=="queued")queuePending=true;
   if(controllerScenario=="localPending")localPending=true;
@@ -97,7 +100,7 @@ int main(int argc,char **argv){
   if(controllerScenario=="activationFailure")Fake::failActivate=true;
   if(controllerScenario=="cancelWrite" || controllerScenario=="cleanupBusy" || controllerScenario=="staleCleanup"){
     resumeBusy=controllerScenario=="cleanupBusy";
-    Fake::onWrite=[](){CHECK(cancelLocalGitUpdate(3,5));loopGitUpdateController();CHECK(gitUpdateControllerPaused() && !resumeCalls);if(controllerScenario=="staleCleanup")somfy.transceiver.held=false;};
+    Fake::onWrite=[](){CHECK(cancelLocalGitUpdate(3,5,controllerOperation));loopGitUpdateController();CHECK(gitUpdateControllerPaused() && !resumeCalls);if(controllerScenario=="staleCleanup")somfy.transceiver.held=false;};
   }
   if(controllerScenario=="sourceWrite")Fake::onWrite=[](){localSecurity.allowed=false;loopGitUpdateController();CHECK(gitUpdateControllerPaused() && !resumeCalls);};
   for(unsigned i=0;i<5;++i)controllerPump();

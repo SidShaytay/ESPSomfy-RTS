@@ -5,6 +5,6 @@
 void beginGitUpdateController();
 void loopGitUpdateController();
 bool gitUpdateControllerPaused();
-GitUpdateRequest requestLocalGitUpdateCheck(uint32_t session,uint32_t security);
+GitUpdateRequest requestLocalGitUpdateCheck(uint32_t session,uint32_t security,uint64_t &operation);
 GitUpdateRequest requestLocalGitUpdateInstall(const GitUpdateCandidate &,uint32_t session,uint32_t security,uint64_t &operation);
-bool cancelLocalGitUpdate(uint32_t session,uint32_t security);
+bool cancelLocalGitUpdate(uint32_t session,uint32_t security,uint64_t operation);
