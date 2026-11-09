@@ -13,7 +13,12 @@ static bool radioBusy=false,txBusy=false;
 static std::vector<char> locks;
 static std::mutex receiveMutex;
 static thread_local bool rxHeld=false;
-static unsigned decoded=0;
+static unsigned decoded=0,logCalls=0;
+static void logOutsideRx(){assert(!rxHeld);++logCalls;}
+using SemaphoreHandle_t=void*;
+static SemaphoreHandle_t radioMutex=nullptr,txQueueMutex=nullptr;
+static void *xSemaphoreCreateRecursiveMutex(){return reinterpret_cast<void*>(1);}
+static void *xSemaphoreCreateMutex(){return reinterpret_cast<void*>(2);}
 struct RadioLock {
   bool locked;
   explicit RadioLock(unsigned=0):locked(!radioBusy){if(locked){assert(locks.empty());locks.push_back('r');}}
@@ -29,7 +34,7 @@ struct RxTaskLock {
   RxTaskLock():held(receiveMutex){assert(locks.empty() || locks.front()=='r');locks.push_back('x');rxHeld=true;}
   ~RxTaskLock(){assert(locks.back()=='x');rxHeld=false;locks.pop_back();}
 };
-struct RxInterruptLock {std::lock_guard<std::mutex> held;RxInterruptLock():held(receiveMutex){rxHeld=true;}~RxInterruptLock(){rxHeld=false;}};
+struct RxInterruptLock {std::unique_lock<std::mutex> held;RxInterruptLock():held(receiveMutex){rxHeld=true;}void release(){if(held.owns_lock()){rxHeld=false;held.unlock();}}~RxInterruptLock(){release();}};
 #define MAX_RX_BUFFER 3
 #define RECEIVE_ATTR
 #define INPUT 0
@@ -40,8 +45,8 @@ static int interruptPin=8;
 static bool rxPausedForInstall=false,noiseDetected=false;
 static unsigned long noiseStart=0;static uint32_t noiseCount=0;
 static unsigned long testClock=10000;
-static unsigned long clockMs(){return testClock/1000;}
-static unsigned long clockMicros(){return testClock;}
+static unsigned long clockMs(){assert(!rxHeld);return testClock/1000;}
+static unsigned long clockMicros(){assert(!rxHeld);return testClock;}
 static void (*beforeDetach)()=nullptr;
 static void pinMode(int,int){++pins;}
 static int digitalPinToInterrupt(int p){return p;}
@@ -49,18 +54,18 @@ static int digitalRead(int){return 0;}
 static void attachInterrupt(int,void(*)(),int){++attaches;}
 static void detachInterrupt(int){++detaches;if(beforeDetach)beforeDetach();}
 static void delay(int){}
-static void gpio_intr_disable(int){}
+static void gpio_intr_disable(int){assert(!rxHeld);}
 using gpio_num_t=int;
 struct {void SetRx(){++rxCalls;}uint8_t SpiReadStatus(int){return 0x0d;}void setSidle(){}} ELECHOUSE_cc1101;
 struct {void println(const char*){}template<class...T>void printf(const char*,T...){}} Serial;
 namespace BoardProfile {constexpr bool integratedRadio=false;constexpr int sw1=1,sw0=2;}
 #define ESP_LOGI(...)
-#define ESP_LOGD(...)
+#define ESP_LOGD(...) logOutsideRx()
 static somfy_rx_t somfy_rx;
-struct RxQueue {uint8_t length=0,index[MAX_RX_BUFFER]={255,255,255};somfy_rx_t items[MAX_RX_BUFFER];bool pop(somfy_rx_t *rx){assert(rxHeld);if(!length)return false;--length;*rx=items[0];return true;}} rx_queue;
+struct somfy_rx_queue_t {void init();uint8_t length=0,index[MAX_RX_BUFFER]={255,255,255};somfy_rx_t items[MAX_RX_BUFFER];bool pop(somfy_rx_t *rx){assert(rxHeld);if(!length)return false;--length;*rx=items[0];return true;}} rx_queue;
 static somfy_tx_queue_t tx_queue;
 struct Transceiver {
-  struct {bool enabled=true,noiseDetection=false,radioInit=true;int RXPin=8;}config;
+  struct {bool enabled=true,noiseDetection=false,radioInit=true;int RXPin=8;void load(){assert(!rxHeld);}void apply(){assert(!rxHeld);}}config;
   bool ready=true;bool available() const{return ready;}
   bool _available=true;
   RadioScheduler sched;CounterEditSafety counterEdits;
@@ -70,6 +75,7 @@ struct Transceiver {
   struct Frame {bool valid=false;void decodeFrame(somfy_rx_t*){assert(!rxHeld);++decoded;valid=true;}}frame;
   void emitFrame(Frame*,somfy_rx_t*){assert(!rxHeld);}
   bool receive(somfy_rx_t*);
+  bool begin();void startTxTask(){assert(!rxHeld);}
   bool updateActivity(RadioUpdateActivity &) const;
   bool pauseForInstall(RadioInstallToken &);
   RadioInstallResume resumeAfterInstall(const RadioInstallToken &);
@@ -83,11 +89,14 @@ struct {Transceiver transceiver;} somfy;
 #undef micros
 #undef millis
 static void fresh() {
-  somfy.transceiver=Transceiver{};somfy_rx.clear();rx_queue=RxQueue{};tx_queue={};
-  radioBusy=txBusy=false;rxmode=1;interruptPin=8;rxPausedForInstall=false;beforeDetach=nullptr;
-  pins=attaches=detaches=rxCalls=decoded=0;testClock+=10000;
+  somfy.transceiver=Transceiver{};somfy_rx.clear();rx_queue=somfy_rx_queue_t{};tx_queue={};
+  radioBusy=txBusy=false;noiseDetected=false;noiseStart=0;noiseCount=0;rxmode=1;interruptPin=8;rxPausedForInstall=false;beforeDetach=nullptr;
+  pins=attaches=detaches=rxCalls=decoded=logCalls=0;testClock+=10000;
 }
 int main() {
+  fresh();assert(somfy.transceiver.begin() && logCalls==1 && !rx_queue.length);
+  fresh();somfy.transceiver.config.noiseDetection=true;noiseStart=clockMs();noiseCount=100;
+  Transceiver::handleReceive();assert(noiseDetected);
   fresh();RadioUpdateActivity activity;
   assert(somfy.transceiver.updateActivity(activity)&&activity.canPause());
   for(unsigned condition=0;condition<15;++condition) {

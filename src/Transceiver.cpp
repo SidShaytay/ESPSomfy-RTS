@@ -105,15 +105,16 @@ struct RxTaskLock {
   ~RxTaskLock(){portEXIT_CRITICAL(&rxMux);}
 };
 struct RxInterruptLock {
+  bool held=true;
   __attribute__((always_inline)) inline RxInterruptLock(){portENTER_CRITICAL_ISR(&rxMux);}
-  __attribute__((always_inline)) inline ~RxInterruptLock(){portEXIT_CRITICAL_ISR(&rxMux);}
+  __attribute__((always_inline)) inline void release(){if(held){portEXIT_CRITICAL_ISR(&rxMux);held=false;}}
+  __attribute__((always_inline)) inline ~RxInterruptLock(){release();}
 };
 static bool rxInProgress();
 static somfy_rx_t somfy_rx;
 static somfy_rx_queue_t rx_queue;
 static somfy_tx_queue_t tx_queue;
 void somfy_rx_queue_t::init() { 
-  ESP_LOGD(TAG, "Initializing RX Queue");
   for (uint8_t i = 0; i < MAX_RX_BUFFER; i++)
     this->items[i].clear();
   memset(&this->index[0], 0xFF, MAX_RX_BUFFER);
@@ -210,11 +211,12 @@ void Transceiver::sendFrame(byte *frame, uint8_t sync, uint8_t bitLength) {
   }
 }
 void RECEIVE_ATTR Transceiver::handleReceive() {
+    const unsigned long edgeMicros=micros(),edgeMillis=millis();
     RxInterruptLock receiveLock;
     if(rxPausedForInstall)return;
     if (noiseDetected) return;
     if (somfy.transceiver.config.noiseDetection) {
-        unsigned long now = millis();
+        const unsigned long now=edgeMillis;
         if (noiseStart == 0) noiseStart = now;
         if (now - noiseStart >= 10000) {
             noiseStart = now;
@@ -222,13 +224,15 @@ void RECEIVE_ATTR Transceiver::handleReceive() {
         }
         noiseCount++;
         if (noiseCount > 100) {
-            gpio_intr_disable((gpio_num_t)interruptPin);
-            noiseDetected = true;
+            const int noisyPin=interruptPin;
+            noiseDetected=true;
+            receiveLock.release();
+            gpio_intr_disable((gpio_num_t)noisyPin);
             return;
         }
     }
     static unsigned long last_time = 0;
-    const long time = micros();
+    const long time=edgeMicros;
     const unsigned int duration = time - last_time;
     const PulseResult result = decodePulse(somfy_rx, duration);
     if (result == PulseResult::glitch) return;
@@ -757,6 +761,7 @@ bool Transceiver::begin() {
     if(!txQueueMutex) txQueueMutex = xSemaphoreCreateMutex();
     this->config.load();
     this->config.apply();
+    ESP_LOGD(TAG,"Initializing RX Queue");
     { RxTaskLock receiveLock;rx_queue.init(); }
     this->startTxTask();
     return true;
