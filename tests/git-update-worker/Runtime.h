@@ -56,7 +56,7 @@ inline uint32_t bundleFlags=0;
 inline bool expiredCertificate=false,futureCertificate=false,expiredIntermediate=false,missingVerify=false;
 inline bool failBegin=false,failWrite=false,failEnd=false,failActivate=false,allocationFail=false;
 inline bool cancelledDuringPrepare=false,cancelDuringWrite=false,cancelAcceptedDuringWrite=false;
-inline bool autoLoop=true,inFlash=false,failAbort=false;
+inline bool autoLoop=true,inFlash=false,failAbort=false,wrongBootReadback=false;
 inline std::function<void()> onWrite,onBegin,onEnd;
 inline std::map<void*,int> allocationCaps;
 inline bool extraAppPartition=false,extraOtaPartition=false;
@@ -183,6 +183,8 @@ enum esp_ota_img_states_t { ESP_OTA_IMG_VALID=0,ESP_OTA_IMG_PENDING_VERIFY=1,ESP
 inline esp_ota_img_states_t fakeImageState=ESP_OTA_IMG_VALID;
 inline const esp_partition_t *esp_ota_get_running_partition() { return &runningPartition; }
 inline const esp_partition_t *esp_ota_get_next_update_partition(void *) { return &nextPartition; }
+inline const esp_partition_t *fakeBootPartition=&runningPartition;
+inline const esp_partition_t *esp_ota_get_boot_partition(){return Fake::wrongBootReadback?&runningPartition:fakeBootPartition;}
 inline const esp_partition_t *esp_partition_find_first(int,int subtype,const char *) { return subtype==ESP_PARTITION_SUBTYPE_DATA_SPIFFS ? &fsPartition : &nvsPartition; }
 inline esp_err_t esp_ota_get_state_partition(const esp_partition_t *,esp_ota_img_states_t *state) { *state=fakeImageState;return ESP_OK; }
 using esp_ota_handle_t=uint32_t;
@@ -199,7 +201,7 @@ inline esp_err_t esp_ota_write(esp_ota_handle_t,const void *data,size_t bytes) {
 }
 inline esp_err_t esp_ota_abort(esp_ota_handle_t) { Fake::otaAborts++;return Fake::failAbort?ESP_FAIL:ESP_OK; }
 inline esp_err_t esp_ota_end(esp_ota_handle_t) { Fake::otaEnds++;if(Fake::onEnd)Fake::onEnd();return Fake::failEnd ? ESP_FAIL : ESP_OK; }
-inline esp_err_t esp_ota_set_boot_partition(const esp_partition_t *) { Fake::otaActivations++;return Fake::failActivate ? ESP_FAIL : ESP_OK; }
+inline esp_err_t esp_ota_set_boot_partition(const esp_partition_t *partition) { Fake::otaActivations++;if(Fake::failActivate)return ESP_FAIL;fakeBootPartition=partition;return ESP_OK; }
 struct esp_image_header_t { uint8_t magic;uint8_t rest[11];uint16_t chip_id;uint8_t tail[10]; } __attribute__((packed));
 constexpr uint8_t ESP_IMAGE_HEADER_MAGIC=0xe9;
 constexpr uint16_t ESP_CHIP_ID_ESP32S3=9;

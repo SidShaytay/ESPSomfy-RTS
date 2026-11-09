@@ -5,7 +5,11 @@
 #undef main
 #include <fstream>
 #include <iterator>
+#ifdef GIT_UPDATE_CONTROLLER_TEST
+#include "../git-update-controller/controller-fixture.h"
+#else
 static uint64_t installOperation=0;
+static GitUpdateOwnerToken preparedToken;
 static unsigned preparations=0,cleanups=0,written=0;
 static bool sourceFresh=true,paused=false,cleanupReady=true;
 static std::string scenario;
@@ -13,6 +17,7 @@ static bool sourceCurrent(uint64_t generation){return sourceFresh && generation=
 static GitUpdateInstallPreparation prepare(const GitUpdateOwnerToken &token){
   CHECK(!Fake::criticalDepth && token.generation && token.kind==GitUpdateExternalOwner::manual);
   ++preparations;++Fake::prepareCalls;paused=true;
+  preparedToken=token;
   if(scenario=="sourcePrepare")sourceFresh=false;
   if(scenario=="notifyWrite")Fake::notifyFail=true;
   if(scenario=="allocationWrite")Fake::failAllocationAfter=Fake::allocationCalls;
@@ -54,11 +59,25 @@ int main(int argc,char **argv){
   if(scenario=="shortImage")Fake::responses[imageUrl].body=image.substr(0,image.size()-1);
   for(unsigned i=0;i<5;++i)pump();
   const auto result=gitUpdate.snapshot();
-  if(scenario=="valid"){
+  if(scenario=="valid" || scenario.compare(0,8,"activate")==0){
     CHECK(preparations==1 && written==1 && paused && gitUpdate.busy());
     CHECK(Fake::otaBegins==1 && Fake::otaEnds==1 && Fake::written.size()==image.size());
     CHECK(std::string(reinterpret_cast<const char*>(Fake::written.data()),Fake::written.size())==image);
-    CHECK(Fake::otaActivations==0 && Fake::otaAddress==nextPartition.address);return 0;
+    CHECK(Fake::otaActivations==0 && Fake::otaAddress==nextPartition.address);
+    if(scenario=="valid")return 0;
+    CHECK(!gitUpdate.activateInstall(installOperation) && !Fake::otaActivations);
+    GitUpdateOwnerToken restart;CHECK(gitUpdate.acquireRestart(restart,Fake::now,preparedToken));
+    if(scenario=="activateFailure")Fake::failActivate=true;
+    if(scenario=="activateWrongSlot")nextPartition.address+=0x10000;
+    if(scenario=="activateWrongSubtype")++nextPartition.subtype;
+    if(scenario=="activateBadReadback")Fake::wrongBootReadback=true;
+    const bool selected=gitUpdate.activateInstall(installOperation);
+    CHECK(selected==(scenario=="activateOkay"));
+    CHECK(gitUpdate.busy() && paused && !cleanups);
+    CHECK(!gitUpdate.activateInstall(installOperation));Fake::now+=200000;
+    for(unsigned i=0;i<3;++i)gitUpdate.loop();
+    CHECK(paused && gitUpdate.busy() && !cleanups);
+    CHECK(Fake::otaActivations==((scenario=="activateWrongSlot" || scenario=="activateWrongSubtype")?0u:1u));return 0;
   }
   if(scenario=="abortFailure"){
     CHECK(paused && gitUpdate.busy() && cleanups==0 && !written && Fake::otaAborts==1);
@@ -78,3 +97,4 @@ int main(int argc,char **argv){
   CHECK(!preparations && !written && !Fake::otaBegins && !Fake::otaWrites && !Fake::otaActivations);
   CHECK(Fake::activeClients==0 && Fake::activeAllocations==0 && !gitUpdate.busy());
 }
+#endif

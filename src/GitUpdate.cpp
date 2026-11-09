@@ -57,7 +57,7 @@ const char *gitUpdateReason(GitUpdateReason reason) {
     "Installed bootloader is not attested","Installed web assets are not attested","Verified HTTPS connection failed","Invalid download headers",
     "Refused HTTPS redirect","No compatible published stable release","Download incomplete or exceeds bound","Invalid release metadata",
     "Release repository differs","Invalid update manifest","Authenticated digest differs","Release compatibility differs",
-    "Release is not newer","Request cancelled","Operation exceeded time limit","Release changed; confirm the new candidate","Candidate is no longer current","Persisted settings are uncertain; complete recovery before restart","TLS certificate validity window refused","Updater freshness is unavailable","Staged firmware verification failed","Inactive firmware write failed"};
+    "Release is not newer","Request cancelled","Operation exceeded time limit","Release changed; confirm the new candidate","Candidate is no longer current","Persisted settings are uncertain; complete recovery before restart","TLS certificate validity window refused","Updater freshness is unavailable","Staged firmware verification failed","Inactive firmware write failed","Boot selection could not be verified; controls remain paused"};
   const size_t index=static_cast<size_t>(reason);
   return index<sizeof(text)/sizeof(*text) ? text[index] : "Updater unavailable";
 }
@@ -460,13 +460,15 @@ std::unique_ptr<Buffer> installImage;
 GitUpdatePolicy::Manifest installManifest;
 GitUpdateOwnerToken installSource;
 RadioInstallToken installRadio;
-bool installCleanup=false,installWritten=false,installWorkerActive=false,installUncertain=false;
+bool installCleanup=false,installWritten=false,installWorkerActive=false,installUncertain=false,installFinal=false;
+uint32_t installTargetAddress=0,installTargetSize=0;
+uint8_t installTargetSubtype=0;
 uint64_t transferNow(){const auto t=esp_timer_get_time();return t<0?UINT64_MAX:uint64_t(t)/1000;}
 void discardInstallation() {
   GitUpdateOwnerToken source;RadioInstallToken radio;
   {
     Guard guard;
-    if(!installLease || installWorkerActive || installUncertain)return;
+    if(!installLease || installWorkerActive || installUncertain || installFinal)return;
     source=installSource;radio=installRadio;
     if(manualTransfer.active(source)) {
       const auto now=transferNow();
@@ -484,7 +486,7 @@ void discardInstallation() {
   installImage.reset();installManifest={}; // No allocation/free under the lock.
   Guard guard;
   if(ownerGeneration==runningLease && (owner==Owner::install || owner==Owner::manual))owner=Owner::none;
-  installSource={};installRadio={};installLease=0;installCleanup=false;installWritten=false;
+  installSource={};installRadio={};installLease=0;installCleanup=false;installWritten=false;installTargetAddress=installTargetSize=0;
 }
 void stageInstallation(const GitUpdateCandidate &expected) {
   if(!environment() || !metadata(true,expected,&installManifest))return;
@@ -525,7 +527,7 @@ void writeInstallation() {
     // An expired progress claim is reclaimed by discardInstallation. I/O is
     // already closed; no controller cleanup may run before that reclamation.
     manualTransfer.resource(installSource,false);
-    if(okay && !stopped() && manualTransfer.continuing(installSource,now) && manualTransfer.holdRestart(installSource) && manualTransfer.finish(installSource,now,true) && manualTransfer.restartHeld(installSource,now)){installWritten=true;view.phase=GitUpdatePhase::written;view.cancellable=false;admissionPending=4;}
+    if(okay && !stopped() && manualTransfer.continuing(installSource,now) && manualTransfer.holdRestart(installSource) && manualTransfer.finish(installSource,now,true) && manualTransfer.restartHeld(installSource,now)){installWritten=true;installTargetAddress=target->address;installTargetSize=target->size;installTargetSubtype=target->subtype;view.phase=GitUpdatePhase::written;view.cancellable=false;admissionPending=4;}
     else {installCleanup=true;terminalLocked(stopped() ? stoppedReason() : GitUpdateReason::writeFailed);}
   }
   // No boot selection or restart occurs on the worker.
@@ -588,7 +590,7 @@ void GitUpdateClass::begin(GitUpdateReadAdmission (*admit)(),GitUpdateInstallHoo
 }
 void GitUpdateClass::loop() {
   uint8_t command;uint64_t lease,install;bool active,uncertain;
-  { Guard guard;command=admissionPending;lease=runningLease;install=installLease;active=installWorkerActive;uncertain=installUncertain;if(!active)admissionPending=0; }
+  { Guard guard;command=admissionPending;lease=runningLease;install=installLease;active=installWorkerActive;uncertain=installUncertain || installFinal;if(!active)admissionPending=0; }
   if(install){
     if(!installHooks.current(operationExpected.generation))cancelled=true;
     bool cleanup,written;GitUpdateOwnerToken source;RadioInstallToken radio;
@@ -647,6 +649,34 @@ GitUpdateRequest GitUpdateClass::requestInstall(const GitUpdateCandidate &expect
   return GitUpdateRequest::accepted;
 }
 GitUpdateRequest GitUpdateClass::requestCheck() { return queue(false,{}); }
+bool GitUpdateClass::activateInstall(uint64_t operation) {
+  uint32_t address,size;uint8_t subtype;
+  {
+    Guard guard;
+    if(!operation || operation!=operationExpected.generation || !installLease || !installWritten || installWorkerActive ||
+       installUncertain || installFinal || owner!=Owner::restart || installLease==UINT64_MAX || ownerGeneration!=installLease+1)return false;
+    installFinal=true;address=installTargetAddress;size=installTargetSize;subtype=installTargetSubtype;
+  }
+  // Re-resolve the exact slot written by the worker. Never select the running
+  // image or a replacement partition, even after a successful SDK write/end.
+  const auto *target=esp_ota_get_next_update_partition(nullptr);
+  const auto *running=esp_ota_get_running_partition();
+  bool selected=target && running && target->type==ESP_PARTITION_TYPE_APP &&
+      target->address==address && target->size==size && target->subtype==subtype && size==GitUpdatePolicy::APP_BYTES &&
+      target->address!=running->address && esp_ota_set_boot_partition(target)==ESP_OK;
+  if(selected) {
+    const auto *boot=esp_ota_get_boot_partition();
+    selected=boot && boot->type==target->type && boot->subtype==target->subtype && boot->address==address && boot->size==size;
+  }
+  if(!selected){Guard guard;installUncertain=true;terminalLocked(GitUpdateReason::activationFailed);}
+  return selected;
+}
+void GitUpdateClass::finishInstallRestart(uint64_t operation,bool mayClean) {
+  Guard guard;
+  if(!installLease || !operation || operation!=operationExpected.generation || installWorkerActive)return;
+  if(mayClean && !installFinal && owner==Owner::manual && ownerGeneration==installLease){installCleanup=true;terminalLocked(GitUpdateReason::admission);}
+  else {installFinal=true;installUncertain=true;terminalLocked(GitUpdateReason::activationFailed);}
+}
 GitUpdateRequest GitUpdateClass::requestPrepare(const GitUpdateCandidate &expected) { return queue(true,expected); }
 bool GitUpdateClass::requestCancel() {
   Guard guard;
@@ -660,5 +690,7 @@ void GitUpdateClass::loop() {}
 GitUpdateRequest GitUpdateClass::requestCheck() { Guard guard;return owner==Owner::none ? GitUpdateRequest::unavailable : GitUpdateRequest::busy; }
 GitUpdateRequest GitUpdateClass::requestPrepare(const GitUpdateCandidate &) { return requestCheck(); }
 GitUpdateRequest GitUpdateClass::requestInstall(const GitUpdateCandidate &,uint64_t &) { return requestCheck(); }
+bool GitUpdateClass::activateInstall(uint64_t){return false;}
+void GitUpdateClass::finishInstallRestart(uint64_t,bool){}
 bool GitUpdateClass::requestCancel() { return false; }
 #endif

@@ -39,7 +39,7 @@ struct Source {
   bool owned=false,inFlight=false;
   uint64_t admittedAt=0;
   uint32_t delay=0;
-  InstallRestartSource retained;
+  InstallRestartSource retained{};
   RestartReason finalFailure=RestartReason::none;
 } source;
 RestartObservation cached;
