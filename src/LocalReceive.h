@@ -39,6 +39,7 @@ struct ReceiveSubscription {
 // All operations are loop-owned, including registration and destruction. A
 // sink must outlive registration. No heap, receiver mode changes or commands.
 class ReceiveHub {
+  friend struct ReceiveHubTestAccess;
   struct Slot {
     ReceiveSink *sink = nullptr;
     uint64_t generation = 0;
@@ -51,6 +52,8 @@ public:
   ReceiveHub(const ReceiveHub &) = delete;
   ReceiveHub &operator=(const ReceiveHub &) = delete;
   bool active() const { return slots[0].sink || slots[1].sink; }
+  // out may be empty/inactive, or already name this exact subscription.
+  // Success must never overwrite another live receipt and strand its sink.
   bool subscribe(ReceiveChannel, ReceiveSink &, ReceiveSubscription &);
   bool observing(ReceiveSubscription, const ReceiveSink &) const;
   bool unsubscribe(ReceiveSubscription, ReceiveSink &);

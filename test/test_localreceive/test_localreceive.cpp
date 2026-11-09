@@ -4,6 +4,11 @@
 #include <string.h>
 #include <unity.h>
 using namespace LocalUi;
+namespace LocalUi {
+struct ReceiveHubTestAccess {
+  static void exhaust(ReceiveHub &hub) { hub.sequence = UINT64_MAX; }
+};
+} // namespace LocalUi
 struct Sink : ReceiveSink {
   ReceiveObservation last;
   unsigned calls = 0;
@@ -145,11 +150,46 @@ static void callback_changes_start_next_event_and_reentrancy_refuses() {
   hub.unsubscribe(first, changing);
   hub.unsubscribe(newToken, newSink);
 }
+static void active_receipt_cannot_be_overwritten_by_another_subscription() {
+  ReceiveHub hub;
+  Sink first, second;
+  ReceiveSubscription receipt;
+  TEST_ASSERT_TRUE(hub.subscribe(ReceiveChannel::learning, first, receipt));
+  const auto original = receipt;
+  TEST_ASSERT_FALSE(
+      hub.subscribe(ReceiveChannel::diagnostics, second, receipt));
+  TEST_ASSERT_EQUAL(original.generation, receipt.generation);
+  TEST_ASSERT_EQUAL(original.channel, receipt.channel);
+  TEST_ASSERT_TRUE(hub.observing(original, first));
+  TEST_ASSERT_TRUE(hub.subscribe(ReceiveChannel::learning, first, receipt));
+  TEST_ASSERT_EQUAL(original.generation, receipt.generation);
+  TEST_ASSERT_TRUE(hub.unsubscribe(receipt, first));
+  TEST_ASSERT_TRUE(hub.subscribe(ReceiveChannel::diagnostics, second, receipt));
+  TEST_ASSERT_NOT_EQUAL(original.generation, receipt.generation);
+  TEST_ASSERT_TRUE(hub.unsubscribe(receipt, second));
+  TEST_ASSERT_FALSE(hub.active());
+}
+static void
+exhausted_observation_history_never_reports_successful_subscription() {
+  ReceiveHub hub;
+  Sink first, second;
+  ReceiveSubscription receipt, other;
+  TEST_ASSERT_TRUE(hub.subscribe(ReceiveChannel::learning, first, receipt));
+  ReceiveHubTestAccess::exhaust(hub);
+  TEST_ASSERT_FALSE(hub.observing(receipt, first));
+  TEST_ASSERT_FALSE(hub.publish({}));
+  TEST_ASSERT_FALSE(hub.subscribe(ReceiveChannel::diagnostics, second, other));
+  TEST_ASSERT_FALSE(hub.subscribe(ReceiveChannel::learning, first, receipt));
+  TEST_ASSERT_TRUE(hub.unsubscribe(receipt, first));
+  TEST_ASSERT_FALSE(hub.active());
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(named_subscriptions_never_overwrite_and_tokens_reject_aba);
   RUN_TEST(publish_immutable_bounded_observation_and_pulses);
   RUN_TEST(decoded_adapter_is_subscription_independent_receive_only);
   RUN_TEST(callback_changes_start_next_event_and_reentrancy_refuses);
+  RUN_TEST(active_receipt_cannot_be_overwritten_by_another_subscription);
+  RUN_TEST(exhausted_observation_history_never_reports_successful_subscription);
   return UNITY_END();
 }

@@ -17,7 +17,9 @@ scan flags. RSSI is bounded to its signed field. The encoding key is an RF field
 not evidence that a packet authenticates its sender.
 
 There are exactly two named observer slots: learning and diagnostics. Registration
-cannot replace another sink. Detachment requires the exact channel, registration
+cannot replace another sink or overwrite a receipt for a different active
+subscription. Exact idempotent registration is allowed; inactive receipts can be
+reused. Exhausted observation history refuses new registration. Detachment requires the exact channel, registration
 generation and sink, so an old session cannot detach its replacement. Registration
 during delivery starts with the next event. Nested delivery is refused.
 

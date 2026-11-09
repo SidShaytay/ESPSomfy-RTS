@@ -17,7 +17,14 @@ uint8_t channelIndex(ReceiveChannel channel) {
 bool ReceiveHub::subscribe(ReceiveChannel channel, ReceiveSink &sink,
                            ReceiveSubscription &out) {
   const auto index = channelIndex(channel);
-  if (index >= 2)
+  if (index >= 2 || sequence == UINT64_MAX)
+    return false;
+  // Never lose the only receipt for a still-registered sink. A stale receipt
+  // can be reused, and the exact same subscription remains idempotent.
+  const auto previous = channelIndex(out.channel);
+  if (out.generation && previous < 2 && slots[previous].sink &&
+      slots[previous].generation == out.generation &&
+      (previous != index || slots[previous].sink != &sink))
     return false;
   auto &slot = slots[index];
   if (slot.sink) {
