@@ -28,7 +28,8 @@ struct SomfyRemote:RemoteSettings {
 };
 struct SomfyLinkedRemote:SomfyRemote{SomfyLinkedRemote();};
 struct SomfyShade:SomfyRemote,ShadeSettings,MotorLink,ShadeEvents {
- uint8_t id=1;
+ uint8_t id=1;uint8_t &shadeId=id;
+ SomfyLinkedRemote linkedRemotes[7];
  ShadeBehaviour behaviour;
  SomfyShade():behaviour(*this,*this,lastFrame,*this,*this,id,"Fake GPIO"){}
  int8_t conflict=0;
@@ -39,6 +40,7 @@ struct SomfyShade:SomfyRemote,ShadeSettings,MotorLink,ShadeEvents {
  uint8_t gpioFlags=0;int8_t gpioDir=0;uint32_t gpioRelease=0;
  const ShadeBehaviour::State &state(){return behaviour.state();}
  uint8_t getShadeId(){return 1;}
+ SomfyRemote *findRemote(uint32_t);void processFrame(somfy_frame_t &,bool=false);
  void configureGPIOs();void setGPIOs();bool usesPin(uint8_t);
  send_result_t send(somfy_commands,uint8_t,uint8_t,uint16_t,bool);
  int8_t validateGPIOs(radio_proto,uint8_t,uint8_t,uint8_t){return conflict;}
@@ -53,7 +55,7 @@ struct SomfyShade:SomfyRemote,ShadeSettings,MotorLink,ShadeEvents {
 struct SomfyShadeController {
  SomfyShade shades[2];void configureGPIOs();
  unsigned frames=0,processed=0;
- struct Transceiver {struct Config{uint8_t type=56;}config; bool submitTx(somfy_tx_job_t &){return true;}}transceiver;
+ struct Transceiver {struct Config{uint8_t type=56;}config;uint32_t blocked=0;bool counterBlocksIdentity(uint32_t address){return blocked&&address==blocked;} bool submitTx(somfy_tx_job_t &){return true;}}transceiver;
  uint32_t sendFrame(somfy_frame_t &,uint8_t,uint16_t=0,bool=false){++frames;return 1;}
  void processFrame(somfy_frame_t &,bool,const SomfyRemote * =nullptr){++processed;}
  void markTxPending(uint32_t,uint32_t,const SomfyRemote *){}

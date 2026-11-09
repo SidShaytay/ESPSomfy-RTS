@@ -1,6 +1,7 @@
 #include "esp_log.h"
 #include "ConfigSettings.h"
 #include "Somfy.h"
+#include "CounterResults.h"
 #include <atomic>
 #include "ModelEditor.h"
 #include "SomfyEditor.h"
@@ -205,9 +206,9 @@ static edit_result_t applyOrder(JsonDocument &doc, Find find) {
   return done(0,somfy.commit());
 }
 edit_result_t mutateModelEdit(model_edit_t &edit) {
-  // Conservatively invalidate pending intentions before an edit attempt: some
-  // model operations can fail after changing part of the in-memory model.
-  ++somfy.configurationRevision;
+  // Other legacy mutations can fail after changing part of the model. Checked
+  // linking owns its history advance only AFTER verified NVS/RAM adoption.
+  if(edit.type!=model_edit_type_t::link_remote)++somfy.configurationRevision;
   JsonObject obj = edit.doc.as<JsonObject>();
   if(edit.type == model_edit_type_t::add_shade || edit.type == model_edit_type_t::save_shade ||
      edit.type == model_edit_type_t::add_group || edit.type == model_edit_type_t::save_group) {
@@ -298,9 +299,9 @@ edit_result_t mutateModelEdit(model_edit_t &edit) {
       if(!shade) return edit_result_t::missing("Shade Id not found.");
       if(obj["remoteAddress"].isNull()) return edit_result_t::error("Remote address not provided.");
       const uint32_t address = obj["remoteAddress"];
-      if(edit.type == model_edit_type_t::unlink_remote) shade->unlinkRemote(address);
-      else if(!shade->linkRemote(address, obj["rollingCode"] | (uint16_t)0))
-        return edit_result_t::error("This shade already has the most linked remotes it can.");
+      if(edit.type == model_edit_type_t::link_remote)
+        return counterLinkResult(shade->getShadeId(),linkExplicitRemote(shade->getShadeId(),address,obj["rollingCode"] | (uint16_t)0));
+      shade->unlinkRemote(address);
       return done(shade->getShadeId(),somfy.commit());
     }
     case model_edit_type_t::link_to_group:

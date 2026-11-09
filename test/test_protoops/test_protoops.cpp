@@ -2,6 +2,8 @@
 #include <string.h>
 #include <ArduinoJson.h>
 #include "ProtoOps.h"
+#include "ProtoFrame.h"
+#include "CounterResults.h"
 
 // Socket protocol 2's command ops: what each payload asks for, and what is
 // refused before anything reaches loop() (docs/PROTOCOL.md).
@@ -238,10 +240,37 @@ static void test_independent_command_errors_survive_interleaved_parses() {
   TEST_ASSERT_EQUAL_STRING("remoteAddress is missing", remoteError);
 }
 
+static void counter_replies_distinguish_applied_file_failure_and_refusal() {
+  shade_request_t command;command.type=shade_request_type_t::set_rolling_code;
+  for(auto result:{shade_request_result_t::done,shade_request_result_t::counter_busy,shade_request_result_t::counter_blocked,
+      shade_request_result_t::counter_failed,shade_request_result_t::counter_uncertain,shade_request_result_t::counter_file_failed,
+      shade_request_result_t::counter_file_uncertain,shade_request_result_t::counter_stale,shade_request_result_t(255)}) {
+    char text[320];BufferedJsonFormatter formatter;formatter.setBuffer(text,sizeof(text));
+    beginFrame(formatter,proto_type_t::reply,UINT32_MAX);ProtoWriter writer(formatter);
+    writeShadeRequestResult(writer,command,result);endFrame(formatter);
+    TEST_ASSERT_FALSE(formatter.overflowed());JsonDocument reply;TEST_ASSERT_FALSE(deserializeJson(reply,text));
+    auto data=reply["d"].as<JsonObject>();
+    const bool applied=result==shade_request_result_t::done || result==shade_request_result_t::counter_file_failed || result==shade_request_result_t::counter_file_uncertain;
+    TEST_ASSERT_EQUAL(applied,protoBool(data,proto_field_t::applied));
+    TEST_ASSERT_EQUAL(result==shade_request_result_t::done,protoBool(data,proto_field_t::durable));
+    TEST_ASSERT_EQUAL(result==shade_request_result_t::done,protoBool(data,proto_field_t::ok));
+    if(result!=shade_request_result_t::done)TEST_ASSERT_NOT_NULL(protoRequestErrorDesc(command,result));
+    if(applied)TEST_ASSERT_EQUAL(result==shade_request_result_t::done?0:result==shade_request_result_t::counter_file_uncertain?2:1,protoInt(data,proto_field_t::modelSaveState));
+  }
+}
+static void invalid_counter_identity_is_not_reported_as_a_storage_failure() {
+  CounterDomainResult invalid{CounterDomainState::invalid};
+  const auto result=counterRequestResult(invalid);
+  TEST_ASSERT_EQUAL(proto_error_t::badRequest,protoRequestError(result));
+  shade_request_t request;request.type=shade_request_type_t::set_rolling_code;
+  TEST_ASSERT_EQUAL_STRING(counterDomainDescription(CounterDomainState::invalid),protoRequestErrorDesc(request,result));
+}
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(invalid_counter_identity_is_not_reported_as_a_storage_failure);
+  RUN_TEST(counter_replies_distinguish_applied_file_failure_and_refusal);
   RUN_TEST(test_independent_command_errors_survive_interleaved_parses);
   RUN_TEST(test_every_command_op_but_the_remote_frame_is_a_shade_request);
   RUN_TEST(test_shade_command_by_name);

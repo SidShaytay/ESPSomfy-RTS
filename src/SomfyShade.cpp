@@ -38,25 +38,6 @@ void SomfyShade::clear() {
   this->repeats = 1;
   this->sortOrder = 255;
 }
-bool SomfyShade::linkRemote(uint32_t address, uint16_t rollingCode) {
-  Preferences pref;
-  // Check to see if the remote is already linked. If it is
-  // just return true after setting the rolling code
-  for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
-    if(this->linkedRemotes[i].getRemoteAddress() == address) {
-      this->linkedRemotes[i].setRollingCode(rollingCode);
-      return true;
-    }
-  }
-  for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
-    if(this->linkedRemotes[i].getRemoteAddress() == 0) {
-      this->linkedRemotes[i].setRemoteAddress(address);
-      this->linkedRemotes[i].setRollingCode(rollingCode);
-      return true;
-    }
-  }
-  return false;
-}
 bool SomfyShade::unlinkRemote(uint32_t address) {
   Preferences pref;
   for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {

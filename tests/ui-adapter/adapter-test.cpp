@@ -2,10 +2,18 @@
 #include "Model.h"
 #include "LocalUiAdapter.h"
 #include "LocalUiAuthorizationAdapter.h"
+#include "ExplicitCounter.h"
 #include <assert.h>
 #include <vector>
 #include <stdio.h>
 SomfyShadeController somfy;
+// This adapter/context fixture replaces only checked storage admission. The
+// actual domain/NVS/owner/queue path is exercised by test-explicit-counter.sh.
+CounterDomainResult correctExplicitCounter(uint8_t id,uint16_t code) {
+  auto *shade=somfy.getShadeById(id);if(!shade)return {CounterDomainState::missing};
+  ++somfy.configurationRevision;++shade->configurationRevision;shade->setRollingCode(code);
+  return {CounterDomainState::saved,true,{ModelCommitState::saved}};
+}
 uint64_t authTestNow=0;
 static LocalUi::SecuritySnapshot security{LocalUi::AuthMode::none,true,false,2,3,0};
 LocalUi::SecuritySnapshot LocalUi::pollAuthorization(){return security;}
