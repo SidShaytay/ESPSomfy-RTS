@@ -96,6 +96,7 @@ class LoopQueue {
     // Loop-only final shutdown barrier. Never discards accepted items or waits
     // for a producer. A refused shutdown must explicitly reopen admission.
     bool sealForRestart();
+    bool restartSealHeld() const;
     void reopenAfterRefusedRestart();
     // The one direct socket RF publisher shares this producer barrier. Caller
     // must pair an admitted begin with end on every return, outside any lock.

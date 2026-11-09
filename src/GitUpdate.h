@@ -75,6 +75,7 @@ public:
   bool claimTransferRecovery(const GitUpdateOwnerToken &,uint64_t now);
   bool transferRestoreClaimed(const GitUpdateOwnerToken &,uint64_t now);
   bool transferRestartHeld(const GitUpdateOwnerToken &,uint64_t now);
+  bool transferRestartReady(const GitUpdateOwnerToken &,uint64_t now);
   // Atomic handoff to the same non-expiring owner, held through actual shutdown.
   // A nonzero expected source never falls back to a generic owner-none restart.
   bool acquireRestart(GitUpdateOwnerToken &result,uint64_t now,const GitUpdateOwnerToken &expected = {});

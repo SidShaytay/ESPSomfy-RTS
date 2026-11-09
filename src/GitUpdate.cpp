@@ -128,6 +128,9 @@ bool GitUpdateClass::transferRestoreClaimed(const GitUpdateOwnerToken &token,uin
 bool GitUpdateClass::transferRestartHeld(const GitUpdateOwnerToken &token,uint64_t now) {
   Guard guard;return owns(token) && manualTransfer.restartHeld(token,now);
 }
+bool GitUpdateClass::transferRestartReady(const GitUpdateOwnerToken &token,uint64_t now) {
+  Guard guard;return owns(token) && manualTransfer.restartReady(token,now);
+}
 bool GitUpdateClass::acquireRestart(GitUpdateOwnerToken &result,uint64_t now,const GitUpdateOwnerToken &expected) {
   Guard guard;
   if(ownerGeneration==UINT64_MAX) return false;

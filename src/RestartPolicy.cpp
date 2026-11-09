@@ -16,7 +16,8 @@ const char *restartReason(RestartReason reason) {
     "Group movement cannot be verified; review untracked or missing members before Restart.",
     "Model could not be loaded safely; restore a complete validated model before Restart.",
     "Security settings could not be loaded; authentication, restart and installation remain unavailable. No credentials were reset.",
-    "Settings load requires repair; unavailable stored values were not replaced. Restart and installation remain blocked."};
+    "Settings load requires repair; unavailable stored values were not replaced. Restart and installation remain blocked.",
+    "Update activation could not be verified. Controls remain paused; no automatic retry or restart was attempted."};
   const auto index=static_cast<unsigned>(reason);
   return index<sizeof(text)/sizeof(*text) ? text[index] : "Restart refused.";
 }
