@@ -1,5 +1,6 @@
 #include "LocalAdvanced.h"
 #include "LocalJsonAllocator.h"
+#include "LocalPrimaryCounter.h"
 #include "SomfyFrame.h"
 #include <new>
 #include <stdio.h>
@@ -9,13 +10,27 @@ namespace Advanced {
 using namespace EntityAdmin;
 struct Form::Session final : LearnPending {
   Form &owner;
-  LearnCandidates candidates;
-  LearnSelection selection;
+  struct LearnState {
+    LearnCandidates candidates;
+    LearnSelection selection;
+    explicit LearnState(ReceiveHub &hub):candidates(hub){}
+  };
+  // Only one interactive flow lives in the wiping slab. Keeping both would
+  // crowd out Learn's existing bounded validation pools at execution time.
+  union { LearnState learned; PrimaryCounterDraft primary; };
+  bool primaryMode=false;
   uint64_t ticket = 0, queuedAt = 0;
   bool listening = false, fileOnly = false, canRetryFile = false,
        linkApplied = false, fileVerified = false;
   CounterDomainState counterOutcome = CounterDomainState::invalid;
-  Session(Form &form, ReceiveHub &hub) : owner(form), candidates(hub) {}
+  Session(Form &form, ReceiveHub &hub) : owner(form), learned(hub) {}
+  ~Session() override {
+    if(primaryMode)primary.~PrimaryCounterDraft();else learned.~LearnState();
+  }
+  void openPrimary(const PrimaryCounterReview &review) {
+    if(!primaryMode){learned.~LearnState();new(&primary)PrimaryCounterDraft();primaryMode=true;}
+    primary.open(review);
+  }
   LearnQueueReason current(uint64_t now) override {
     return owner.learnCurrent(now);
   }
@@ -35,7 +50,8 @@ struct Form::Session final : LearnPending {
     learnReview,
     learnPending,
     learnFault,
-    learnResult
+    learnResult,
+    primaryCounter
   };
   Context context;
   OrderIds ids{}, slots{};
@@ -50,14 +66,14 @@ struct Form::Session final : LearnPending {
 };
 uint64_t Form::epoch() const { return session ? session->revision : 0; }
 void Form::endLearning() {
-  if (!session)
+  if (!session || session->primaryMode)
     return;
-  if (session->listening || session->selection.session ||
-      session->candidates.count())
+  if (session->listening || session->learned.selection.session ||
+      session->learned.candidates.count())
     privateProjectionDiscarded = true;
-  session->candidates.end();
+  session->learned.candidates.end();
   session->listening = false;
-  session->selection = {};
+  session->learned.selection = {};
 }
 void Form::close(Notice n) {
   if (session) {
@@ -65,6 +81,7 @@ void Form::close(Notice n) {
       backend.cancelLearn(session->ticket, *session);
     session->ticket = 0;
     endLearning();
+    if(session->primaryMode){session->primary.clear();privateProjectionDiscarded=true;}
     session->~Session();
     allocator.deallocate(session);
     session = nullptr;
@@ -84,6 +101,8 @@ bool Form::guard(uint64_t now) {
     return false;
   }
   s.observedAt = now;
+  if(s.primaryMode)s.primary.tick(now);
+  if(s.primaryMode && s.primary.expired()){close(Notice::expired);return false;}
   const auto auth = backend.authorization();
   if (!auth.allowed) {
     close(Notice::locked);
@@ -102,8 +121,11 @@ bool Form::guard(uint64_t now) {
       return false;
     }
   }
+  if(s.primaryMode && s.primary.review().address && !backend.primaryCurrent(s.target,s.primary.review())) {
+    close(Notice::changed);return false;
+  }
   if (s.listening && s.page != Session::Page::learnPending) {
-    const auto check = s.candidates.tick(now);
+    const auto check = s.learned.candidates.tick(now);
     if (check != LearnCheck::ready) {
       close(check == LearnCheck::expired || check == LearnCheck::clock
                 ? Notice::expired
@@ -111,8 +133,8 @@ bool Form::guard(uint64_t now) {
       return false;
     }
     if (s.page == Session::Page::learnReview &&
-        s.candidates.validate(s.selection, now) != LearnCheck::ready) {
-      s.selection = {};
+        s.learned.candidates.validate(s.learned.selection, now) != LearnCheck::ready) {
+      s.learned.selection = {};
       learnFault("Received frame changed. Choose and review a frame again.",
                  true);
     }
@@ -196,11 +218,13 @@ void Form::turn(int direction, uint64_t now) {
   case Session::Page::picker:
     count = s.count;
     break;
+  case Session::Page::primaryCounter:
+    s.primary.turn(direction,now);return;
   case Session::Page::menu:
-    count = 3;
+    count = 4;
     break;
   case Session::Page::learnList:
-    count = s.candidates.count();
+    count = s.learned.candidates.count();
     break;
   case Session::Page::learnPending:
     count = 1;
@@ -284,7 +308,7 @@ LearnQueueReason Form::learnCurrent(uint64_t now) {
   if (!session)
     return LearnQueueReason::stale;
   const auto &s = *session;
-  if (s.page == Session::Page::learnPending &&
+  if ((s.page == Session::Page::learnPending || (s.primaryMode && s.primary.pending())) &&
       (now < s.queuedAt || now - s.queuedAt >= LearnQueue::maxAgeMs))
     return LearnQueueReason::expired;
   if (now < s.observedAt || now < s.activityAt ||
@@ -298,7 +322,8 @@ LearnQueueReason Form::learnCurrent(uint64_t now) {
     return LearnQueueReason::stale;
   if (s.fileOnly)
     return LearnQueueReason::ready;
-  const auto check = session->candidates.validate(s.selection, now);
+  if(s.primaryMode)return backend.primaryCurrent(s.target,s.primary.review()) ? LearnQueueReason::ready : LearnQueueReason::stale;
+  const auto check = session->learned.candidates.validate(s.learned.selection, now);
   return check == LearnCheck::ready     ? LearnQueueReason::ready
          : check == LearnCheck::expired ? LearnQueueReason::expired
          : check == LearnCheck::clock   ? LearnQueueReason::clock
@@ -330,12 +355,13 @@ void Form::learnCancelled(LearnQueueReason reason) {
     close(Notice::changed);
     return;
   }
+  if(session->primaryMode){session->primary.busy();return;}
   if (session->fileOnly) {
     session->page = Session::Page::learnResult;
     session->cursor = 1;
     return;
   }
-  session->selection = {};
+  session->learned.selection = {};
   learnFault("Received frame changed. Choose and review a frame again.", true);
 }
 void Form::queueLearn(uint64_t now, bool fileOnly) {
@@ -365,6 +391,7 @@ void Form::queueLearn(uint64_t now, bool fileOnly) {
 void Form::runLearn(uint64_t) {
   if (!session)
     return;
+  if(session->primaryMode){runPrimary();return;}
   auto &s = *session;
   s.ticket = 0;
   if (s.fileOnly) {
@@ -410,7 +437,7 @@ void Form::runLearn(uint64_t) {
     return;
   }
   const auto result = backend.linkLearn(s.target, s.context, s.auth, s.revision,
-                                        s.selection, s, allocator);
+                                        s.learned.selection, s, allocator);
   if (result.freshness != LearnQueueReason::ready) {
     learnCancelled(result.freshness);
     return;
@@ -477,6 +504,53 @@ void Form::runLearn(uint64_t) {
           ? "No linked remote slot. Nothing was linked."
           : "Link not applied. Wait, then review explicitly.");
 }
+void Form::primaryEffect(PrimaryCounterEffect effect,uint64_t now) {
+  if(!session || effect==PrimaryCounterEffect::none)return;
+  auto &s=*session;
+  if(effect==PrimaryCounterEffect::leave){close(Notice::none);return;}
+  if(effect==PrimaryCounterEffect::checkUnchanged ||
+     (effect==PrimaryCounterEffect::queueCorrection && s.primary.review().reconciled(s.primary.requested()))) {
+    PrimaryCounterReview current;
+    const auto read=backend.readPrimary(s.target,s.context,s.auth,s.revision,current);
+    if(read.admission==Admission::locked){close(Notice::locked);return;}
+    if(read.admission==Admission::stale){close(Notice::changed);return;}
+    if(read.admission!=Admission::accepted){s.primary.busy();return;}
+    if(read.state==CounterDomainState::saved && current.same(s.primary.review()) && current.reconciled(s.primary.requested())) {
+      close(Notice::unchanged);return;
+    }
+    s.primary.complete({read.state==CounterDomainState::saved?CounterDomainState::stale:read.state});
+    privateProjectionDiscarded=true;return;
+  }
+  s.fileOnly=effect==PrimaryCounterEffect::queueFile;s.queuedAt=now;s.primary.queued();
+  const auto queued=backend.queueLearn(s,now);
+  if(queued.reason==LearnQueueReason::ready){s.ticket=queued.token;return;}
+  if(queued.reason==LearnQueueReason::busy || queued.reason==LearnQueueReason::queueFull || queued.reason==LearnQueueReason::exhausted) {s.primary.busy();return;}
+  learnCancelled(queued.reason);
+}
+void Form::runPrimary() {
+  auto &s=*session;s.ticket=0;
+  if(s.fileOnly) {
+    const auto result=backend.retryLearnFile(s.target,s.context,s.auth,s.revision,s);
+    if(result.freshness!=LearnQueueReason::ready){learnCancelled(result.freshness);return;}
+    if(result.admission==Admission::locked){close(Notice::locked);return;}
+    if(result.admission==Admission::stale){close(Notice::changed);return;}
+    if(result.report.refusal==RestartReason::counterUncertain){s.primary.blockedFile();return;}
+    if(result.admission!=Admission::accepted || result.report.refusal!=RestartReason::none){s.primary.busy();return;}
+    s.primary.completeFile(result.report.file);return;
+  }
+  const auto result=backend.correctPrimary(s.target,s.context,s.auth,s.revision,s.primary.review(),s.primary.requested(),s);
+  if(result.freshness!=LearnQueueReason::ready){learnCancelled(result.freshness);return;}
+  if(result.admission==Admission::locked){close(Notice::locked);return;}
+  if(result.admission==Admission::stale){close(Notice::changed);return;}
+  if(result.admission!=Admission::accepted){s.primary.busy();return;}
+  privateProjectionDiscarded=true;
+  s.primary.complete(result.counter);
+  if(result.counter.applied) {
+    s.action={};memset(s.ids,0,sizeof(s.ids));memset(s.slots,0,sizeof(s.slots));s.count=0;
+    s.revision=backend.revision();
+    if(!backend.capture(s.target,s.context)){close(Notice::changed);return;}
+  }
+}
 void Form::activate(uint64_t now) {
   if (!guard(now))
     return;
@@ -491,7 +565,19 @@ void Form::activate(uint64_t now) {
     if (!select())
       close(Notice::changed);
     break;
+  case Session::Page::primaryCounter:
+    primaryEffect(s.primary.activate(now),now);return;
   case Session::Page::menu:
+    if(s.cursor==3) {
+      PrimaryCounterReview reviewed;
+      const auto result=backend.readPrimary(s.target,s.context,s.auth,s.revision,reviewed);
+      if(result.admission==Admission::locked){close(Notice::locked);return;}
+      if(result.admission==Admission::stale){close(Notice::changed);return;}
+      if(result.admission!=Admission::accepted){status=Notice::busy;return;}
+      endLearning();s.openPrimary(reviewed);s.page=Session::Page::primaryCounter;
+      if(result.state!=CounterDomainState::saved)s.primary.complete({result.state});
+      status=Notice::none;return;
+    }
     if (s.cursor == 2) {
       s.page = Session::Page::learnStart;
       s.cursor = 0;
@@ -559,21 +645,21 @@ void Form::activate(uint64_t now) {
       s.cursor = 2;
       break;
     }
-    if (!s.candidates.begin(now)) {
+    if (!s.learned.candidates.begin(now)) {
       s.page = Session::Page::menu;
       s.cursor = 2;
       status = Notice::busy;
       break;
     }
     s.listening = true;
-    s.selection = {};
+    s.learned.selection = {};
     s.page = Session::Page::learnList;
     s.cursor = 0;
     break;
   case Session::Page::learnList:
-    if (!s.candidates.count())
+    if (!s.learned.candidates.count())
       break;
-    if (s.candidates.select(s.cursor, now, s.selection) != LearnCheck::ready) {
+    if (s.learned.candidates.select(s.cursor, now, s.learned.selection) != LearnCheck::ready) {
       endLearning();
       s.page = Session::Page::learnStart;
       s.cursor = 0;
@@ -641,6 +727,7 @@ void Form::back(uint64_t now) {
     return;
   touch(now);
   auto &s = *session;
+  if(s.page==Session::Page::primaryCounter){primaryEffect(s.primary.back(now),now);return;}
   if (s.page == Session::Page::learnPending ||
       s.page == Session::Page::learnResult) {
     close(Notice::none);
@@ -704,6 +791,7 @@ void Form::render(FormView &out) {
     }
     snprintf(out.title, sizeof(out.title), "%s", label.label);
   }
+  if(s.page==Session::Page::primaryCounter){s.primary.render(out,s.target.id);return;}
   strcpy(out.hint, "Press: choose   Back: cancel");
   if (s.page == Session::Page::learnStart ||
       s.page == Session::Page::learnReview ||
@@ -721,14 +809,14 @@ void Form::render(FormView &out) {
       out.mode = Mode::learnReview;
       strcpy(out.rows[1].label, "Link received remote");
       snprintf(out.rows[2].label, sizeof(out.rows[2].label), "#%lu Code %u",
-               static_cast<unsigned long>(s.selection.address),
-               unsigned(s.selection.rollingCode));
+               static_cast<unsigned long>(s.learned.selection.address),
+               unsigned(s.learned.selection.rollingCode));
       LearnCandidate candidate;
-      for (uint8_t i = 0; i < s.candidates.count(); i++)
-        if (s.candidates.candidate(i, candidate) &&
-            candidate.address == s.selection.address &&
-            candidate.protocol == s.selection.protocol &&
-            candidate.bits == s.selection.bits)
+      for (uint8_t i = 0; i < s.learned.candidates.count(); i++)
+        if (s.learned.candidates.candidate(i, candidate) &&
+            candidate.address == s.learned.selection.address &&
+            candidate.protocol == s.learned.selection.protocol &&
+            candidate.bits == s.learned.selection.bits)
           break;
       char rawCommand[8];
       snprintf(rawCommand, sizeof(rawCommand), "0x%02X",
@@ -741,10 +829,10 @@ void Form::render(FormView &out) {
       else
         snprintf(signal, sizeof(signal), "RSSI unavailable");
       snprintf(out.rows[2].value, sizeof(out.rows[2].value), "%s %u-bit %s %s",
-               s.selection.protocol == 0   ? "RTS"
-               : s.selection.protocol == 1 ? "RTW"
+               s.learned.selection.protocol == 0   ? "RTS"
+               : s.learned.selection.protocol == 1 ? "RTW"
                                            : "RTV",
-               unsigned(s.selection.bits), command ? command : rawCommand,
+               unsigned(s.learned.selection.bits), command ? command : rawCommand,
                signal);
       strcpy(out.hint,
              "Links address/counter; observed format is not a filter.");
@@ -803,19 +891,19 @@ void Form::render(FormView &out) {
       }
     }
   } else if (s.page == Session::Page::learnList) {
-    out.total = s.candidates.count();
+    out.total = s.learned.candidates.count();
     out.offset = s.cursor / 3 * 3;
-    strcpy(out.hint, s.candidates.overflowed()
+    strcpy(out.hint, s.learned.candidates.overflowed()
                          ? "8 max; choose frame to review"
                          : "30s window. Choose frame to review.");
     if (!out.total) {
       out.total = out.rowCount = 1;
       strcpy(out.rows[0].label, "Waiting for remote frame");
     }
-    for (uint8_t i = out.offset; i < s.candidates.count() && out.rowCount < 3;
+    for (uint8_t i = out.offset; i < s.learned.candidates.count() && out.rowCount < 3;
          i++) {
       LearnCandidate candidate;
-      if (!s.candidates.candidate(i, candidate)) {
+      if (!s.learned.candidates.candidate(i, candidate)) {
         close(Notice::changed);
         out = {};
         out.notice = status;
@@ -857,11 +945,12 @@ void Form::render(FormView &out) {
     strcpy(out.rows[1].label, "Close");
     strcpy(out.hint, "Applied already. Retry saves the model file only.");
   } else if (s.page == Session::Page::menu) {
-    out.total = out.rowCount = 3;
-    strcpy(out.rows[2].label, "Learn received remote");
-    strcpy(out.rows[0].label, "Paired marker");
-    strcpy(out.rows[0].value, s.paired ? "Paired" : "Unpaired");
-    strcpy(out.rows[1].label, "Linked remotes");
+    out.total=4;out.offset=s.cursor/3*3;
+    for(uint8_t i=out.offset;i<4 && out.rowCount<3;++i) {
+      auto &row=out.rows[out.rowCount++];
+      if(i==0){strcpy(row.label,"Paired marker");strcpy(row.value,s.paired?"Paired":"Unpaired");}
+      else strcpy(row.label,i==1?"Linked remotes":i==2?"Learn received remote":"Primary rolling code");
+    }
   } else {
     out.total =
         s.page == Session::Page::picker ? s.count : backend.itemCount(s.target);
