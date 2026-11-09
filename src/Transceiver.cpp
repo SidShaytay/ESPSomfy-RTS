@@ -291,6 +291,7 @@ float markFreq = 433.0f;
 int markRSSI = -100;
 uint32_t lastScan = 0;
 static uint32_t scanStart = 0;
+static bool scanResumeReceive = false;
 // Scan state changes made off loop() (the web handlers and apply() run on
 // async_tcp) are only flagged here.  The socket's frame buffer is shared, so
 // loop() sends the event.
@@ -303,7 +304,8 @@ void Transceiver::beginFrequencyScan() {
   // also aborts a transmission in flight so the lock below is never held long.
   if(this->available()) this->suspendTx(TX_SUSPEND_SCAN);
   RadioLock lock(portMAX_DELAY, true);
-  if(this->available()) {
+  if(this->available() && rxmode != 3) {
+    scanResumeReceive = rxmode == 1;
     this->disableReceive();
     rxmode = 3;
     scanStart = millis();
@@ -353,7 +355,15 @@ void Transceiver::endFrequencyScan() {
     rxmode = 0;
     if(interruptPin > 0) detachInterrupt(interruptPin); 
     interruptPin = 0;
-    this->config.apply();
+    // Observation changes only tuning/RX state. Ending it must not persist,
+    // reinitialize pins or retry a failed initialization marker.
+    if(this->available() && this->config.enabled) {
+      ELECHOUSE_cc1101.setMHZ(this->config.frequency);
+      ELECHOUSE_cc1101.setRxBW(this->config.rxBandwidth);
+      if(scanResumeReceive) this->enableReceive();
+      else ELECHOUSE_cc1101.setSidle();
+    }
+    scanResumeReceive = false;
     scanEmitPending = true;
   }
   // Even if something else already ended the scan, nothing may keep TX suspended.
