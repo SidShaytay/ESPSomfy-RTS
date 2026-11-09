@@ -108,7 +108,7 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
       graphicsMissing=true;
       settingsForm.discard();settingsActive=false;
       administration.discard();administrationActive=presentedAdministrationValid=false;
-      wifiScanForm.discard();wifiScanActive=false;systemForm.discard();systemActive=false;
+      discardSystemChild();systemForm.discard();systemActive=false;
       frameAdministration={};presentedAdministration={};frameAdministrationEpoch=presentedAdministrationEpoch=0;
       controller.discardTransient();
       cancelUnsubmittedLocalControl();
@@ -132,7 +132,7 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
   DispatchResult completion;
   if(takeLocalControlResult(completion)) controller.result(now,completion);
   EntityAdmin::FormView systemView; // 352-byte loop stack view; no additional retained frame.
-  if(systemActive){if(wifiScanActive)wifiScanForm.render(systemView);else systemForm.render(systemView);}
+  if(systemActive)renderSystem(systemView);
   const View &before=controller.view();
   bool visible=hasPresented && presentedView.screen==before.screen;
   if(before.screen==Screen::home)visible &= before.selected==presentedView.selected;
@@ -216,21 +216,22 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
   if(controller.view().screen==Screen::system) {
     if(!systemActive) {systemForm.open(settingsNow);systemActive=true;presentedAdministrationValid=false;attempted=false;}
     systemForm.tick(settingsNow);
-    auto renderSystem=[&](){if(wifiScanActive)wifiScanForm.render(systemView);else systemForm.render(systemView);};
-    if(wifiScanActive)wifiScanForm.tick(settingsNow);
-    renderSystem();
+    auto renderCurrent=[&](){renderSystem(systemView);};
+    visitSystemChild([&](auto &form){form.tick(settingsNow);});
+    renderCurrent();
     if(controller.takeFormInput(input)) {
-      if(wifiScanActive) {
+      if(systemChild!=SystemChild::none) {
         systemForm.childActivity(settingsNow);
-        if(wifiScanForm.closed()) {
+        if(childClosed()) {
           if(input.back || (input.activate && presentedAdministrationValid && sameAdministration(systemView,presentedAdministration))) {
-            wifiScanForm.discard();wifiScanActive=false;systemForm.finishWifiScan();
+            discardSystemChild();systemForm.finishChild();
           }
-        } else if(input.back)wifiScanForm.back(settingsNow);
+        } else if(input.back)visitSystemChild([&](auto &form){form.back(settingsNow);});
         else {
-          if(input.turn)wifiScanForm.turn(input.turn,settingsNow);
-          renderSystem();
-          if(input.activate && presentedAdministrationValid && sameAdministration(systemView,presentedAdministration))wifiScanForm.activate(settingsNow);
+          if(input.turn)visitSystemChild([&](auto &form){form.turn(input.turn,settingsNow);});
+          renderCurrent();
+          if(input.activate && presentedAdministrationValid && sameAdministration(systemView,presentedAdministration))
+            visitSystemChild([&](auto &form){form.activate(settingsNow);});
         }
       } else if(systemForm.closed()) {
         if(input.back || (input.activate && presentedAdministrationValid && sameAdministration(systemView,presentedAdministration)))controller.closeForm();
@@ -241,31 +242,33 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
         if(input.activate && presentedAdministrationValid && sameAdministration(systemView,presentedAdministration))systemForm.activate(settingsNow);
       }
     }
-    if(systemForm.wantsWifiScan() && !wifiScanActive) {
-      wifiScanForm.open(settingsNow);wifiScanActive=true;presentedAdministrationValid=false;attempted=false;
+    if(systemChild==SystemChild::none && (systemForm.wantsWifiScan() || systemForm.wantsDiagnostics())) {
+      systemChild=systemForm.wantsWifiScan()?SystemChild::wifi:SystemChild::diagnostics;
+      visitSystemChild([&](auto &form){form.open(settingsNow);});
+      presentedAdministrationValid=false;attempted=false;
     }
-    if(wifiScanActive) {
+    if(systemChild==SystemChild::wifi) {
       char ssid[33];SecuritySnapshot expected;uint64_t networkRevision=0;
       if(wifiScanForm.takeSSID(ssid,settingsNow,expected,networkRevision)) {
-        // Release/cancel scan storage BEFORE admitting a separate settings draft.
-        wifiScanForm.discard();wifiScanActive=false;systemForm.finishWifiScan();
+        // Release/cancel observation storage BEFORE admitting another draft.
+        discardSystemChild();systemForm.finishChild();
         Settings::Authorization auth{expected.allowed,expected.generation,expected.configurationGeneration};
         settingsForm.openNetworkSSID(ssid[0]?ssid:nullptr,settingsNow,auth,networkRevision);
         for(auto &byte:ssid)static_cast<volatile char&>(byte)=0;
         settingsActive=true;presentedSettingsValid=false;attempted=false;controller.openSettingsFromSystem();
-      } else {
-        wifiScanForm.render(systemView);
-        if(wifiScanForm.closed() && systemView.notice==EntityAdmin::Notice::none){wifiScanActive=false;systemForm.finishWifiScan();}
       }
     }
-    renderSystem();
+    renderCurrent();
+    if(systemChild!=SystemChild::none && childClosed() && systemView.notice==EntityAdmin::Notice::none) {
+      discardSystemChild();systemForm.finishChild();renderCurrent();
+    }
     if(systemForm.closed()) {
-      wifiScanForm.discard();wifiScanActive=false;
+      discardSystemChild();
       if(systemView.notice==EntityAdmin::Notice::none)controller.closeForm();
     }
   }
   if(controller.view().screen!=Screen::system && systemActive) {
-    wifiScanForm.discard();wifiScanActive=false;systemForm.discard();systemActive=false;presentedAdministrationValid=false;
+    discardSystemChild();systemForm.discard();systemActive=false;presentedAdministrationValid=false;
   }
   if(!controller.brightness() && !wasSleeping) lockAuthorization();
   wasSleeping=!controller.brightness();light(controller.brightness());

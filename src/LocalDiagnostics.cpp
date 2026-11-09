@@ -10,7 +10,7 @@ using namespace EntityAdmin;
 namespace {
 void wipe(void *data,size_t size){auto *p=static_cast<volatile unsigned char *>(data);while(size--)*p++=0;}
 constexpr uint8_t detailRows=17,pulsesAction=15;
-static_assert((MAX_TIMINGS+2)/3+1<=255,"Timing rows fit bounded navigation");
+static_assert((MAX_TIMINGS+1)/2+1<=255,"Timing rows fit bounded navigation");
 }
 struct Form::Session final:ReceiveSink {
   struct Record {ReceiveObservation frame;unsigned int pulses[MAX_TIMINGS]{};uint16_t count=0;bool clipped=false;} records[2];
@@ -27,7 +27,7 @@ struct Form::Session final:ReceiveSink {
     case Page::begin:case Page::clear:return 2;
     case Page::list:return count+3;
     case Page::details:return detailRows;
-    case Page::pulses:return (records[chosen].count+2)/3+1;
+    case Page::pulses:return (records[chosen].count+1)/2+1;
     case Page::failed:return 1;
     }
     return 0;
@@ -120,9 +120,9 @@ void Form::back(uint64_t now){
   else discard();
 }
 void Form::render(FormView &out)const{
-  out={};out.notice=notice;if(!session)return;const auto &s=*session;
-  out.mode=Mode::fields;out.total=s.total();out.selected=s.cursor;out.offset=s.cursor/3*3;
-  const char *title="Receive log",*hint="Pause freezes this log only. Normal reception continues.";
+  out={};out.notice=notice;strcpy(out.title,"Receive diagnostics");if(!session)return;const auto &s=*session;
+  out.mode=Mode::stackedRows;out.total=s.total();out.selected=s.cursor;out.offset=s.cursor/3*3;
+  const char *title="Receive log",*hint="Log only; does not change radio or receiver settings.";
   if(s.page==Session::Page::begin || s.page==Session::Page::clear){
     out.mode=Mode::confirm;out.offset=0;out.rowCount=2;
     strcpy(out.rows[0].label,"Cancel");strcpy(out.rows[1].label,s.page==Session::Page::begin?"Begin observation":"Clear view");
@@ -140,7 +140,7 @@ void Form::render(FormView &out)const{
     out.mode=Mode::stackedRows;title="Pulse timings";const auto &record=s.records[s.chosen];
     for(uint8_t i=out.offset;i<out.total && out.rowCount<3;++i){auto &row=out.rows[out.rowCount++];
       if(i==out.total-1){strcpy(row.label,"Back to frame");continue;}
-      const unsigned first=i*3,last=first+3<record.count?first+3:record.count;
+      const unsigned first=i*2,last=first+2<record.count?first+2:record.count;
       snprintf(row.label,sizeof(row.label),"%u-%u (microseconds)",first+1,last);
       size_t used=0;for(unsigned j=first;j<last;++j)used+=snprintf(row.value+used,sizeof(row.value)-used,"%s%lu",j==first?"":" ",static_cast<unsigned long>(record.pulses[j]));
     }
@@ -156,6 +156,7 @@ void Form::render(FormView &out)const{
       case 6:{const auto *name=somfyCommandLabel(static_cast<somfy_commands>(f.command));
         snprintf(row.value,sizeof(row.value),"%s (0x%02X)",name?name:"Unknown",f.command);break;}
       case 7:case 8:snprintf(row.value,sizeof(row.value),"0x%02X",i==7?f.rawCommand:f.encodingKey);break;
+      case 10:if(!f.rssi)strcpy(row.value,"Unavailable");else snprintf(row.value,sizeof(row.value),"%d",f.rssi);break;
       case 12:case 13:strcpy(row.value,(i==12?f.valid():f.scanning())?"Yes":"No");break;
       case 14:snprintf(row.value,sizeof(row.value),"%u%s",record.count,record.clipped?" (clipped)":"");break;
       case 15:case 16:break;

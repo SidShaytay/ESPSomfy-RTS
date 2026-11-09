@@ -1,4 +1,5 @@
 #include "LocalUiRuntime.h"
+#include "LocalReceive.h"
 #include "SafeRestart.h"
 #include "LocalUiAdapter.h"
 #include "LocalUiCapture.h"
@@ -23,7 +24,7 @@ struct RuntimeTestAccess {
   static const Settings::FormView &settings(const Runtime &ui) {return ui.settingsForm.view();}
   static void settingsRestartReason(Runtime &ui,RestartReason reason) {const_cast<Settings::FormView &>(ui.settingsForm.view()).restartReason=reason;}
   static const EntityAdmin::FormView &administration(const Runtime &ui) {return ui.administration.view();}
-  static EntityAdmin::FormView system(const Runtime &ui) {EntityAdmin::FormView out;if(ui.wifiScanActive)ui.wifiScanForm.render(out);else ui.systemForm.render(out);return out;}
+  static EntityAdmin::FormView system(const Runtime &ui) {EntityAdmin::FormView out;ui.renderSystem(out);return out;}
   static bool noPresentation(const Runtime &ui) {
     return !ui.hasPresented && !ui.presentedSettingsValid && !ui.stopPresentedToken && !ui.validBands;
   }
@@ -637,6 +638,20 @@ int main(int argc,char **argv){
   assert(!settingsUi.tick(testNow,status,false,send,light));assert(!wifiScanFeed().pending() && Settings::runtimeMemory().used()==0);
   RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();click();idle();
   if(RuntimeTestAccess::view(settingsUi).screen==Screen::status){click();idle();}
+  // Diagnostics receives copied observations only; it never changes RX mode.
+  for(unsigned i=0;i<homeRows;i++){rotate(-1);idle();}for(unsigned i=0;i<systemHomeIndex;i++){rotate(1);idle();}
+  click();idle();for(unsigned i=0;i<3;i++){rotate(1);idle();}click();idle();
+  assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"Receive log") && !receiveHub().active());
+  click();idle();assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"System"));
+  click();idle();busBusy=true;rotate(1);click();assert(!receiveHub().active());
+  busBusy=false;idle();click();idle();assert(receiveHub().active() && captureProtected);
+  unsigned int diagnosticPulses[]={4294967295u,10,300};ReceiveObservation diagnosticFrame;
+  diagnosticFrame.address=0x123456;diagnosticFrame.rollingCode=432;diagnosticFrame.command=2;
+  assert(receiveHub().publish(diagnosticFrame,{diagnosticPulses,3,false}));idle();click();idle();
+  assert(!receiveHub().active() && !strcmp(RuntimeTestAccess::system(settingsUi).title,"Received frame"));
+  assert(submitted.size()==beforeWifiRF && settingsSaves==beforeWifiSaves && captureProtected);
+  saveFrame(preview,"runtime-receive-diagnostics");back();idle();back();idle();
+  assert(Settings::runtimeMemory().used()==0 && !receiveHub().active());back();idle();
   for(unsigned i=0;i<homeRows;i++){rotate(-1);idle();}for(unsigned i=0;i<systemHomeIndex;i++){rotate(1);idle();}
   click();idle();click();idle(); // default Restart confirmation
 

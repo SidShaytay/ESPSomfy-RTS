@@ -7,8 +7,9 @@
 #include "LocalAdministration.h"
 #include "LocalSystem.h"
 #include "LocalWifiScan.h"
+#include "LocalDiagnostics.h"
 namespace LocalUi {
-static_assert(sizeof(System::Form)+sizeof(WifiScan::Form)+2<=128,"System/WiFi state borrows existing presentation storage");
+static_assert(sizeof(System::Form)+sizeof(WifiScan::Form)+sizeof(Diagnostics::Form)+2<=160,"System observation state borrows existing presentation storage");
 class Runtime {
 #ifdef UI_RUNTIME_HOST_TEST
   friend struct RuntimeTestAccess;
@@ -22,7 +23,22 @@ class Runtime {
   Administration administration;
   System::Form systemForm{System::runtimeBackend()};
   WifiScan::Form wifiScanForm{WifiScan::runtimeBackend(),Settings::runtimeMemory()};
-  bool systemActive=false,wifiScanActive=false;
+  Diagnostics::Form diagnosticsForm{Diagnostics::runtimeBackend(),Settings::runtimeMemory()};
+  enum class SystemChild:uint8_t {none,wifi,diagnostics} systemChild=SystemChild::none;
+  bool systemActive=false;
+  template<typename Action> void visitSystemChild(Action action) {
+    if(systemChild==SystemChild::wifi)action(wifiScanForm);
+    else if(systemChild==SystemChild::diagnostics)action(diagnosticsForm);
+  }
+  void discardSystemChild(){wifiScanForm.discard();diagnosticsForm.discard();systemChild=SystemChild::none;}
+  bool childClosed()const {
+    return systemChild==SystemChild::wifi?wifiScanForm.closed():systemChild==SystemChild::diagnostics?diagnosticsForm.closed():false;
+  }
+  void renderSystem(EntityAdmin::FormView &out)const {
+    if(systemChild==SystemChild::wifi)wifiScanForm.render(out);
+    else if(systemChild==SystemChild::diagnostics)diagnosticsForm.render(out);
+    else systemForm.render(out);
+  }
   EntityAdmin::FormView frameAdministration,presentedAdministration;
   uint64_t frameAdministrationEpoch=0,presentedAdministrationEpoch=0;
   bool administrationActive=false,presentedAdministrationValid=false;
