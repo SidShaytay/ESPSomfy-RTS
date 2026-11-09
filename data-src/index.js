@@ -456,7 +456,13 @@ function sendEdit(name, fields, target, cb) {
         let id = target.idOf(reply);
         proto.waitFor(target.event, (d) => target.match(d, id), 3000).then(() => adopted(target.read(id) || reply));
     };
-    runOp(name, fields, true).then((reply) => applied(reply, false), (err) => {
+    runOp(name, fields, true).then((reply) => {
+        if (reply.ok === true && reply.applied === false) {
+            // Idempotent membership already matches: no file attempt/event.
+            // Leave any earlier persistence warning intact.
+            finish(null, target ? (target.read(target.idOf(reply)) || reply) : reply);
+        } else applied(reply, false);
+    }, (err) => {
         if (err.data && err.data.applied === true) applied(err.data, true);
         else finish(err, null);
     });

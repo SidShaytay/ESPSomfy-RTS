@@ -159,6 +159,8 @@ const char *expandEditPayload(model_edit_type_t type, JsonObjectConst d, JsonDoc
       }
     }
   }
+  if((type==model_edit_type_t::link_to_group || type==model_edit_type_t::unlink_from_group) &&
+     (obj["groupId"].isNull() || obj["shadeId"].isNull()))return "Membership requires groupId and shadeId";
   // A left-out field is not given, so it can't stand for unpaired.
   if(type == model_edit_type_t::set_paired && obj["paired"].isNull()) return "paired is missing";
   return doc.overflowed() ? "Too large" : nullptr;

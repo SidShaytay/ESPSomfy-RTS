@@ -4,6 +4,8 @@
 #include "CounterResults.h"
 #include <atomic>
 #include "ModelEditor.h"
+#include "EntityFields.h"
+#include "GroupMembership.h"
 #include "SomfyEditor.h"
 #include "BitLength.h"
 #include "ShadeChanges.h"
@@ -205,10 +207,31 @@ static edit_result_t applyOrder(JsonDocument &doc, Find find) {
   }
   return done(0,somfy.commit());
 }
+static edit_result_t applyGroupMembershipEdit(model_edit_t &edit) {
+  const auto obj=edit.doc.as<JsonObjectConst>();
+  if(!validEntityValue(*entityField(edit.type,proto_field_t::groupId),obj["groupId"]))return edit_result_t::error("Invalid group id");
+  if(!validEntityValue(*entityField(edit.type,proto_field_t::shadeId),obj["shadeId"]))return edit_result_t::error("Invalid shade id");
+  const uint8_t groupId=obj["groupId"].as<uint8_t>(),shadeId=obj["shadeId"].as<uint8_t>();
+  auto *group=somfy.getGroupById(groupId);
+  if(!group)return edit_result_t::missing("Group id not found.");
+  const bool adding=edit.type==model_edit_type_t::link_to_group;
+  if(adding && !somfy.getShadeById(shadeId))return edit_result_t::missing("Shade id not found.");
+  const auto state=inspectGroupMembership(group->linkedShades,shadeId);
+  if((adding && state.occurrences) || (!adding && !state.occurrences)) {
+    auto result=edit_result_t::unchanged(groupId);result.shadeId=shadeId;return result;
+  }
+  if(adding && !state.freeSlots)return edit_result_t::error("This group already has the most shades it can.");
+  const bool changed=adding?group->linkShade(shadeId):group->unlinkShade(shadeId);
+  if(!changed)return edit_result_t::error("Group membership changed; review again.");
+  ++somfy.configurationRevision;
+  const auto persisted=somfy.commit();group->emitState();
+  auto result=done(groupId,persisted);result.shadeId=shadeId;return result;
+}
 edit_result_t mutateModelEdit(model_edit_t &edit) {
   // Other legacy mutations can fail after changing part of the model. Checked
-  // linking owns its history advance only AFTER verified NVS/RAM adoption.
-  if(edit.type!=model_edit_type_t::link_remote)++somfy.configurationRevision;
+  // linking advances history after verified NVS/RAM adoption; membership
+  // advances only after an actual list change, never a refusal or no-op.
+  if(edit.type!=model_edit_type_t::link_remote && edit.type!=model_edit_type_t::link_to_group && edit.type!=model_edit_type_t::unlink_from_group)++somfy.configurationRevision;
   JsonObject obj = edit.doc.as<JsonObject>();
   if(edit.type == model_edit_type_t::add_shade || edit.type == model_edit_type_t::save_shade ||
      edit.type == model_edit_type_t::add_group || edit.type == model_edit_type_t::save_group) {
@@ -306,23 +329,7 @@ edit_result_t mutateModelEdit(model_edit_t &edit) {
     }
     case model_edit_type_t::link_to_group:
     case model_edit_type_t::unlink_from_group: {
-      const uint8_t groupId = obj["groupId"] | (uint8_t)0;
-      const uint8_t shadeId = obj["shadeId"] | (uint8_t)0;
-      if(groupId == 0) return edit_result_t::error("Group id not provided.");
-      if(shadeId == 0) return edit_result_t::error("Shade id not provided.");
-      SomfyGroup *group = somfy.getGroupById(groupId);
-      if(!group) return edit_result_t::missing("Group id not found.");
-      // Removing a dangling reference repairs configuration only; the absent
-      // device cannot be physically unpaired here. Adding still needs a device.
-      if(edit.type == model_edit_type_t::link_to_group && !somfy.getShadeById(shadeId))
-        return edit_result_t::missing("Shade id not found.");
-      if(edit.type == model_edit_type_t::unlink_from_group) group->unlinkShade(shadeId);
-      else if(!group->linkShade(shadeId)) return edit_result_t::error("This group already has the most shades it can.");
-      const auto persisted=somfy.commit();
-      group->emitState();
-      edit_result_t r = done(groupId,persisted);
-      r.shadeId = shadeId;
-      return r;
+      return applyGroupMembershipEdit(edit);
     }
     case model_edit_type_t::link_repeater:
     case model_edit_type_t::unlink_repeater: {
