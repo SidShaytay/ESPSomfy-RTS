@@ -12,6 +12,7 @@
 #define PROTO_SOCKET_H
 #define DEVICE_OPS_H
 #include "LoopQueue.h"
+#include "ModelCommitResult.h"
 #include "GitUpdate.h"
 #include "SafeRestart.h"
 #ifdef LOCAL_QUEUE_FAKE_RESTORE_OPTIONS
@@ -41,8 +42,9 @@ inline void (*modelEditHook)()=nullptr;
 inline void runModelEdit(model_edit_t *) {if(modelEditHook)modelEditHook();}
 inline void runDeviceOp(const loop_item_t &) {}
 inline void runModelCommit(const loop_item_t &) {}
-inline unsigned loopReads=0;
+inline unsigned loopReads=0,loopModelEvents=0;
 struct ProtoSocket {
+  void modelPersistence(ModelCommitReport,uint32_t){++loopModelEvents;}
   void replyRequest(const proto_reply_to_t &,const shade_request_t &,shade_request_result_t) {}
   void replyRead(const proto_reply_to_t &,uint8_t,uint8_t) {++loopReads;}
 };

@@ -43,6 +43,22 @@ struct Model : Advanced::Backend {
   CounterDomainState counterState = CounterDomainState::saved;
   LearnQueueReason lateFreshness = LearnQueueReason::ready;
   RestartReason fileRetryRefusal = RestartReason::none;
+  uint16_t primaryCode=1000,storedPrimary=1000,aliasCode=1000;
+  bool storedPresent=true,primaryFresh=true;
+  unsigned corrections=0;
+  PrimaryReadResult readPrimary(Target target,const Context &,Authorization,uint64_t,PrimaryCounterReview &out) override {
+    out={};if(refusal!=Admission::accepted)return {CounterDomainState::invalid,refusal};
+    out.shadeId=target.id;out.address=100;out.primary=primaryCode;out.stored={storedPrimary,storedPresent};out.matching[0]=3;out.codes[0]=primaryCode;out.codes[1]=aliasCode;
+    return {CounterDomainState::saved};
+  }
+  bool primaryCurrent(Target,const PrimaryCounterReview &review) override {return primaryFresh && review.primary==primaryCode && review.codes[1]==aliasCode;}
+  PrimaryApplyResult correctPrimary(Target target,const Context &,Authorization,uint64_t,const PrimaryCounterReview &review,uint16_t code,LearnPending &witness) override {
+    const auto fresh=witness.current(40);if(fresh!=LearnQueueReason::ready)return {{},Admission::accepted,fresh};
+    ++corrections;const bool applied=counterState==CounterDomainState::saved || counterState==CounterDomainState::modelFailed || counterState==CounterDomainState::modelUncertain;
+    if(applied || counterState==CounterDomainState::nvsUncertain)++counterWrites;
+    if(applied){++history;primaryCode=storedPrimary=aliasCode=code;storedPresent=true;}
+    return {{counterState,applied,{file,ModelCommitStage::write}}};
+  }
   ReceiveHub &receivedFrames() override { return received; }
   LearnQueued queueLearn(LearnPending &pending, uint64_t now) override {
     auto result = learnedQueue.reserve(pending, now);
@@ -673,8 +689,69 @@ static void sensor_zero_and_observed_format_are_honest_without_fake_rssi() {
   form.discard();
   TEST_ASSERT_EQUAL(0, model.links);
 }
+static void openPrimary(Advanced::Form &form) {
+  TEST_ASSERT_TRUE(form.open(Scope::devices,1));form.activate(2);
+  for(unsigned i=0;i<3;i++)form.turn(1,3+i);
+  FormView view;form.render(view);TEST_ASSERT_EQUAL(4,view.total);TEST_ASSERT_EQUAL(3,view.offset);TEST_ASSERT_EQUAL_STRING("Primary rolling code",view.rows[0].label);
+  form.activate(6);form.render(view);TEST_ASSERT_EQUAL(Mode::counterReview,view.mode);TEST_ASSERT_EQUAL(0,view.selected);
+}
+static void editPrimary(Advanced::Form &form,bool change=true) {
+  form.turn(1,7);form.activate(8);if(change)form.turn(-1,9);form.activate(10);form.turn(1,11);form.activate(12);
+}
+static void primary_correction_requires_explicit_draft_apply_confirm_and_file_only_recovery() {
+  Model model;model.file=ModelCommitState::failed;model.counterState=CounterDomainState::modelFailed;
+  JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);openPrimary(form);
+  editPrimary(form);FormView view;form.render(view);TEST_ASSERT_EQUAL_STRING("Set code: 999",view.rows[1].label);TEST_ASSERT_EQUAL(0,view.selected);
+  TEST_ASSERT_EQUAL(0,model.corrections);form.turn(1,13);form.activate(14);TEST_ASSERT_EQUAL(0,model.corrections);
+  model.learnedQueue.run(model.learnedToken,40);form.render(view);
+  TEST_ASSERT_EQUAL(1,model.corrections);TEST_ASSERT_EQUAL(1,model.counterWrites);TEST_ASSERT_EQUAL(1,view.selected);TEST_ASSERT_EQUAL_STRING("Retry model file save",view.rows[0].label);
+  TEST_ASSERT_TRUE(form.takePrivateProjectionDiscard());TEST_ASSERT_FALSE(form.takePrivateProjectionDiscard());
+  form.turn(-1,41);form.activate(42);model.learnedQueue.run(model.learnedToken,43);form.render(view);
+  TEST_ASSERT_EQUAL_STRING("Counter saved",view.title);TEST_ASSERT_EQUAL(1,model.retries);TEST_ASSERT_EQUAL(1,model.corrections);TEST_ASSERT_EQUAL(1,model.counterWrites);
+  TEST_ASSERT_LESS_OR_EQUAL(2304,peak);form.discard();TEST_ASSERT_EQUAL(0,memory.used());
+}
+static void primary_noop_requires_exact_verified_reconciliation_and_fresh_counter_guard() {
+  for(unsigned difference=0;difference<4;++difference) {
+    Model model;if(difference==1)model.storedPresent=false;if(difference==2)model.storedPrimary=999;if(difference==3)model.aliasCode=999;
+    JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);openPrimary(form);editPrimary(form,false);
+    if(!difference){TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(Notice::unchanged,form.notice());}
+    else {TEST_ASSERT_FALSE(form.closed());FormView view;form.render(view);TEST_ASSERT_EQUAL_STRING("Set code: 1000",view.rows[1].label);}
+    TEST_ASSERT_EQUAL(0,model.corrections);form.discard();
+  }
+  Model model;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);openPrimary(form);editPrimary(form);
+  form.turn(1,13);form.activate(14);++model.aliasCode;model.learnedQueue.run(model.learnedToken,40);
+  TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(Notice::changed,form.notice());TEST_ASSERT_EQUAL(0,model.corrections);TEST_ASSERT_EQUAL(0,memory.used());
+}
+static void primary_queue_back_age_auth_and_unknown_storage_never_replay() {
+  for(unsigned exit=0;exit<4;++exit) {
+    Model model;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);openPrimary(form);editPrimary(form);form.turn(1,13);form.activate(14);
+    TEST_ASSERT_TRUE(model.learnedQueue.active());
+    if(exit==0)form.back(15);
+    if(exit==1)model.learnedQueue.refresh(5014);
+    if(exit==2){model.auth.allowed=false;model.learnedQueue.refresh(15);}
+    if(exit==3){++model.history;model.learnedQueue.refresh(15);}
+    TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_FALSE(model.learnedQueue.active());TEST_ASSERT_EQUAL(0,memory.used());
+    model.learnedQueue.run(model.learnedToken,6000);TEST_ASSERT_EQUAL(0,model.corrections);TEST_ASSERT_EQUAL(0,model.counterWrites);
+  }
+  Model model;model.counterState=CounterDomainState::nvsUncertain;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);
+  openPrimary(form);editPrimary(form);form.turn(1,13);form.activate(14);model.learnedQueue.run(model.learnedToken,40);
+  FormView view;form.render(view);TEST_ASSERT_EQUAL_STRING("Counter uncertain",view.title);TEST_ASSERT_EQUAL(1,view.rowCount);TEST_ASSERT_EQUAL_STRING("Close",view.rows[0].label);
+  form.activate(41);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(1,model.corrections);TEST_ASSERT_EQUAL(1,model.counterWrites);TEST_ASSERT_EQUAL(0,model.retries);
+}
+static void primary_editor_expiry_and_old_ticket_cannot_execute_reopened_session() {
+  Model model;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);openPrimary(form);form.turn(1,7);form.activate(8);form.tick(30008);
+  TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(Notice::expired,form.notice());TEST_ASSERT_EQUAL(0,memory.used());
+  openPrimary(form);editPrimary(form);form.turn(1,13);form.activate(14);const auto old=model.learnedToken;form.discard();
+  openPrimary(form);editPrimary(form);form.turn(1,13);form.activate(14);const auto replacement=model.learnedToken;
+  TEST_ASSERT_NOT_EQUAL(old,replacement);model.learnedQueue.run(old,40);TEST_ASSERT_EQUAL(0,model.corrections);TEST_ASSERT_TRUE(model.learnedQueue.active(replacement));
+  model.learnedQueue.run(replacement,40);TEST_ASSERT_EQUAL(1,model.corrections);form.discard();TEST_ASSERT_EQUAL(0,memory.used());
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(primary_queue_back_age_auth_and_unknown_storage_never_replay);
+  RUN_TEST(primary_editor_expiry_and_old_ticket_cannot_execute_reopened_session);
+  RUN_TEST(primary_correction_requires_explicit_draft_apply_confirm_and_file_only_recovery);
+  RUN_TEST(primary_noop_requires_exact_verified_reconciliation_and_fresh_counter_guard);
   RUN_TEST(sensor_zero_and_observed_format_are_honest_without_fake_rssi);
   RUN_TEST(projection_discard_event_survives_cache_and_session_erasure_once);
   RUN_TEST(uncertain_nvs_has_no_retry_and_observation_or_queue_expiry_wipes);
