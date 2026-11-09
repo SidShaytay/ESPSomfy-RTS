@@ -3,6 +3,7 @@
 #include "PulseDecoder.h"
 #include "TxBuffer.h"
 #include "CounterEdit.h"
+#include "ShadeTypes.h"
 #include <cassert>
 #include <mutex>
 #include <vector>
@@ -13,7 +14,7 @@ static bool radioBusy=false,txBusy=false;
 static std::vector<char> locks;
 static std::mutex receiveMutex;
 static thread_local bool rxHeld=false;
-static unsigned decoded=0,logCalls=0;
+static unsigned decoded=0,logCalls=0,normalRadio=0,modelMoves=0,modelGPIO=0,modelCommits=0;
 static void logOutsideRx(){assert(!rxHeld);++logCalls;}
 using SemaphoreHandle_t=void*;
 static SemaphoreHandle_t radioMutex=nullptr,txQueueMutex=nullptr;
@@ -22,7 +23,7 @@ static void *xSemaphoreCreateRecursiveMutex(){return radioCreate ? reinterpret_c
 static void *xSemaphoreCreateMutex(){return txCreate ? reinterpret_cast<void*>(2) : nullptr;}
 struct RadioLock {
   bool locked;
-  explicit RadioLock(unsigned=0):locked(!radioBusy){if(locked){assert(locks.empty());locks.push_back('r');}}
+  explicit RadioLock(unsigned=0):locked(!radioBusy){if(locked){assert(locks.empty() || locks.front()=='r');locks.push_back('r');}}
   ~RadioLock(){if(locked){assert(locks.back()=='r');locks.pop_back();}}
 };
 struct TxQueueLock {
@@ -49,15 +50,15 @@ static unsigned long testClock=10000;
 static unsigned long clockMs(){assert(!rxHeld);return testClock/1000;}
 static unsigned long clockMicros(){assert(!rxHeld);return testClock;}
 static void (*beforeDetach)()=nullptr;
-static void pinMode(int,int){++pins;}
+static void pinMode(int,int){assert(!rxHeld);++pins;}
 static int digitalPinToInterrupt(int p){return p;}
 static int digitalRead(int){return 0;}
-static void attachInterrupt(int,void(*)(),int){++attaches;}
-static void detachInterrupt(int){++detaches;if(beforeDetach)beforeDetach();}
+static void attachInterrupt(int,void(*)(),int){assert(!rxHeld);++attaches;}
+static void detachInterrupt(int){assert(!rxHeld);++detaches;if(beforeDetach)beforeDetach();}
 static void delay(int){}
 static void gpio_intr_disable(int){assert(!rxHeld);}
 using gpio_num_t=int;
-struct {void SetRx(){++rxCalls;}uint8_t SpiReadStatus(int){return 0x0d;}void setSidle(){}} ELECHOUSE_cc1101;
+struct {void SetRx(){assert(!rxHeld);++rxCalls;}uint8_t SpiReadStatus(int){return 0x0d;}void setSidle(){}} ELECHOUSE_cc1101;
 struct {void println(const char*){}template<class...T>void printf(const char*,T...){}} Serial;
 namespace BoardProfile {constexpr bool integratedRadio=false;constexpr int sw1=1,sw0=2;}
 #define ESP_LOGI(...)
@@ -65,34 +66,46 @@ namespace BoardProfile {constexpr bool integratedRadio=false;constexpr int sw1=1
 static somfy_rx_t somfy_rx;
 struct somfy_rx_queue_t {void init();uint8_t length=0,index[MAX_RX_BUFFER]={255,255,255};somfy_rx_t items[MAX_RX_BUFFER];bool pop(somfy_rx_t *rx){assert(rxHeld);if(!length)return false;--length;*rx=items[0];return true;}} rx_queue;
 static somfy_tx_queue_t tx_queue;
+struct PublishedBool {
+ bool value=false;PublishedBool(bool initial=false):value(initial){}bool load()const{return value;}
+ operator bool()const{return value;}PublishedBool &operator=(bool next){value=next;return *this;}
+};
 struct Transceiver {
   struct {bool enabled=true,noiseDetection=false,radioInit=true;int RXPin=8;void load(){assert(!rxHeld);}void apply(){assert(!rxHeld);}}config;
-  bool ready=true;bool available() const{return ready;}
-  bool _available=true;
+  bool available()const;
+  PublishedBool _available{true},_administrationPaused{false};
   RadioScheduler sched;CounterEditSafety counterEdits;
-  uint64_t installGeneration=0;
+  uint64_t configurationRevision=1,installConfigurationRevision=0,installGeneration=0;
   bool installActive=false,installResumeReceive=false;
   RadioUpdateActivity updateActivityLocked() const;
   struct Frame {bool valid=false;void decodeFrame(somfy_rx_t*){assert(!rxHeld);++decoded;valid=true;}}frame;
   void emitFrame(Frame*,somfy_rx_t*){assert(!rxHeld);}
   bool receive(somfy_rx_t*);
-  bool begin();void startTxTask(){assert(!rxHeld);}
+  void loop(){++normalRadio;}bool begin();void startTxTask(){assert(!rxHeld);}
   bool updateActivity(RadioUpdateActivity &) const;
-  bool pauseForInstall(RadioInstallToken &);
+  bool pauseForAdministration(RadioInstallToken &,bool);
+  bool pauseForInstall(RadioInstallToken &);bool pauseForRestore(RadioInstallToken &);
+  void serviceUntrustedReceive();
   RadioInstallResume resumeAfterInstall(const RadioInstallToken &);
   bool installPauseHeld(const RadioInstallToken &) const;
   void enableReceive();void disableReceive();void clearReceived();static void handleReceive();
 };
-struct {Transceiver transceiver;} somfy;
+struct SomfyShadeController {
+ struct{bool trusted=true;bool usable()const{return trusted;}}modelLoad;Transceiver transceiver;
+ struct Shade{uint8_t id=255;uint8_t getShadeId(){return id;}void checkMovement(){++modelMoves;}void setGPIOs(){++modelGPIO;}}shades[SOMFY_MAX_SHADES];
+ bool isDirty=false;unsigned long lastCommit=0;void loop();
+ ModelCommitResult commit(){++modelCommits;return {ModelCommitState::saved};}
+}somfy;
+struct{void modelPersistence(ModelCommitReport){}}protoSocket;
 #define millis clockMs
 #define micros clockMicros
 #include "production-radio.inc"
 #undef micros
 #undef millis
 static void fresh() {
-  somfy.transceiver=Transceiver{};somfy_rx.clear();rx_queue=somfy_rx_queue_t{};tx_queue={};
+  somfy.transceiver=Transceiver{};somfy.modelLoad.trusted=true;somfy_rx.clear();rx_queue=somfy_rx_queue_t{};tx_queue={};
   radioBusy=txBusy=false;radioCreate=txCreate=true;radioMutex=reinterpret_cast<void*>(1);txQueueMutex=reinterpret_cast<void*>(2);noiseDetected=false;noiseStart=0;noiseCount=0;rxmode=1;interruptPin=8;rxPausedForInstall=false;beforeDetach=nullptr;
-  pins=attaches=detaches=rxCalls=decoded=logCalls=0;testClock+=10000;
+  pins=attaches=detaches=rxCalls=decoded=logCalls=normalRadio=modelMoves=modelGPIO=modelCommits=0;somfy.isDirty=false;for(auto &shade:somfy.shades)shade.id=255;testClock+=10000;
 }
 int main() {
   fresh();assert(somfy.transceiver.begin() && logCalls==1 && !rx_queue.length);
@@ -126,7 +139,7 @@ int main() {
       assert(t.sched.next(0,taken,wait));
       if(condition==13){assert(t.sched.start(taken.ticket,0));t.sched.ended(taken.ticket,true,0);}
     }
-    if(condition==14)t.ready=false;
+    if(condition==14)t._available=false;
     if(condition==15)radioMutex=nullptr;
     if(condition==16)txQueueMutex=nullptr;
     if(condition>=15) {
@@ -136,6 +149,7 @@ int main() {
     }
     const auto pending=rx_queue.length,sync=somfy_rx.cpt_synchro_hw,bits=somfy_rx.cpt_bits;
     RadioInstallToken token;assert(!t.pauseForInstall(token));assert(!token.generation);
+    if(condition!=14)assert(!t.pauseForRestore(token)&&!token.generation);
     assert(!pins&&!attaches&&!detaches&&!rxCalls&&!rxPausedForInstall);
     assert(rx_queue.length==pending && somfy_rx.cpt_synchro_hw==sync && somfy_rx.cpt_bits==bits);
     if(condition==2 || condition==12 || condition==13)assert(t.sched.hasWork());
@@ -158,9 +172,35 @@ int main() {
   assert(t.sched.hasRoom());beforeDetach=nullptr;
   RadioInstallToken next;assert(t.pauseForInstall(next)&&next.generation!=token.generation);
   assert(t.resumeAfterInstall(token)==RadioInstallResume::stale);assert(t.resumeAfterInstall(next)==RadioInstallResume::resumed);
-  fresh();token={};t.config.enabled=false;t.ready=false;rxmode=0;interruptPin=0;
+  fresh();token={};t.config.enabled=false;t._available=false;rxmode=0;interruptPin=0;
   assert(t.pauseForInstall(token));assert(t.resumeAfterInstall(token)==RadioInstallResume::resumed);assert(!pins&&!attaches&&!rxCalls&&!detaches);
-  fresh();token={};assert(t.pauseForInstall(token));t.ready=false;assert(t.resumeAfterInstall(token)==RadioInstallResume::unavailable&&!rxPausedForInstall&&t.sched.hasRoom());
+  fresh();token={};assert(t.pauseForInstall(token));t._available=false;assert(t.resumeAfterInstall(token)==RadioInstallResume::unavailable&&!rxPausedForInstall&&t.sched.hasRoom());
   fresh();token={};t.installGeneration=UINT64_MAX;assert(!t.pauseForInstall(token)&&!token.generation&&!detaches);
+  // Same token/seal, but explicit restore can repair unavailable radio config.
+  fresh();token={};t._available=false;rxmode=0;interruptPin=0;
+  assert(!t.pauseForInstall(token)&&!token.generation);assert(t.pauseForRestore(token)&&!t.available());
+  assert(t.installPauseHeld(token));assert(t.resumeAfterInstall(token)==RadioInstallResume::resumed&&!t.available()&&!pins&&!attaches&&!rxCalls);
+  // A new applied config under pause cannot expose availability/RX early. The
+  // resume honors that config, rather than the prior disabled receive state.
+  fresh();token={};rxmode=0;interruptPin=0;assert(t.pauseForRestore(token)&&!t.available());
+  ++t.configurationRevision;t.config.enabled=true;t._available=true;t.enableReceive();assert(!t.available()&&!pins&&!attaches&&!rxCalls);
+  assert(t.resumeAfterInstall(token)==RadioInstallResume::resumed&&t.available()&&rxCalls==1&&attaches==1);
+  fresh();token={};assert(t.pauseForRestore(token));++t.configurationRevision;t.config.enabled=false;t._available=false;
+  assert(t.resumeAfterInstall(token)==RadioInstallResume::resumed&&!t.available()&&!attaches&&!rxCalls);
+  // Unchanged config preserves an intentionally inactive receiver.
+  fresh();token={};rxmode=0;interruptPin=0;assert(t.pauseForRestore(token));assert(t.resumeAfterInstall(token)==RadioInstallResume::resumed&&t.available()&&!rxCalls&&!attaches);
+  // Quarantined receive servicing is bounded memory-only; no decode, model,
+  // repeater/TX, GPIO or NVS path exists in the compiled boundary fixture.
+  fresh();rx_queue.length=MAX_RX_BUFFER;somfy_rx.cpt_bits=12;somfy_rx.cpt_synchro_hw=2;somfy_rx.status=receiving_data;
+  t.serviceUntrustedReceive();assert(rx_queue.length==MAX_RX_BUFFER&&somfy_rx.cpt_bits==12); // trusted frames untouched
+  somfy.modelLoad.trusted=false;t.serviceUntrustedReceive();assert(!rx_queue.length&&!somfy_rx.cpt_bits&&!somfy_rx.cpt_synchro_hw&&somfy_rx.status==waiting_synchro);
+  assert(!pins&&!attaches&&!detaches&&!rxCalls&&!decoded&&!logCalls&&!tx_queue.length);
+  assert(t.pauseForRestore(token={})&&t.installPauseHeld(token));rx_queue.length=1;somfy_rx.cpt_bits=1;
+  t.serviceUntrustedReceive();assert(rx_queue.length==1&&somfy_rx.cpt_bits==1); // exact paused source owns its state
+  rx_queue.length=0;somfy_rx.clear();assert(t.resumeAfterInstall(token)==RadioInstallResume::resumed);
+  fresh();somfy.modelLoad.trusted=false;somfy.isDirty=true;somfy.shades[0].id=1;
+  rx_queue.length=MAX_RX_BUFFER;somfy_rx.cpt_bits=9;somfy.loop();
+  assert(!rx_queue.length&&!somfy_rx.cpt_bits&&!normalRadio&&!modelMoves&&!modelGPIO&&!modelCommits);
+  somfy.modelLoad.trusted=true;somfy.isDirty=false;somfy.loop();assert(normalRadio==1&&modelMoves==1&&modelGPIO==1&&!modelCommits);
   puts("Actual radio pause/resume: pending work, ISR race, exact token, no flush/TX and disabled-radio preservation passed");
 }
