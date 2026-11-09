@@ -2,6 +2,7 @@
 set -euo pipefail
 ulimit -c 0
 repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+json="${ARDUINOJSON_INCLUDE:-$repo/.pio/libdeps/native/ArduinoJson/src}"
 scratch="$(mktemp -d)"
 trap 'rm -rf -- "$scratch"' EXIT
 python3 - "$repo" "$scratch/history.inc" <<'PY'
@@ -11,5 +12,5 @@ text=(Path(sys.argv[1])/'src/DeviceOps.cpp').read_text()
 a=text.index('// Synchronized settings history:');b=text.index('// End synchronized settings history.',a)
 Path(sys.argv[2]).write_text(text[a:b])
 PY
-"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -pthread -I"$scratch" -I"$repo/test/stubs" -I"$repo/.pio/libdeps/native/ArduinoJson/src" -I"$repo/src" "$repo/tests/settings-history/test.cpp" -o "$scratch/test"
+"${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -pthread -I"$scratch" -I"$repo/test/stubs" -I"$json" -I"$repo/src" "$repo/tests/settings-history/test.cpp" -o "$scratch/test"
 "$scratch/test"
