@@ -40,6 +40,7 @@ struct Source {
   uint64_t admittedAt=0;
   uint32_t delay=0;
   InstallRestartSource retained{};
+  bool (*check)(bool sealed)=nullptr;
   RestartReason finalFailure=RestartReason::none;
 } source;
 RestartObservation cached;
@@ -127,6 +128,7 @@ RestartResult admit(RestartWork work,Source current) {
     else failure=RestartReason::stale;
   } else if(!gitUpdate.acquireRestart(owner,at,current.owned ? current.expected : GitUpdateOwnerToken{}))
       failure=current.owned ? RestartReason::stale : RestartReason::persistenceBusy;
+  if(failure==RestartReason::none && current.check && !current.check(false))failure=RestartReason::stale;
   auto fresh=observation();
   if(fresh.refusal==RestartReason::none && loopQueue.pending())fresh.refusal=RestartReason::queuedOperations;
   bool mayWrite=false,recovery=false;
@@ -145,6 +147,7 @@ RestartResult admit(RestartWork work,Source current) {
   }
   at=now();fresh=observation();
   if(current.retained.operation && !retainedReady(current,at))failure=RestartReason::stale;
+  if(failure==RestartReason::none && current.check && !current.check(false))failure=RestartReason::stale;
   RestartResult result;
   {
     Guard guard;publish(at,fresh);
@@ -155,7 +158,7 @@ RestartResult admit(RestartWork work,Source current) {
   }
   cleanup(at);return result;
 }
-RestartResult request(uint32_t delay,const GitUpdateOwnerToken &expected,bool owned,InstallRestartSource retained={}) {
+RestartResult request(uint32_t delay,const GitUpdateOwnerToken &expected,bool owned,InstallRestartSource retained={},bool (*check)(bool)=nullptr) {
   {Guard guard;if(source.intent)return {false,RestartReason::pending};}
   auto at=now();cleanup(at);auto fresh=observation();
   if(fresh.refusal==RestartReason::none && loopQueue.pending())fresh.refusal=RestartReason::queuedOperations;
@@ -166,7 +169,7 @@ RestartResult request(uint32_t delay,const GitUpdateOwnerToken &expected,bool ow
     if(source.intent)return {false,RestartReason::pending};
     work=coordinator.begin(delay,at,cached);
     if(work.ready()) {
-      source={work.intent,at,expected,{},owned,true};source.delay=delay;source.retained=retained;current=source;
+      source={work.intent,at,expected,{},owned,true};source.delay=delay;source.retained=retained;source.check=check;current=source;
     } else refusal={false,work.refusal};
   }
   if(!work.ready()) {
@@ -177,6 +180,9 @@ RestartResult request(uint32_t delay,const GitUpdateOwnerToken &expected,bool ow
 }
 }
 RestartResult requestRestart(uint32_t delay){return SafeRestartDetail::request(delay,{},false);}
+RestartResult requestCheckedRestart(bool (*check)(bool),uint32_t delay){
+  return check?SafeRestartDetail::request(delay,{},false,{},check):RestartResult{false,RestartReason::invalidRequest};
+}
 RestartResult requestOwnedRestart(const GitUpdateOwnerToken &source,uint32_t delay){return SafeRestartDetail::request(delay,source,true);}
 RestartResult requestInstallRestart(const GitUpdateOwnerToken &source,const InstallRestartSource &retained,uint32_t delay) {
   if(source.kind!=GitUpdateExternalOwner::manual || !source.generation || !retained.radio.generation || !retained.operation ||
@@ -257,6 +263,7 @@ bool restartLoop() {
   bool queueSealed=false,radioSealed=false;
   if(!gitUpdate.ownsExternal(current.reservation))failure=RestartReason::stale;
   fresh=observation();if(failure==RestartReason::none)failure=fresh.refusal;
+  if(failure==RestartReason::none && current.check && !current.check(false))failure=RestartReason::stale;
   if(failure==RestartReason::none && current.retained.operation) {
     if(!retainedReady(current,at))failure=RestartReason::stale;
   } else if(failure==RestartReason::none) {
@@ -278,6 +285,7 @@ bool restartLoop() {
   at=now();fresh=observation();
   if(!gitUpdate.ownsExternal(current.reservation))failure=RestartReason::stale;
   if(current.retained.operation && !retainedReady(current,at))failure=RestartReason::stale;
+  if(failure==RestartReason::none && current.check && !current.check(true))failure=RestartReason::stale;
   bool shutdown=false;
   {
     Guard guard;publish(at,fresh);

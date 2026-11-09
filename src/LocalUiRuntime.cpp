@@ -280,9 +280,10 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
   if(view.screen==Screen::control && view.notice!=Notice::changed &&
      (view.entity!=model.target.ref || (!view.openedToken && model.target.token))) return true;
   const uint64_t administrationEpoch=view.screen==Screen::administration?administration.epoch():0;
-  const uint32_t desired=view.screen==Screen::settings?settingsHash(settingsForm.view()):
+  const uint32_t baseScene=view.screen==Screen::settings?settingsHash(settingsForm.view()):
     view.screen==Screen::administration?administrationHash(administration.view(),administrationEpoch):
     view.screen==Screen::system?administrationHash(systemView,0):sceneHash(model,view,s);
+  const uint32_t desired=hash(&s.recovery,sizeof(s.recovery),baseScene);
   const bool meaning=sameMeaning(view,frameView,model.pageToken,framePageToken,model.target.token,frameTargetToken) &&
     (view.screen!=Screen::settings || sameSettings(settingsForm.view(),frameSettings)) &&
     (view.screen!=Screen::administration || (sameAdministration(administration.view(),frameAdministration) && administrationEpoch==frameAdministrationEpoch)) &&
@@ -293,6 +294,11 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
     else if(view.screen==Screen::administration)canvas.paintEntity(administration.view());
     else if(view.screen==Screen::system)canvas.paintEntity(systemView);
     else canvas.paint(model,view,s);
+    // A footer only: preserve target, STOP and navigation. Private editors and
+    // confirmations retain their full warnings; Updates shows its own status.
+    if(view.screen==Screen::status || view.screen==Screen::home || view.screen==Screen::catalogue ||
+       view.screen==Screen::roomKinds || view.screen==Screen::control || view.screen==Screen::actions || view.screen==Screen::details)
+      canvas.paintRecovery(s.recovery);
     const uint32_t elapsed=micros()-start;
     if(elapsed>maxPaintUs) maxPaintUs=elapsed;
     if(view.screen==Screen::settings) frameSettings=settingsForm.view();

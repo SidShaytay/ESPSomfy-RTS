@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "BatteryGauge.h"
+#include "GitUpdateRecovery.h"
 
 // Read-only values only: no controller, command queue or credentials cross this boundary.
 namespace StatusDisplay {
@@ -15,6 +16,7 @@ struct Health {
 };
 static_assert(sizeof(Health)<=32,"Keep LCD health metadata bounded");
 struct Snapshot {
+  BootRecoveryNotice recovery=BootRecoveryNotice::none;
   Health health;
   uint8_t graphicsFailure = 0; // 1: PSRAM missing, 2: allocation failed
   BatteryGauge::Reading battery;

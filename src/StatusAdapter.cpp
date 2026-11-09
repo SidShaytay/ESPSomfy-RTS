@@ -46,6 +46,7 @@ StatusDisplay::Snapshot snapshot(bool running) {
   using namespace StatusDisplay;
   Snapshot s;
   s.running = running;
+  s.recovery=gitUpdateRecoveryNotice();
   s.health.sampled=true;
   constexpr uint32_t internalCaps=MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT;
   constexpr uint32_t psramCaps=MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT;

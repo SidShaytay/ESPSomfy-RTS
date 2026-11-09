@@ -392,8 +392,11 @@ int main(int argc,char **argv){
   assert(lastQuery.screen==Screen::catalogue);
   busBusy=true;click();idle(10);assert(lastQuery.screen==Screen::control);
   assert(presentations==0);click();assert(submitted.empty()); // never-presented STOP is blocked
-  busBusy=false;idle();assert(presentations>0);click();
+  busBusy=false;idle();assert(presentations>0);
+  status.recovery=BootRecoveryNotice::movement;idle();assert(lastQuery.screen==Screen::control && lastQuery.entity.id==7);
+  saveFrame(preview,"runtime-rollback-waiting-control");click();
   assert(submitted.size()==1 && submitted.back().id==7 && submitted.back().command==somfy_commands::My);
+  status.recovery=BootRecoveryNotice::none;
   // Retain an already-visible STOP across estimate/action repainting, but do
   // not admit a never-presented UP highlight while SPI is blocked.
   busBusy=true;++one.value.currentPos;rotate(-1);click();assert(submitted.size()==1);

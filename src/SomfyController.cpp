@@ -60,7 +60,7 @@ static bool updaterBootloaderHealthy=false,updaterAssetsHealthy=false;
 #endif
 GitUpdateBootStatus gitUpdateBootStatus(){
 #if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
-  return {otaPending,otaHealth.rollbackRequired()};
+  return {otaPending,otaHealth.rollbackRequired(),gitUpdateRecoveryNotice()};
 #else
   return {otaPending,false};
 #endif
@@ -244,6 +244,9 @@ void loop() {
     logIfSlow(TAG, "Loop sockets", timing.lap(), LOOP_SLOW_MS);
     esp_task_wdt_reset();
   }
+  // Observe newly decoded movement before local input, so a cancelled restart
+  // cannot reject a STOP press for motion that this pass has already seen.
+  if(restartLoop()) return;
   StatusPanel::loop();
 #if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
   // Normal accepted work drains before preparation. While paused, keep only
@@ -272,10 +275,9 @@ void loop() {
       otaHealth.confirmed();otaPending=false;ESP_LOGI(TAG,"Updated firmware passed continuous boot health");
     } else ESP_LOGE(TAG,"Unable to confirm updated firmware; keeping confirmation pending");
   } else if(action==GitUpdateBootHealth::Action::rollbackRequired) {
-    // This is a health-failure intent only. Never restart a moving controller
-    // or bypass checked persistence here; managed rollback wiring is separate.
     ESP_LOGE(TAG,"Updated firmware failed boot health; rollback required");
   }
+  gitUpdateRecoveryLoop(otaHealth.rollbackRequired(),bootMicros<0?UINT64_MAX:uint64_t(bootMicros)/1000);
 #else
   if(otaPending && otaProven(updateNetworkReady, millis(), OTA_PROVEN_MS)) {
     if(esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {otaPending = false;ESP_LOGI(TAG, "Updated firmware confirmed, rollback cancelled");}

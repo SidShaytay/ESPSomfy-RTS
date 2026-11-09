@@ -12,3 +12,4 @@ for case in badLoad settingsLoad radioLoad security lateSecurity beforeFinalSecu
 printf 'Actual SafeRestart service: history, source, two-phase I/O and final barriers passed\n'
 for case in installAllowed installClaimed installWrongRadio installMissingQueue installStale installSelectionFailure installCancel installSourceFinal installLateSource installCommitFailure installSealLost installQueueLost installMissingCallback installZeroOperation;do "$scratch/restart" "$case";done
 printf 'Retained installer seals and final-only boot selection passed\n'
+for case in checkedSource checkedSourceLost;do "$scratch/restart" "$case";done

@@ -21,6 +21,7 @@ public:
   void paint(const Model &, const View &, const StatusDisplay::Snapshot &);
   void paintSettings(const Settings::FormView &);
   void paintEntity(const EntityAdmin::FormView &);
+  void paintRecovery(BootRecoveryNotice);
 
 private:
   void text(int x, int baseline, const char *, bool title = false, uint16_t color = 0xef7d,

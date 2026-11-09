@@ -6,6 +6,9 @@
 // Loop-owned immediate admission: checks settings/queue and commits the current
 // dirty model without replaying edits, counters, RF or GPIO commands.
 RestartResult requestRestart(uint32_t delayMs=500);
+// Loop only. Revalidate a caller's source outside locks, including after the
+// final save. sealed=true means this intent holds the final producer/TX seals.
+RestartResult requestCheckedRestart(bool (*sourceCurrent)(bool sealed),uint32_t delayMs=3000);
 // Any task: cached-only bounded mailbox, never a claim of admission. Its
 // maximum 60 s age includes the cached observation age; loop revalidates it.
 RestartSubmission submitRestart(uint32_t delayMs=500);
