@@ -8,8 +8,8 @@
 #include "LocalValueEditor.h"
 namespace LocalUi {
 constexpr uint8_t detailsRowCount=14, detailsVisibleRows=6;
-constexpr uint8_t homeRows=7, administrationHomeIndex=6;
-enum class Screen : uint8_t { status, home, catalogue, roomKinds, control, actions, value, details, brightness, unlock, settings, administration };
+constexpr uint8_t homeRows=8, administrationHomeIndex=6, systemHomeIndex=7;
+enum class Screen : uint8_t { status, home, catalogue, roomKinds, control, actions, value, details, brightness, unlock, settings, administration, system };
 using Action=ControlAction;
 enum class Notice : uint8_t { none, preview, queued, refused, idle, changed, wait, saved, saveFailed,
   unlockRequired, unlockWrong, unlockWait, unlockUnavailable, unlocked, done, partial, busy, cancelled, valueUnavailable, expired, stopNotQueued };
@@ -119,7 +119,7 @@ public:
     out=formInput; formInput={}; return true;
   }
   void closeForm() {
-    formInput={};state.selected=state.screen==Screen::administration?administrationHomeIndex:3;
+    formInput={};state.selected=state.screen==Screen::administration?administrationHomeIndex:state.screen==Screen::system?systemHomeIndex:3;
     state.screen=Screen::home;
   }
   void setBrightness(uint8_t value);
