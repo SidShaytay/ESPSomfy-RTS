@@ -8,12 +8,17 @@ python3 - "$repo" "$scratch/production-radio.inc" <<'PY'
 from pathlib import Path
 import sys
 root=Path(sys.argv[1]);text=(root/'src/Transceiver.cpp').read_text();out=[]
-for name in ('radioUpdateResourcesReady','somfy_rx_queue_t::init','Transceiver::begin','Transceiver::updateActivityLocked','Transceiver::updateActivity','Transceiver::pauseForInstall','Transceiver::resumeAfterInstall','Transceiver::installPauseHeld','Transceiver::enableReceive','Transceiver::disableReceive','Transceiver::clearReceived','Transceiver::handleReceive','Transceiver::receive'):
+for name in ('radioUpdateResourcesReady','somfy_rx_queue_t::init','Transceiver::begin','Transceiver::updateActivityLocked','Transceiver::updateActivity','Transceiver::pauseForAdministration','Transceiver::pauseForInstall','Transceiver::pauseForRestore','Transceiver::serviceUntrustedReceive','Transceiver::resumeAfterInstall','Transceiver::installPauseHeld','Transceiver::enableReceive','Transceiver::disableReceive','Transceiver::clearReceived','Transceiver::handleReceive','Transceiver::receive'):
  at=text.find(name+'(')
  if at<0:continue
  start=text.rfind('\n',0,at)+1;brace=text.index('{',at);end=brace+1;depth=1
  while depth:depth+=(text[end]=='{')-(text[end]=='}');end+=1
  out.append(text[start:end])
+controller=(root/'src/ShadeController.cpp').read_text();at=controller.index('void SomfyShadeController::loop(');brace=controller.index('{',at);end=brace+1;depth=1
+while depth:depth+=(controller[end]=='{')-(controller[end]=='}');end+=1
+out.append(controller[at:end])
+header=(root/'src/Transceiver.h').read_text();at=header.index('bool available() const');brace=header.index('{',at);end=header.index('}',brace)+1
+out.append('bool Transceiver::available() const '+header[brace:end])
 Path(sys.argv[2]).write_text('\n'.join(out)+'\n')
 PY
 # The unchanged decoder has an existing sign-compare warning; keep strict

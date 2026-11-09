@@ -417,6 +417,7 @@ void Transceiver::emitFrame(somfy_frame_t *frame, somfy_rx_t *rx) {
   }
 }
 void Transceiver::clearReceived(void) {
+    RadioLock radio(0);if(!radio.locked)return;
     { RxTaskLock receiveLock;if(rxPausedForInstall)return; }
     //packet_received = false;
     //memset(receive_buffer, 0x00, sizeof(receive_buffer));
@@ -425,10 +426,11 @@ void Transceiver::clearReceived(void) {
       attachInterrupt(interruptPin, handleReceive, CHANGE);
 }
 void Transceiver::enableReceive(void) {
+    RadioLock radio(0);if(!radio.locked)return;
     { RxTaskLock receiveLock;if(rxPausedForInstall)return; }
     uint32_t timing = millis();
     if(rxmode > 0) return;
-    if(this->available()) {
+    if(this->_available.load()) {
       rxmode = 1;
       pinMode(this->config.RXPin, INPUT);
       interruptPin = digitalPinToInterrupt(this->config.RXPin);
@@ -877,14 +879,26 @@ bool Transceiver::updateActivity(RadioUpdateActivity &out) const {
   TxQueueLock queue(0);if(!queue.locked)return false;
   RxTaskLock receiveLock;out=this->updateActivityLocked();return true;
 }
-bool Transceiver::pauseForInstall(RadioInstallToken &out) {
+bool Transceiver::pauseForInstall(RadioInstallToken &out){return pauseForAdministration(out,true);}
+bool Transceiver::pauseForRestore(RadioInstallToken &out){return pauseForAdministration(out,false);}
+void Transceiver::serviceUntrustedReceive(){
+  if(somfy.modelLoad.usable())return;
+  RxTaskLock receiveLock;
+  if(rxPausedForInstall)return;
+  // Quarantined input cannot apply identities, counters, movement or repeaters.
+  // Memory-only and bounded by MAX_RX_BUFFER/MAX_TIMINGS; no decode or driver.
+  rx_queue.init();somfy_rx.clear();
+}
+bool Transceiver::pauseForAdministration(RadioInstallToken &out,bool requireReady) {
   if(out.generation || !radioUpdateResourcesReady())return false; // Never overwrite a retained capability.
   RadioLock radio(0);if(!radio.locked)return false;
   TxQueueLock queue(0);if(!queue.locked)return false;
   {
     RxTaskLock receiveLock;
-    if(this->installGeneration==UINT64_MAX || !this->updateActivityLocked().canPause() || !this->sched.sealForRestart())return false;
-    rxPausedForInstall=true;this->installActive=true;this->installResumeReceive=rxmode==1;
+    const auto activity=this->updateActivityLocked();
+    if(this->installGeneration==UINT64_MAX || !activity.quiescent() || (requireReady && !activity.ready) || !this->sched.sealForRestart())return false;
+    rxPausedForInstall=true;this->_administrationPaused=true;this->installActive=true;this->installResumeReceive=rxmode==1;
+    this->installConfigurationRevision=this->configurationRevision;
     out.generation=++this->installGeneration;
   }
   // No ISR critical section spans GPIO driver calls.
@@ -895,7 +909,7 @@ bool Transceiver::installPauseHeld(const RadioInstallToken &token) const {
   RadioLock radio(0);if(!radio.locked)return false;
   TxQueueLock queue(0);if(!queue.locked)return false;
   RxTaskLock receiveLock;
-  return this->installActive && rxPausedForInstall && this->installGeneration==token.generation && this->sched.sealedForRestart();
+  return this->installActive && this->_administrationPaused.load() && rxPausedForInstall && this->installGeneration==token.generation && this->sched.sealedForRestart();
 }
 RadioInstallResume Transceiver::resumeAfterInstall(const RadioInstallToken &token) {
   if(!radioUpdateResourcesReady())return RadioInstallResume::busy;
@@ -905,11 +919,12 @@ RadioInstallResume Transceiver::resumeAfterInstall(const RadioInstallToken &toke
   {
     RxTaskLock receiveLock;
     if(!token.generation || !this->installActive || !rxPausedForInstall || token.generation!=this->installGeneration || !this->sched.sealedForRestart())return RadioInstallResume::stale;
-    resume=this->installResumeReceive && this->config.enabled;
+    resume=this->config.enabled && (this->configurationRevision!=this->installConfigurationRevision || this->installResumeReceive);
     rxPausedForInstall=false;
   }
   if(resume)this->enableReceive();
-  this->installActive=false;this->installResumeReceive=false;this->sched.reopenAfterRefusedRestart();
+  this->installActive=false;this->installResumeReceive=false;this->installConfigurationRevision=0;this->sched.reopenAfterRefusedRestart();
+  this->_administrationPaused=false;
   return resume && !this->available() ? RadioInstallResume::unavailable : RadioInstallResume::resumed;
 }
 bool Transceiver::sealForRestart() {
