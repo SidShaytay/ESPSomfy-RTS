@@ -15,6 +15,7 @@
 #include "LocalEntityRuntime.h"
 #include "LocalAdvancedRuntime.h"
 #include "SomfyEditor.h"
+#include "CounterRuntime.h"
 #include "ModelCommitService.h"
 namespace LocalUi {
 struct RuntimeTestAccess {
@@ -57,6 +58,9 @@ static unsigned learnedAttempts=0,learnedLinks=0,learnedWrites=0,learnedRetries=
 static std::map<uint32_t,uint16_t> learnedCodes;
 static uint32_t learnedModelAddress=0;
 static CounterDomainState learnedInjected=CounterDomainState::saved;
+static unsigned primaryReads=0,primaryAttempts=0,primaryWrites=0;
+static CounterDomainState primaryInjected=CounterDomainState::saved;
+static void (*afterPrimaryApply)()=nullptr;
 static void (*afterLearnApply)()=nullptr;
 static ModelCommitState entitySaveState=ModelCommitState::saved,entityCommitState=ModelCommitState::saved;
 // A fake filesystem projection, not a real persistence claim. Failed writes
@@ -87,6 +91,47 @@ settings_apply_result_t applyDeviceSettings(settings_section_t section,JsonObjec
 }
 int testPins[64]={};uint32_t testNow=0;
 SomfyShadeController somfy;
+// In-memory checked-counter endpoint only; actual NVS/reservation ordering and
+// fault injection are exercised by tools/test-explicit-counter.sh.
+static bool fakePrimaryProjection(uint8_t id,PrimaryCounterReview &out) {
+  out={};auto *target=somfy.getShadeById(id);if(!target)return false;
+  out.shadeId=id;out.address=target->address;out.primary=target->lastRollingCode;
+  const auto stored=learnedCodes.find(out.address);if(stored!=learnedCodes.end())out.stored={stored->second,true};
+  unsigned slot=0;auto include=[&](bool match,uint16_t code){if(match){out.matching[slot/8]|=uint8_t(1u<<(slot%8));out.codes[slot]=code;}++slot;};
+  for(const auto &shade:somfy.shades){include(shade.id!=255&&shade.address==out.address,shade.lastRollingCode);for(const auto &remote:shade.linkedRemotes)include(shade.id!=255&&remote.address==out.address,remote.lastRollingCode);}
+  for(const auto &group:somfy.groups)include(group.id!=255&&group.address==out.address,group.lastRollingCode);
+  assert(slot==PrimaryCounterReview::aliasSlots);return true;
+}
+CounterDomainState reviewPrimaryCounter(uint8_t id,PrimaryCounterReview &out) {
+  ++primaryReads;out={};if(somfy.transceiver.quarantine!=CounterQuarantine::none)return CounterDomainState::quarantined;
+  GitUpdateOwnerToken owner;assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::counter,owner));
+  const bool found=fakePrimaryProjection(id,out);assert(gitUpdate.releaseExternal(owner));
+  return found?CounterDomainState::saved:CounterDomainState::missing;
+}
+bool primaryCounterReviewCurrent(uint8_t id,const PrimaryCounterReview &expected) {
+  if(somfy.transceiver.quarantine!=CounterQuarantine::none)return false;
+  PrimaryCounterReview actual;if(!fakePrimaryProjection(id,actual))return false;
+  actual.stored=expected.stored;return actual.same(expected); // No retained-store comparison in the live-only predicate.
+}
+CounterDomainResult applyPrimaryCounterCorrection(uint8_t id,uint16_t code,const PrimaryCounterReview &expected,CounterCorrectionWitness &witness) {
+  assert(!gitUpdate.busy());GitUpdateOwnerToken owner;assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::counter,owner));
+  PrimaryCounterReview actual;const bool matches=fakePrimaryProjection(id,actual)&&actual.same(expected);
+  if(!matches||!witness.current()){assert(gitUpdate.releaseExternal(owner));return {CounterDomainState::stale};}
+  ++primaryAttempts;bool applied=primaryInjected==CounterDomainState::saved;
+  CounterDomainState state=primaryInjected;
+  if(applied||state==CounterDomainState::nvsUncertain)++primaryWrites;
+  if(state==CounterDomainState::nvsUncertain){somfy.transceiver.quarantine=CounterQuarantine::nvsUnknown;somfy.transceiver.blockedIdentity=expected.address;}
+  if(applied){
+    learnedCodes[expected.address]=code;
+    for(auto &shade:somfy.shades)if(shade.id!=255){if(shade.address==expected.address)shade.lastRollingCode=code;for(auto &remote:shade.linkedRemotes)if(remote.address==expected.address)remote.lastRollingCode=code;}
+    for(auto &group:somfy.groups)if(group.id!=255&&group.address==expected.address)group.lastRollingCode=code;
+    ++somfy.configurationRevision;
+    if(entitySaveState!=ModelCommitState::saved){state=entitySaveState==ModelCommitState::uncertain?CounterDomainState::modelUncertain:CounterDomainState::modelFailed;somfy.transceiver.quarantine=CounterQuarantine::filePending;somfy.transceiver.blockedIdentity=expected.address;}
+  }
+  assert(gitUpdate.releaseExternal(owner));
+  if(applied&&afterPrimaryApply){auto callback=afterPrimaryApply;afterPrimaryApply=nullptr;callback();}
+  return {state,applied,{entitySaveState,ModelCommitStage::write}};
+}
 static void snapshotFakeOrderFile() {
   for(uint8_t type=0;type<3;type++) {
     LocalUi::EntityAdmin::OrderIds slots{};bool normalize=false;
@@ -876,6 +921,43 @@ int main(int argc,char **argv){
   assert(settingsSaves==savesBeforeLearn && submitted.size()==rfBeforeLearn+olderLearnRequests);
   // Fixture reset only; production recovery never clears unknown NVS state.
   somfy.transceiver.quarantine=CounterQuarantine::none;somfy.transceiver.blockedIdentity=0;
+  // Primary-code correction uses the same actual Advanced/Form/Backend/FIFO
+  // lifecycle, but a synthetic checked-storage endpoint (never physical RF).
+  learnedCodes[advancedShade.address]=advancedShade.lastRollingCode;
+  advancedShade.linkedRemotes[6].address=advancedShade.address;advancedShade.linkedRemotes[6].lastRollingCode=advancedShade.lastRollingCode;
+  ++somfy.configurationRevision;const auto rfBeforePrimary=submitted.size();
+  auto openPrimaryActual=[&](){
+    openAdvanced(1);for(unsigned i=0;i<2;i++){rotate(1);idle();}
+    const auto reads=primaryReads;busBusy=true;rotate(1);click();assert(primaryReads==reads);busBusy=false;idle();click();idle();
+    assert(RuntimeTestAccess::administration(settingsUi).mode==EntityAdmin::Mode::counterReview&&RuntimeTestAccess::administration(settingsUi).selected==0&&captureProtected);
+  };
+  auto editPrimaryActual=[&](bool change=true){
+    rotate(1);idle();click();idle();if(change){rotate(-1);idle();}assert(!primaryAttempts||primaryWrites==primaryAttempts);
+    click();idle();assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[1].label,"Apply to draft"));rotate(1);idle();click();idle();
+  };
+  openPrimaryActual();click();idle();closeAdministration();assert(!primaryAttempts);
+  openPrimaryActual();editPrimaryActual();auto primaryReview=RuntimeTestAccess::administration(settingsUi);
+  assert(primaryReview.selected==0&&!strcmp(primaryReview.rows[1].label,"Set code: 122")&&strstr(primaryReview.rows[2].value,"2 matching aliases"));
+  saveFrame(preview,"runtime-primary-review");click();idle();assert(!primaryAttempts);editPrimaryActual();
+  busBusy=true;rotate(1);click();assert(!primaryAttempts);busBusy=false;idle();afterPrimaryApply=[](){busBusy=true;};click();
+  assert(!RuntimeTestAccess::systemContains(settingsUi,"Live 123"));busBusy=false;idle();
+  assert(primaryAttempts==1&&primaryWrites==1&&advancedShade.lastRollingCode==122&&advancedShade.linkedRemotes[6].lastRollingCode==122&&learnedCodes[advancedShade.address]==122);
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Counter saved"));saveFrame(preview,"runtime-primary-saved");click();idle();closeAdministration();
+  openPrimaryActual();editPrimaryActual(false);assert(RuntimeTestAccess::administration(settingsUi).notice==EntityAdmin::Notice::unchanged);
+  assert(primaryAttempts==1&&primaryWrites==1);click();idle();closeAdministration();
+  openPrimaryActual();editPrimaryActual();entitySaveState=ModelCommitState::failed;rotate(1);idle();click();idle();
+  auto primaryFile=RuntimeTestAccess::administration(settingsUi);assert(primaryFile.selected==1&&!strcmp(primaryFile.rows[0].label,"Retry model file save")&&primaryAttempts==2&&primaryWrites==2);
+  saveFrame(preview,"runtime-primary-file-failed");const auto retryBeforePrimary=learnedRetries;
+  busBusy=true;rotate(-1);click();assert(learnedRetries==retryBeforePrimary);busBusy=false;idle();click();idle();
+  assert(learnedRetries==retryBeforePrimary+1&&primaryAttempts==2&&primaryWrites==2&&somfy.transceiver.quarantine==CounterQuarantine::none);
+  click();idle();closeAdministration();entitySaveState=ModelCommitState::saved;
+  openPrimaryActual();editPrimaryActual();primaryInjected=CounterDomainState::nvsUncertain;rotate(1);idle();click();idle();
+  assert(primaryAttempts==3&&primaryWrites==3&&advancedShade.lastRollingCode==121);
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Counter uncertain")&&RuntimeTestAccess::administration(settingsUi).rowCount==1);
+  saveFrame(preview,"runtime-primary-uncertain");click();idle();closeAdministration();
+  assert(!receiveHub().active()&&Settings::runtimeMemory().used()==0&&submitted.size()==rfBeforePrimary);
+  // Fixture reset only: unknown NVS is never cleared by this production flow.
+  somfy.transceiver.quarantine=CounterQuarantine::none;somfy.transceiver.blockedIdentity=0;primaryInjected=CounterDomainState::saved;
   somfy.transceiver.ready=true;
   free(allocated);allocated=nullptr;hasPsram=false;
   Runtime missing;missing.begin();assert(missing.failure()==GraphicsFailure::missing && !missing.tick(testNow,status,false,send,light));

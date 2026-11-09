@@ -1,4 +1,5 @@
 #include "LocalEntityView.h"
+#include "LocalPrimaryCounter.h"
 #include "LocalUiRenderer.h"
 #include "../../src/LocalEntityRenderer.cpp"
 #include <assert.h>
@@ -244,6 +245,26 @@ int main(int argc, char **argv) {
   strcpy(learn.title,"Counter uncertain");strcpy(learn.hint,learnHints[3]);save(canvas,pixels.data(),learn,argv[1],"entity-learn-counter-uncertain");
   canvas.setFont(&FreeSansBold12pt7b);
   for(const char*title:{"Remote linked","Linked; file not saved","Linked; file uncertain","Counter uncertain","Counter blocked","Link recovery blocked","Link queued","File save queued","Link not applied"}) {
+    int16_t x,y;uint16_t w,h;canvas.getTextBounds(title,0,0,&x,&y,&w,&h);assert(w<=296);
+  }
+  canvas.setFont(&FreeSans9pt7b);
+  PrimaryCounterReview primarySource;primarySource.shadeId=32;primarySource.address=16777215;primarySource.primary=65535;primarySource.stored={65535,true};
+  memset(primarySource.matching,0xff,sizeof(primarySource.matching));for(auto &code:primarySource.codes)code=65535;
+  PrimaryCounterDraft primary;primary.open(primarySource);EntityAdmin::FormView primaryView;primary.render(primaryView,32);
+  save(canvas,pixels.data(),primaryView,argv[1],"entity-primary-current-max");const auto primaryPixels=pixels;
+  auto alteredPrimary=primaryView;alteredPrimary.rows[2].label[8]='4';canvas.paintEntity(alteredPrimary);bool primaryLastDigit=false;
+  for(unsigned y=35;y<58;y++)for(unsigned x=12;x<308;x++)primaryLastDigit|=pixels[y*320+x]!=primaryPixels[y*320+x];assert(primaryLastDigit);
+  primary.turn(1,1);primary.activate(2);primary.turn(-1,3);primary.activate(4);primary.turn(1,5);primary.activate(6);primary.render(primaryView,32);
+  save(canvas,pixels.data(),primaryView,argv[1],"entity-primary-lowering-review");
+  const char *primaryWarnings[]={primaryView.rows[2].value,primaryView.hint,"Stored code unknown; running code unchanged. No replay/reset.","Counter applied. Retry file only; never repeat correction.","ALL aliases/storage/model verified. Correction sent no RF.","Queue/owner/radio/restart unavailable. No automatic retry.","Close and reopen primary code to review fresh live/NVS state."};
+  for(const char*complete:primaryWarnings) {
+    char first[48],second[48];lines(canvas,complete,first,second);assert(std::string(first)+(second[0]?" ":"")+second==complete);
+    int16_t x,y;uint16_t w,h;canvas.getTextBounds(first,0,0,&x,&y,&w,&h);assert(w<=296);canvas.getTextBounds(second,0,0,&x,&y,&w,&h);assert(w<=296);
+  }
+  primary.complete({CounterDomainState::modelUncertain,true,{ModelCommitState::uncertain,ModelCommitStage::verifyBytes}});primary.render(primaryView,32);
+  save(canvas,pixels.data(),primaryView,argv[1],"entity-primary-file-uncertain");
+  canvas.setFont(&FreeSansBold12pt7b);
+  for(const char*title:{"#32 Primary code","Correction queued","Counter work busy","Counter saved","Code set; file not saved","Counter uncertain","Counter blocked","Counter review changed","Counter not changed"}) {
     int16_t x,y;uint16_t w,h;canvas.getTextBounds(title,0,0,&x,&y,&w,&h);assert(w<=296);
   }
   canvas.setFont(&FreeSans9pt7b);

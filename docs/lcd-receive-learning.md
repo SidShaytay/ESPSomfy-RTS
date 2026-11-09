@@ -77,10 +77,10 @@ are excluded; invalid and scan frames remain available to diagnostics.
 
 The outer Learn handle and FIFO registry are each at most 32 bytes. The lazy
 Advanced session plus wiping allocator header is bounded to 2,304 bytes (native
-measurement: 1,216); the existing 4,096-byte draft pool is unchanged. Administration
+measurement: 1,664); the existing 4,096-byte draft pool is unchanged. Administration
 remains 1,408 bytes in the native build and is bounded to 1,536. The 80-byte queue
-marker holds a ticket, not a model pointer or full JSON copy. The existing protected
-presentation frames are borrowed. These allocation bounds exclude SDK heap
+marker holds a ticket, not a model pointer or full JSON copy. Learn cache/selection and the primary-counter draft share a typed union. The
+existing protected presentation frames are borrowed. These allocation bounds exclude SDK heap
 metadata and are checked again by target compilation.
 
 Offline tests use synthetic receive events, fake storage/domain endpoints and
