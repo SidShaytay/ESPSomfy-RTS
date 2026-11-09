@@ -40,12 +40,14 @@ with tempfile.TemporaryDirectory(prefix='espsomfy-install-') as scratch:
     header[0:4] = bytes([0xe9, 1, 2, 0x4f])
     struct.pack_into('<H', header, 12, 9)
     header[23] = 1
-    image = bytes(header) + struct.pack('<II', 0x3c000020, len(payload)) + payload
-    checksum = 0xef
-    for value in payload:
-        checksum ^= value
-    image += b'\0'*((15-len(image)%16)%16) + bytes([checksum])
-    image += hashlib.sha256(image).digest()
+    def make_image(segment):
+        image = bytes(header) + struct.pack('<II', 0x3c000020, len(segment)) + segment
+        checksum = 0xef
+        for value in segment:
+            checksum ^= value
+        image += b'\0'*((15-len(image)%16)%16) + bytes([checksum])
+        return image + hashlib.sha256(image).digest()
+    image = make_image(payload)
     firmware = Path(scratch) / 'firmware.bin'
     firmware.write_bytes(image)
     for mode in ('invalid', 'valid', 'cancelWrite', 'abortFailure', 'cleanupBusy', 'sourcePrepare', 'notifyFail', 'beginFail', 'endFail', 'writeFail',
@@ -56,6 +58,14 @@ with tempfile.TemporaryDirectory(prefix='espsomfy-install-') as scratch:
     coupled = command[:len(compiler)] + ['-DGIT_UPDATE_CONTROLLER_TEST', '-DESPSOMFY_LOCAL_UI', '-I'+str(root/'tests/git-update-controller')] + command[len(compiler):]
     coupled += [str(root/'src'/name) for name in ('RestartCoordinator.cpp', 'RestartPolicy.cpp', 'SettingsDurability.cpp', 'SomfyFrame.cpp')]
     subprocess.run(coupled + ['-Wl,--wrap=time', '-l:libcrypto.so.3', '-o', str(binary)], check=True)
-    for mode in ('valid', 'moving', 'queued', 'localPending', 'radioWork', 'pauseFailure', 'saveFailure', 'sourceSave', 'configSave', 'cancelWrite', 'sourceWrite', 'cleanupBusy', 'activationFailure', 'expireFinal', 'cancelFinal', 'staleCleanup'):
+    for mode in ('valid', 'moving', 'queued', 'localPending', 'radioWork', 'pauseFailure', 'saveFailure', 'sourceSave', 'configSave', 'cancelWrite', 'sourceWrite', 'cleanupBusy', 'activationFailure', 'expireFinal', 'cancelFinal', 'staleCleanup',
+                 'manualValid', 'manualInvalid', 'manualOldAssets', 'manualWrongGrant', 'manualExpiredGrant', 'manualWriteFailure', 'manualBadMemory', 'manualNoClaim', 'manualLateAdoption', 'manualNotifyFailure'):
         subprocess.run([str(binary), mode, str(firmware), compat], check=True)
         print('PASS controller ' + mode, flush=True)
+    developer=Path(scratch)/'developer.bin'
+    developer.write_bytes(make_image(payload.replace(b'|v4.0.3|', b'|dev-'+b'a'*12+b'|', 1)))
+    subprocess.run([str(binary), 'manualValid', str(developer), compat], check=True)
+    dev_command=coupled+['-DESPSOMFY_RELEASE_TAG="dev-aaaaaaaaaaaa"']
+    subprocess.run(dev_command+['-Wl,--wrap=time', '-l:libcrypto.so.3', '-o', str(binary)], check=True)
+    subprocess.run([str(binary), 'manualValid', str(developer), compat], check=True)
+    print('PASS manual developer file from stable and developer installed builds', flush=True)

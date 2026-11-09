@@ -23,7 +23,7 @@ struct GitUpdateCandidate {
 struct GitUpdateSnapshot {
   GitUpdatePhase phase=GitUpdatePhase::unavailable;
   GitUpdateReason reason=GitUpdateReason::notStarted;
-  bool supported=false, busy=false, compatible=false, cancellable=false, canPrepare=false;
+  bool supported=false, busy=false, compatible=false, cancellable=false, canPrepare=false,manual=false;
   // Metadata-only prepared state never claims installation is available.
   bool canInstall=false;
   uint8_t progress=0;
@@ -48,6 +48,7 @@ struct GitUpdateInstallHooks {
   GitUpdateInstallPreparation (*prepare)(const GitUpdateOwnerToken &)=nullptr;
   bool (*cleanup)(const GitUpdateOwnerToken &,const RadioInstallToken &)=nullptr;
   void (*written)(const GitUpdateOwnerToken &,const RadioInstallToken &)=nullptr;
+  bool (*manual)(const GitUpdateOwnerToken &,uint64_t operation,uint64_t securityRevision)=nullptr;
 };
 class GitUpdateClass {
 public:
@@ -60,6 +61,10 @@ public:
   GitUpdateRequest requestCheck(uint64_t &operation);
   GitUpdateRequest requestPrepare(const GitUpdateCandidate &expected);
   GitUpdateRequest requestInstall(const GitUpdateCandidate &,uint64_t &operation);
+  // Loop only. Caller holds the queued firmware claim/resource. On acceptance
+  // the service owns this heap_caps PSRAM allocation and nulls image; refusal
+  // leaves image and transfer ownership with the caller. No GitHub provenance.
+  GitUpdateRequest requestManualInstall(const GitUpdateOwnerToken &,uint8_t *&image,size_t size,uint64_t securityRevision,uint64_t &operation);
   // Loop only, after SafeRestart's final take and exact source handoff.
   bool activateInstall(uint64_t operation);
   void finishInstallRestart(uint64_t operation,bool mayClean);
