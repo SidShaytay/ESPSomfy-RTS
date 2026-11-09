@@ -51,6 +51,7 @@ static ModelCommitReport lastModelReport;
 static void captureModelReport(ModelCommitReport report){lastModelReport=report;}
 #define PROTO_SOCKET_H
 struct ModelSocket {
+  bool acceptsMutation(const loop_item_t &)const{return true;}
   void replyEdit(const proto_reply_to_t &,model_edit_type_t,const edit_result_t &result){++editReplies;lastEdit=result;}
   void room(SomfyRoom &){assert(false);}void order(sort_list_t){assert(false);}void repeaters(){assert(false);}
   void shadeRemoved(uint8_t){assert(false);}void groupRemoved(uint8_t){assert(false);}void roomRemoved(uint8_t){assert(false);}

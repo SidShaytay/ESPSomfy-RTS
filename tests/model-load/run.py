@@ -1,8 +1,9 @@
 from pathlib import Path
 import subprocess,sys,os,tempfile
 root=Path(__file__).resolve().parents[2]
-source=(root/'src/ConfigFile.cpp').read_text()+'\n'+(root/'src/ShadeController.cpp').read_text()
-names=['ConfigFile::begin','ConfigFile::end','ConfigFile::readByte','ConfigFile::position','ConfigFile::seekRead','ConfigFile::readHeader','ShadeConfigFile::validate','ShadeConfigFile::loadBoot','ShadeConfigFile::loadFile','ShadeConfigFile::restoreFile','SomfyShadeController::begin','ShadeConfigFile::begin(bool','ShadeConfigFile::begin(const char *']
+json=Path(os.environ.get('ARDUINOJSON_INCLUDE',root/'.pio/libdeps/native/ArduinoJson/src'))
+source=(root/'src/ConfigFile.cpp').read_text()+'\n'+(root/'src/ShadeController.cpp').read_text()+'\n'+(root/'src/ShadeGpio.cpp').read_text()
+names=['unsafeGPIOs','SomfyShade::configureGPIOs','ConfigFile::begin','ConfigFile::end','ConfigFile::readByte','ConfigFile::position','ConfigFile::seekRead','ConfigFile::readHeader','ShadeConfigFile::validate','ShadeConfigFile::loadBoot','ShadeConfigFile::loadFile','ShadeConfigFile::restoreFile','SomfyShadeController::begin','ShadeConfigFile::begin(bool','ShadeConfigFile::begin(const char *','cooperateCounterLoad','restoreIdle','continueRestoreCounterLoad','ShadeConfigFile::validateRestoreRecords','ShadeConfigFile::validateRestoreGPIOs','ShadeConfigFile::prepareCounters','ShadeConfigFile::readShade','ShadeConfigFile::readGroup']
 with tempfile.TemporaryDirectory() as scratch:
     bodies=[]
     for name in names:
@@ -10,7 +11,9 @@ with tempfile.TemporaryDirectory() as scratch:
         while depth:
             depth+=(source[end]=='{')-(source[end]=='}');end+=1
         bodies.append(source[start:end])
+    header=(root/'src/Somfy.h').read_text();at=header.index('bool idleForAdministration() const');brace=header.index('{',at);end=header.index('}',brace)+1
+    bodies.append('bool SomfyShade::idleForAdministration() const '+header[brace:end])
     Path(scratch,'production-load.inc').write_text('\n'.join(bodies))
     binary=str(Path(scratch,'load-test'))
-    subprocess.run([os.environ.get('CXX','c++'),'-std=c++17','-O2','-ffunction-sections','-fdata-sections','-Wl,--gc-sections','-I'+scratch,'-I'+str(root/'test/stubs'),'-I'+str(root/'src'),str(root/'tests/model-load/load-test.cpp'),str(root/'src/ModelLoadSnapshot.cpp'),str(root/'src/ConfigRecords.cpp'),'-o',binary],check=True)
+    subprocess.run([os.environ.get('CXX','c++'),'-std=c++17','-O2','-pthread','-ffunction-sections','-fdata-sections','-Wl,--gc-sections','-I'+scratch,'-I'+str(root/'test/stubs'),'-I'+str(root/'src'),'-I'+str(json),str(root/'tests/model-load/load-test.cpp'),str(root/'src/ModelLoadSnapshot.cpp'),str(root/'src/ConfigRecords.cpp'),str(root/'src/CounterLoad.cpp'),str(root/'src/LivePinClaims.cpp'),str(root/'src/GpioPinClaims.cpp'),str(root/'src/SelectedSettingsRestore.cpp'),str(root/'src/PinOwnershipContext.cpp'),str(root/'src/SettingsTypedValidation.cpp'),str(root/'src/SettingsPersistence.cpp'),str(root/'src/SettingsValues.cpp'),str(root/'src/SettingsLoad.cpp'),str(root/'src/SettingsDurability.cpp'),str(root/'src/ProtoSettings.cpp'),str(root/'src/ProtoParse.cpp'),str(root/'src/ProtoSchema.cpp'),str(root/'src/ModelEditor.cpp'),str(root/'src/ShadeBehaviour.cpp'),str(root/'src/ShadeMotion.cpp'),str(root/'src/ShadeSensors.cpp'),str(root/'src/SomfyFrame.cpp'),'-o',binary],check=True)
     subprocess.run([binary],check=True)

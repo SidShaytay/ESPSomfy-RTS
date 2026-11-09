@@ -9,6 +9,7 @@
 #include "SettingsDurability.h"
 #include "ModelCommitResult.h"
 #include "SomfyFrame.h"
+#include "SettingsLoadState.h"
 #include <assert.h>
 #include <string>
 #include <thread>
@@ -16,7 +17,7 @@
 #include <future>
 #include <chrono>
 #define configsettings_h
-struct ConfigSettings { struct { bool trusted=true;bool loadTrusted()const{return trusted;} } Security; } settings;
+struct ConfigSettings { bool namespaces=true;struct { bool trusted=true;bool loadTrusted()const{return trusted;} } Security;bool settingsUsable()const{return namespaces && Security.trusted;} } settings;
 #define SOMFY_H
 namespace SafeRestartDetail { extern thread_local unsigned criticalDepth; }
 static unsigned commits=0;
@@ -33,6 +34,7 @@ struct SomfyShadeController {
   uint64_t configurationRevision=1;
   bool isDirty=false;
   struct {
+    struct {SettingsLoadStatus loadStatus{SettingsLoadState::loaded};}config;
     bool uncertain=false,work=false,sealed=false,sealRefused=false;
     bool counterEditUncertain() const{return uncertain;}
     bool restartQuiescent() const{return !work;}
@@ -119,6 +121,8 @@ int main(int argc,char **argv) {
     if(mode=="cancelIO")duringCommit=[]{cancelRestart();};
     if(mode=="counter")somfy.transceiver.uncertain=true;
     if(mode=="settings")settingsDurability().markUncertain(1);
+    if(mode=="settingsLoad")settings.namespaces=false;
+    if(mode=="radioLoad")somfy.transceiver.config.loadStatus={SettingsLoadState::failed};
     if(mode=="security"){
       settings.Security.trusted=false;assert(!restartLoop());
       const auto reads=clockReads;assert(restartTransferBlocked());assert(clockReads==reads);
@@ -130,11 +134,16 @@ int main(int argc,char **argv) {
     if(mode=="queue")queued=1;
     if(mode=="radio")somfy.transceiver.work=true;
     const auto result=requestRestart(500);
-    const bool initial=mode!="security" && mode!="initialFailure" && mode!="cancelIO" && mode!="counter" && mode!="settings" && mode!="moving" && mode!="held" && mode!="pulse" && mode!="groupUnknown" && mode!="queue" && mode!="radio";
-    if(mode=="security")assert(!result.admitted && result.reason==RestartReason::securityUnavailable && !commits);
+    const bool initial=mode!="settingsLoad" && mode!="radioLoad" && mode!="security" && mode!="initialFailure" && mode!="cancelIO" && mode!="counter" && mode!="settings" && mode!="moving" && mode!="held" && mode!="pulse" && mode!="groupUnknown" && mode!="queue" && mode!="radio";
+    if(mode=="settingsLoad" || mode=="radioLoad"){
+      assert(!result.admitted && result.reason==RestartReason::settingsUnavailable && !commits && restartTransferBlocked());
+      assert(!restartRestoreStagingBlocked());
+    }
+    if(mode=="security")assert(!result.admitted && result.reason==RestartReason::securityUnavailable && !commits && restartRestoreStagingBlocked());
     assert(result.admitted==initial);
     if(initial) {
       if(mode=="finalFailure")fileResult={ModelCommitState::uncertain,ModelCommitStage::replace};
+      if(mode=="lateSettingsLoad")duringCommit=[]{settings.namespaces=false;};
       if(mode=="lateSecurity")duringCommit=[]{settings.Security.trusted=false;};
       if(mode=="beforeFinalSecurity")settings.Security.trusted=false;
       if(mode=="lateSettings")duringCommit=[]{settingsDurability().markUncertain(1);settingsDurability().fullSave(SettingsNamespace::cfg,{settings_save_state_t::saved});};

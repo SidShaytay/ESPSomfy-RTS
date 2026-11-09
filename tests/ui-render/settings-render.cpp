@@ -41,7 +41,7 @@ int main(int argc,char **argv) {
   const RestartReason causes[]={RestartReason::none,RestartReason::settingsUncertain,RestartReason::modelFailed,
     RestartReason::modelUncertain,RestartReason::queuedOperations,RestartReason::pending,RestartReason::stale,
     RestartReason::cancelled,RestartReason::exhausted,RestartReason::clock,RestartReason::invalidRequest,
-    RestartReason::notReady,RestartReason::persistenceBusy,RestartReason::counterUncertain,RestartReason::activeMovement,RestartReason::unknownGroup,RestartReason::modelUnavailable,RestartReason::securityUnavailable,RestartReason(255)};
+    RestartReason::notReady,RestartReason::persistenceBusy,RestartReason::counterUncertain,RestartReason::activeMovement,RestartReason::unknownGroup,RestartReason::modelUnavailable,RestartReason::securityUnavailable,RestartReason::settingsUnavailable,RestartReason(255)};
   std::vector<uint16_t> queued;
   for(const auto cause:causes) {
     blocked.restartReason=cause;
@@ -57,12 +57,26 @@ int main(int argc,char **argv) {
     if(cause==RestartReason::pending){save(std::string(argv[1])+"/settings-restart-pending.ppm",pixels);assert(strstr(text,"pending")!=nullptr);}
     if(cause==RestartReason::counterUncertain){assert(pixels!=queued);save(std::string(argv[1])+"/settings-restart-counter.ppm",pixels);}
     if(cause==RestartReason::modelUnavailable){assert(strstr(text,"verified full model restore")!=nullptr);save(std::string(argv[1])+"/settings-restart-model-unavailable.ppm",pixels);}
+    if(cause==RestartReason::settingsUnavailable){assert(strstr(text,"Settings need repair")!=nullptr);save(std::string(argv[1])+"/settings-restart-settings-unavailable.ppm",pixels);}
     if(cause==RestartReason::securityUnavailable){assert(strstr(text,"Authentication is unavailable")!=nullptr);save(std::string(argv[1])+"/settings-restart-security-unavailable.ppm",pixels);}
     if(cause==RestartReason::unknownGroup){assert(strstr(text,"Group")!=nullptr);save(std::string(argv[1])+"/settings-restart-group.ppm",pixels);}
     if(cause==RestartReason::modelFailed)save(std::string(argv[1])+"/settings-restart-model.ppm",pixels);
     if(cause==RestartReason(255)){assert(strstr(text,"uncertain")==nullptr);save(std::string(argv[1])+"/settings-restart-unknown.ppm",pixels);}
     assert(blocked.protectedFrame);
   }
+  Settings::FormView unavailable;unavailable.notice=Settings::Notice::unavailable;
+  warningLines(canvas,notice(unavailable.notice),warningFirst,warningSecond);
+  assert(std::string(warningFirst)+" "+warningSecond=="Settings unavailable - storage needs review");
+  canvas.paintSettings(unavailable);save(std::string(argv[1])+"/settings-unavailable.ppm",pixels);assert(unavailable.protectedFrame);
+  Settings::FormView fault;fault.notice=Settings::Notice::cleanupFault;
+  warningLines(canvas,notice(fault.notice),warningFirst,warningSecond);
+  assert(std::string(warningFirst)+" "+warningSecond=="Radio cleanup fault. Further saves/restart blocked.");
+  canvas.paintSettings(fault);save(std::string(argv[1])+"/settings-radio-cleanup-fault.ppm",pixels);
+  Settings::FormView applied;applied.notice=Settings::Notice::appliedUncertain;
+  warningLines(canvas,notice(applied.notice),warningFirst,warningSecond);
+  assert(std::string(warningFirst)+" "+warningSecond=="Radio applied; readiness uncertain. Reopen Radio.");
+  canvas.paintSettings(applied);save(std::string(argv[1])+"/settings-radio-applied-uncertain.ppm",pixels);
+
   assert(view.protectedFrame);
   view.notice=Settings::Notice::none;view.mode=Settings::Mode::confirm;view.rowCount=2;
   strcpy(view.hint,"Changes authentication; may close sessions.");

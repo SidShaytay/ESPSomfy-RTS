@@ -1,3 +1,4 @@
+#include "QualifiedSettings.h"
 #include <unity.h>
 #include <map>
 #include <string>
@@ -14,8 +15,8 @@ struct Snapshot : SettingsSnapshotSink {
 void setUp() {}
 void tearDown() {}
 static void test_snapshot_covers_all_editable_metadata_without_secret_values() {
-  ConfigSettings settings;
-  transceiver_config_t radio;
+  ConfigSettings settings;qualifySettings(settings);
+  transceiver_config_t radio;qualifySettings(radio);
   strcpy(settings.WIFI.passphrase,"wifi-secret-sentinel");
   strcpy(settings.MQTT.password,"mqtt-secret-sentinel");
   strcpy(settings.Security.password,"login-secret-sentinel");
@@ -43,8 +44,8 @@ static void test_snapshot_covers_all_editable_metadata_without_secret_values() {
   TEST_ASSERT_EQUAL_STRING("login-secret-sentinel",settings.Security.password);
 }
 static void test_defaults_addresses_and_presence_are_explicit() {
-  ConfigSettings settings;
-  transceiver_config_t radio;
+  ConfigSettings settings;qualifySettings(settings);
+  transceiver_config_t radio;qualifySettings(radio);
   Snapshot snapshot;
   TEST_ASSERT_TRUE(readSettingsSnapshot(settings_section_t::network,settings,radio,snapshot));
   TEST_ASSERT_FALSE(snapshot.values.at(proto_field_t::hasPassphrase).boolean);
@@ -66,8 +67,8 @@ static void test_defaults_addresses_and_presence_are_explicit() {
   TEST_ASSERT_TRUE(snapshot.values.empty());
 }
 static void test_bounded_utf8_text_is_copied_and_owned_by_sink() {
-  ConfigSettings settings;
-  transceiver_config_t radio;
+  ConfigSettings settings;qualifySettings(settings);
+  transceiver_config_t radio;qualifySettings(radio);
   for(size_t i=0;i<64;i+=2) { settings.MQTT.hostname[i]='\xc3'; settings.MQTT.hostname[i+1]='\xa9'; }
   settings.MQTT.hostname[64]=0;
   Snapshot snapshot;
@@ -78,9 +79,9 @@ static void test_bounded_utf8_text_is_copied_and_owned_by_sink() {
   TEST_ASSERT_EQUAL(64,strlen(snapshot.values.at(proto_field_t::hostname).text));
 }
 static void test_read_values_roundtrip_metadata_to_validator_without_secret_prefill() {
-  ConfigSettings settings;
+  ConfigSettings settings;qualifySettings(settings);
   settings.connType=conn_types_t::wifi;
-  transceiver_config_t radio;
+  transceiver_config_t radio;qualifySettings(radio);
   for(uint8_t sectionIndex=0;sectionIndex<5;sectionIndex++) {
     const auto section=static_cast<settings_section_t>(sectionIndex);
     Snapshot snapshot;

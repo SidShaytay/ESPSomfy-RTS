@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include "Utils.h"
+#include "LivePinClaims.h"
 
 #ifndef ESPNetwork_h
 #define ESPNetwork_h
@@ -21,12 +22,14 @@
 #define ROAM_MIN_GAIN_DB 6
 class ESPNetwork {
   protected:
+    LivePinClaims liveEthernetPins;
     unsigned long lastEmit = 0;
     unsigned long lastMDNS = 0;
     RssiBroadcast rssiBroadcast;
     int linkSpeed = 0;
     bool _connecting = false;
   public:
+    uint64_t retainedPinClaims()const{return liveEthernetPins.snapshot();}
     unsigned long lastWifiScan = 0;
     bool ethStarted = false;
     bool wifiFallback = false;

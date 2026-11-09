@@ -27,6 +27,7 @@ const char *refusal(RestartReason value) {
   case RestartReason::counterUncertain:return "Counter storage uncertain. Resolve counter failure first.";
   case RestartReason::activeMovement:return "Movement or GPIO pulse active. Wait before Restart.";
   case RestartReason::modelUnavailable:return "Model not loaded. Use a verified full model restore.";
+  case RestartReason::settingsUnavailable:return "Settings need repair. Review affected section.";
   case RestartReason::securityUnavailable:return "Security not loaded. Authentication is unavailable.";
   case RestartReason::unknownGroup:return "Group motion unknown. Review missing or untracked members.";
   }

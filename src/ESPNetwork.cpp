@@ -1,3 +1,4 @@
+#include "PinOwnership.h"
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <ESPmDNS.h>
@@ -74,6 +75,11 @@ bool ESPNetwork::setup() {
   WiFi.setAutoReconnect(false);
   WiFi.onEvent(this->networkEvent);
   this->disconnectTime = millis();
+  if(!settings.networkUsable()) {
+    // Existing fallback transport only: never apply unreadable stored settings.
+    if(WiFi.status()==WL_CONNECTED)WiFi.disconnect(false,false);
+    this->openSoftAP();return true;
+  }
   if(WiFi.status() == WL_CONNECTED) WiFi.disconnect(true, true);
   if(settings.connType == conn_types_t::wifi || settings.connType == conn_types_t::unset) {
     WiFi.persistent(false);
@@ -123,6 +129,10 @@ void ESPNetwork::loop() {
   //    c. SoftAP: This condition retains the Soft AP because no other connection method is available.
   // Before the connection steps, which return early while connecting.
   clientScanLoop(*this);
+  if(!settings.networkUsable()) {
+    if(!softAPOpened && !openingSoftAP)this->openSoftAP();
+    return;
+  }
   conn_types_t ctype = this->preferredConnType();
   this->connect(ctype); // Connection timeout handled in connect function as well as the opening of the Soft AP if needed.
   if(this->connecting()) return; // If we are currently attempting to connect to something then we need to bail here.
@@ -335,6 +345,7 @@ void ESPNetwork::setConnected(conn_types_t connType) {
 }
 #if HAS_ETHERNET
 bool ESPNetwork::connectWired() {
+  if(!settings.networkUsable())return false;
   if(ETH.linkUp()) {
     // If the ethernet link is re-established then we need to shut down wifi.
     if(WiFi.status() == WL_CONNECTED) {
@@ -358,6 +369,12 @@ bool ESPNetwork::connectWired() {
   this->connTarget = conn_types_t::ethernet;
   this->connType = conn_types_t::unset;
   if(!this->ethStarted) {
+    if(!ethernetActivationPinsAvailable(settings)) {
+      if(!this->connected())this->openSoftAP();
+      return false;
+    }
+    // Retain before any driver attempt, including a later partial failure.
+    liveEthernetPins.retain(settings.Ethernet.pinClaims());
     // Currently the ethernet module will leak memory if you call begin more than once.
     this->ethStarted = true;
     WiFi.mode(WIFI_OFF);
@@ -420,6 +437,7 @@ void ESPNetwork::updateHostname() {
   }
 }
 bool ESPNetwork::connectWiFi(const uint8_t *bssid, const int32_t channel) {
+  if(!settings.networkUsable())return false;
   if(this->softAPOpened && WiFi.softAPgetStationNum() > 0) {
     // There is a client connected to the soft AP.  We do not want to close out the connection.  While both the
     // Soft AP and a wifi connection can coexist on ESP32 the performance is abysmal.
@@ -566,7 +584,7 @@ bool ESPNetwork::openSoftAP() {
   this->openingSoftAP = true;
   ESP_LOGI(TAG, "Turning the HotSpot On");
   resetTaskWdt(); // Make sure we do not reboot here.
-  WiFi.softAP(strlen(settings.hostname) > 0 ? settings.hostname : "ESPSomfy RTS", "");
+  WiFi.softAP(settings.loadStatus.usable() && strlen(settings.hostname)>0 ? settings.hostname : "ESPSomfy RTS", "");
   delay(200);
   return true;
 }

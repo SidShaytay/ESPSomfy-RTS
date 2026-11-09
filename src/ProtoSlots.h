@@ -22,6 +22,9 @@ enum : uint32_t {
 struct proto_slot_t {
   // Set and cleared on async_tcp; clientId is 0 when the slot is free.
   std::atomic<uint32_t> clientId{0};
+  // Identity-scoped retirement survives late NEXT and slot reuse. Never reset
+  // by a sync, disconnect or new claim: a different client ID is a fresh session.
+  std::atomic<uint32_t> retiredForClientId{0};
   std::atomic<uint32_t> wants{0};
   std::atomic<uint8_t> feeds{0};     // a bit per feed number
   std::atomic<bool> withSchema{true};
@@ -35,6 +38,8 @@ struct proto_slot_t {
 // async_tcp: the slot a new client takes, or nullptr when every slot is
 // taken.
 proto_slot_t *claimSlot(proto_slot_t *slots, uint8_t count, uint32_t clientId, bool withSchema);
+void retireSlot(proto_slot_t &slot,uint32_t capturedClientId);
+bool clientMayMutate(const proto_slot_t *slots,uint8_t count,uint32_t clientId);
 // async_tcp: hello has gone out, so loop() may start the client's sync.
 void startSync(proto_slot_t &slot);
 proto_slot_t *slotOf(proto_slot_t *slots, uint8_t count, uint32_t clientId);

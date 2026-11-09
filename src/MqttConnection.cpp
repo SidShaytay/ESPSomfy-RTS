@@ -41,7 +41,7 @@ void MqttConnection::reset() {
   this->connect();
 }
 bool MqttConnection::loop() {
-  if(!somfy.modelLoad.publishable()){this->disconnect();return false;}
+  if(!somfy.modelLoad.publishable() || !settings.MQTT.loadStatus.usable() || !settings.networkUsable()){this->disconnect();return false;}
   if(settings.MQTT.enabled && !restartPending() && !this->suspended && !mqttClient.connected()) {
     resetTaskWdt();
     if(!this->connected() && net.connected()) this->connect();
@@ -51,7 +51,7 @@ bool MqttConnection::loop() {
   return true;
 }
 void MqttConnection::receive(const char *topic, byte*payload, uint32_t length) {
-  if(!somfy.modelLoad.publishable())return;
+  if(!somfy.modelLoad.publishable() || !settings.MQTT.loadStatus.usable() || !settings.networkUsable())return;
   resetTaskWdt(); // Make sure we do not reboot here.
   ESP_LOGD(TAG, "MQTT Topic:%s payload:%.*s", topic, (int)length, (const char *)payload);
   // This already runs on loop(), but going through the loop queue keeps MQTT
@@ -64,7 +64,7 @@ void MqttConnection::receive(const char *topic, byte*payload, uint32_t length) {
   loopQueue.submit(item);
 }
 bool MqttConnection::connect() {
-  if(!somfy.modelLoad.publishable()){this->disconnect();return false;}
+  if(!somfy.modelLoad.publishable() || !settings.MQTT.loadStatus.usable() || !settings.networkUsable()){this->disconnect();return false;}
   resetTaskWdt(); // Make sure we do not reboot here.
   if(mqttClient.connected()) {
     if(!settings.MQTT.enabled || this->suspended)
@@ -111,7 +111,7 @@ bool MqttConnection::connect() {
 }
 bool MqttConnection::disconnect() {
   if(mqttClient.connected()) {
-    if(!somfy.modelLoad.publishable()) {
+    if(!somfy.modelLoad.publishable() || !settings.MQTT.loadStatus.usable() || !settings.networkUsable()) {
       char topic[128];
       if(settings.MQTT.rootTopic[0])snprintf(topic,sizeof(topic),"%s/status",settings.MQTT.rootTopic);
       else strlcpy(topic,"status",sizeof(topic));
@@ -137,7 +137,7 @@ bool MqttConnection::unsubscribe(const char *topic) {
   return true;
 }
 bool MqttConnection::subscribe(const char *topic) {
-  if(!somfy.modelLoad.publishable())return false;
+  if(!somfy.modelLoad.publishable() || !settings.MQTT.loadStatus.usable() || !settings.networkUsable())return false;
   if(mqttClient.connected()) {
     resetTaskWdt(); // Make sure we do not reboot here.
     char top[128];
@@ -151,7 +151,7 @@ bool MqttConnection::subscribe(const char *topic) {
   return true;
 }
 bool MqttConnection::publish(const char *topic, const char *payload, bool retain) {
-  if(!somfy.modelLoad.publishable())return false;
+  if(!somfy.modelLoad.publishable() || !settings.MQTT.loadStatus.usable() || !settings.networkUsable())return false;
   if(mqttClient.connected()) {
     char top[128];
     if(strlen(settings.MQTT.rootTopic) > 0)
@@ -169,7 +169,7 @@ bool MqttConnection::publish(const char *topic, uint32_t val, bool retain) {
   return this->publish(topic, g_content, retain);
 }
 bool MqttConnection::unpublish(const char *topic) {
-  if(!somfy.modelLoad.publishable())return false;
+  if(!somfy.modelLoad.publishable() || !settings.MQTT.loadStatus.usable() || !settings.networkUsable())return false;
   if(mqttClient.connected()) {
     char top[128];
     if(strlen(settings.MQTT.rootTopic) > 0)
@@ -187,7 +187,7 @@ bool MqttConnection::unpublish(const char *topic) {
 }
 
 bool MqttConnection::publishBuffer(const char *topic, uint8_t *data, uint16_t len, bool retain) {
-  if(!somfy.modelLoad.publishable())return false;
+  if(!somfy.modelLoad.publishable() || !settings.MQTT.loadStatus.usable() || !settings.networkUsable())return false;
   size_t res;
   uint16_t offset = 0;
   uint16_t to_write = len;
@@ -205,7 +205,7 @@ bool MqttConnection::publishBuffer(const char *topic, uint8_t *data, uint16_t le
   return true;
 }
 bool MqttConnection::publishDisco(const char *topic, JsonObject &obj, bool retain) {
-  if(!somfy.modelLoad.publishable())return false;
+  if(!somfy.modelLoad.publishable() || !settings.MQTT.loadStatus.usable() || !settings.networkUsable())return false;
   serializeJson(obj, g_content, sizeof(g_content));
   this->publishBuffer(topic, (uint8_t *)g_content, strlen(g_content), retain);
   return true;

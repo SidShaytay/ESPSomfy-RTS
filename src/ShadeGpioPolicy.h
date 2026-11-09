@@ -1,5 +1,6 @@
 #pragma once
 #include "SomfyFrame.h"
+#include "LivePinClaims.h"
 namespace ShadeGpioPolicy {
 enum Pad : uint8_t { up = 1, down = 2, my = 4 };
 // Physical setup/deassertion touches these pads independently of which logical
@@ -8,6 +9,11 @@ inline uint8_t physicalMask(radio_proto protocol) {
   return protocol == radio_proto::GP_Remote  ? up | down | my
          : protocol == radio_proto::GP_Relay ? up | down
                                              : 0;
+}
+inline uint64_t pinClaims(radio_proto protocol,uint8_t upPin,uint8_t downPin,uint8_t myPin) {
+  const auto mask=physicalMask(protocol);
+  return ((mask&up)?LivePinClaims::pinMask(upPin):0) |
+    ((mask&down)?LivePinClaims::pinMask(downPin):0) | ((mask&my)?LivePinClaims::pinMask(myPin):0);
 }
 inline bool duplicate(radio_proto protocol, uint8_t upPin, uint8_t downPin,
                       uint8_t myPin) {

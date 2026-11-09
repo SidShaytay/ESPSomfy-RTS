@@ -1,9 +1,39 @@
 #include "ConfigRecords.h"
 #include "Utils.h"
 #include "BitLength.h"
+#include <errno.h>
+#include <math.h>
+#include <limits.h>
 
+namespace {
+bool checkedInteger(const char *text,int64_t low,int64_t high,int64_t &value) {
+  errno=0;char *end=nullptr;const auto parsed=strtoll(text,&end,10);
+  if(errno || end==text || *end || parsed<low || parsed>high)return false;
+  value=parsed;return true;
+}
+}
+bool ConfigReader::readCheckedString(char *buffer,size_t capacity,bool quoted) {
+  if(!capacity){_checkedError=true;return false;}
+  memset(buffer,0,capacity);
+  if(atRecordEnd())return false;
+  uint8_t ch;size_t used=0;bool closed=!quoted;
+  if(quoted && (!next(ch) || ch!=CFG_TOK_QUOTE)){_checkedError=true;return false;}
+  while(next(ch)) {
+    if(quoted && !closed) {
+      if(ch==CFG_TOK_QUOTE){closed=true;continue;}
+      if(ch==CFG_REC_END){_checkedError=true;return false;}
+    } else if(ch==CFG_VALUE_SEP || ch==CFG_REC_END) {
+      if(!quoted)_rtrim(buffer);
+      ++_checkedFields;return true;
+    } else if(quoted) {_checkedError=true;continue;}
+    if(!ch)_checkedError=true;
+    if(used+1<capacity)buffer[used++]=char(ch);
+    else _checkedError=true;
+  }
+  _checkedError=true;return false;
+}
 bool ConfigReader::next(uint8_t &val) {
-  if(!this->readByte(val)) return false;
+  if(!this->readByte(val)) {if(_checkedValues)_checkedError=true;return false;}
   this->_last = val;
   return true;
 }
@@ -18,6 +48,7 @@ bool ConfigReader::seekChar(const char val) {
   return true;
 }
 bool ConfigReader::readString(char *buff, size_t len) {
+  if(_checkedValues)return readCheckedString(buff,len,false);
   memset(buff, 0x00, len);
   if(this->atRecordEnd()) return false;
   size_t i = 0;
@@ -32,6 +63,18 @@ bool ConfigReader::readString(char *buff, size_t len) {
   return false;
 }
 bool ConfigReader::readFixedString(char *buff, size_t len) {
+  if(_checkedValues) {
+    if(!len){_checkedError=true;return false;}
+    memset(buff,0,len);
+    if(atRecordEnd())return false;
+    uint8_t byte;
+    for(size_t i=0;i+1<len;++i) {
+      if(!next(byte) || !byte || byte==CFG_REC_END){_checkedError=true;return false;}
+      buff[i]=char(byte);
+    }
+    if(!next(byte) || byte!=CFG_VALUE_SEP){_checkedError=true;return false;}
+    _rtrim(buff);++_checkedFields;return true;
+  }
   memset(buff, 0x00, len);
   if(this->atRecordEnd()) return false;
   uint8_t val;
@@ -49,6 +92,7 @@ bool ConfigReader::readFixedString(char *buff, size_t len) {
   return true;
 }
 bool ConfigReader::readVarString(char *buff, size_t len) {
+  if(_checkedValues)return readCheckedString(buff,len,true);
   memset(buff, 0x00, len);
   if(this->atRecordEnd()) return false;
   uint8_t quotes = 0;
@@ -68,33 +112,64 @@ bool ConfigReader::readVarString(char *buff, size_t len) {
   return false;
 }
 int8_t ConfigReader::readInt8(const int8_t defVal) {
-  char buff[5];
-  if(this->readString(buff, sizeof(buff))) return static_cast<int8_t>(atoi(buff));
+  char buff[32];
+  const size_t capacity=_checkedValues?sizeof(buff):5;
+  if(this->readString(buff, capacity)) {
+    if(_checkedValues) {int64_t value=0;if(checkedInteger(buff,INT8_MIN,INT8_MAX,value))return static_cast<int8_t>(value);_checkedError=true;return defVal;}
+    return static_cast<int8_t>(atoi(buff));
+  }
   return defVal;
 }
 uint8_t ConfigReader::readUInt8(const uint8_t defVal) {
-  char buff[4];
-  if(this->readString(buff, sizeof(buff))) return static_cast<uint8_t>(atoi(buff));
+  char buff[32];
+  const size_t capacity=_checkedValues?sizeof(buff):4;
+  if(this->readString(buff, capacity)) {
+    if(_checkedValues) {int64_t value=0;if(checkedInteger(buff,0,UINT8_MAX,value))return static_cast<uint8_t>(value);_checkedError=true;return defVal;}
+    return static_cast<uint8_t>(atoi(buff));
+  }
   return defVal;
 }
 uint16_t ConfigReader::readUInt16(const uint16_t defVal) {
-  char buff[6];
-  if(this->readString(buff, sizeof(buff))) return static_cast<uint16_t>(atoi(buff));
+  char buff[32];
+  const size_t capacity=_checkedValues?sizeof(buff):6;
+  if(this->readString(buff, capacity)) {
+    if(_checkedValues) {int64_t value=0;if(checkedInteger(buff,0,UINT16_MAX,value))return static_cast<uint16_t>(value);_checkedError=true;return defVal;}
+    return static_cast<uint16_t>(atoi(buff));
+  }
   return defVal;
 }
 uint32_t ConfigReader::readUInt32(const uint32_t defVal) {
-  char buff[11];
-  if(this->readString(buff, sizeof(buff))) return static_cast<uint32_t>(strtoul(buff, nullptr, 10));
+  char buff[32];
+  const size_t capacity=_checkedValues?sizeof(buff):11;
+  if(this->readString(buff, capacity)) {
+    if(_checkedValues) {int64_t value=0;if(checkedInteger(buff,0,UINT32_MAX,value))return static_cast<uint32_t>(value);_checkedError=true;return defVal;}
+    return static_cast<uint32_t>(strtoul(buff, nullptr, 10));
+  }
   return defVal;
 }
 float ConfigReader::readFloat(const float defVal) {
-  char buff[25];
-  if(this->readString(buff, sizeof(buff))) return atof(buff);
+  char buff[32];
+  const size_t capacity=_checkedValues?sizeof(buff):25;
+  if(this->readString(buff, capacity)) {
+    if(_checkedValues) {
+      errno=0;char *end=nullptr;const float value=strtof(buff,&end);
+      if(errno || end==buff || *end || !isfinite(value)){_checkedError=true;return defVal;}
+      return value;
+    }
+    return atof(buff);
+  }
   return defVal;
 }
 bool ConfigReader::readBool(const bool defVal) {
-  char buff[6];
-  if(this->readString(buff, sizeof(buff))) {
+  char buff[32];
+  const size_t capacity=_checkedValues?sizeof(buff):6;
+  if(this->readString(buff, capacity)) {
+    if(_checkedValues) {
+      const char *value=buff;while(*value==' ')++value;
+      if(!strcmp(value,"true") || !strcmp(value,"1"))return true;
+      if(!strcmp(value,"false") || !strcmp(value,"0"))return false;
+      _checkedError=true;return defVal;
+    }
     switch(buff[0]) {
       case 't':
       case 'T':

@@ -4,7 +4,8 @@
 // be inspected/replaced; incomplete or unreadable records are unavailable.
 enum class SettingsLoadState : uint8_t { unknown, knownEmpty, loaded, invalid, failed };
 struct SettingsLoadStatus {
-  SettingsLoadState state=SettingsLoadState::unknown;
+  SettingsLoadState state;
+  constexpr SettingsLoadStatus(SettingsLoadState initial=SettingsLoadState::unknown):state(initial){}
   bool readable()const{return state==SettingsLoadState::knownEmpty || state==SettingsLoadState::loaded || state==SettingsLoadState::invalid;}
   bool usable()const{return state==SettingsLoadState::knownEmpty || state==SettingsLoadState::loaded;}
 };

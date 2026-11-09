@@ -2,6 +2,7 @@
 // As on the original ESP32, so the translation is built.
 #define CONFIG_ETH_USE_ESP32_EMAC 1
 #include "EthPhy.h"
+#include "EthPinClaims.h"
 
 void setUp() {}
 void tearDown() {}
@@ -91,8 +92,13 @@ static void test_clock_pins() {
   TEST_ASSERT_EQUAL_INT8(-1, ethClockPin(4));
 }
 
+static void fixed_rmii_claims_match_pinned_sdk_synthetic_list(){
+ const uint64_t expected=LivePinClaims::pinMask(21)|LivePinClaims::pinMask(19)|LivePinClaims::pinMask(22)|LivePinClaims::pinMask(25)|LivePinClaims::pinMask(26)|LivePinClaims::pinMask(27);
+ TEST_ASSERT_EQUAL_HEX64(expected,ethernetDataPinClaims());TEST_ASSERT_EQUAL_HEX64(0,LivePinClaims::pinMask(255));
+}
 int main(int, char **) {
   UNITY_BEGIN();
+ RUN_TEST(fixed_rmii_claims_match_pinned_sdk_synthetic_list);
   RUN_TEST(test_ids_match_stored_values);
   RUN_TEST(test_translates_each_rmii_chip_by_name);
   RUN_TEST(test_lan8720_is_not_the_framework_zero);

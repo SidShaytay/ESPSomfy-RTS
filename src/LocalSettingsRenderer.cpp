@@ -24,6 +24,9 @@ const char *notice(Settings::Notice value) {
   case Settings::Notice::expired: return "Edit expired - draft discarded";
   case Settings::Notice::noMemory: return "No draft memory - changes discarded";
   case Settings::Notice::readOnly: return "Fixed by this board or connection";
+  case Settings::Notice::cleanupFault: return "Radio cleanup fault. Further saves/restart blocked.";
+  case Settings::Notice::appliedUncertain: return "Radio applied; readiness uncertain. Reopen Radio.";
+  case Settings::Notice::unavailable: return "Settings unavailable - storage needs review";
   case Settings::Notice::none: return "";
   }
   return "Settings unavailable";
@@ -46,6 +49,7 @@ const char *restartBlockText(RestartReason reason) {
   case RestartReason::counterUncertain: return "Counter storage uncertain. Recovery required.";
   case RestartReason::activeMovement: return "Movement/pulse active. Wait before Restart.";
   case RestartReason::modelUnavailable:return "Model not loaded. Use a verified full model restore.";
+  case RestartReason::settingsUnavailable:return "Settings need repair. Review affected section.";
   case RestartReason::securityUnavailable:return "Security not loaded. Authentication is unavailable.";
   case RestartReason::unknownGroup: return "Group movement untracked. Review before Restart.";
   case RestartReason::none: break;
