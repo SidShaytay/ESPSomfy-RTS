@@ -14,7 +14,7 @@ constexpr uint8_t capacities[] = {SOMFY_MAX_ROOMS,SOMFY_MAX_SHADES,SOMFY_MAX_GRO
 constexpr uint8_t typeCount = sizeof(kinds)/sizeof(*kinds);
 }
 void Administration::close(AdminNotice notice) {
-  form.discard();frame={};frame.notice=notice;admitted={};
+  form.discard();ordering.discard();frame={};frame.notice=notice;admitted={};
   revision=observedAt=0;cursor=anchor=returnId=typeCursor=0;active=false;page=Page::types;
 }
 bool Administration::open(uint64_t now) {
@@ -33,6 +33,7 @@ bool Administration::entry(uint8_t ordinal,CatalogueEntry &out) {
 }
 void Administration::render() {
   if(page==Page::entity) {frame=form.view();return;}
+  if(page==Page::order) {ordering.render(frame);return;}
   const auto notice=frame.notice;frame={};frame.notice=notice;
   frame.mode=Mode::fields;frame.kind=kinds[typeCursor];
   if(page==Page::types) {
@@ -43,13 +44,14 @@ void Administration::render() {
   }
   CataloguePage data;
   if(!cataloguePage(catalogue,catalogues[typeCursor],0,allRooms,data)) {close(AdminNotice::changed);return;}
-  frame.total=data.total+1;if(cursor>=frame.total)cursor=0;
+  frame.total=data.total+2;if(cursor>=frame.total)cursor=0;
   frame.selected=cursor;frame.offset=cursor/3*3;
-  strcpy(frame.title,titles[typeCursor]);strcpy(frame.hint,"Press: add/edit   Back: types");
+  strcpy(frame.title,titles[typeCursor]);strcpy(frame.hint,"Press: choose   Back: types");
   anchor=0;
   for(uint8_t i=frame.offset;i<frame.total && frame.rowCount<3;i++) {
     auto &row=frame.rows[frame.rowCount++];row.selected=i==cursor;
     if(!i) snprintf(row.label,sizeof(row.label),"%s%s",addLabels[typeCursor],data.total>=capacities[typeCursor]?" (full)":"");
+    else if(i==data.total+1) strcpy(row.label,"Reorder");
     else {
       CatalogueEntry item;if(!entry(i-1,item)) {close(AdminNotice::changed);return;}
       snprintf(row.label,sizeof(row.label),"#%u %s",unsigned(item.id),item.name);
@@ -61,7 +63,7 @@ bool Administration::guard(uint64_t now) {
   if(!active)return false;
   if(now<observedAt) {close(AdminNotice::expired);return false;}
   observedAt=now;
-  if(page==Page::entity)return true; // The form owns its captured history/result.
+  if(page==Page::entity || page==Page::order)return true; // Each child owns its captured history/result.
   const auto current=backend.authorization();
   if(!current.allowed) {close(AdminNotice::locked);return false;}
   if(current.generation!=admitted.generation || current.configurationGeneration!=admitted.configurationGeneration) {
@@ -70,8 +72,13 @@ bool Administration::guard(uint64_t now) {
   const auto currentRevision=backend.revision();
   if(!currentRevision) {close(AdminNotice::changed);return false;}
   if(currentRevision!=revision) {
+    const bool reorderSelected=page==Page::entries && cursor && cursor+1==frame.total;
     revision=currentRevision;
-    if(page==Page::entries && anchor) {
+    if(reorderSelected) {
+      CataloguePage current;
+      if(!cataloguePage(catalogue,catalogues[typeCursor],0,allRooms,current)) {close(AdminNotice::changed);return false;}
+      cursor=current.total+1;
+    } else if(page==Page::entries && anchor) {
       CataloguePage anchored;
       if(!cataloguePage(catalogue,catalogues[typeCursor],0,allRooms,anchored,anchor,true)) {close(AdminNotice::changed);return false;}
       const auto row=anchored.cursor-anchored.offset;
@@ -97,9 +104,15 @@ void Administration::resume() {
   }
   frame.notice=AdminNotice::none;render();
 }
+void Administration::finishOrder() {
+  if(ordering.closed() && ordering.notice()==AdminNotice::none)resume();else render();
+}
 void Administration::tick(uint64_t now) {
   if(!active)return;
-  if(page==Page::entity) {
+  if(page==Page::order) {
+    if(now<observedAt) {close(AdminNotice::expired);return;}
+    observedAt=now;ordering.tick(now);finishOrder();
+  } else if(page==Page::entity) {
     if(now<observedAt) {close(AdminNotice::expired);return;}
     observedAt=now;
     if(form.view().id)returnId=form.view().id;
@@ -111,6 +124,7 @@ void Administration::turn(int direction,uint64_t now) {
   if(!direction || !guard(now))return;
   backend.activity();
   if(page==Page::entity) {form.turn(direction,now);render();return;}
+  if(page==Page::order) {ordering.turn(direction,now);finishOrder();return;}
   if(page==Page::types) {
     if(direction>0 && typeCursor+1<typeCount)++typeCursor;
     if(direction<0 && typeCursor)--typeCursor;
@@ -124,6 +138,11 @@ void Administration::turn(int direction,uint64_t now) {
 void Administration::activate(uint64_t now) {
   if(!guard(now))return;
   backend.activity();
+  if(page==Page::order) {
+    if(ordering.closed()) {close(AdminNotice::none);return;}
+    if(frame.id)returnId=frame.id;
+    ordering.activate(now);finishOrder();return;
+  }
   if(page==Page::entity) {
     if(form.closed()) {close(AdminNotice::none);return;}
     if(form.view().id)returnId=form.view().id;
@@ -133,6 +152,9 @@ void Administration::activate(uint64_t now) {
     return;
   }
   if(page==Page::types) {page=Page::entries;cursor=anchor=returnId=0;frame.notice=AdminNotice::none;render();return;}
+  if(cursor+1==frame.total) {
+    form.discard();returnId=0;ordering.open(kinds[typeCursor],now);page=Page::order;render();return;
+  }
   if(!cursor) {
     CataloguePage data;
     if(!cataloguePage(catalogue,catalogues[typeCursor],0,allRooms,data)) {close(AdminNotice::changed);return;}
@@ -144,6 +166,11 @@ void Administration::activate(uint64_t now) {
 void Administration::back(uint64_t now) {
   if(!guard(now))return;
   backend.activity();
+  if(page==Page::order) {
+    if(ordering.closed()) {close(AdminNotice::none);return;}
+    if(frame.id)returnId=frame.id;
+    ordering.back(now);finishOrder();return;
+  }
   if(page==Page::entity) {
     if(form.closed()) {close(AdminNotice::none);return;}
     if(form.view().id)returnId=form.view().id;
