@@ -1,8 +1,8 @@
 # Local device and group backend
 
 This backend supports room, device and group scalar fields from the shared edit
-metadata. Device/group navigation and field interaction remain the separate
-Form integration; this backend alone does not add reachable screens. Pairing,
+metadata and is connected to Home → Administration → Rooms / Devices / Groups.
+Pairing,
 linked remotes, group membership changes and explicit counter edits have separate
 checked operations and are not replayed by this backend.
 
@@ -22,8 +22,7 @@ identity and unassigned GPIOs. Save materializes the displayed applicable defaul
 into the existing expanded request using its injected wiping allocator. If the
 hidden device/group sort order would exceed its signed byte, Add refuses with a
 Reorder message before any mutation; it never wraps or normalizes existing
-orders. Existing
-entities keep omitted fields unchanged. Inactive GPIO drafts are refused, rather
+orders. Existing entities keep omitted fields unchanged. Inactive GPIO drafts are refused, rather
 than discarded or silently ignored.
 
 Before mutation, read-only validation checks shared scalar bounds, configured

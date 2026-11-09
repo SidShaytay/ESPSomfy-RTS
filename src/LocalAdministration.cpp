@@ -5,9 +5,17 @@ namespace LocalUi {
 using EntityAdmin::Kind;
 using EntityAdmin::Mode;
 using AdminNotice=EntityAdmin::Notice;
+namespace {
+constexpr Kind kinds[] = {Kind::room,Kind::shade,Kind::group};
+constexpr CatalogueKind catalogues[] = {CatalogueKind::rooms,CatalogueKind::devices,CatalogueKind::groups};
+constexpr const char *titles[] = {"Rooms","Devices","Groups"};
+constexpr const char *addLabels[] = {"Add room","Add device","Add group"};
+constexpr uint8_t capacities[] = {SOMFY_MAX_ROOMS,SOMFY_MAX_SHADES,SOMFY_MAX_GROUPS};
+constexpr uint8_t typeCount = sizeof(kinds)/sizeof(*kinds);
+}
 void Administration::close(AdminNotice notice) {
   form.discard();frame={};frame.notice=notice;admitted={};
-  revision=observedAt=0;cursor=anchor=returnId=0;active=false;page=Page::types;
+  revision=observedAt=0;cursor=anchor=returnId=typeCursor=0;active=false;page=Page::types;
 }
 bool Administration::open(uint64_t now) {
   discard();admitted=backend.authorization();revision=backend.revision();observedAt=now;
@@ -19,28 +27,29 @@ bool Administration::open(uint64_t now) {
 }
 bool Administration::entry(uint8_t ordinal,CatalogueEntry &out) {
   CataloguePage data;
-  if(!cataloguePage(catalogue,CatalogueKind::rooms,ordinal,allRooms,data) || ordinal>=data.total)
+  if(!cataloguePage(catalogue,catalogues[typeCursor],ordinal,allRooms,data) || ordinal>=data.total)
     return false;
   out=data.rows[ordinal-data.offset];return true;
 }
 void Administration::render() {
   if(page==Page::entity) {frame=form.view();return;}
   const auto notice=frame.notice;frame={};frame.notice=notice;
-  frame.mode=Mode::fields;frame.kind=Kind::room;
+  frame.mode=Mode::fields;frame.kind=kinds[typeCursor];
   if(page==Page::types) {
     strcpy(frame.title,"Administration");strcpy(frame.hint,"Press: manage   Back: Home");
-    frame.total=frame.rowCount=1;strcpy(frame.rows[0].label,"Rooms");frame.rows[0].selected=true;
+    frame.total=frame.rowCount=typeCount;frame.selected=typeCursor;
+    for(uint8_t i=0;i<typeCount;i++) {strcpy(frame.rows[i].label,titles[i]);frame.rows[i].selected=i==typeCursor;}
     return;
   }
   CataloguePage data;
-  if(!cataloguePage(catalogue,CatalogueKind::rooms,0,allRooms,data)) {close(AdminNotice::changed);return;}
+  if(!cataloguePage(catalogue,catalogues[typeCursor],0,allRooms,data)) {close(AdminNotice::changed);return;}
   frame.total=data.total+1;if(cursor>=frame.total)cursor=0;
   frame.selected=cursor;frame.offset=cursor/3*3;
-  strcpy(frame.title,"Rooms");strcpy(frame.hint,"Press: add/edit   Back: Administration");
+  strcpy(frame.title,titles[typeCursor]);strcpy(frame.hint,"Press: add/edit   Back: types");
   anchor=0;
   for(uint8_t i=frame.offset;i<frame.total && frame.rowCount<3;i++) {
     auto &row=frame.rows[frame.rowCount++];row.selected=i==cursor;
-    if(!i) strcpy(row.label,"Add room");
+    if(!i) snprintf(row.label,sizeof(row.label),"%s%s",addLabels[typeCursor],data.total>=capacities[typeCursor]?" (full)":"");
     else {
       CatalogueEntry item;if(!entry(i-1,item)) {close(AdminNotice::changed);return;}
       snprintf(row.label,sizeof(row.label),"#%u %s",unsigned(item.id),item.name);
@@ -64,7 +73,7 @@ bool Administration::guard(uint64_t now) {
     revision=currentRevision;
     if(page==Page::entries && anchor) {
       CataloguePage anchored;
-      if(!cataloguePage(catalogue,CatalogueKind::rooms,0,allRooms,anchored,anchor,true)) {close(AdminNotice::changed);return false;}
+      if(!cataloguePage(catalogue,catalogues[typeCursor],0,allRooms,anchored,anchor,true)) {close(AdminNotice::changed);return false;}
       const auto row=anchored.cursor-anchored.offset;
       cursor=row<anchored.count && anchored.rows[row].id==anchor?anchored.cursor+1:0;
     }
@@ -82,7 +91,7 @@ void Administration::resume() {
   if(!revision) {close(AdminNotice::changed);return;}
   if(returnId) {
     CataloguePage data;
-    if(!cataloguePage(catalogue,CatalogueKind::rooms,0,allRooms,data,returnId,true)) {close(AdminNotice::changed);return;}
+    if(!cataloguePage(catalogue,catalogues[typeCursor],0,allRooms,data,returnId,true)) {close(AdminNotice::changed);return;}
     const auto row=data.cursor-data.offset;
     if(row<data.count && data.rows[row].id==returnId)cursor=data.cursor+1;
   }
@@ -102,7 +111,11 @@ void Administration::turn(int direction,uint64_t now) {
   if(!direction || !guard(now))return;
   backend.activity();
   if(page==Page::entity) {form.turn(direction,now);render();return;}
-  if(page==Page::entries) {
+  if(page==Page::types) {
+    if(direction>0 && typeCursor+1<typeCount)++typeCursor;
+    if(direction<0 && typeCursor)--typeCursor;
+    frame.notice=AdminNotice::none;render();
+  } else if(page==Page::entries) {
     if(direction>0 && cursor+1<frame.total)++cursor;
     if(direction<0 && cursor)--cursor;
     frame.notice=AdminNotice::none;render();
@@ -119,9 +132,14 @@ void Administration::activate(uint64_t now) {
     if(form.closed() && form.view().notice==AdminNotice::none)resume();else render();
     return;
   }
-  if(page==Page::types) {page=Page::entries;cursor=anchor=0;frame.notice=AdminNotice::none;render();return;}
+  if(page==Page::types) {page=Page::entries;cursor=anchor=returnId=0;frame.notice=AdminNotice::none;render();return;}
+  if(!cursor) {
+    CataloguePage data;
+    if(!cataloguePage(catalogue,catalogues[typeCursor],0,allRooms,data)) {close(AdminNotice::changed);return;}
+    if(data.total>=capacities[typeCursor]) {frame.notice=AdminNotice::capacity;render();return;}
+  }
   const auto selected=frame.id;
-  form.open(Kind::room,selected,now);page=Page::entity;returnId=selected;render();
+  form.open(kinds[typeCursor],selected,now);page=Page::entity;returnId=selected;render();
 }
 void Administration::back(uint64_t now) {
   if(!guard(now))return;

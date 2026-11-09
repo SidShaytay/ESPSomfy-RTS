@@ -1,9 +1,11 @@
 # Local entity administration
 
-Open **Home → Administration → Rooms** and unlock when required. Select
-**Add room**, or select an existing room by its stable ID to edit or delete it.
-Duplicate names are allowed; the ID identifies the room. This flow works on the
-LCD without a browser. Device and group administration are still being added.
+Open **Home → Administration** and unlock when required, then choose **Rooms**,
+**Devices** or **Groups**. Select Add, or select an existing entry by its stable ID
+to edit or delete it. Duplicate names are allowed; the kind and ID identify the
+target. These flows work on the LCD without a browser. Full lists page through
+every configured entry. When all slots are used, Add is marked full and pressing
+it opens no draft.
 
 Every activation requires the exact selection and current configuration to have
 finished reaching the display. If the display is busy, wait and press again.
@@ -15,14 +17,15 @@ Turning changes only the field editor. Apply copies a field into the bounded
 local draft. Save submits the draft through the same loop-owned model edit
 service as the browser. Cancel, leaving the screen, authorization changes,
 configuration changes, timeout or allocation failure discard the local draft.
-Delete names the exact room ID and starts with Cancel selected.
+Delete names the exact kind and ID and starts with Cancel selected. Removing a
+room makes its devices/groups Unassigned; deleting a device or group configuration
+does not establish that a physical motor is unpaired.
 Selecting a field that already has a draft offers **Cancel**, **Edit draft** and
 **Revert field draft**. Revert restores only that field's original value and keeps
 other drafts. It performs no model or file write.
 
-The device/group form component adds a separate default-Cancel Save confirmation,
-showing the exact target and the effects of configuration changes. Its screens
-are not yet reachable through Administration. In those forms, inactive GPIO fields
+Device/group Save has a separate default-Cancel confirmation showing the exact
+target and the effects of configuration changes. In those forms, inactive GPIO fields
 remain readable; a protocol change cannot silently discard an existing GPIO draft.
 Revert that draft or select a protocol that uses it. Rejected saves show a protected
 reason screen: Revise returns to the relevant field, while Cancel form discards all
@@ -30,8 +33,8 @@ drafts. Acknowledging the reason never retries Save. A whole-form refusal uses
 Back to fields rather than naming an unrelated repair field.
 
 Back from a field cancels that edit. Back from the field list discards all its
-drafts and returns to Rooms; Back from Rooms returns to Administration, then
-Home. Result screens stay protected until acknowledged and replaced by a full
+drafts and returns to the selected Rooms, Devices or Groups list. Back from that
+list returns to Administration, then Home. Result screens stay protected until acknowledged and replaced by a full
 non-administration frame. Sleep, graphics loss and authorization changes discard
 drafts. An applied edit remains applied when its result screen is closed.
 
@@ -58,10 +61,14 @@ retains the returned entity ID, discards the applied draft and distinguishes a
 failed save from an uncertain replacement verification. Retry saves the current
 model file only: it never repeats Add, Delete, an RF operation or a counter write.
 A changed configuration or revoked authorization closes that result screen
-before a retry. “Model file saved” certifies only the checked model file result,
+before a retry. Device configuration changes wait until that device is idle and
+its GPIO pulse has ended; group changes wait for every present member to be idle.
+With missing group references, scalar settings remain editable and the group can
+be deleted. Membership repair remains a separate flow. An unavailable radio or unpaired device does not prevent
+configuration editing. “Model file saved” certifies only the checked model file result,
 not separate NVS counters or power-loss recovery.
 
-Linked remotes, counter correction, pairing and RF programming require their
+Linked remotes, group membership, counter correction, pairing and RF programming require their
 separate checked domain operations and screens. They are not exposed by this
 component.
 
@@ -69,7 +76,10 @@ Host verification uses the native suites `test_localentityform`,
 `test_localentityruntime`, `test_protoedits` and `test_modelcommitservice`, plus
 `bash tools/preview-local-entity.sh` with the pinned cached Adafruit GFX library.
 `bash tools/preview-local-ui.sh` also drives the real encoder/Controller/Runtime
-through room Add, Edit, default-Cancel and confirmed Delete, file-save failure,
-commit-only retry, protected capture and unseen-selection refusal.
+through room/device/group Add, Edit, default-Cancel and confirmed Save/Delete,
+file-save failure, commit-only retry, protected capture and unseen-selection
+refusal. Device tests preserve the counter and unpaired state; group tests retain
+a missing physical member through a scalar save. These exercise the real UI and
+backend with fake model/file effects.
 No controller access, firmware upload, RF transmission or HA operation is part
 of these tests.
