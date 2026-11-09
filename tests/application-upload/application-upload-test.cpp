@@ -318,5 +318,11 @@ int main() {
   restoreServer.complete(&disconnectedValidation);duringValidation={};
   manualClockMs+=60000;manualUploadLoop();
   assert(disconnectedValidation.status==409 && !loopQueue.pending() && !gitUpdate.busy());
+  reset();AsyncWebServerRequest loopExpiredValidation;
+  restoreServer.upload(&loopExpiredValidation,String("x.backup"),0,&byte,1,true);
+  duringValidation=[&]{manualClockMs+=30001;manualUploadLoop();};
+  restoreServer.complete(&loopExpiredValidation);duringValidation={};
+  manualClockMs+=60000;manualUploadLoop();
+  assert(loopExpiredValidation.status==409 && !loopQueue.pending() && !gitUpdate.busy());
   std::cout << "Production manual uploads/LoopQueue: shared request owner, SDK failures, expiry, restart source, restore FIFO and stale-file protection passed; marker " << sizeof(loop_item_t) << " bytes.\n";
 }
