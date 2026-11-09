@@ -19,7 +19,14 @@ struct Choice {
   int64_t value = 0;
   char label[32] = {};
 };
-enum class Admission : uint8_t { accepted, locked, stale, busy, invalid, noMemory };
+enum class Admission : uint8_t {
+  accepted,
+  locked,
+  stale,
+  busy,
+  invalid,
+  noMemory
+};
 struct ApplyResult {
   edit_result_t edit;
   Admission admission = Admission::accepted;
@@ -34,6 +41,7 @@ struct CommitResult {
 };
 // All methods execute synchronously on loop(). id 0 reads offered defaults.
 // Reads must return the original value, including unknown legacy values.
+using OrderIds = uint8_t[32];
 class Backend {
 public:
   virtual ~Backend() = default;
@@ -45,12 +53,27 @@ public:
   // domain IDs, never list indices. A missing advertised choice invalidates
   // the form; labels must be terminated. Zero means a numeric/text field.
   virtual uint8_t choiceCount(Kind, uint8_t sourceId, proto_field_t);
-  virtual bool choiceAt(Kind, uint8_t sourceId, proto_field_t, uint8_t, Choice &);
+  virtual bool choiceAt(Kind, uint8_t sourceId, proto_field_t, uint8_t,
+                        Choice &);
   // Final auth/history checks follow all allocation/validation work. The
   // expanded request may be consumed with allocator-preserving ADL swap.
   virtual ApplyResult apply(model_edit_type_t, JsonDocument &expanded,
                             Authorization, uint64_t) = 0;
   virtual CommitResult retryFileCommit(Authorization, uint64_t) = 0;
+  // Ordering operates on the complete configured stable-ID permutation.
+  // Physical slots stay aligned with IDs, allowing bounded direct label reads.
+  virtual bool readOrder(Kind, OrderIds &, OrderIds &, uint8_t &, bool &) {
+    return false;
+  }
+  virtual bool readOrderLabel(Kind, uint8_t, uint8_t, Value &) { return false; }
+  virtual ApplyResult applyOrder(Kind, const uint8_t *, uint8_t,
+                                 ArduinoJson::Allocator &, Authorization,
+                                 uint64_t) {
+    return {{}, Admission::stale};
+  }
+  virtual CommitResult retryOrderFile(Authorization, uint64_t) {
+    return {{}, Admission::stale};
+  }
   virtual void activity() = 0;
 };
 class Form {
