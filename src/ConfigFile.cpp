@@ -301,7 +301,8 @@ bool ShadeConfigFile::validateRestoreRecords(const restore_options_t &opts){
     for(unsigned i=0;valid&&i<header.groupRecords;++i)valid=checked(groupFields,[&]{
       group_record_t rec;if(!readGroupRecord(*this,header,rec))return false;
       return rec.groupId==255 || (uniqueId(groupsSeen,rec.groupId,SOMFY_MAX_GROUPS,255) &&
-          rec.groupType==group_types::channel && knownProtocol(rec.proto));
+          rec.groupType==group_types::channel &&
+          (rec.proto==radio_proto::RTS || rec.proto==radio_proto::RTW || rec.proto==radio_proto::RTV));
     });
   }else valid=skipRecords(*this,uint32_t(header.roomRecords)+header.shadeRecords+header.groupRecords);
   if(opts.repeaters){
