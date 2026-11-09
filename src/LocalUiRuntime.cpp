@@ -36,7 +36,7 @@ uint32_t sceneHash(const Model &m,const View &v,const StatusDisplay::Snapshot &s
   return hash(s.applicationVersion,strlen(s.applicationVersion),h);
 }
 uint32_t settingsHash(const Settings::FormView &view) {
-  const uint32_t fields[]={uint32_t(view.mode),uint32_t(view.notice),view.rowCount,view.selected,view.total,
+  const uint32_t fields[]={uint32_t(view.mode),uint32_t(view.notice),uint32_t(view.restartReason),view.rowCount,view.selected,view.total,
     view.offset,view.protectedFrame,view.dirty};
   uint32_t h=hash(fields,sizeof(fields));
   h=hash(view.title,sizeof(view.title),h);h=hash(view.hint,sizeof(view.hint),h);
@@ -47,7 +47,7 @@ uint32_t settingsHash(const Settings::FormView &view) {
   return h;
 }
 bool sameSettings(const Settings::FormView &a,const Settings::FormView &b) {
-  if(a.mode!=b.mode || a.notice!=b.notice || a.rowCount!=b.rowCount || a.selected!=b.selected ||
+  if(a.mode!=b.mode || a.notice!=b.notice || a.restartReason!=b.restartReason || a.rowCount!=b.rowCount || a.selected!=b.selected ||
      a.total!=b.total || a.offset!=b.offset || a.protectedFrame!=b.protectedFrame || a.dirty!=b.dirty ||
      memcmp(a.title,b.title,sizeof(a.title)) || memcmp(a.hint,b.hint,sizeof(a.hint))) return false;
   for(uint8_t i=0;i<3;i++) if(a.rows[i].selected!=b.rows[i].selected || a.rows[i].readOnly!=b.rows[i].readOnly ||

@@ -40,6 +40,7 @@ struct Fake : Backend {
   float overrideNumber = 0;
   unsigned saves = 0, activities = 0;
   settings_save_state_t outcome = settings_save_state_t::saved;
+  RestartReason restartCause=RestartReason::none;
   JsonDocument applied;
   Authorization authorization() override { return auth; }
   uint64_t revision(settings_section_t s) override { return revisions.get(s); }
@@ -91,6 +92,7 @@ struct Fake : Backend {
     settings_apply_result_t r;
     r.persistence.state = outcome;
     r.restartBlocked = restartBlocked;
+    r.restartReason=restartCause;
     return r;
   }
 };
@@ -805,8 +807,37 @@ static void actual_form_partial_does_not_hide_retry_consequence_warning() {
   TEST_ASSERT_EQUAL(Mode::confirm,form.view().mode);
   TEST_ASSERT_EQUAL_STRING("Changes authentication; may close sessions.",form.view().hint);
 }
+static void every_saved_restart_refusal_preserves_typed_reason_and_no_retry_draft() {
+  for(const auto reason:{RestartReason::none,RestartReason::settingsUncertain,RestartReason::modelFailed,
+      RestartReason::modelUncertain,RestartReason::queuedOperations,RestartReason::pending,RestartReason::stale,
+      RestartReason::cancelled,RestartReason::exhausted,RestartReason::clock,RestartReason::invalidRequest,
+      RestartReason::notReady,RestartReason::persistenceBusy,RestartReason::counterUncertain,RestartReason(255)}) {
+    Memory mem;Fake backend;Form form(backend,mem);
+    form.openSection(settings_section_t::general,0);
+    turnTo(form,1);form.activate(1);form.turn(1,1);chooseNumericApply(form);turnTo(form,3);
+    backend.restartBlocked=true;backend.restartCause=reason;form.activate(1);
+    TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(Notice::savedRestartBlocked,form.view().notice);
+    TEST_ASSERT_EQUAL(reason,form.view().restartReason);TEST_ASSERT_TRUE(form.view().protectedFrame);
+    TEST_ASSERT_FALSE(form.view().dirty);TEST_ASSERT_EQUAL(0,mem.active);TEST_ASSERT_EQUAL(1,backend.saves);
+    form.tick(2);form.activate(2);form.back(2);TEST_ASSERT_EQUAL(1,backend.saves);
+    TEST_ASSERT_EQUAL(reason,form.view().restartReason);
+    form.discard();TEST_ASSERT_EQUAL(RestartReason::none,form.view().restartReason);
+  }
+}
+static void failed_or_ordinary_save_does_not_publish_a_restart_refusal() {
+  for(const auto outcome:{settings_save_state_t::saved,settings_save_state_t::failed,settings_save_state_t::partial}) {
+    Memory mem;Fake backend;Form form(backend,mem);
+    form.openSection(settings_section_t::general,0);turnTo(form,1);form.activate(1);form.turn(1,1);chooseNumericApply(form);turnTo(form,3);
+    backend.outcome=outcome;backend.restartCause=RestartReason::counterUncertain;
+    backend.restartBlocked=outcome!=settings_save_state_t::saved;form.activate(1);
+    TEST_ASSERT_EQUAL(RestartReason::none,form.view().restartReason);
+    TEST_ASSERT_EQUAL(1,backend.saves);
+  }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(every_saved_restart_refusal_preserves_typed_reason_and_no_retry_draft);
+  RUN_TEST(failed_or_ordinary_save_does_not_publish_a_restart_refusal);
   RUN_TEST(actual_form_partial_does_not_hide_secret_retention_warning);
   RUN_TEST(actual_form_partial_does_not_hide_retry_consequence_warning);
   RUN_TEST(wifi_only_connection_repairs_only_explicitly_to_wifi);
