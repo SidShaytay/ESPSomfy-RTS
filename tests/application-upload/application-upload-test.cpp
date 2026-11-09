@@ -36,6 +36,7 @@ static unsigned resets = 0;
 static bool restoreValid=true,restoreQueue=true;
 static unsigned validations=0,restores=0;
 static bool expireDuringValidation=false;
+static std::function<void()> duringValidation;
 static loop_item_t restoreMarker;
 #define configfile_h
 #define F(value) value
@@ -44,7 +45,7 @@ struct restore_options_t {
   void fromJSON(JsonObject &obj);
 };
 struct ShadeConfigFile {
-  static bool validateFile(const char*){++validations;if(expireDuringValidation)manualClockMs+=30001;return restoreValid;}
+  static bool validateFile(const char*){++validations;if(duringValidation)duringValidation();if(expireDuringValidation)manualClockMs+=30001;return restoreValid;}
   static bool restore(SomfyShadeController*,const char*,restore_options_t&,const GitUpdateOwnerToken &owner) {
     assert(gitUpdate.transferRestoreClaimed(owner,manualClockMs));
     if(somfy.transceiver.uncertain)return false;
@@ -311,5 +312,11 @@ int main() {
   restoreServer.upload(&slowValidation,String("x.backup"),0,&byte,1,true);restoreServer.complete(&slowValidation);
   assert(slowValidation.status==409 && !loopQueue.pending());
   expireDuringValidation=false;manualUploadLoop();assert(!gitUpdate.busy());
+  reset();AsyncWebServerRequest disconnectedValidation;
+  restoreServer.upload(&disconnectedValidation,String("x.backup"),0,&byte,1,true);
+  duringValidation=[&]{disconnectedValidation.disconnected();};
+  restoreServer.complete(&disconnectedValidation);duringValidation={};
+  manualClockMs+=60000;manualUploadLoop();
+  assert(disconnectedValidation.status==409 && !loopQueue.pending() && !gitUpdate.busy());
   std::cout << "Production manual uploads/LoopQueue: shared request owner, SDK failures, expiry, restart source, restore FIFO and stale-file protection passed; marker " << sizeof(loop_item_t) << " bytes.\n";
 }

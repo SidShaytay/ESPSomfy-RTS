@@ -130,6 +130,10 @@ bool queueManualRestore(AsyncWebServerRequest *request,uint8_t parts) {
   if(!state || state->kind!=ManualUpdateKind::restore || state->modelAttempted) return false;
   state->modelAttempted=true;
   if(!gitUpdate.queueTransfer(state->owner)) {
+    // Completion still holds this exact receive claim even if disconnect
+    // retired it during validation. Release the claim before loop cleanup.
+    state->failed=true;gitUpdate.retireTransfer(state->owner);
+    gitUpdate.finishTransfer(state->owner,now(),false);
     request->send(409,_encoding_json,"{\"status\":\"ERROR\",\"desc\":\"Backup ownership expired; nothing was queued.\"}");return false;
   }
   gitUpdate.finishTransfer(state->owner,now(),true);
