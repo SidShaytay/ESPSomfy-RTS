@@ -802,8 +802,22 @@ static void group_membership_parent_revalidates_candidate_at_fifo_execution() {
   model.learnedQueue.run(token,40);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(0,model.membershipEdits);
   TEST_ASSERT_EQUAL(0,memory.used());
 }
+static void membership_pending_cancel_expiry_and_lock_wipe_without_edits() {
+  for(unsigned cause=0;cause<4;++cause){
+    Model model;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);
+    TEST_ASSERT_TRUE(form.open(Scope::groups,0));form.activate(1);form.activate(2);form.turn(1,3);form.activate(4);
+    const auto token=model.learnedToken;TEST_ASSERT_NOT_EQUAL(0,token);
+    if(cause==0)form.back(5);
+    if(cause==1)form.tick(120005);
+    if(cause==2){model.auth.allowed=false;form.tick(5);}
+    if(cause==3){++model.history;form.tick(5);}
+    model.learnedQueue.run(token,120006);TEST_ASSERT_TRUE(form.closed());
+    TEST_ASSERT_EQUAL(0,model.membershipEdits);TEST_ASSERT_EQUAL(0,memory.used());
+  }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(membership_pending_cancel_expiry_and_lock_wipe_without_edits);
   RUN_TEST(group_membership_parent_reviews_then_queues_and_only_retries_file);
   RUN_TEST(group_membership_parent_revalidates_candidate_at_fifo_execution);
   RUN_TEST(primary_queue_back_age_auth_and_unknown_storage_never_replay);
