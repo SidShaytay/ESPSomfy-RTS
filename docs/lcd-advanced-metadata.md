@@ -85,3 +85,5 @@ read-only rolling codes, missing member ID 88, radio-busy refusal, identity
 quarantine, and graphics/sleep erasure. The runtime uses its unchanged 4096-byte
 allocator cap with target-like JSON pools; this is an allocation-path check rather
 than a physical heap benchmark.
+
+Explicit RF button combinations and Prog use the separate [Advanced remote](lcd-advanced-remote.md) flow. The paired marker and association repairs here remain configuration-only.

@@ -15,7 +15,7 @@ LearnQueued submitLocalLearn(LearnPending &source, uint64_t now) {
   loop_item_t item;
   item.type = loop_item_type_t::local_advanced;
   item.localToken = result.token;
-  item.localRadio = false;
+  item.localRadio = source.usesRadio();
   if (!loopQueue.submit(item)) {
     registry.detach(result.token, source);
     return {LearnQueueReason::queueFull};
