@@ -24,7 +24,7 @@ struct Guard { Guard() { portENTER_CRITICAL(&serviceLock); } ~Guard() { portEXIT
 std::mutex serviceLock;
 struct Guard { std::lock_guard<std::mutex> lock; Guard():lock(serviceLock) {} };
 #endif
-enum class Owner : uint8_t { none,check,prepare,manual,restore,counter,restart };
+enum class Owner : uint8_t { none,check,prepare,manual,restore,counter,restart,configuration };
 Owner owner=Owner::none;
 uint64_t ownerGeneration=0;
 GitUpdateSnapshot view;
@@ -65,6 +65,7 @@ Owner externalOwner(GitUpdateExternalOwner kind) {
     case GitUpdateExternalOwner::restore: return Owner::restore;
     case GitUpdateExternalOwner::counter: return Owner::counter;
     case GitUpdateExternalOwner::restart: return Owner::restart;
+    case GitUpdateExternalOwner::configuration: return Owner::configuration;
   }
   return Owner::none;
 }

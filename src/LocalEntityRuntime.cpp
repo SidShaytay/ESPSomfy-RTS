@@ -257,7 +257,7 @@ class RuntimeBackend final : public Backend {
       return true;
     if (preparedKind == Kind::shade) {
       auto *shade = somfy.getShadeById(sourceId);
-      return shade && shade->isIdle() && !shade->gpioRelease;
+      return shade && shade->idleForAdministration();
     }
     // Inspect every captured physical member. Missing entries remain explicit
     // in the raw context and are administrable; never erase or compress them.
@@ -265,7 +265,7 @@ class RuntimeBackend final : public Backend {
       if (!context.members[i].exists)
         continue;
       auto *shade = somfy.getShadeById(context.members[i].id);
-      if (!shade || !shade->isIdle() || shade->gpioRelease)
+      if (!shade || !shade->idleForAdministration())
         return false;
     }
     return true;

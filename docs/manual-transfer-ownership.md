@@ -33,7 +33,12 @@ is no payload buffer or second updater owner.
 
 This change supplies exclusion and truthful request outcomes. It does not certify
 raw Application image compatibility with the mounted filesystem, remount/recovery
-policy, installer assets, or complete model/settings durability at restart. The
+policy or installer assets. The final shutdown gate now refuses uncertain
+settings/counters, queued or unobserved radio work, estimated movement and active
+GPIO pulses. It seals queue and radio admission without discarding accepted
+work, then performs a checked commit of the current model before networking
+stops. Failed file verification or changed settings/model history releases the
+seals and owner and cancels that request; recovery never revives it. The
 existing restore persistence implementation has not become a checked transaction.
 Those requirements remain separate from ownership.
 
@@ -51,3 +56,12 @@ writes, stale restore markers and final source handoff. Native tests cover typed
 Settings outcomes and stale recovery; the shutdown harness replaces only the
 physical shutdown boundary. No controller, serial connection, Home Assistant or
 radio hardware is accessed.
+
+The final gate does not make restore writes atomic or replace the separate
+monotonic restart-coordinator work. Its readiness checks use controller estimates,
+not motor acknowledgement. Firmware builds and host fakes cannot prove occupant
+safety or physical stop behavior. The queue and scheduler tests exercise waiting,
+taken and unobserved work, an in-flight producer at sealing, refusal of late
+submissions, and reopening after a refused restart. The actual shutdown guard
+harness injects settings uncertainty, movement/pulses, file failure, history
+changes and seal races; none may reach the physical shutdown boundary.

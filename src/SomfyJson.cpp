@@ -311,7 +311,10 @@ edit_result_t mutateModelEdit(model_edit_t &edit) {
       if(shadeId == 0) return edit_result_t::error("Shade id not provided.");
       SomfyGroup *group = somfy.getGroupById(groupId);
       if(!group) return edit_result_t::missing("Group id not found.");
-      if(!somfy.getShadeById(shadeId)) return edit_result_t::missing("Shade id not found.");
+      // Removing a dangling reference repairs configuration only; the absent
+      // device cannot be physically unpaired here. Adding still needs a device.
+      if(edit.type == model_edit_type_t::link_to_group && !somfy.getShadeById(shadeId))
+        return edit_result_t::missing("Shade id not found.");
       if(edit.type == model_edit_type_t::unlink_from_group) group->unlinkShade(shadeId);
       else if(!group->linkShade(shadeId)) return edit_result_t::error("This group already has the most shades it can.");
       const auto persisted=somfy.commit();
