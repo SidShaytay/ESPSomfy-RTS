@@ -24,6 +24,7 @@ shade_request_result_t counterRequestResult(const CounterDomainResult &result) {
   case CounterDomainState::modelFailed:return result.applied ? shade_request_result_t::counter_file_failed : shade_request_result_t::counter_failed;
   case CounterDomainState::modelUncertain:return result.applied ? shade_request_result_t::counter_file_uncertain : shade_request_result_t::counter_failed;
   case CounterDomainState::missing:return shade_request_result_t::not_found;
+  case CounterDomainState::invalid:return shade_request_result_t::counter_invalid;
   case CounterDomainState::stale:return shade_request_result_t::counter_stale;
   default:return shade_request_result_t::counter_failed;
   }

@@ -13,6 +13,7 @@
 #include "LoopQueue.h"
 #include "ModelCommitService.h"
 #include "SafeRestart.h"
+#include "LocalTargetRead.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include <nvs.h>
@@ -23,6 +24,7 @@ static const char *TAG="Counter test";
 // are the actual production methods operating on the actual scheduler.
 struct Transceiver {
   struct {uint8_t type=56;radio_proto proto=radio_proto::RTS;} config;
+  uint64_t configurationRevision=1;
   RadioScheduler sched;CounterEditSafety counterEdits;
   CounterEditAdmission reserveCounterEdit(uint32_t,bool,uint16_t,bool);
   void finishCounterEdit(CounterEditResult,ModelCommitResult);
@@ -129,6 +131,23 @@ static void aliases() {
 }
 int main(int argc,char **argv) {
   loopQueue.begin();
+  if(argc>1 && !strcmp(argv[1],"globalIdle")) {
+    for(unsigned busy=0;busy<3;++busy) {
+      reset();auto &other=somfy.shades[1];other.setShadeId(22);other.setRemoteAddress(999);
+      if(busy==0)const_cast<ShadeBehaviour::State &>(other.state()).direction=1;
+      else if(busy==1){other.lastFrame.await=1;other.lastFrame.processed=false;}
+      else other.gpioRelease=1;
+      LocalUi::RawTargetContext before,after;
+      assert(LocalUi::readRawTargetContext(somfy,{LocalUi::EntityKind::device,22},before));
+      for(bool link:{false,true}) {
+        const auto result=link ? linkExplicitRemote(7,555,100) : correctExplicitCounter(7,100);
+        assert(result.state==CounterDomainState::busy && !result.applied && !FakeNvs::opens && !fileWrites);
+        assert(LocalUi::readRawTargetContext(somfy,{LocalUi::EntityKind::device,22},after) && before.same(after));
+        assert(somfy.configurationRevision==1 && somfy.shades[0].lastFrame.valid && !gitUpdate.busy());
+      }
+    }
+    puts("Unrelated moving/held/pulse target preserves raw STOP context; counter/link refuse before owner/NVS/history");return 0;
+  }
   if(argc>1 && !strcmp(argv[1],"browserCommit")) {
     reset();fileResult={ModelCommitState::failed,ModelCommitStage::write};assert(linkExplicitRemote(7,555,100).applied);
     const auto sets=FakeNvs::sets;const auto revision=somfy.configurationRevision;

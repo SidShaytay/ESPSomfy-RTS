@@ -16,7 +16,10 @@ any repeater work, TX suspension or a pending restart refuses the edit. There
 is no queue flush or radio operation. Before correction or linking, the loop
 queue must have no pending work (the current popped marker is excluded).
 Otherwise the operation refuses without changing history, preserving an already
-accepted unrelated STOP. File-only recovery does not change that history and
+accepted unrelated STOP. All live shades must also be administratively idle,
+including unrelated motion, held input, unresolved TX and GPIO pulses. This
+counter-edit restriction preserves ongoing/grace STOP context under the current
+global model-history binding; it does not freeze commands. File-only recovery does not change that history and
 retains its existing queue allowance. Locks are released before NVS/file I/O.
 
 Received/browser linking freshly reads retained NVS under the same reservation

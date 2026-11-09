@@ -97,7 +97,7 @@ enum class shade_request_result_t : uint8_t {
   shade_moving,   // a favorite is only set on a shade at rest; nothing was done
   no_tilt,        // only a tilt was given, for a shade without one; nothing was done
   counter_busy, counter_blocked, counter_failed, counter_uncertain,
-  counter_file_failed, counter_file_uncertain, counter_stale
+  counter_file_failed, counter_file_uncertain, counter_stale, counter_invalid
 };
 
 // Carries out shade requests, whichever entry point they came from: finds

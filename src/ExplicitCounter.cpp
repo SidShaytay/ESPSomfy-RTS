@@ -87,14 +87,19 @@ void adoptAll(uint32_t address,uint16_t code) {
   }
   ++somfy.configurationRevision;
 }
+bool allShadesIdleForCounter() {
+  for(auto &shade:somfy.shades)
+    if(shade.getShadeId()!=255 && !shade.idleForAdministration())return false;
+  return true;
+}
 CounterDomainResult correct(SomfyShade &shade,uint32_t address,uint16_t code,SomfyLinkedRemote *slot) {
   if(!address || address>0xffffff)return {};
   // A correction changes model history; preserve already accepted intents
   // rather than making an unrelated queued STOP stale behind this operation.
-  if(loopQueue.pending())return {CounterDomainState::busy};
+  if(loopQueue.pending() || !allShadesIdleForCounter())return {CounterDomainState::busy};
   Owner owner;if(!owner)return {CounterDomainState::busy};
   const auto context=affected(address,slot ? &shade : nullptr);
-  if(loopQueue.pending())return {CounterDomainState::busy};
+  if(loopQueue.pending() || !allShadesIdleForCounter())return {CounterDomainState::busy};
   const auto admitted=somfy.transceiver.reserveCounterEdit(address,context.idle,context.groups,restartPending());
   if(admitted!=CounterEditAdmission::admitted)return {admission(admitted)};
   const auto persisted=slot ? persistObservedCounter(address,code,aliasHighwater(address)) : persistExplicitCounter(address,code);

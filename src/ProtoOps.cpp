@@ -220,7 +220,8 @@ proto_error_t protoRequestError(shade_request_result_t result) {
     case shade_request_result_t::no_tilt: return proto_error_t::badRequest;
     case shade_request_result_t::counter_busy:
     case shade_request_result_t::counter_blocked:return proto_error_t::busy;
-    case shade_request_result_t::counter_stale:return proto_error_t::badRequest;
+    case shade_request_result_t::counter_stale:
+    case shade_request_result_t::counter_invalid:return proto_error_t::badRequest;
     case shade_request_result_t::done:return proto_error_t::none;
     default:return proto_error_t::internal;
   }
@@ -237,6 +238,7 @@ const char *protoRequestErrorDesc(const shade_request_t &req, shade_request_resu
     case shade_request_result_t::counter_file_failed:return counterDomainDescription(CounterDomainState::modelFailed);
     case shade_request_result_t::counter_file_uncertain:return counterDomainDescription(CounterDomainState::modelUncertain);
     case shade_request_result_t::counter_stale:return counterDomainDescription(CounterDomainState::stale);
+    case shade_request_result_t::counter_invalid:return counterDomainDescription(CounterDomainState::invalid);
     case shade_request_result_t::counter_failed:return counterDomainDescription(CounterDomainState::nvsFailed);
     case shade_request_result_t::done:return nullptr;
     default:return "Command outcome unavailable; no success was reported.";
