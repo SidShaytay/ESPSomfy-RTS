@@ -1,5 +1,6 @@
 #ifdef ESPSOMFY_LOCAL_UI
 #include "LocalAdvancedRuntime.h"
+#include "CounterEdit.h"
 #include "GroupReadiness.h"
 #include "LocalEntityRuntime.h"
 #include "LocalOperationAdmission.h"
@@ -9,6 +10,7 @@
 #include "SafeRestart.h"
 #include "Somfy.h"
 #include "SomfyEditor.h"
+#include <esp_timer.h>
 #include <stdio.h>
 #include <string.h>
 extern SomfyShadeController somfy;
@@ -43,9 +45,7 @@ class RuntimeBackend final : public Backend {
       return target.id && target.id != 255 && somfy.getGroupById(target.id);
     return false;
   }
-  Admission admit(Target target, const Context &expected, Authorization auth,
-                  uint64_t revision,
-                  const ConfigurationLease *lease = nullptr) {
+  Admission admittedIdentity(Authorization auth, uint64_t revision) {
     const auto now = authorization();
     if (!auth.allowed || !now.allowed)
       return Admission::locked;
@@ -54,6 +54,14 @@ class RuntimeBackend final : public Backend {
         auth.configurationGeneration != now.configurationGeneration ||
         revision != this->revision())
       return Admission::stale;
+    return Admission::accepted;
+  }
+  Admission admit(Target target, const Context &expected, Authorization auth,
+                  uint64_t revision,
+                  const ConfigurationLease *lease = nullptr) {
+    const auto identity = admittedIdentity(auth, revision);
+    if (identity != Admission::accepted)
+      return identity;
     if ((lease ? !lease->owns() : gitUpdate.busy()) || loopQueue.pending() ||
         restartPending())
       return Admission::busy;
@@ -114,6 +122,93 @@ class RuntimeBackend final : public Backend {
   }
 
 public:
+  ReceiveHub &receivedFrames() override { return LocalUi::receiveHub(); }
+  LearnQueued queueLearn(LearnPending &pending, uint64_t now) override {
+    return submitLocalLearn(pending, now);
+  }
+  bool cancelLearn(uint64_t token, LearnPending &pending) override {
+    return cancelLocalLearn(token, pending);
+  }
+  Admission checkLearnContext(Target target, const Context &expected,
+                              Authorization auth, uint64_t history) override {
+    const auto identity = admittedIdentity(auth, history);
+    if (identity != Admission::accepted)
+      return identity;
+    if (target.scope != Scope::devices || !somfy.modelLoad.usable())
+      return Admission::stale;
+    Context current;
+    return capture(target, current) && expected.same(current)
+               ? Admission::accepted
+               : Admission::stale;
+  }
+  LearnApplyResult linkLearn(Target target, const Context &context,
+                             Authorization expected, uint64_t history,
+                             const LearnSelection &candidate,
+                             LearnPending &witness,
+                             ArduinoJson::Allocator &allocator) override {
+    auto admission = admit(target, context, expected, history);
+    if (admission != Admission::accepted)
+      return {{}, admission};
+    admission = checkLearnContext(target, context, expected, history);
+    if (admission != Admission::accepted)
+      return {{}, admission};
+    JsonDocument payload(&allocator), expanded(&allocator);
+    payload[protoField(proto_field_t::shadeId).key] = target.id;
+    payload[protoField(proto_field_t::remoteAddress).key] = candidate.address;
+    payload[protoField(proto_field_t::lastRollingCode).key] =
+        candidate.rollingCode;
+    proto_error_buffer_t why = {};
+    const char *error =
+        expandEditPayload(model_edit_type_t::link_remote,
+                          payload.as<JsonObjectConst>(), expanded, why);
+    if (payload.overflowed() || expanded.overflowed())
+      return {{}, Admission::noMemory};
+    if (error)
+      return {{}, Admission::invalid};
+    // No Stage1 configuration lease: checked linking owns its counter lease,
+    // fresh NVS/all-alias guard and one model-file commit/fanout.
+    admission = admit(target, context, expected, history);
+    if (admission != Admission::accepted)
+      return {{}, admission};
+    admission = checkLearnContext(target, context, expected, history);
+    if (admission != Admission::accepted)
+      return {{}, admission};
+    const auto fresh = witness.current(uint64_t(esp_timer_get_time()) / 1000);
+    if (fresh != LearnQueueReason::ready)
+      return {{}, Admission::accepted, fresh};
+    model_edit_t edit;
+    edit.type = model_edit_type_t::link_remote;
+    swap(edit.doc, expanded);
+    return {applyModelEdit(edit)};
+  }
+  LearnFileResult retryLearnFile(Target target, const Context &context,
+                                 Authorization expected, uint64_t history,
+                                 LearnPending &witness) override {
+    auto admission = admit(target, context, expected, history);
+    if (admission != Admission::accepted)
+      return {{}, admission};
+    admission = checkLearnContext(target, context, expected, history);
+    if (admission != Admission::accepted)
+      return {{}, admission};
+    const auto fresh = witness.current(uint64_t(esp_timer_get_time()) / 1000);
+    if (fresh != LearnQueueReason::ready)
+      return {{}, Admission::accepted, fresh};
+    if (somfy.transceiver.counterQuarantine() == CounterQuarantine::none) {
+      // Another deliberate Commit may already have recovered the counter file.
+      // Protect this ordinary current-model serialization with its own lease.
+      ConfigurationLease lease;
+      admission = admit(target, context, expected, history, &lease);
+      if (admission != Admission::accepted)
+        return {{}, admission};
+      const auto final = witness.current(uint64_t(esp_timer_get_time()) / 1000);
+      if (final != LearnQueueReason::ready)
+        return {{}, Admission::accepted, final};
+      return {applyModelCommit({}, ModelCommitMode::counterFileRecovery)};
+    }
+    // Known-NVS recovery acquires its own counter owner. Unknown NVS returns
+    // the shared typed refusal; neither path may replay linking or NVS writes.
+    return {applyModelCommit({}, ModelCommitMode::counterFileRecovery)};
+  }
   Authorization authorization() override {
     const auto state = pollAuthorization();
     return {state.allowed && !localControlsFrozen(), state.generation,

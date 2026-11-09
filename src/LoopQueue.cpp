@@ -11,6 +11,7 @@
 #include "DeviceOps.h"
 #ifdef ESPSOMFY_LOCAL_UI
 #include "LocalControlQueue.h"
+#include "LocalLearnQueue.h"
 #endif
 #include "ModelCommitService.h"
 #include "SafeRestart.h"
@@ -70,11 +71,15 @@ void LoopQueue::drain() {
   // Observe the single slot even behind a held head: idle/new motion must not
   // reacquire STOP eligibility while other clients wait for the radio.
   LocalUi::refreshLocalControl();
+  LocalUi::refreshLocalLearn();
 #endif
   loop_item_t item;
   // Items run in order, so only the one at the head can be held back.
   while(xQueuePeek(q, &item, 0) == pdTRUE) {
 #ifdef ESPSOMFY_LOCAL_UI
+    if(item.type == loop_item_type_t::local_advanced && !LocalUi::localLearnTokenActive(item.localToken)) {
+      xQueueReceive(q,&item,0);continue;
+    }
     if(item.type == loop_item_type_t::local_control) {
       if(LocalUi::localControlTokenActive(item.localToken)) LocalUi::refreshLocalControl();
       if(!LocalUi::localControlTokenActive(item.localToken)) {
@@ -87,6 +92,11 @@ void LoopQueue::drain() {
     // loop() is the only consumer so this is the item we peeked.
     xQueueReceive(q, &item, 0);
     switch(item.type) {
+      case loop_item_type_t::local_advanced:
+#ifdef ESPSOMFY_LOCAL_UI
+        LocalUi::runLocalLearn(item.localToken);
+#endif
+        break;
       case loop_item_type_t::local_control:
 #ifdef ESPSOMFY_LOCAL_UI
         LocalUi::runLocalControl(item.localToken);
