@@ -3,7 +3,13 @@
 #include <cmath>
 #include <cstdio>
 #include "Arduino.h"
+#include "RadioUpdateActivity.h"
 static uint8_t rxmode=1;
+static bool rxPausedForInstall=false;
+static bool radioUpdateResourcesReady(){return true;}
+struct RxTaskLock {~RxTaskLock(){}};
+struct TxQueueLock{bool locked=true;explicit TxQueueLock(unsigned=0){}};
+struct {void init(){}} rx_queue;
 static uint32_t scanStart=0,lastScan=0;
 static unsigned long scanNow=0;
 #define millis() scanNow
@@ -11,7 +17,8 @@ static unsigned long scanNow=0;
 #define ESP_LOGW(...) ((void)0)
 static constexpr int waiting_synchro=0;
 static bool noiseDetected=false;
-static struct {int status=waiting_synchro;} somfy_rx;
+static unsigned noiseStart=0,noiseCount=0;
+static struct {int status=waiting_synchro;void clear(){status=waiting_synchro;}} somfy_rx;
 static int currRSSI=-100;
 [[maybe_unused]] static std::atomic<bool> scanStopRequested{false};
 static int interruptPin=4,markRSSI=-100;
@@ -39,7 +46,12 @@ struct Driver {
 }ELECHOUSE_cc1101;
 struct Transceiver {
  struct Config{bool enabled=true;int RXPin=4;float frequency=433.42f,rxBandwidth=99.97f;void apply(){++storageWrites;}}config;
- bool available(){return true;}
+ std::atomic<bool> _available{true},_administrationPaused{false};
+ struct {bool sealed=false;bool sealForRestart(){if(sealed)return false;sealed=true;return true;}
+  void reopenAfterRefusedRestart(){sealed=false;}}sched;
+ bool available(){return _available.load()&&!_administrationPaused.load();}
+ RadioUpdateActivity updateActivityLocked(){RadioUpdateActivity a;a.observed=true;a.ready=available();
+  a.schedulerIdle=true;a.txSealed=sched.sealed;a.scanning=rxmode==3;a.receiverPaused=rxPausedForInstall;return a;}
  void suspendTx(uint8_t){}
  void resumeTx(uint8_t){}
  void disableReceive(){rxmode=0;}
@@ -78,5 +90,13 @@ int main(){
  radio.processFrequencyScan(false);
  assert(scanStopRequested.load() && driverWrites==beforeRace && "Stop arriving during lock admission must prevent retuning");
  radio.serviceScanStop();
+ // Another Stop can finish and a different administrator can acquire while
+ // this caller waits for the radio lock. The old Stop cannot reopen its seal.
+ rxmode=1;radio.beginFrequencyScan();stopDuringLock=&radio;
+ duringLock=[] {stopDuringLock->endFrequencyScan();
+   assert(stopDuringLock->sched.sealForRestart());stopDuringLock->_administrationPaused=true;};
+ radio.endFrequencyScan();
+ assert(radio.sched.sealed && radio._administrationPaused.load() &&
+   "A stale Stop must not reopen another administration's scheduler seal");
  puts("Actual frequency scan end restores configured tuning and prior RX without NVS");
 }
