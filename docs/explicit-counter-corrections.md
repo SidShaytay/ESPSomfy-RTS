@@ -50,7 +50,9 @@ writing NVS. Only a held known-NVS/file-pending recovery can clear this cause
 after verified file success. Unknown NVS state cannot be cleared this way.
 An unrelated save does not silently clear quarantine. A browser counter correction
 that applied but failed file persistence closes its original dialog and offers
-only the existing **Retry Commit** action. That deliberate browser COMMIT carries
+only the existing **Retry Commit** action. The Firmware panel also always offers
+**Save current model**, independently of the warning banner; it saves the current
+model file, never writes rolling codes or sends motor commands. That deliberate browser COMMIT carries
 an internal counter-file-recovery mode through the same queue; generic metadata
 file retries and automatic saves cannot clear quarantine. Unknown NVS refuses this
 recovery without another write. Replies reuse existing applied/durable/model-file

@@ -3443,6 +3443,14 @@ class Somfy {
             }
         }
     }
+    saveCurrentModel() {
+        sendOp('commitModel', {}, (err, reply) => {
+            if (err) {
+                if (err.data) showModelSaveWarning(err.data, true);
+                else ui.serviceError(document.getElementById('divFirmware'), err);
+            } else if (reply) showModelSaveWarning(reply, true);
+        }, true);
+    }
     setRollingCode(shadeId, rollingCode) {
         sendOp('setRollingCode', { shadeId: shadeId, lastRollingCode: rollingCode }, (err, reply) => {
             const close = () => {
