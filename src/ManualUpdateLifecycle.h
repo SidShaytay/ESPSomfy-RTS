@@ -10,7 +10,7 @@ struct ManualUpdateCleanup {
 // serialized by that service lock. Claims exclude cleanup, never hold a lock
 // across SDK/file I/O, and never constitute a second updater owner.
 class ManualUpdateLifecycle {
-  enum class Phase : uint8_t { idle, receiving, queued, awaitingRecovery, awaitingRestart, retired };
+  enum class Phase : uint8_t { idle, receiving, queued, installing, awaitingRecovery, awaitingRestart, retired };
   GitUpdateOwnerToken token;
   ManualUpdateKind kind=ManualUpdateKind::firmware;
   Phase phase=Phase::idle;
@@ -34,7 +34,7 @@ public:
   bool claim(const GitUpdateOwnerToken &expected,uint64_t now,bool queued=false) {
     if(!matches(expected)) return false;
     observe(now);
-    if(inFlight || phase!=(queued ? Phase::queued : Phase::receiving) || (queued && kind!=ManualUpdateKind::restore)) return false;
+    if(inFlight || phase!=(queued ? Phase::queued : Phase::receiving) || (queued && kind!=ManualUpdateKind::restore && kind!=ManualUpdateKind::firmware)) return false;
     inFlight=true;return true;
   }
   bool continuing(const GitUpdateOwnerToken &expected) const { return matches(expected) && phase!=Phase::retired; }
@@ -46,10 +46,29 @@ public:
     if(!matches(expected) || !inFlight) return false;
     resourceOpen=opened;if(opened) everOpened=true;return true;
   }
-  // Transfer a completed backup from request callbacks to its FIFO marker.
+  // Transfer a completed backup/firmware file away from request callbacks.
   bool queue(const GitUpdateOwnerToken &expected) {
-    if(!matches(expected) || !inFlight || !resourceOpen || phase!=Phase::receiving || kind!=ManualUpdateKind::restore) return false;
+    if(!matches(expected) || !inFlight || !resourceOpen || phase!=Phase::receiving || (kind!=ManualUpdateKind::restore && kind!=ManualUpdateKind::firmware)) return false;
     phase=Phase::queued;return true;
+  }
+  bool firmwareQueuedClaimed(const GitUpdateOwnerToken &expected,uint64_t now) {
+    if(!matches(expected))return false;
+    observe(now);
+    return kind==ManualUpdateKind::firmware && phase==Phase::queued && inFlight && resourceOpen;
+  }
+  bool adoptFirmware(const GitUpdateOwnerToken &expected,uint64_t now) {
+    if(!firmwareQueuedClaimed(expected,now))return false;
+    phase=Phase::installing;return true;
+  }
+  bool claimInstall(const GitUpdateOwnerToken &expected,uint64_t now) {
+    if(!matches(expected))return false;
+    observe(now);
+    if(kind!=ManualUpdateKind::firmware || phase!=Phase::installing || inFlight)return false;
+    inFlight=true;return true;
+  }
+  bool retireInstall(const GitUpdateOwnerToken &expected) {
+    if(!matches(expected) || kind!=ManualUpdateKind::firmware || phase!=Phase::installing)return false;
+    phase=Phase::retired;return true;
   }
   bool finish(const GitUpdateOwnerToken &expected,uint64_t now,bool progress) {
     if(!matches(expected) || !inFlight) return false;
@@ -59,7 +78,7 @@ public:
   }
   // SDK end succeeded: retain the owner across restart publication/admission.
   bool holdRestart(const GitUpdateOwnerToken &expected) {
-    if(!matches(expected) || !inFlight || !everOpened || resourceOpen || (phase!=Phase::receiving && !(kind==ManualUpdateKind::restore && phase==Phase::queued))) return false;
+    if(!matches(expected) || !inFlight || !everOpened || resourceOpen || (phase!=Phase::receiving && !(kind==ManualUpdateKind::restore && phase==Phase::queued) && !(kind==ManualUpdateKind::firmware && phase==Phase::installing))) return false;
     phase=Phase::awaitingRestart;return true;
   }
   bool holdRecovery(const GitUpdateOwnerToken &expected,uint64_t now) {

@@ -10,12 +10,13 @@
 #include "LocalUiAuthorizationAdapter.h"
 #include "LocalControlQueue.h"
 #include "GitUpdateBootHealth.h"
+#include "SettingsRevisions.h"
 extern SomfyShadeController somfy;
 extern ConfigSettings settings;
 extern LoopQueue loopQueue;
 namespace GitUpdateControllerDetail {
 struct Source {
-  uint64_t operation=0,modelRevision=0,settingsEpoch=0;
+  uint64_t operation=0,modelRevision=0,settingsEpoch=0,browserSecurityRevision=0;
   uint32_t session=0,security=0;
   GitUpdateOwnerToken owner;
   RadioInstallToken radio;
@@ -31,7 +32,8 @@ bool modelReady() {
       !somfy.transceiver.counterEditUncertain();
 }
 bool current(uint64_t operation) {
-  return operation && operation==source.operation && authorized(source.session,source.security) && modelReady() &&
+  const bool credential=source.browserSecurityRevision?source.browserSecurityRevision==securityConfigurationRevision():authorized(source.session,source.security);
+  return operation && operation==source.operation && credential && modelReady() &&
       source.modelRevision && somfy.configurationRevision==source.modelRevision &&
       settingsDurability().status().epoch==source.settingsEpoch;
 }
@@ -73,6 +75,11 @@ void capture(uint64_t operation,uint32_t session,uint32_t security) {
   source={};source.operation=operation;source.session=session;source.security=security;
   source.modelRevision=somfy.configurationRevision;source.settingsEpoch=settingsDurability().status().epoch;
 }
+bool manual(const GitUpdateOwnerToken &owner,uint64_t operation,uint64_t securityRevision) {
+  if(!operation || !securityRevision || securityRevision!=securityConfigurationRevision() || !gitUpdate.ownsExternal(owner) || !modelReady())return false;
+  capture(operation,0,0);source.browserSecurityRevision=securityRevision;
+  return current(operation);
+}
 void failed(uint64_t operation,RestartReason,bool mayClean) {
   if(operation!=source.operation)return;
   gitUpdate.finishInstallRestart(operation,mayClean);
@@ -86,7 +93,7 @@ void written(const GitUpdateOwnerToken &owner,const RadioInstallToken &radio) {
 }
 }
 void beginGitUpdateController(){gitUpdate.begin(GitUpdateControllerDetail::admit,{GitUpdateControllerDetail::current,
-    GitUpdateControllerDetail::prepare,GitUpdateControllerDetail::cleanup,GitUpdateControllerDetail::written});}
+    GitUpdateControllerDetail::prepare,GitUpdateControllerDetail::cleanup,GitUpdateControllerDetail::written,GitUpdateControllerDetail::manual});}
 void loopGitUpdateController(){
   using namespace GitUpdateControllerDetail;
   const auto status=gitUpdate.snapshot();

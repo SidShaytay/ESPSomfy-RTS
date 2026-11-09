@@ -13,8 +13,11 @@ static bool bootPending=false;
 GitUpdateBootStatus gitUpdateBootStatus(){return {bootPending,false};}
 static std::string controllerScenario;
 static uint64_t controllerOperation=0;
+static uint64_t webSecurityRevision=7;
+uint64_t securityConfigurationRevision(){return webSecurityRevision;}
 static bool filesystemReady=true,queueHeld=false,queuePending=false,localPending=false;
 static bool saveOkay=true,pauseOkay=true,resumeBusy=false;
+static bool stallManualAdoption=false;
 static unsigned modelSaves=0,shutdownCalls=0,resumeCalls=0;
 static void (*onModelSave)()=nullptr;
 static LocalUi::SecuritySnapshot localSecurity{LocalUi::AuthMode::pin,true,false,3,5,0,0};
@@ -42,7 +45,7 @@ struct SomfyShadeController {
   struct Radio {
     struct {SettingsLoadStatus loadStatus{SettingsLoadState::loaded};}config;
     bool held=false,work=false,uncertain=false;
-    bool counterEditUncertain()const{return uncertain;}
+    bool counterEditUncertain()const{if(stallManualAdoption){Fake::now+=31000;stallManualAdoption=false;}return uncertain;}
     bool restartQuiescent()const{return !work;}
     bool sealForRestart(){if(held || work)return false;held=true;return true;}
     void reopenAfterRefusedRestart(){held=false;}
@@ -80,6 +83,41 @@ int main(int argc,char **argv){
   release["assets"][0]["size"]=image.size();release["assets"][0]["digest"]="sha256:"+hash(image);
   const std::string url=std::string("https://github.com/")+GitUpdatePolicy::REPOSITORY+"/releases/download/"+tag+"/"+GitUpdatePolicy::FIRMWARE_ASSET;
   Fake::responses[url].body=image;publish();restartLoop();beginGitUpdateController();
+  if(controllerScenario.compare(0,6,"manual")==0){
+    GitUpdateOwnerToken owner;CHECK(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,owner));
+    CHECK(gitUpdate.beginTransfer(owner,ManualUpdateKind::firmware,Fake::now));CHECK(gitUpdate.claimTransfer(owner,Fake::now));
+    CHECK(gitUpdate.transferResource(owner,true) && gitUpdate.queueTransfer(owner));CHECK(gitUpdate.finishTransfer(owner,Fake::now,true));
+    CHECK(!gitUpdate.retireTransfer(owner));if(controllerScenario!="manualNoClaim")CHECK(gitUpdate.claimTransfer(owner,Fake::now,true));
+    std::vector<uint8_t> localBytes(image.begin(),image.end());
+    auto *bytes=static_cast<uint8_t*>(heap_caps_malloc(image.size(),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));CHECK(bytes);memcpy(bytes,image.data(),image.size());
+    if(controllerScenario=="manualBadMemory"){heap_caps_free(bytes);bytes=localBytes.data();}
+    if(controllerScenario=="manualInvalid")bytes[0]=0;
+    if(controllerScenario=="manualLateAdoption")stallManualAdoption=true;
+    if(controllerScenario=="manualNotifyFailure")Fake::notifyFail=true;
+    uint64_t operation=123;const auto grant=controllerScenario=="manualWrongGrant"?webSecurityRevision+1:webSecurityRevision;
+    const auto result=gitUpdate.requestManualInstall(owner,bytes,image.size(),grant,operation);
+    if(controllerScenario=="manualWrongGrant" || controllerScenario=="manualBadMemory" || controllerScenario=="manualNoClaim" || controllerScenario=="manualLateAdoption"){
+      CHECK(result!=GitUpdateRequest::accepted && bytes && operation==123 && !Fake::otaBegins);
+      if(controllerScenario!="manualBadMemory")heap_caps_free(bytes);
+      if(controllerScenario=="manualNoClaim")CHECK(gitUpdate.claimTransfer(owner,Fake::now,true));
+      CHECK(gitUpdate.transferResource(owner,false));CHECK(gitUpdate.closeTransfer(owner));CHECK(gitUpdate.releaseExternal(owner));return 0;
+    }
+    CHECK(result==GitUpdateRequest::accepted && !bytes && operation && operation!=123);
+    CHECK(!gitUpdate.retireTransfer(owner) && !gitUpdate.claimTransfer(owner,Fake::now));
+    CHECK(gitUpdate.snapshot().manual);
+    localSecurity.allowed=false;Fake::wallClock=0; // File installation works independently of LCD unlock and network time.
+    if(controllerScenario=="manualOldAssets")Fake::fsCompatible=false;
+    if(controllerScenario=="manualExpiredGrant")++webSecurityRevision;
+    if(controllerScenario=="manualWriteFailure")Fake::failWrite=true;
+    for(unsigned i=0;i<5;++i)controllerPump();
+    CHECK(Fake::urls.empty() && !Fake::otaActivations && !shutdownCalls);
+    if(controllerScenario=="manualValid" || controllerScenario=="manualOldAssets"){
+      CHECK(modelSaves==1 && restartPending());Fake::now+=500;controllerPump();CHECK(shutdownCalls==1 && Fake::otaActivations==1);return 0;
+    }
+    CHECK(!gitUpdate.busy() && !gitUpdateControllerPaused() && !Fake::activeAllocations);
+    if(controllerScenario!="manualWriteFailure")CHECK(!modelSaves && !Fake::otaBegins);
+    return 0;
+  }
   uint64_t checkOperation=0;
   CHECK(requestLocalGitUpdateCheck(2,5,checkOperation)==GitUpdateRequest::unavailable);
   CHECK(requestLocalGitUpdateCheck(3,5,checkOperation)==GitUpdateRequest::accepted);controllerPump();

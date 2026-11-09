@@ -97,10 +97,11 @@ inline void *heap_caps_aligned_alloc(size_t alignment,size_t bytes,int caps) {
   assert(caps==(MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
   if(Fake::allocationFail || (Fake::failAllocationAfter>=0 && int(Fake::allocationCalls++)>=Fake::failAllocationAfter)) return nullptr;
   void *p=nullptr;if(posix_memalign(&p,alignment,bytes)!=0) return nullptr;
-  ++Fake::activeAllocations;return p;
+  ++Fake::activeAllocations;Fake::allocationCaps[p]=caps;return p;
 }
 inline void *heap_caps_realloc(void *p,size_t bytes,int) { return std::realloc(p,bytes); }
-inline void heap_caps_free(void *p) { assert(Fake::criticalDepth==0);if(p) {assert(Fake::activeAllocations);--Fake::activeAllocations;}std::free(p); }
+inline bool esp_ptr_external_ram(const void *p){const auto found=Fake::allocationCaps.find(const_cast<void*>(p));return found!=Fake::allocationCaps.end() && found->second==(MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);}
+inline void heap_caps_free(void *p) { assert(Fake::criticalDepth==0);if(p) {assert(Fake::activeAllocations);--Fake::activeAllocations;Fake::allocationCaps.erase(p);}std::free(p); }
 inline size_t heap_caps_get_free_size(int) { return Fake::internalFree; }
 inline size_t heap_caps_get_minimum_free_size(int) { return 70000; }
 inline size_t heap_caps_get_largest_free_block(int) { return Fake::internalLargest; }
