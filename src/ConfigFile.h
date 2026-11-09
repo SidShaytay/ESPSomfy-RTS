@@ -7,6 +7,7 @@
 #include "ConfigHeader.h"
 #include "ConfigRecords.h"
 #include "ModelCommitResult.h"
+#include "GitUpdate.h"
 
 
 // Opens shades.cfg or a backup and writes or reads its values
@@ -44,7 +45,7 @@ class ShadeConfigFile : public ConfigFile {
     static ModelCommitResult commitModel(SomfyShadeController *s);
     static bool exists();
     static bool load(SomfyShadeController *somfy, const char *filename = "/shades.cfg");
-    static bool restore(SomfyShadeController *somfy, const char *filename, restore_options_t &opts);
+    static bool restore(SomfyShadeController *somfy, const char *filename, restore_options_t &opts, const GitUpdateOwnerToken &owner = {});
     // Whether the file would pass the checks restore() starts with.  Only
     // reads the file, so any task can call it.
     static bool validateFile(const char *filename);
@@ -53,7 +54,7 @@ class ShadeConfigFile : public ConfigFile {
     bool save(SomfyShadeController *somfy);
     bool backup(SomfyShadeController *somfy);
     bool loadFile(SomfyShadeController *somfy, const char *filename = "/shades.cfg");
-    bool restoreFile(SomfyShadeController *somfy, const char *filename, restore_options_t &opts);
+    bool restoreFile(SomfyShadeController *somfy, const char *filename, restore_options_t &opts, const GitUpdateOwnerToken &owner = {});
     void end();
     //bool seekRecordById(uint8_t id);
     bool validate();

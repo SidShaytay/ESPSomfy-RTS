@@ -49,6 +49,8 @@ struct rebootDelay_t {
   bool reboot = false;
   int rebootTime = 0;
   bool closed = false;
+  uint64_t externalOwnerGeneration = 0;
+  uint8_t externalOwnerKind = 0;
 };
 [[maybe_unused]] static bool toBoolean(const char *str, bool def) {
   if(!str) return def;
