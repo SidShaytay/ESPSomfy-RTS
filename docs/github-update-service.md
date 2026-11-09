@@ -1,6 +1,6 @@
-# Inactive GitHub update service and installer draft
+# GitHub update service and installer
 
-`GitUpdateClass` is the single shared service reconciled from the issue #12 audit. It supplies latest-release Check, candidate-bound metadata Prepare, and installation through the controller adapter described below. Canonical startup initializes it and its loop adapter without scheduling network requests. The standalone LCD adapter is implemented; web controls remain unfinished. `prepared` means verified metadata only; `canInstall` remains false unless all installation callbacks are supplied. Web and LCD adapters must use this service rather than create another installer.
+`GitUpdateClass` is the single shared service reconciled from the issue #12 audit. It supplies latest-release Check, candidate-bound metadata Prepare, and installation through the controller adapter described below. Canonical startup initializes it and its loop adapter without scheduling network requests. The standalone LCD and canonical browser file adapters are implemented on the isolated feature branch; independent review and integration remain unfinished. `prepared` means verified metadata only; `canInstall` remains false unless all installation callbacks are supplied. Web and LCD adapters must use this service rather than create another installer.
 
 ## Ownership and candidate confirmation
 
@@ -75,8 +75,25 @@ carrying only the exact owner token. Loop hands the private buffer and original
 security revision to `requestManualInstall()`. A normal disconnect after this
 handoff cannot cancel installation. HTTP 202 means only that the file was
 received and queued, never that it was verified, written or selected for boot.
-Browser operation-status observation and independent review remain required
-before this manual-update flow is qualified. Generic-board streaming remains
+Before publishing that FIFO marker, the same service reserves a public,
+boot-local `operationGeneration`. Loop adoption retains the exact ticket;
+it is separate from the private resource owner and never authorizes an action.
+Request metadata grows by eight bytes, bounded to 56 bytes, to carry this ticket.
+A failed publication/admission preserves a terminal refusal under that ticket;
+a later external operation invalidates it.
+
+The authenticated `/firmwareStatus?operationGeneration=<decimal>` route reads
+only cached status for that exact manual-file operation. It rejects malformed,
+overflowed, stale or replaced tickets. The browser polls at most 360 times,
+with 500 ms between completed polls and a five-second request timeout. It shows
+verification, inactive-slot writing and final restart checks separately.
+`written` does not mean boot selection succeeded. Even a scheduled restart is
+subject to the final safety checks. Closing the dialog stops observation only.
+A lost connection or a reboot leaves completion unconfirmed; reconnect and
+review the installed version and boot health. The browser never automatically
+resends a file or announces success from HTTP 202.
+
+Independent review remains required before this manual-update flow is qualified. Generic-board streaming remains
 separate and unchanged in this increment. No offline evidence authorizes a
 controller write.
 
@@ -109,7 +126,7 @@ commands and stores no credentials in its source record.
 
 Startup invokes the adapter after global TLS allocator initialization. The main
 loop services network/UI while `gitUpdateControllerPaused()` and defers normal
-model/queue execution until cleanup or final shutdown. Browser operation-status observation and independent review remain unfinished;
+model/queue execution until cleanup or final shutdown. Independent review and integration remain unfinished;
 these tests do not establish complete updater acceptance. The LCD adapter is described in
 [lcd-github-updates.md](lcd-github-updates.md).
 

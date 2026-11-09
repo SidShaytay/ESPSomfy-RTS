@@ -202,7 +202,7 @@ bool queueManualFirmware(AsyncWebServerRequest *request) {
   if(!stagedFor(state->owner) || !state->securityRevision ||
      securityConfigurationRevision()!=state->securityRevision || !webServer.isAuthenticated(request) ||
      securityConfigurationRevision()!=state->securityRevision || !gitUpdate.transferContinuing(state->owner,now()) ||
-     !gitUpdate.queueTransfer(state->owner)) {
+     !gitUpdate.queueTransfer(state->owner) || !gitUpdate.reserveManualInstall(state->owner,state->operation)) {
     failFirmwareStage(*state);return false;
   }
   gitUpdate.finishTransfer(state->owner,now(),true);

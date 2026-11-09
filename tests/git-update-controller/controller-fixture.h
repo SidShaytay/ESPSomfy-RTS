@@ -88,6 +88,25 @@ int main(int argc,char **argv){
     CHECK(gitUpdate.beginTransfer(owner,ManualUpdateKind::firmware,Fake::now));CHECK(gitUpdate.claimTransfer(owner,Fake::now));
     CHECK(gitUpdate.transferResource(owner,true) && gitUpdate.queueTransfer(owner));CHECK(gitUpdate.finishTransfer(owner,Fake::now,true));
     CHECK(!gitUpdate.retireTransfer(owner));if(controllerScenario!="manualNoClaim")CHECK(gitUpdate.claimTransfer(owner,Fake::now,true));
+    uint64_t reserved=0;
+    if(controllerScenario=="manualReservationFailure") {
+      auto wrong=owner;++wrong.generation;
+      CHECK(!gitUpdate.reserveManualInstall(wrong,reserved)&&!reserved);
+      const auto generation=candidateGeneration;candidateGeneration=UINT64_MAX;
+      CHECK(!gitUpdate.reserveManualInstall(owner,reserved)&&!reserved);candidateGeneration=generation;
+      CHECK(gitUpdate.reserveManualInstall(owner,reserved));
+      CHECK(gitUpdate.transferResource(owner,false)&&gitUpdate.closeTransfer(owner)&&gitUpdate.releaseExternal(owner));
+      auto snapshot=gitUpdate.snapshot();
+      CHECK(snapshot.operation==reserved&&snapshot.manual&&snapshot.phase==GitUpdatePhase::error&&!snapshot.busy&&!Fake::otaBegins);
+      GitUpdateOwnerToken next;CHECK(gitUpdate.acquireExternal(GitUpdateExternalOwner::counter,next));
+      CHECK(!gitUpdate.snapshot().manual&&!gitUpdate.snapshot().operation);CHECK(gitUpdate.releaseExternal(next));return 0;
+    }
+    if(controllerScenario=="manualReserved") {
+      CHECK(gitUpdate.reserveManualInstall(owner,reserved));
+      CHECK(reserved && reserved!=owner.generation && gitUpdate.snapshot().operation==reserved && gitUpdate.snapshot().manual);
+      uint64_t duplicate=42;CHECK(!gitUpdate.reserveManualInstall(owner,duplicate)&&duplicate==42);
+      CHECK(!gitUpdate.requestCancel(reserved)); // Receive/queued ownership is not a worker cancellation.
+    }
     std::vector<uint8_t> localBytes(image.begin(),image.end());
     auto *bytes=static_cast<uint8_t*>(heap_caps_malloc(image.size(),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));CHECK(bytes);memcpy(bytes,image.data(),image.size());
     if(controllerScenario=="manualBadMemory"){heap_caps_free(bytes);bytes=localBytes.data();}
@@ -103,6 +122,7 @@ int main(int argc,char **argv){
       CHECK(gitUpdate.transferResource(owner,false));CHECK(gitUpdate.closeTransfer(owner));CHECK(gitUpdate.releaseExternal(owner));return 0;
     }
     CHECK(result==GitUpdateRequest::accepted && !bytes && operation && operation!=123);
+    if(reserved)CHECK(operation==reserved);
     CHECK(!gitUpdate.retireTransfer(owner) && !gitUpdate.claimTransfer(owner,Fake::now));
     CHECK(gitUpdate.snapshot().manual);
     localSecurity.allowed=false;Fake::wallClock=0; // File installation works independently of LCD unlock and network time.
@@ -111,7 +131,7 @@ int main(int argc,char **argv){
     if(controllerScenario=="manualWriteFailure")Fake::failWrite=true;
     for(unsigned i=0;i<5;++i)controllerPump();
     CHECK(Fake::urls.empty() && !Fake::otaActivations && !shutdownCalls);
-    if(controllerScenario=="manualValid" || controllerScenario=="manualOldAssets"){
+    if(controllerScenario=="manualValid" || controllerScenario=="manualOldAssets" || controllerScenario=="manualReserved"){
       CHECK(modelSaves==1 && restartPending());Fake::now+=500;controllerPump();CHECK(shutdownCalls==1 && Fake::otaActivations==1);return 0;
     }
     CHECK(!gitUpdate.busy() && !gitUpdateControllerPaused() && !Fake::activeAllocations);

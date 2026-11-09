@@ -32,6 +32,7 @@ GitUpdateSnapshot view;
 ManualUpdateLifecycle manualTransfer;
 GitUpdateInstallHooks installHooks;
 uint64_t installLease=0;
+uint64_t reservedManualLease=0;
 #if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
 bool matches(const GitUpdateCandidate &a,const GitUpdateCandidate &b) {
   return a.generation==b.generation && a.size==b.size &&
@@ -83,6 +84,7 @@ bool GitUpdateClass::acquireExternal(GitUpdateExternalOwner kind,GitUpdateOwnerT
   Guard guard;
   if(!acquire(requested)) return false;
   token.generation=ownerGeneration;token.kind=kind;
+  view.operation=0;view.manual=false;
   view.compatible=false;view.canPrepare=false;view.candidate={};
   if(view.phase!=GitUpdatePhase::unavailable) view.phase=GitUpdatePhase::idle;
   return true;
@@ -156,7 +158,13 @@ ManualUpdateCleanup GitUpdateClass::claimTransferCleanup(uint64_t now) {
   return owns(work.token) ? work : ManualUpdateCleanup{};
 }
 bool GitUpdateClass::closeTransfer(const GitUpdateOwnerToken &token) {
-  Guard guard;return owns(token) && manualTransfer.close(token);
+  Guard guard;
+  if(!owns(token) || !manualTransfer.close(token))return false;
+  if(reservedManualLease==token.generation) {
+    reservedManualLease=0;view.phase=GitUpdatePhase::error;
+    view.reason=GitUpdateReason::admission;view.cancellable=false;
+  }
+  return true;
 }
 bool GitUpdateClass::busy() const { Guard guard;return owner!=Owner::none; }
 GitUpdateSnapshot GitUpdateClass::snapshot() const {
@@ -667,6 +675,16 @@ GitUpdateRequest GitUpdateClass::requestInstall(const GitUpdateCandidate &expect
   return GitUpdateRequest::accepted;
 }
 GitUpdateRequest GitUpdateClass::requestCheck() { return queue(false,{}); }
+bool GitUpdateClass::reserveManualInstall(const GitUpdateOwnerToken &source,uint64_t &operation) {
+  const auto now=transferNow();Guard guard;
+  if(!owns(source) || source.kind!=GitUpdateExternalOwner::manual || reservedManualLease || installLease ||
+     !workerTask.load() || !installHooks.manual || !candidateGeneration || candidateGeneration==UINT64_MAX ||
+     !manualTransfer.firmwareQueuedClaimed(source,now))return false;
+  reservedManualLease=source.generation;operation=view.operation=++candidateGeneration;
+  view.manual=true;view.compatible=view.canPrepare=view.cancellable=false;view.candidate={};
+  view.phase=GitUpdatePhase::queued;view.reason=GitUpdateReason::none;view.progress=0;
+  return true;
+}
 GitUpdateRequest GitUpdateClass::requestManualInstall(const GitUpdateOwnerToken &source,uint8_t *&bytes,size_t size,uint64_t securityRevision,uint64_t &operation) {
   if(!bytes || !esp_ptr_external_ram(bytes) || size<1024 || size>GitUpdatePolicy::APP_BYTES)return GitUpdateRequest::unavailable;
   std::unique_ptr<Buffer> staged(new(std::nothrow)Buffer(nullptr,size));
@@ -675,9 +693,10 @@ GitUpdateRequest GitUpdateClass::requestManualInstall(const GitUpdateOwnerToken 
   {
     Guard guard;
     if(!owns(source) || source.kind!=GitUpdateExternalOwner::manual || installLease || installImage ||
-       !workerTask.load() || !installHooks.manual || !securityRevision || candidateGeneration==UINT64_MAX ||
+       !workerTask.load() || !installHooks.manual || !securityRevision ||
+       (reservedManualLease!=source.generation && candidateGeneration==UINT64_MAX) ||
        !manualTransfer.firmwareQueuedClaimed(source,now))return GitUpdateRequest::unavailable;
-    ticket=++candidateGeneration;
+    ticket=reservedManualLease==source.generation ? view.operation : ++candidateGeneration;
   }
   if(!installHooks.manual(source,ticket,securityRevision))return GitUpdateRequest::unavailable;
   const auto adoptedAt=transferNow();
@@ -685,6 +704,7 @@ GitUpdateRequest GitUpdateClass::requestManualInstall(const GitUpdateOwnerToken 
     Guard guard;
     if(!owns(source) || installLease || !manualTransfer.adoptFirmware(source,adoptedAt))return GitUpdateRequest::unavailable;
     manualTransfer.resource(source,false); // The staged buffer transfers to this service; no SDK handle is open.
+    reservedManualLease=0;
     staged->data=bytes;bytes=nullptr;installImage=std::move(staged);
     installLease=runningLease=source.generation;installSource=source;operationExpected={};
     operation=view.operation=ticket;view.manual=true;view.compatible=view.canPrepare=false;view.candidate={};
@@ -739,6 +759,7 @@ GitUpdateRequest GitUpdateClass::requestCheck() { Guard guard;return owner==Owne
 GitUpdateRequest GitUpdateClass::requestCheck(uint64_t &){return requestCheck();}
 GitUpdateRequest GitUpdateClass::requestPrepare(const GitUpdateCandidate &) { return requestCheck(); }
 GitUpdateRequest GitUpdateClass::requestInstall(const GitUpdateCandidate &,uint64_t &) { return requestCheck(); }
+bool GitUpdateClass::reserveManualInstall(const GitUpdateOwnerToken &,uint64_t &){return false;}
 GitUpdateRequest GitUpdateClass::requestManualInstall(const GitUpdateOwnerToken &,uint8_t *&,size_t,uint64_t,uint64_t &){return requestCheck();}
 bool GitUpdateClass::activateInstall(uint64_t){return false;}
 void GitUpdateClass::finishInstallRestart(uint64_t,bool){}
