@@ -8,7 +8,6 @@
 #include "LoopQueue.h"
 #include "ModelCommitService.h"
 #include "SomfyEditor.h"
-#include "Utils.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unity.h>
@@ -77,7 +76,8 @@ struct SomfyShadeController {
   }
 } somfy;
 LoopQueue loopQueue;
-rebootDelay_t rebootDelay;
+static bool pendingRestart = false;
+bool restartPending() { return pendingRestart; }
 static unsigned pendingCount = 0, applies = 0, commits = 0;
 static bool expireAllocation = false, restartAllocation = false,
             memberMoves = false, blockAllocation = false;
@@ -87,7 +87,7 @@ static void *acquire(size_t n) {
   if (expireAllocation)
     ++LocalUi::security.generation;
   if (restartAllocation)
-    rebootDelay.reboot = true;
+    pendingRestart = true;
   if (memberMoves)
     somfy.shades[0].idle = false;
   if (blockAllocation)
@@ -173,7 +173,7 @@ void setUp() {
   LocalUi::security = {AuthMode::none, true, false, 1, 1};
   pendingCount = applies = commits = 0;
   expireAllocation = restartAllocation = memberMoves = blockAllocation = false;
-  rebootDelay = {};
+  pendingRestart = false;
   file = ModelCommitState::saved;
   TEST_ASSERT_FALSE(gitUpdate.busy());
 }

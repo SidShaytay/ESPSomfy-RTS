@@ -1,20 +1,18 @@
 #ifdef ESPSOMFY_LOCAL_UI
 #include "LocalAdvancedRuntime.h"
 #include "GroupReadiness.h"
-#include "LegacyRestartSource.h"
 #include "LocalEntityRuntime.h"
 #include "LocalOperationAdmission.h"
 #include "LocalUiAuthorizationAdapter.h"
 #include "LoopQueue.h"
 #include "ModelCommitService.h"
+#include "SafeRestart.h"
 #include "Somfy.h"
 #include "SomfyEditor.h"
-#include "Utils.h"
 #include <stdio.h>
 #include <string.h>
 extern SomfyShadeController somfy;
 extern LoopQueue loopQueue;
-extern rebootDelay_t rebootDelay;
 namespace LocalUi {
 namespace Advanced {
 using namespace EntityAdmin;
@@ -57,7 +55,7 @@ class RuntimeBackend final : public Backend {
         revision != this->revision())
       return Admission::stale;
     if ((lease ? !lease->owns() : gitUpdate.busy()) || loopQueue.pending() ||
-        snapshotLegacyRestart(rebootDelay).reboot)
+        restartPending())
       return Admission::busy;
     Context current;
     if (!capture(target, current) || !expected.same(current))
