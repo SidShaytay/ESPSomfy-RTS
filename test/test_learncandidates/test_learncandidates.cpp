@@ -79,6 +79,12 @@ static void address_highwater_covers_formats_even_at_capacity() {
   LearnSelection selection;
   TEST_ASSERT_EQUAL(LearnCheck::changed, cache.select(0, 10, selection));
   TEST_ASSERT_TRUE(cache.overflowed());
+  // A second dropped format must retain the ADDRESS maximum and make its
+  // lower counter sticky; it cannot lower the first format's admission bound.
+  heard(hub, 11, 1, 90, 80);
+  cache.candidate(0, first);
+  TEST_ASSERT_EQUAL(101, first.highwater);
+  TEST_ASSERT_EQUAL(LearnCheck::regressed, cache.select(0, 12, selection));
   cache.end();
   cache.begin(20);
   heard(hub, 21, 1, 100);
