@@ -8,7 +8,12 @@
 #include "GitUpdate.h"
 #include "Utils.h"
 #include "RollingCode.h"
+#include "LoopQueue.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 #include <nvs.h>
+#include "esp_log.h"
+static const char *TAG="Counter test";
 #define TRANSCEIVER_H
 // Replace only the hardware container; policy and reservation bodies below
 // are the actual production methods operating on the actual scheduler.
@@ -29,7 +34,11 @@ struct TxQueueLock {std::lock_guard<std::mutex> held;TxQueueLock():held(txLock){
 SomfyShadeController::SomfyShadeController() : startingAddress(100) {}
 SomfyShadeController somfy;
 rebootDelay_t rebootDelay;
-static unsigned fileWrites=0,forbidden=0;
+static unsigned fileWrites=0,forbidden=0,setupFrames=0;
+static bool allowSetupSend=false;
+static unsigned long modelNow=1;
+static unsigned long modelClock(){return modelNow;}
+LoopQueue loopQueue;
 static ModelCommitResult fileResult{ModelCommitState::saved};
 static uint16_t diskShade[SOMFY_MAX_SHADES],diskGroup[SOMFY_MAX_GROUPS];
 static uint32_t diskLinks[SOMFY_MAX_SHADES][SOMFY_MAX_LINKED_REMOTES];
@@ -49,23 +58,26 @@ ModelCommitResult SomfyShadeController::commit() {
 bool SomfyRemote::isLastCommand(somfy_commands){++forbidden;return false;}
 uint16_t SomfyRemote::setRollingCode(uint16_t){++forbidden;return 0;}
 bool SomfyRemote::sendCommand(somfy_commands){++forbidden;return false;}
-bool SomfyRemote::sendCommand(somfy_commands,uint8_t,uint8_t){++forbidden;return false;}
+bool SomfyRemote::sendCommand(somfy_commands cmd,uint8_t,uint8_t){
+  if(allowSetupSend){++setupFrames;lastFrame.valid=true;lastFrame.cmd=cmd;return true;}
+  ++forbidden;return false;
+}
 void SomfyRemote::triggerGPIOs(somfy_frame_t &){++forbidden;}
 bool SomfyShade::sendCommand(somfy_commands){++forbidden;return false;}
 bool SomfyShade::sendCommand(somfy_commands,uint8_t,uint8_t){++forbidden;return false;}
 void SomfyShade::triggerGPIOs(somfy_frame_t &){++forbidden;}
 bool SomfyShade::gpioCommandAllowed(somfy_commands){++forbidden;return false;}
 send_result_t SomfyShade::send(somfy_commands,uint8_t,uint8_t,uint16_t,bool){++forbidden;return {};}
-void SomfyShade::onSaveWanted(){++forbidden;}
+void SomfyShade::onSaveWanted(){somfy.isDirty=true;}
 void SomfyShade::onSensorFlags(){++forbidden;}
-void SomfyShade::emitCommand(somfy_commands,const char*,uint32_t){++forbidden;}
-bool SomfyGroup::sendCommand(somfy_commands){++forbidden;return false;}
-bool SomfyGroup::sendCommand(somfy_commands,uint8_t,uint8_t){++forbidden;return false;}
+void SomfyShade::emitCommand(somfy_commands,const char*,uint32_t){}
+#define millis modelClock
 #include "production-counter.inc"
+#undef millis
 #include "../../src/ExplicitCounter.cpp"
 static constexpr uint32_t address=12345;
 static void reset() {
-  assert(!gitUpdate.busy() && !forbidden);FakeNvs::reset();rebootDelay={};fileWrites=forbidden=0;fileResult={ModelCommitState::saved};
+  assert(!gitUpdate.busy() && !forbidden);FakeNvs::reset();rebootDelay={};fileWrites=forbidden=setupFrames=0;allowSetupSend=false;modelNow=1;fileResult={ModelCommitState::saved};
   memset(diskShade,0,sizeof(diskShade));memset(diskGroup,0,sizeof(diskGroup));memset(diskLinks,0,sizeof(diskLinks));
   tx_queue.length=0;somfy.transceiver.sched={};somfy.transceiver.counterEdits={};somfy.configurationRevision=1;
   for(auto &s:somfy.shades){s.clear();s.lastFrame={};s.gpioRelease=0;s.configurationRevision=1;}
@@ -79,7 +91,56 @@ static void aliases() {
   other.linkedRemotes[6].setRemoteAddress(address);other.linkedRemotes[6].lastRollingCode=1400;
   auto &g=somfy.groups[3];g.setGroupId(12);g.setRemoteAddress(address);g.lastRollingCode=1500;g.linkedShades[0]=7;
 }
-int main() {
+int main(int argc,char **argv) {
+  loopQueue.begin();
+  if(argc>1 && !strcmp(argv[1],"completedGroup")) {
+    for(bool up:{false,true}) {
+      reset();auto &group=somfy.groups[15];group.setGroupId(16);group.setRemoteAddress(address);
+      group.linkedShades[30]=255;group.linkedShades[31]=7;
+      auto &shade=somfy.shades[0];shade.upTime=shade.downTime=100;shade.restore(up?100:0,0,-1,-1);
+      allowSetupSend=true;assert(group.sendCommand(up?somfy_commands::Up:somfy_commands::Down,1));allowSetupSend=false;
+      assert(group.direction==(up?-1:1) && !shade.idleForAdministration());
+      modelNow=2;shade.checkMovement();modelNow=1002;shade.checkMovement();
+      assert(group.direction==(up?-1:1) && shade.idleForAdministration() && setupFrames==1);
+      assert(correctExplicitCounter(7,100).saved() && setupFrames==1 && !forbidden);
+    }
+    puts("Completed production group movement permits checked alias correction");return 0;
+  }
+  if(argc>1 && !strcmp(argv[1],"unknownGroup")) {
+    for(auto cmd:{somfy_commands::Up,somfy_commands::Down,somfy_commands::My,somfy_commands::StepUp,
+        somfy_commands::StepDown,somfy_commands::Toggle,somfy_commands::Favorite}) {
+      reset();auto &group=somfy.groups[15];group.setGroupId(16);group.setRemoteAddress(address);
+      group.lastFrame.valid=true;group.lastFrame.cmd=cmd;
+      assert(!correctExplicitCounter(7,100).saved() && !FakeNvs::opens && somfy.configurationRevision==1);
+      assert(!linkExplicitRemote(7,address,100).saved() && !FakeNvs::opens && somfy.configurationRevision==1);
+    }
+    reset();auto &group=somfy.groups[15];group.setGroupId(16);group.setRemoteAddress(address);group.linkedShades[31]=31;
+    assert(!correctExplicitCounter(7,100).saved() && !FakeNvs::opens); // Missing is stricter even without cached motion evidence.
+    group.linkedShades[31]=255;group.lastFrame.valid=false;group.lastFrame.cmd=somfy_commands::Down;
+    assert(correctExplicitCounter(7,100).saved()); // No members/evidence; known primary remains tracked.
+    puts("Shared group classifier refuses unknown motion/missing members without inventing cached motion");return 0;
+  }
+  if(argc>1 && !strcmp(argv[1],"pendingRecovery")) {
+    reset();fileResult={ModelCommitState::failed,ModelCommitStage::write};
+    assert(correctExplicitCounter(7,100).applied);const auto revision=somfy.configurationRevision;
+    loop_item_t stop;stop.type=loop_item_type_t::local_control;stop.localToken=77;stop.localRadio=true;
+    assert(loopQueue.submit(stop));const auto sets=FakeNvs::sets;
+    fileResult={ModelCommitState::saved};assert(recoverExplicitCounterFile().saved());
+    assert(somfy.configurationRevision==revision && loopQueue.pending()==1 && lastLocalToken==77 && FakeNvs::sets==sets);
+    puts("File-only recovery preserves accepted STOP/history without repeating NVS");return 0;
+  }
+  if(argc>1 && !strcmp(argv[1],"pending")) {
+    reset();loop_item_t stop;stop.type=loop_item_type_t::local_control;stop.localToken=77;stop.localRadio=true;
+    assert(loopQueue.submit(stop));const auto revision=somfy.configurationRevision;
+    const auto entity=somfy.shades[0].configurationRevision;
+    for(bool link:{false,true}) {
+      const auto result=link ? linkExplicitRemote(7,555,100) : correctExplicitCounter(7,100);
+      assert(result.state==CounterDomainState::busy && !result.applied && !FakeNvs::opens && !fileWrites);
+      assert(somfy.configurationRevision==revision && somfy.shades[0].configurationRevision==entity && somfy.shades[0].lastFrame.valid);
+      assert(loopQueue.pending()==1 && lastLocalToken==77 && !gitUpdate.busy());
+    }
+    puts("Real LoopQueue preserves accepted unrelated STOP while correction/link refuse");return 0;
+  }
   reset();aliases();auto result=correctExplicitCounter(7,100);
   assert(result.saved() && result.applied && fileWrites==1 && FakeNvs::sets==1 && FakeNvs::commits==1);
   assert(!gitUpdate.busy() && !somfy.transceiver.counterEditUncertain());

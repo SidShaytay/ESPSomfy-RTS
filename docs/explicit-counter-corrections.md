@@ -7,9 +7,17 @@ caller wiring are reviewed. The following describes the checked domain only.
 An explicit primary correction or linked-remote code acquires the existing
 GitUpdate counter owner, then reserves its identity under the TX queue lock.
 Admission checks affected shades, group aliases and related queued group work.
+Group readiness uses the shared complete-member classifier: fully tracked idle
+members remain eligible after a completed Up/Down even when the group remembers
+that direction. Missing members, active members or untracked movement evidence
+refuse a correction. Empty physical slots (0/255) are ignored.
 Motion, a pending behaviour operation, an active GPIO pulse, waiting/taken TX,
 any repeater work, TX suspension or a pending restart refuses the edit. There
-is no queue flush or radio operation. Locks are released before NVS/file I/O.
+is no queue flush or radio operation. Before correction or linking, the loop
+queue must have no pending work (the current popped marker is excluded).
+Otherwise the operation refuses without changing history, preserving an already
+accepted unrelated STOP. File-only recovery does not change that history and
+retains its existing queue allowance. Locks are released before NVS/file I/O.
 
 The NVS writer checks open, set, commit and readback. A definite pre-write
 failure leaves running counters and a proposed new link unchanged. Once a
