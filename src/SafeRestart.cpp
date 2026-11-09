@@ -165,8 +165,8 @@ RestartSubmission submitRestart(uint32_t delay){return SafeRestartDetail::submit
 RestartSubmission submitOwnedRestart(const GitUpdateOwnerToken &source,uint32_t delay){return SafeRestartDetail::submit(delay,source,true);}
 bool restartTransferBlocked() {
   SafeRestartDetail::Guard guard;
-  return !SafeRestartDetail::initialized || SafeRestartDetail::coordinator.snapshot().pending() ||
-      SafeRestartDetail::cached.refusal!=RestartReason::none || SafeRestartDetail::coordinator.requiresModelRecovery();
+  return !SafeRestartDetail::initialized || !SafeRestartDetail::coordinator.updatePrecheck(SafeRestartDetail::cached) ||
+      SafeRestartDetail::coordinator.requiresModelRecovery();
 }
 bool restartPending(){SafeRestartDetail::Guard guard;return SafeRestartDetail::coordinator.snapshot().pending();}
 RestartSnapshot restartStatus(){SafeRestartDetail::Guard guard;return SafeRestartDetail::coordinator.snapshot();}

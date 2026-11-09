@@ -63,6 +63,11 @@ int main(int argc,char **argv) {
   assert(argc==2);const std::string mode=argv[1];tick(100);
   assert(submitRestart()==RestartSubmission::refused);assert(!restartPending());assert(!clockReads);
   assert(!restartLoop());
+  if(mode=="invalidCache") {
+    somfy.configurationRevision=0;assert(!restartLoop());
+    const auto reads=clockReads;assert(restartTransferBlocked());assert(clockReads==reads);
+    assert(submitRestart()==RestartSubmission::refused && !commits);return 0;
+  }
   if(mode=="readWaiting" || mode=="readFlood") {
     assert(requestRestart(500).admitted);queued=1;tick(200);
     assert(!restartLoop() && restartPending() && !commits);
