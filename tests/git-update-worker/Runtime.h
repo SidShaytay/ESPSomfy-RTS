@@ -56,7 +56,9 @@ inline uint32_t bundleFlags=0;
 inline bool expiredCertificate=false,futureCertificate=false,expiredIntermediate=false,missingVerify=false;
 inline bool failBegin=false,failWrite=false,failEnd=false,failActivate=false,allocationFail=false;
 inline bool cancelledDuringPrepare=false,cancelDuringWrite=false,cancelAcceptedDuringWrite=false;
-inline bool autoLoop=true;
+inline bool autoLoop=true,inFlash=false,failAbort=false,wrongBootReadback=false;
+inline std::function<void()> onWrite,onBegin,onEnd;
+inline std::map<void*,int> allocationCaps;
 inline bool extraAppPartition=false,extraOtaPartition=false;
 inline unsigned prepareCalls=0,otaBegins=0,otaWrites=0,otaEnds=0,otaActivations=0,otaAborts=0;
 inline uint32_t otaAddress=0;
@@ -83,11 +85,12 @@ inline std::vector<std::string> urls;
 extern "C" time_t __wrap_time(time_t *out) { if(out) *out=Fake::wallClock;return Fake::wallClock; }
 inline uint32_t esp_random() { assert(Fake::criticalDepth==0);++Fake::randomCalls;return Fake::randomWord; }
 inline uint32_t millis() { return Fake::now; }
+inline int64_t esp_timer_get_time(){return int64_t(Fake::now)*1000;}
 inline void *heap_caps_malloc(size_t bytes,int caps) {
   assert(Fake::criticalDepth==0);
-  assert(caps==(MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
+  assert(caps==(MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT) || (caps==(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT) && Fake::prepareCalls));
   if(Fake::allocationFail || (Fake::failAllocationAfter>=0 && int(Fake::allocationCalls++)>=Fake::failAllocationAfter)) return nullptr;
-  void *p=std::malloc(bytes);if(p) ++Fake::activeAllocations;return p;
+  void *p=std::malloc(bytes);if(p){++Fake::activeAllocations;Fake::allocationCaps[p]=caps;}return p;
 }
 inline void *heap_caps_aligned_alloc(size_t alignment,size_t bytes,int caps) {
   assert(Fake::criticalDepth==0);
@@ -180,21 +183,25 @@ enum esp_ota_img_states_t { ESP_OTA_IMG_VALID=0,ESP_OTA_IMG_PENDING_VERIFY=1,ESP
 inline esp_ota_img_states_t fakeImageState=ESP_OTA_IMG_VALID;
 inline const esp_partition_t *esp_ota_get_running_partition() { return &runningPartition; }
 inline const esp_partition_t *esp_ota_get_next_update_partition(void *) { return &nextPartition; }
+inline const esp_partition_t *fakeBootPartition=&runningPartition;
+inline const esp_partition_t *esp_ota_get_boot_partition(){return Fake::wrongBootReadback?&runningPartition:fakeBootPartition;}
 inline const esp_partition_t *esp_partition_find_first(int,int subtype,const char *) { return subtype==ESP_PARTITION_SUBTYPE_DATA_SPIFFS ? &fsPartition : &nvsPartition; }
 inline esp_err_t esp_ota_get_state_partition(const esp_partition_t *,esp_ota_img_states_t *state) { *state=fakeImageState;return ESP_OK; }
 using esp_ota_handle_t=uint32_t;
 inline esp_err_t esp_ota_begin(const esp_partition_t *partition,size_t,esp_ota_handle_t *handle) {
-  Fake::otaBegins++;Fake::otaAddress=partition->address;*handle=1;return Fake::failBegin ? ESP_FAIL : ESP_OK;
+  Fake::otaBegins++;Fake::otaAddress=partition->address;if(Fake::onBegin)Fake::onBegin();if(Fake::failBegin)return ESP_FAIL;*handle=1;return ESP_OK;
 }
 inline esp_err_t esp_ota_write(esp_ota_handle_t,const void *data,size_t bytes) {
-  Fake::otaWrites++;
+  Fake::otaWrites++;assert(Fake::allocationCaps.at(const_cast<void*>(data))==(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT));
+  struct Active{Active(){Fake::inFlash=true;}~Active(){Fake::inFlash=false;}}active;
+  if(Fake::onWrite)Fake::onWrite();
   if(Fake::cancelDuringWrite) Fake::cancelAcceptedDuringWrite=gitUpdate.requestCancel();
   if(Fake::failWrite) return ESP_FAIL;
   const auto *p=static_cast<const uint8_t *>(data);Fake::written.insert(Fake::written.end(),p,p+bytes);return ESP_OK;
 }
-inline esp_err_t esp_ota_abort(esp_ota_handle_t) { Fake::otaAborts++;return ESP_OK; }
-inline esp_err_t esp_ota_end(esp_ota_handle_t) { Fake::otaEnds++;return Fake::failEnd ? ESP_FAIL : ESP_OK; }
-inline esp_err_t esp_ota_set_boot_partition(const esp_partition_t *) { Fake::otaActivations++;return Fake::failActivate ? ESP_FAIL : ESP_OK; }
+inline esp_err_t esp_ota_abort(esp_ota_handle_t) { Fake::otaAborts++;return Fake::failAbort?ESP_FAIL:ESP_OK; }
+inline esp_err_t esp_ota_end(esp_ota_handle_t) { Fake::otaEnds++;if(Fake::onEnd)Fake::onEnd();return Fake::failEnd ? ESP_FAIL : ESP_OK; }
+inline esp_err_t esp_ota_set_boot_partition(const esp_partition_t *partition) { Fake::otaActivations++;if(Fake::failActivate)return ESP_FAIL;fakeBootPartition=partition;return ESP_OK; }
 struct esp_image_header_t { uint8_t magic;uint8_t rest[11];uint16_t chip_id;uint8_t tail[10]; } __attribute__((packed));
 constexpr uint8_t ESP_IMAGE_HEADER_MAGIC=0xe9;
 constexpr uint16_t ESP_CHIP_ID_ESP32S3=9;

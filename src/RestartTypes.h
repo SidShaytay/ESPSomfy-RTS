@@ -2,7 +2,7 @@
 #include <stdint.h>
 enum class RestartReason : uint8_t {
   none, settingsUncertain, modelFailed, modelUncertain, queuedOperations,
-  pending, stale, cancelled, exhausted, clock, invalidRequest, notReady, persistenceBusy, counterUncertain, activeMovement, unknownGroup, modelUnavailable, securityUnavailable, settingsUnavailable
+  pending, stale, cancelled, exhausted, clock, invalidRequest, notReady, persistenceBusy, counterUncertain, activeMovement, unknownGroup, modelUnavailable, securityUnavailable, settingsUnavailable, activationFailed
 };
 struct RestartResult {
   bool admitted=false;

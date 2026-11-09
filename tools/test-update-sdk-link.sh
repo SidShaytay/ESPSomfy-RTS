@@ -10,7 +10,8 @@ scratch="$(mktemp -d)"
 trap 'rm -rf -- "$scratch"' EXIT
 cat > "$scratch/link.py" <<'PY'
 Import('env')
-env.Append(LINKFLAGS=['-Wl,--undefined=_ZN14GitUpdateClass5beginEPF22GitUpdateReadAdmissionvE',
+env.Append(LINKFLAGS=['-Wl,--undefined=_ZN14GitUpdateClass5beginEPF22GitUpdateReadAdmissionvE21GitUpdateInstallHooks',
+                      '-Wl,--undefined=_Z24beginGitUpdateControllerv',
                       '-Wl,--undefined=_Z20gitUpdateMemoryBeginv'])
 PY
 python3 - "$repo" "$scratch" <<'PY'

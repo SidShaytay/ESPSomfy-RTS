@@ -10,3 +10,5 @@ trap 'rm -rf -- "$scratch"' EXIT
  "$repo/src/GitUpdate.cpp" "$repo/src/SettingsDurability.cpp" "$repo/src/SomfyFrame.cpp" -o "$scratch/restart"
 for case in badLoad settingsLoad radioLoad security lateSecurity beforeFinalSecurity invalidCache readWaiting readFlood allowed clockWrap dirty initialFailure cancelIO counter settings moving held pulse groupUnknown queue radio finalFailure lateSettings lateHistory cancelFinal queueSealRace radioSealRace operation failureRetry revision rollback asyncStale asyncAge ownedCancel ownedExpired ownedHandoff claimed;do "$scratch/restart" "$case";done
 printf 'Actual SafeRestart service: history, source, two-phase I/O and final barriers passed\n'
+for case in installAllowed installClaimed installWrongRadio installMissingQueue installStale installSelectionFailure installCancel installSourceFinal installLateSource installCommitFailure installSealLost installQueueLost installMissingCallback installZeroOperation;do "$scratch/restart" "$case";done
+printf 'Retained installer seals and final-only boot selection passed\n'

@@ -1,17 +1,18 @@
 #pragma once
 #include <ArduinoJson.h>
 #include "GitUpdateOwner.h"
+#include "RadioUpdateActivity.h"
 #include <cstddef>
 #include <cstdint>
 
-// One shared updater service. This stage only checks/revalidates metadata;
-// no installer, startup invocation, route or automatic network request exists.
-enum class GitUpdatePhase : uint8_t { unavailable, idle, queued, checking, available, current, preparing, prepared, changed, cancelled, error };
+// One shared updater service. Installation callbacks are an unfinished draft:
+// startup/UI wiring and postboot acceptance remain unfinished.
+enum class GitUpdatePhase : uint8_t { unavailable, idle, queued, checking, available, current, preparing, prepared, changed, cancelled, error, downloading, verifying, writing, written, cleanupPending };
 enum class GitUpdateReason : uint8_t {
   none, unsupported, notStarted, development, memory, admission, clock, hardware,
   layout, bootloader, assets, transport, headers, redirect, notPublished, body,
   metadata, repository, manifest, digest, compatibility, noNewerRelease, cancelled,
-  timeout, candidateChanged, invalidCandidate, settingsUncertain, certificateTime, freshness
+  timeout, candidateChanged, invalidCandidate, settingsUncertain, certificateTime, freshness, invalidImage, writeFailed, activationFailed
 };
 enum class GitUpdateRequest : uint8_t { accepted, busy, unavailable, invalidCandidate };
 struct GitUpdateCandidate {
@@ -38,15 +39,28 @@ const char *gitUpdateReason(GitUpdateReason reason);
 const char *gitUpdatePhase(GitUpdatePhase phase);
 enum class ManualUpdateKind : uint8_t;
 struct ManualUpdateCleanup;
+// Callbacks run on loop(), never on the transport/flash worker or under its
+// lock. The existing manual owner/lifecycle carries the installation too.
+struct GitUpdateInstallPreparation {bool ready=false;RadioInstallToken radio;};
+struct GitUpdateInstallHooks {
+  bool (*current)(uint64_t operation)=nullptr;
+  GitUpdateInstallPreparation (*prepare)(const GitUpdateOwnerToken &)=nullptr;
+  bool (*cleanup)(const GitUpdateOwnerToken &,const RadioInstallToken &)=nullptr;
+  void (*written)(const GitUpdateOwnerToken &,const RadioInstallToken &)=nullptr;
+};
 class GitUpdateClass {
 public:
   // loop() alone invokes admission. The worker never owns model/settings data.
   // Global TLS allocation must already be initialized before ANY mbedTLS allocation, including token HMAC.
   // begin() and loop() are loop-owned; request/snapshot/owner methods are thread-safe.
-  void begin(GitUpdateReadAdmission (*admit)()=nullptr);
+  void begin(GitUpdateReadAdmission (*admit)()=nullptr,GitUpdateInstallHooks hooks={});
   void loop();
   GitUpdateRequest requestCheck();
   GitUpdateRequest requestPrepare(const GitUpdateCandidate &expected);
+  GitUpdateRequest requestInstall(const GitUpdateCandidate &,uint64_t &operation);
+  // Loop only, after SafeRestart's final take and exact source handoff.
+  bool activateInstall(uint64_t operation);
+  void finishInstallRestart(uint64_t operation,bool mayClean);
   bool requestCancel();
   bool acquireExternal(GitUpdateExternalOwner kind,GitUpdateOwnerToken &token);
   bool releaseExternal(const GitUpdateOwnerToken &token);
@@ -64,6 +78,7 @@ public:
   bool claimTransferRecovery(const GitUpdateOwnerToken &,uint64_t now);
   bool transferRestoreClaimed(const GitUpdateOwnerToken &,uint64_t now);
   bool transferRestartHeld(const GitUpdateOwnerToken &,uint64_t now);
+  bool transferRestartReady(const GitUpdateOwnerToken &,uint64_t now);
   // Atomic handoff to the same non-expiring owner, held through actual shutdown.
   // A nonzero expected source never falls back to a generic owner-none restart.
   bool acquireRestart(GitUpdateOwnerToken &result,uint64_t now,const GitUpdateOwnerToken &expected = {});

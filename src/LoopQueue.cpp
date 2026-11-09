@@ -62,6 +62,7 @@ bool LoopQueue::sealForRestart() {
   if(producers.load() || pending()) {restartSealed.store(false);return false;}
   return true;
 }
+bool LoopQueue::restartSealHeld() const {return restartSealed.load() && !producers.load() && !pending();}
 void LoopQueue::reopenAfterRefusedRestart() {restartSealed.store(false);}
 uint32_t LoopQueue::pending() const {
   return this->queue ? uxQueueMessagesWaiting(static_cast<QueueHandle_t>(this->queue)) : 0;
