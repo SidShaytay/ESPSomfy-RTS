@@ -118,6 +118,9 @@ public:
     if(!formInput.turn && !formInput.activate && !formInput.back) return false;
     out=formInput; formInput={}; return true;
   }
+  void openSettingsFromSystem() {
+    if(state.screen==Screen::system){formInput={};state.screen=Screen::settings;}
+  }
   void closeForm() {
     formInput={};state.selected=state.screen==Screen::administration?administrationHomeIndex:state.screen==Screen::system?systemHomeIndex:3;
     state.screen=Screen::home;
