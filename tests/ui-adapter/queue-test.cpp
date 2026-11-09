@@ -232,11 +232,43 @@ static void accepted_mutation_history_follows_actual_queue_result() {
   assert(loopQueue.sealForRestart());assert(!loopQueue.submit(write));assert(restartMutationNotes==notes);
   loopQueue.reopenAfterRefusedRestart();
 }
+struct LearnedIntent final:LearnPending {
+  LearnQueueReason validity=LearnQueueReason::ready,last=LearnQueueReason::ready;
+  uint64_t token=0;unsigned effects=0,cancellations=0,readsBefore=0;
+  LearnQueueReason current(uint64_t)override{return validity;}
+  void execute(uint64_t)override{assert(!localLearnTokenActive(token));++effects;readsBefore=loopReads;}
+  void cancelled(LearnQueueReason reason)override{assert(!localLearnTokenActive(token));++cancellations;last=reason;}
+};
+static void learned_intents_share_real_fifo_age_and_exact_cancellation() {
+  reset();LearnedIntent source;loop_item_t read;read.type=loop_item_type_t::proto_read;
+  assert(loopQueue.submit(read));auto admission=submitLocalLearn(source,authTestNow);source.token=admission.token;
+  assert(admission.reason==LearnQueueReason::ready && loopQueue.submit(read));loopQueue.drain();
+  assert(source.effects==1 && source.readsBefore==1 && loopReads==2 && sent.empty());runLocalLearn(source.token);assert(source.effects==1);
+  for(unsigned age:{4999u,5000u}) {
+    reset();LearnedIntent delayed;admission=submitLocalLearn(delayed,authTestNow);delayed.token=admission.token;
+    authTestNow+=age;loopQueue.drain();assert(delayed.effects==(age==4999?1u:0u));
+    assert(delayed.cancellations==(age==5000?1u:0u));if(age==5000)assert(delayed.last==LearnQueueReason::expired);
+  }
+  reset();somfy.transceiver.suspended=true;loop_item_t held;held.request.type=shade_request_type_t::unpair;held.request.id=7;
+  assert(loopQueue.submit(held));LearnedIntent behind;admission=submitLocalLearn(behind,authTestNow);behind.token=admission.token;
+  loopQueue.drain();assert(!behind.effects && localLearnTokenActive(behind.token));authTestNow+=5000;loopQueue.drain();
+  assert(!behind.effects && behind.last==LearnQueueReason::expired && loopQueue.pending()==2 && sent.empty());
+  somfy.transceiver.suspended=false;loopQueue.drain();assert(loopQueue.pending()==0 && sent.size()==1 && !behind.effects);
+  reset();auto*gone=new LearnedIntent;admission=submitLocalLearn(*gone,authTestNow);gone->token=admission.token;
+  assert(cancelLocalLearn(admission.token,*gone));delete gone;
+  LearnedIntent replacement;auto next=submitLocalLearn(replacement,authTestNow);replacement.token=next.token;assert(next.token>admission.token);
+  loopQueue.drain();assert(replacement.effects==1 && !localLearnTokenActive(admission.token) && sent.empty());
+  reset();for(unsigned i=0;i<LOOP_QUEUE_SIZE;i++)assert(loopQueue.submit(read));LearnedIntent full;
+  admission=submitLocalLearn(full,authTestNow);assert(admission.reason==LearnQueueReason::queueFull && !admission.token);
+  loopQueue.drain();assert(!full.effects && !full.cancellations);
+  admission=submitLocalLearn(full,authTestNow);full.token=admission.token;full.validity=LearnQueueReason::candidate;loopQueue.drain();
+  assert(!full.effects && full.last==LearnQueueReason::candidate && !localLearnTokenActive(full.token));
+}
 int main() {
   static_assert(sizeof(loop_item_t)<=80,"Queue markers must not copy target contexts into 32 slots");
   queueAllocationOK=false;loopQueue.begin();auto noQueue=reset();
   assert(dispatch(command(noQueue,Action::up))==DispatchResult::busy && !localControlPending() && sent.empty());
-  queueAllocationOK=true;loopQueue.begin();accepted_mutation_history_follows_actual_queue_result();restart_seal_preserves_every_accepted_item_and_refuses_late_submission();deferred_fifo_backpressure_and_cancel();age_clock_context_and_freeze_guards();
+  queueAllocationOK=true;loopQueue.begin();learned_intents_share_real_fifo_age_and_exact_cancellation();accepted_mutation_history_follows_actual_queue_result();restart_seal_preserves_every_accepted_item_and_refuses_late_submission();deferred_fifo_backpressure_and_cancel();age_clock_context_and_freeze_guards();
   invalid_or_active_replacement_sources_cannot_authorize_old_intents();
   stop_supersedes_only_same_authorized_context_at_fifo_tail();
   pending_stop_observes_idle_behind_a_held_head_and_never_gains_motion();

@@ -30,7 +30,8 @@ enum class loop_item_type_t : uint8_t {
   model_commit,    // persist current model only; no repeated edit/RF operation
   proto_read,      // answer a protocol 2 read op from the shade model
   proto_device,    // run a protocol 2 settings op or the WiFi scan (DeviceOps)
-  local_control    // loop-owned LCD intent token, freshly revalidated on drain
+  local_control,  // loop-owned LCD intent token, freshly revalidated on drain
+  local_advanced  // bounded loop-owned learned-link/file-recovery intent
 };
 struct model_edit_t;
 struct settings_save_t;
@@ -47,7 +48,7 @@ struct loop_item_t {
   uint8_t groupId = 0;            // proto_read: groupOptions' group
   uint8_t section = 0;            // proto_device: getSettings' settings_section_t
   settings_save_t *save = nullptr; // proto_device: saveSettings' save, which loop() frees
-  uint64_t localToken = 0;        // local_control: bounded adapter-owned slot
+  uint64_t localToken = 0;        // local_control/local_advanced: bounded loop-owned slot
   bool localRadio = false;       // exact admitted protocol, never inferred from row/request type
   GitUpdateOwnerToken externalOwner; // Exact queued upload/restore source; never request pointers.
 };
@@ -64,7 +65,7 @@ inline bool loopItemMutates(const loop_item_t &item) {
 }
 // Whether the item sends anything on air.
 inline bool loopItemUsesRadio(const loop_item_t &item) {
-  if(item.type == loop_item_type_t::local_control) return item.localToken && item.localRadio;
+  if(item.type == loop_item_type_t::local_control || item.type == loop_item_type_t::local_advanced) return item.localToken && item.localRadio;
   return item.type == loop_item_type_t::shade_request && shadeRequestUsesRadio(item.request.type);
 }
 // Whether the item at the head of the queue waits for the radio.  An HTTP or
