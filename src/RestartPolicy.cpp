@@ -18,7 +18,7 @@ const char *restartReason(RestartReason reason) {
   return index<sizeof(text)/sizeof(*text) ? text[index] : "Restart refused.";
 }
 RestartReason RestartPolicy::refusal(const RestartObservation &o) const {
-  if(!o.settingsEpoch || !o.modelEpoch) return RestartReason::exhausted;
+  if(!o.settingsEpoch || !o.modelEpoch || !o.modelConfigurationRevision || !o.operationEpoch) return RestartReason::exhausted;
   if(o.refusal!=RestartReason::none) return o.refusal;
   return o.operationsPending ? RestartReason::queuedOperations : RestartReason::none;
 }
@@ -31,14 +31,14 @@ bool RestartPolicy::observe(uint64_t now,const RestartObservation &o) {
   if(!value.pending()) return true;
   const auto reason=refusal(o);
   if(reason!=RestartReason::none) cancel(reason);
-  else if(value.settingsEpoch!=o.settingsEpoch || value.modelEpoch!=o.modelEpoch) cancel(RestartReason::stale);
+  else if(value.settingsEpoch!=o.settingsEpoch || value.modelEpoch!=o.modelEpoch || value.modelConfigurationRevision!=o.modelConfigurationRevision || value.operationEpoch!=o.operationEpoch) cancel(RestartReason::stale);
   return true;
 }
 RestartSubmission RestartPolicy::submit(uint32_t delayMs,const RestartObservation &o) {
   if(value.pending()) return RestartSubmission::busy;
   const auto reason=generation==UINT64_MAX ? RestartReason::exhausted : (validDelay(delayMs) ? refusal(o) : RestartReason::invalidRequest);
   if(reason!=RestartReason::none) { value.phase=RestartPhase::refused;value.reason=reason;return RestartSubmission::refused; }
-  value={RestartPhase::queued,RestartReason::none,o.settingsEpoch,o.modelEpoch,++generation};delay=delayMs;
+  value={RestartPhase::queued,RestartReason::none,o.settingsEpoch,o.modelEpoch,++generation};value.modelConfigurationRevision=o.modelConfigurationRevision;value.operationEpoch=o.operationEpoch;delay=delayMs;
   return RestartSubmission::queued;
 }
 bool RestartPolicy::admitQueued(uint64_t now,const RestartObservation &o,uint64_t expected) {

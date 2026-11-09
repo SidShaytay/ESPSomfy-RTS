@@ -74,6 +74,6 @@ void RestartCoordinator::modelCommitted(ModelCommitResult result) {
 }
 bool RestartCoordinator::acquireUpdate(RestartObservation observation,StorageLease &token) {
   const auto o=current(observation);
-  if(policy.snapshot().pending() || o.refusal!=RestartReason::none || o.operationsPending || !o.settingsEpoch || !o.modelEpoch) return false;
+  if(policy.snapshot().pending() || o.refusal!=RestartReason::none || o.operationsPending || !o.settingsEpoch || !o.modelEpoch || !o.modelConfigurationRevision || !o.operationEpoch) return false;
   return storage.acquire(StorageUse::exclusiveUpdate,token);
 }
