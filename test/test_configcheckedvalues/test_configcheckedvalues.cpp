@@ -29,4 +29,10 @@ static void checked_field_count_distinguishes_missing_from_explicit_defaults_and
  Input in("1\n257,");in.beginCheckedValues();in.readUInt8();in.readUInt8();auto state=in.endCheckedValues();TEST_ASSERT_TRUE(state.valid);TEST_ASSERT_EQUAL(1,state.fields);
  in.beginRecord();TEST_ASSERT_EQUAL_UINT8(1,in.readUInt8()); // Legacy conversion remains unchanged outside checked mode.
 }
-int main(){UNITY_BEGIN();RUN_TEST(checked_numeric_values_never_wrap_truncate_or_accept_junk);RUN_TEST(checked_boolean_and_float_values_require_complete_canonical_tokens);RUN_TEST(checked_text_preserves_exact_bytes_and_refuses_truncation_or_unterminated_values);RUN_TEST(checked_field_count_distinguishes_missing_from_explicit_defaults_and_restores_legacy_mode);return UNITY_END();}
+static void checked_fixed_width_names_require_complete_payload_and_separator(){
+ char name[5];Input good("a,b ,7,");good.beginCheckedValues();TEST_ASSERT_TRUE(good.readFixedString(name,sizeof(name)));TEST_ASSERT_EQUAL_STRING("a,b",name);TEST_ASSERT_EQUAL_UINT8(7,good.readUInt8());auto state=good.endCheckedValues();TEST_ASSERT_TRUE(state.valid);TEST_ASSERT_EQUAL(2,state.fields);
+ for(const char *raw:{"abc,", "ab\n,7,", "abcd;7,", "abcd"}){Input bad(raw);bad.beginCheckedValues();TEST_ASSERT_FALSE(bad.readFixedString(name,sizeof(name)));TEST_ASSERT_FALSE(bad.endCheckedValues().valid);}
+ Input nul("");nul.bytes=std::string("a\0bc,",5);nul.beginCheckedValues();TEST_ASSERT_FALSE(nul.readFixedString(name,sizeof(name)));TEST_ASSERT_FALSE(nul.endCheckedValues().valid);
+ Input legacy("ab\n");TEST_ASSERT_TRUE(legacy.readFixedString(name,sizeof(name)));TEST_ASSERT_EQUAL_STRING("ab",name);
+}
+int main(){UNITY_BEGIN();RUN_TEST(checked_fixed_width_names_require_complete_payload_and_separator);RUN_TEST(checked_numeric_values_never_wrap_truncate_or_accept_junk);RUN_TEST(checked_boolean_and_float_values_require_complete_canonical_tokens);RUN_TEST(checked_text_preserves_exact_bytes_and_refuses_truncation_or_unterminated_values);RUN_TEST(checked_field_count_distinguishes_missing_from_explicit_defaults_and_restores_legacy_mode);return UNITY_END();}
