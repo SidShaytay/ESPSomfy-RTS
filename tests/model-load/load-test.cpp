@@ -5,6 +5,9 @@
 #include "ModelLoadSnapshot.h"
 #include "ModelLoadTrust.h"
 #include "ModelCommitResult.h"
+#include "CounterLoad.h"
+#include "RollingCode.h"
+#include <nvs.h>
 #include <cassert>
 #include <string>
 #include <unistd.h>
@@ -15,11 +18,38 @@
 #define ESP_LOGE(...) ((void)0)
 struct DummyFile {explicit operator bool()const{return false;}bool isDirectory(){return false;}void close(){}void flush(){}uint32_t position(){return 0;}};
 struct {unsigned writeOpens=0;std::string root;const char *mountpoint(){return root.c_str();}DummyFile open(const char *,const char *){++writeOpens;return {};}} LittleFS;
-struct Preferences {};
+struct Preferences {
+ nvs_handle_t handle=0;bool begin(const char *space){return nvs_open(space,NVS_READWRITE,&handle)==ESP_OK;}
+ uint16_t getUShort(const char *key,uint16_t def=0){uint16_t value=def;return nvs_get_u16(handle,key,&value)==ESP_OK?value:def;}
+ size_t putUShort(const char *key,uint16_t value){return nvs_set_u16(handle,key,value)==ESP_OK?2:0;}
+ void end(){nvs_close(handle);}
+};
+struct SomfyRemote {
+ uint32_t address=0;uint16_t lastRollingCode=0;char prefKey[11]{};
+ void setRemoteAddress(uint32_t value){address=value;snprintf(prefKey,sizeof(prefKey),"_%lu",static_cast<unsigned long>(value));}
+ uint32_t getRemoteAddress(){return address;}char *getRemotePrefId(){return prefKey;}
+};
+struct SomfyLinkedRemote:SomfyRemote{};
+struct SomfyShade:SomfyRemote,shade_record_t {
+ using SomfyRemote::lastRollingCode;SomfyLinkedRemote linkedRemotes[SOMFY_MAX_LINKED_REMOTES];
+ uint8_t getShadeId(){return shadeId;}void setShadeId(uint8_t value){shadeId=value;}
+ void clear(){shadeId=255;}void setFlags(uint8_t value){flags=value;}
+ void restore(float a,float b,float c,float d){currentPos=a;currentTiltPos=b;myPos=c;myTiltPos=d;}
+};
+struct SomfyGroup:SomfyRemote,group_record_t {
+ using SomfyRemote::lastRollingCode;
+ void setGroupId(uint8_t value){groupId=value;}void clear(){groupId=255;}void compressLinkedShadeIds(){}
+};
+static shade_record_t shadeRecord(SomfyShade *shade){return *shade;}
+static group_record_t groupRecord(SomfyGroup *group){return *group;}
+
 struct restore_options_t{bool settings=false,shades=false,network=false,transceiver=false,repeaters=false,mqtt=false;};
 struct GitUpdateOwnerToken{};
 struct {bool allowed=true;bool transferRestoreClaimed(const GitUpdateOwnerToken &,uint64_t){return allowed;}}gitUpdate;
 int64_t esp_timer_get_time(){return 1000000;}
+static void resetTaskWdt(){}
+static bool retireAfterWrite=false;
+static void delay(unsigned long){if(retireAfterWrite && FakeNvs::sets)gitUpdate.allowed=false;}
 void invalidateDeviceSettingsRevisions(){}
 struct transceiver_config_t{uint8_t type=56;};
 static unsigned settingEffects=0;
@@ -34,14 +64,13 @@ static void applyNetRecord(const net_record_t &,restore_options_t &,bool){++sett
 static void applyTransRecord(const trans_record_t &,transceiver_config_t &){++settingEffects;}
 struct SomfyShadeController{
  unsigned adopted=0,repeatersRead=0,commits=0,gpio=0;
- struct Shade{uint8_t bitLength=0;uint8_t getShadeId(){return 255;}}shades[SOMFY_MAX_SHADES];
+ SomfyShade shades[SOMFY_MAX_SHADES];SomfyGroup groups[SOMFY_MAX_GROUPS];
  bool begin();uint32_t repeaters[SOMFY_MAX_REPEATERS]{};
  ModelLoadTrust modelLoad;uint64_t configurationRevision=1,restoreRevision=1;bool saveOK=true;
  struct {unsigned starts=0;transceiver_config_t config;void begin(){++starts;}bool counterEditUncertain(){return false;}void setConfig(const transceiver_config_t &){++settingEffects;}}transceiver;
  ModelCommitResult commit(){assert(modelLoad.mayCommit());++commits;return {saveOK?ModelCommitState::saved:ModelCommitState::failed};}
  void configureGPIOs(){assert(modelLoad.usable());++gpio;}
 };
-using SomfyShade=SomfyShadeController::Shade;
 SomfyShadeController somfy;
 struct ConfigFile:ConfigReader {
  DummyFile file;String *_ramBuf=nullptr;bool readOnly=false,_writeFailed=false,_opened=false;
@@ -51,16 +80,35 @@ struct ConfigFile:ConfigReader {
  bool readByte(uint8_t &)override;uint32_t position()override;bool seekRead(uint32_t);size_t readSize()const{return snapshot.size();}bool readHeader();
 };
 struct ShadeConfigFile:ConfigFile {
+ CounterLoad counters;bool prepareCounters(CounterLoadControl control={});void readShade(SomfyShade *);void readGroup(SomfyGroup *);
  bool begin(bool=false);bool begin(const char *,bool=false);
  bool restoreFile(SomfyShadeController *,const char *,restore_options_t &,const GitUpdateOwnerToken &);
  bool validate();bool loadFile(SomfyShadeController *,const char *filename="/shades.cfg");
  static ModelLoadStatus loadBoot(SomfyShadeController *);
- void readModel(SomfyShadeController *s){++s->adopted;for(unsigned i=0;i<header.roomRecords;++i){room_record_t r;assert(readRoomRecord(*this,r));}for(unsigned i=0;i<header.shadeRecords;++i){shade_record_t r;assert(readShadeRecord(*this,header,r));}for(unsigned i=0;i<header.groupRecords;++i){group_record_t r;assert(readGroupRecord(*this,header,r));}}
+ void readModel(SomfyShadeController *s){
+  ++s->adopted;const auto reads=FakeNvs::reads,sets=FakeNvs::sets;
+  for(unsigned i=0;i<header.roomRecords;++i){room_record_t r;assert(readRoomRecord(*this,r));}
+  for(unsigned i=0;i<header.shadeRecords;++i)readShade(&s->shades[i]);
+  for(unsigned i=0;i<header.groupRecords;++i)readGroup(&s->groups[i]);
+  assert(FakeNvs::reads==reads&&FakeNvs::sets==sets); // Adoption has no NVS I/O.
+ }
+
  void readRepeaters(SomfyShadeController *s){++s->repeatersRead;uint32_t r[SOMFY_MAX_REPEATERS];assert(readRepeaterRecord(*this,r));}
 };
+static void cooperateCounterLoad(const void *);
+static bool continueRestoreCounterLoad(const void *);
 #include "production-load.inc"
 struct Writer:ConfigWriter {std::string bytes;bool writeBytes(const uint8_t *p,size_t n)override{bytes.append(reinterpret_cast<const char *>(p),n);return true;}};
 static std::string validModel(){Writer w;config_header_t h;h.version=SHADE_HDR_VER;h.length=SHADE_HDR_SIZE;h.shadeRecordSize=SHADE_REC_SIZE;h.groupRecordSize=GROUP_REC_SIZE;h.roomRecordSize=ROOM_REC_SIZE;h.roomRecords=h.shadeRecords=h.groupRecords=0;h.repeaterRecords=1;h.repeaterRecordSize=REPEATER_REC_SIZE;h.settingsRecordSize=h.netRecordSize=h.transRecordSize=0;assert(writeConfigHeader(w,h));uint32_t repeaters[SOMFY_MAX_REPEATERS]{};assert(writeRepeaterRecord(w,repeaters));return w.bytes;}
+static std::string aliasesModel(bool highFirst,uint16_t groupFloor=50,uint8_t version=SHADE_HDR_VER){
+ Writer w;config_header_t h;h.version=version;h.length=SHADE_HDR_SIZE;h.shadeRecordSize=SHADE_REC_SIZE;h.groupRecordSize=GROUP_REC_SIZE;h.roomRecordSize=ROOM_REC_SIZE;
+ h.shadeRecords=2;h.groupRecords=1;h.repeaterRecords=1;h.repeaterRecordSize=REPEATER_REC_SIZE;
+ assert(writeConfigHeader(w,h));
+ for(unsigned i=0;i<2;++i){shade_record_t rec;rec.shadeId=i+1;rec.remoteAddress=100;rec.bitLength=56;rec.lastRollingCode=(i==unsigned(highFirst))?300:20;rec.linkedRemotes[0]=100;rec.linkedRemotes[1]=101;assert(writeShadeRecord(w,rec));}
+ group_record_t group;group.groupId=1;group.remoteAddress=100;group.bitLength=56;group.lastRollingCode=groupFloor;assert(writeGroupRecord(w,group));uint32_t repeaters[SOMFY_MAX_REPEATERS]{};assert(writeRepeaterRecord(w,repeaters));return w.bytes;
+}
+static void stored(uint32_t address,uint16_t value){char key[32];snprintf(key,sizeof(key),"ShadeCodes/_%lu",static_cast<unsigned long>(address));FakeNvs::values[key]={FakeNvs::Type::u16,{uint8_t(value),uint8_t(value>>8)}};}
+static void retireRestore(){gitUpdate.allowed=false;}
 static void write(const std::string &bytes){FILE *f=fopen((LittleFS.root+"/shades.cfg").c_str(),"wb");assert(f);assert(fwrite(bytes.data(),1,bytes.size(),f)==bytes.size());assert(fclose(f)==0);}
 int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));LittleFS.root=dir;SomfyShadeController model;
  ShadeConfigFile noUncheckedWrite;assert(!noUncheckedWrite.begin(false)&&LittleFS.writeOpens==0);
@@ -77,5 +125,30 @@ int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));Lit
  for(bool success:{false,true}){SomfyShadeController bad;bad.modelLoad.fail();bad.saveOK=success;ShadeConfigFile file;assert(file.begin("/shades.cfg",true));restore_options_t opts;opts.shades=opts.repeaters=true;
    assert(file.restoreFile(&bad,"/shades.cfg",opts,{})==success);assert(bad.adopted==1&&bad.commits==1);assert(bad.modelLoad.usable()==success);assert(bad.gpio==unsigned(success));file.end();}
  assert(!settingEffects);
+ for(bool highFirst:{false,true}) for(uint16_t groupFloor:{uint16_t(50),uint16_t(500)}) {
+  FakeNvs::reset();stored(100,100);stored(101,900);write(aliasesModel(highFirst,groupFloor));SomfyShadeController loaded;
+  assert(loaded.begin()&&loaded.modelLoad.usable()&&loaded.adopted==1&&loaded.gpio==1);
+  const uint16_t maximum=groupFloor>300?groupFloor:300;
+  for(unsigned i=0;i<2;++i)assert(loaded.shades[i].lastRollingCode==maximum&&loaded.shades[i].linkedRemotes[0].lastRollingCode==maximum&&loaded.shades[i].linkedRemotes[1].lastRollingCode==900);
+  assert(loaded.groups[0].lastRollingCode==maximum&&FakeNvs::sets==1&&FakeNvs::writeOpens==1&&FakeNvs::readOnlyOpens==2);
+ }
+ FakeNvs::reset();stored(100,100);stored(101,900);write(aliasesModel(true,500,22));SomfyShadeController legacy;
+ assert(legacy.begin()&&legacy.groups[0].lastRollingCode==300); // v22 has no authoritative group code.
+ for(unsigned failure=0;failure<9;++failure){
+  FakeNvs::reset();stored(100,100);stored(101,900);write(aliasesModel(false));
+  if(failure==0)FakeNvs::failOpen=1;if(failure==1)FakeNvs::failRead=1;if(failure==2)FakeNvs::failRead=2;
+  if(failure==3)FakeNvs::failSet=1;if(failure==4)FakeNvs::failCommit=1;if(failure==5)FakeNvs::failOpen=3;if(failure==6)FakeNvs::failRead=3;if(failure==7)FakeNvs::corruptRead=3;if(failure==8)FakeNvs::failOpen=2;
+  SomfyShadeController failed;assert(!failed.begin()&&!failed.modelLoad.usable()&&!failed.modelLoad.publishable()&&!failed.adopted&&!failed.gpio&&!failed.commits);
+  if(failure<3)assert(FakeNvs::writeOpens==0&&FakeNvs::sets==0);
+  assert(FakeNvs::handles.empty());
+ }
+
+ for(bool afterWrite:{false,true}){
+  FakeNvs::reset();stored(100,100);stored(101,900);write(aliasesModel(false));SomfyShadeController bad;gitUpdate.allowed=true;retireAfterWrite=afterWrite;if(!afterWrite)FakeNvs::beforeGet=retireRestore;
+  ShadeConfigFile file;assert(file.begin("/shades.cfg",true));restore_options_t opts;opts.shades=opts.repeaters=true;
+  assert(!file.restoreFile(&bad,"/shades.cfg",opts,{})&&!bad.modelLoad.usable()&&!bad.adopted&&!bad.gpio&&!bad.commits);
+  assert(FakeNvs::sets==unsigned(afterWrite)&&FakeNvs::commits==0&&FakeNvs::handles.empty());file.end();
+ }
+ gitUpdate.allowed=true;retireAfterWrite=false;FakeNvs::reset();
  unlink((LittleFS.root+"/shades.cfg").c_str());rmdir(dir);puts("Actual ConfigFile boot loading: mounted/absent/full load/truncated header/repeater/trailing records pass before adoption");
 }
