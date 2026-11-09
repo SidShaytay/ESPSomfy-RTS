@@ -36,7 +36,7 @@ then reserves the identity and checks the exact stored presence/value and every
 matching physical alias slot. A read-only final time/auth/context witness runs
 after those reads and before any writable NVS open. A counter or authority change
 refuses without writing and requires fresh review. All configured shades and
-all affected tracked group members must be idle; accepted radio/repeater work
+all affected tracked group members must be idle; accepted work for affected identities/groups and configured repeaters
 must complete before correction can proceed.
 
 Verified success reports Counter saved. If the counter applied but the model
