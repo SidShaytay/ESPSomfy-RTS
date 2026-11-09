@@ -19,6 +19,7 @@
 #include "ShadeBehaviour.h"
 #include "RadioUpdateActivity.h"
 #include "ModelIdleForAdministration.h"
+#include "LivePinClaims.h"
 #include "ModelEditor.h"
 #include "ShadeGpioPolicy.h"
 #define GPIO_IS_VALID_OUTPUT_GPIO(pin) ((pin)<48)
@@ -85,7 +86,9 @@ static unsigned settingEffects=0;
 ConfigSettings settings;
 namespace BoardProfile{bool usesPin(uint8_t){return false;}}
 bool NTPSettings::apply(){return true;}
+uint64_t retainedEthernetPinClaims(){return 0;}
 struct TestRadio:Transceiver {
+ LivePinClaims liveClaims;uint64_t retainedPinClaims()const{return liveClaims.snapshot();}
  unsigned starts=0;bool activityKnown=true;
  RadioUpdateActivity activity=[](){RadioUpdateActivity a;a.observed=true;a.schedulerIdle=true;return a;}();
  TestRadio(){qualifySettings(config);}
@@ -143,13 +146,14 @@ struct ShadeConfigFile:ConfigFile {
 static bool radioApplyPartial=false;
 static SomfyShadeController *expectedApplyModel=nullptr;
 bool Transceiver::installPauseHeld(const RadioInstallToken &pause)const{return static_cast<const TestRadio *>(this)->installPauseHeld(pause);}
-settings_save_result_t Transceiver::setConfigWhilePaused(const transceiver_config_t &next,const RadioInstallToken &pause,const GitUpdateOwnerToken &owner){
- assert(installPauseHeld(pause)&&gitUpdate.ownsExternal(owner));auto copy=next;const auto persisted=copy.save();if(!persisted.saved())return persisted;
- config=copy;config.radioInit=!radioApplyPartial;if(radioApplyPartial){settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::radio));return {settings_save_state_t::partial,"radioInit",true};}
- return {settings_save_state_t::saved,nullptr,true};
+settings_save_result_t Transceiver::setConfigWhilePaused(const transceiver_config_t &next,const RadioInstallToken &pause,const GitUpdateOwnerToken &owner,RadioPinContext context){
+ assert(context.qualified);assert(installPauseHeld(pause)&&gitUpdate.ownsExternal(owner));auto copy=next;const auto persisted=copy.save();if(!persisted.saved())return persisted;
+ config=copy;config.radioInit=!radioApplyPartial;if(radioApplyPartial){settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::radio));return {settings_save_state_t::partial,"radioInit",true,false,true};}
+ return {settings_save_state_t::saved,nullptr,true,false,true};
 }
 struct RestoreEffects:SettingsEffects {
  bool wifiClientsPresent()const override{return true;}
+ bool networkPinsAvailable(const ConfigSettings &)const override{return true;}
  void hostnameChanged()override{++settingEffects;}void timeChanged()override{++settingEffects;}void mqttChanged()override{++settingEffects;}
  settings_save_result_t saveRadio(JsonObject)override{assert(false);return {};}
  RestartResult completed(settings_section_t,bool reboot)override{assert(!reboot);return {};}
@@ -287,8 +291,8 @@ int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));Lit
  }
 
  for(bool partial:{false,true}){
-  FakeNvs::reset();stored(100,100);writeAt("/shades.tmp",gpioModel(17,40,255,radio_proto::GP_Remote,true));restoreAllowed=true;
-  SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);live.transceiver.config.enabled=true;live.transceiver.config.TXPin=17;
+  FakeNvs::reset();stored(100,100);writeAt("/shades.tmp",gpioModel(40,42,255,radio_proto::GP_Remote,true));restoreAllowed=true;
+  SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);live.transceiver.config.enabled=true;live.transceiver.config.TXPin=17;live.transceiver.liveClaims.retain(LivePinClaims::pinMask(17));
   ShadeConfigFile file;restore_options_t opts;opts.shades=opts.transceiver=true;
   expectedSetupPin=27;expectedApplyModel=&live;radioApplyPartial=partial;
   const auto result=file.restoreFile(&live,"/shades.tmp",opts,RestoreOwner,RadioInstallToken{1});
@@ -296,6 +300,12 @@ int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));Lit
   assert(result.settings.persistence.liveApplied&&result.settings.persistence.saved()==!partial&&result.partial()==partial);
   expectedSetupPin=-1;expectedApplyModel=nullptr;radioApplyPartial=false;
  }
+ // Logical configuration cannot free an old physically attempted radio pad.
+ FakeNvs::reset();stored(100,100);writeAt("/shades.tmp",gpioModel(17,40,255,radio_proto::GP_Remote,true));restoreAllowed=true;
+ {SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);live.transceiver.config.enabled=true;live.transceiver.config.TXPin=17;
+  live.transceiver.liveClaims.retain(LivePinClaims::pinMask(17));ShadeConfigFile file;restore_options_t opts;opts.shades=opts.transceiver=true;
+  const auto result=file.restoreFile(&live,"/shades.tmp",opts,RestoreOwner,RadioInstallToken{1});
+  assert(!result.complete&&!result.modelApplied&&!FakeNvs::writeOpens&&!live.gpio&&live.modelLoad.publishable());}
  // Legacy header decoding truncates the ID, so selected restore must prove
  // the complete untruncated token before deciding same-board ownership.
  for(bool truncatedId:{false,true}){auto malformed=gpioModel(17,40,255,radio_proto::GP_Remote,true);

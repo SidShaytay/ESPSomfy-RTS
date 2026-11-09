@@ -328,7 +328,7 @@ bool ShadeConfigFile::validateRestoreGPIOs(SomfyShadeController *model,bool impo
       for(unsigned i=0;i<3;++i)if((current.mask&(1u<<i))&&current.pins[i]==pin)++own;
       return current.owners[pin]>own;
     };
-    return stage.validateGPIOs(proto,up,down,my,settings,model->transceiver.config,others,invalid)==0;
+    return stage.validateGPIOs(proto,up,down,my,settings,model->transceiver.config,others,invalid,model->transceiver.retainedPinClaims(),retainedEthernetPinClaims())==0;
   });
 }
 
@@ -687,14 +687,14 @@ RestoreApplyResult ShadeConfigFile::restoreFile(SomfyShadeController *s,const ch
   const uint32_t modelStart=position();
   // Even model-only restore prepares the no-write settings context so pin
   // projection may use proven current owners without allocating a draft.
-  if(!selected && !stage.prepare(settings,s->transceiver.config,opts,header,*this,false)){
+  if(!selected && !stage.prepare(settings,s->transceiver.config,opts,header,*this,false,s->transceiver.retainedPinClaims(),retainedEthernetPinClaims())){
     result.settings=stage.status();result.refusal=RestoreRefusal::settings;return result;
   }
   if(selected){
     const bool sameBoard=header.serverId[0]&&settings.serverId[0]&&!strcmp(header.serverId,settings.serverId);
     if(!skipRecords(*this,uint32_t(header.roomRecords)+header.shadeRecords+header.groupRecords+header.repeaterRecords) ||
        !stage.prepare(settings,s->transceiver.config,opts,header,*this,
-          sameBoard) || readFailed){
+          sameBoard,s->transceiver.retainedPinClaims(),retainedEthernetPinClaims()) || readFailed){
       result.settings=stage.status();result.refusal=RestoreRefusal::settings;return result;
     }
     result.settings=stage.status();
