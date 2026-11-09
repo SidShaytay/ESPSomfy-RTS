@@ -34,6 +34,7 @@ struct Memory : ArduinoJson::Allocator {
 struct Fake : Backend {
   Authorization auth{true, 1, 1};
   SettingsRevisions revisions;
+  bool changeOnRead = false;
   bool rejectLate = false, busy = false, restartBlocked = false, ethernet = false, fixedPins = true;
   proto_field_t overrideField = proto_field_t::count;
   int32_t overrideInteger = 0;
@@ -48,6 +49,7 @@ struct Fake : Backend {
   bool fixedRadioPins() const override { return fixedPins; }
   void activity() override { ++activities; }
   bool read(settings_section_t s, SettingsSnapshotSink &sink) override {
+    if(changeOnRead){changeOnRead=false;revisions.completed(s);}
     for (unsigned i = 0; i < settingsFieldCount(s, ethernet); ++i) {
       const auto &m = *settingsFieldAt(s, i, ethernet);
       settings_value_t v;
@@ -834,8 +836,31 @@ static void failed_or_ordinary_save_does_not_publish_a_restart_refusal() {
     TEST_ASSERT_EQUAL(1,backend.saves);
   }
 }
+static void scanned_ssid_stages_only_after_exact_authority_and_network_revision() {
+  Memory memory; Fake backend; Form form(backend,memory);
+  const auto revision=backend.revision(settings_section_t::network);
+  char copiedSSID[33]="selected-network";
+  TEST_ASSERT_TRUE(form.openNetworkSSID(copiedSSID,1,backend.auth,revision));
+  memset(copiedSSID,0,sizeof(copiedSSID));form.turn(1,2);
+  TEST_ASSERT_EQUAL_STRING("Network",form.view().title);
+  TEST_ASSERT_EQUAL_STRING("WiFi name",form.view().rows[1].label);
+  TEST_ASSERT_EQUAL_STRING("selected-network",form.view().rows[1].value);
+  TEST_ASSERT_TRUE(form.view().rows[1].dirty);TEST_ASSERT_EQUAL(0,backend.saves);
+  form.discard();TEST_ASSERT_EQUAL(0,memory.active);
+  auto stale=backend.auth;++stale.generation;
+  TEST_ASSERT_FALSE(form.openNetworkSSID("other",2,stale,revision));TEST_ASSERT_EQUAL(0,memory.active);
+  TEST_ASSERT_FALSE(form.openNetworkSSID("other",3,backend.auth,revision+1));TEST_ASSERT_EQUAL(0,memory.active);
+  TEST_ASSERT_FALSE(form.openNetworkSSID("123456789012345678901234567890123",4,backend.auth,revision));
+  TEST_ASSERT_TRUE(form.openNetworkSSID(nullptr,5,backend.auth,revision));
+  TEST_ASSERT_FALSE(form.view().rows[1].dirty);TEST_ASSERT_EQUAL_STRING("wifi",form.view().rows[1].value);
+  form.discard();backend.changeOnRead=true;
+  TEST_ASSERT_FALSE(form.openNetworkSSID("late",6,backend.auth,revision));TEST_ASSERT_EQUAL(0,memory.active);
+  memory.fail=true;
+  TEST_ASSERT_FALSE(form.openNetworkSSID("other",7,backend.auth,backend.revision(settings_section_t::network)));TEST_ASSERT_EQUAL(0,backend.saves);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(scanned_ssid_stages_only_after_exact_authority_and_network_revision);
   RUN_TEST(every_saved_restart_refusal_preserves_typed_reason_and_no_retry_draft);
   RUN_TEST(failed_or_ordinary_save_does_not_publish_a_restart_refusal);
   RUN_TEST(actual_form_partial_does_not_hide_secret_retention_warning);
