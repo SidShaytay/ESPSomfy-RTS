@@ -20,6 +20,7 @@ class JsonAllocator : public ArduinoJson::Allocator {
     while(size--) *bytes++=0;
   }
 public:
+  static constexpr size_t allocationOverhead=sizeof(Block);
   JsonAllocator(size_t limit,void *(*a)(size_t),void (*r)(void *))
     :budget(limit),acquire(a),release(r) {}
   JsonAllocator(const JsonAllocator&)=delete;
