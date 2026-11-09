@@ -12,8 +12,9 @@ Repeated requests during an active scan share its results and do not schedule an
 extra scan.
 
 One shared configuration-owner claim spans the physical scan and result cleanup.
-A failed start releases only that claim; it does not delete another scanner's
-results. A completed scan publishes its results before deleting SDK storage.
+An SDK scan already running or holding unclaimed results refuses admission
+before disconnect/start. A failed start releases only its claim; it does not
+delete another scanner's results. A completed scan publishes its results before deleting SDK storage.
 
 The local result feed is loop-owned. It captures a subscriber's exact generation
 when the physical scan starts. A cancelled or replaced subscriber cannot inherit

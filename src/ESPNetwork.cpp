@@ -32,8 +32,11 @@ class ClientScanDriver final : public WifiScanDriver {
   int networks=0;
 public:
   explicit ClientScanDriver(ESPNetwork &value):network(value){}
-  bool mayStart() const override {return !_apScanning && !network.connecting();}
+  bool mayStart() const override {return !_apScanning && !network.connecting() && WiFi.scanComplete()==WIFI_SCAN_FAILED;}
   bool start() override {
+    // The SDK returns RUNNING for an already-active foreign scan too. It also
+    // deletes cold result storage on start, so neither state grants ownership.
+    if(WiFi.scanComplete()!=WIFI_SCAN_FAILED)return false;
     // Preserve the existing explicit client-scan behavior. No settings save or
     // connection to a selected result is performed here.
     if(network.softAPOpened)WiFi.disconnect(false);
