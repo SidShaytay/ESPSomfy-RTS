@@ -23,7 +23,7 @@ struct RuntimeTestAccess {
   static const Settings::FormView &settings(const Runtime &ui) {return ui.settingsForm.view();}
   static void settingsRestartReason(Runtime &ui,RestartReason reason) {const_cast<Settings::FormView &>(ui.settingsForm.view()).restartReason=reason;}
   static const EntityAdmin::FormView &administration(const Runtime &ui) {return ui.administration.view();}
-  static EntityAdmin::FormView system(const Runtime &ui) {EntityAdmin::FormView out;ui.systemForm.render(out);return out;}
+  static EntityAdmin::FormView system(const Runtime &ui) {EntityAdmin::FormView out;if(ui.wifiScanActive)ui.wifiScanForm.render(out);else ui.systemForm.render(out);return out;}
   static bool noPresentation(const Runtime &ui) {
     return !ui.hasPresented && !ui.presentedSettingsValid && !ui.stopPresentedToken && !ui.validBands;
   }
@@ -594,7 +594,52 @@ int main(int argc,char **argv){
   assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"Restart stopped"));saveFrame(preview,"runtime-system-stopped");
   back();idle();rotate(1);idle();click();idle();assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"Browser files"));
   click();idle();saveFrame(preview,"runtime-system-browser-backup");assert(systemRestarts==1);
-  back();idle();back();idle();click();idle(); // return to default Restart confirmation
+  back();idle();back();idle(); // System menu, Restart remains index0.
+  const auto beforeWifiSaves=settingsSaves;const auto beforeWifiRF=submitted.size();
+  rotate(1);idle();rotate(1);idle();click();idle();
+  assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"WiFi scan") && !wifiScanFeed().pending());
+  click();idle();assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"System")); // default Cancel
+  click();idle();busBusy=true;rotate(1);click();assert(!wifiScanFeed().pending());
+  busBusy=false;idle();click();idle();assert(wifiScanFeed().pending());
+  struct Networks final:WifiScanReader {
+    uint16_t count()const override{return 17;}
+    bool read(uint16_t index,WifiScanNetwork&row)const override {
+      row={};memset(row.ssid,'W',29);strcpy(row.ssid+29,"END");row.bssid[5]=index;return true;
+    }
+  } networks;
+  wifiScanFeed().finish(wifiScanFeed().token(),true,networks);idle();
+  assert(RuntimeTestAccess::system(settingsUi).total==17);click();idle();
+  auto wifiReview=RuntimeTestAccess::system(settingsUi);assert(wifiReview.mode==EntityAdmin::Mode::wifiReview);
+  assert(strlen(wifiReview.rows[2].value)==32 && strstr(wifiReview.rows[2].value,"END"));
+  saveFrame(preview,"runtime-wifi-review-wide");click();idle(); // default Cancel, no setting change
+  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::system && settingsSaves==beforeWifiSaves);
+  click();idle();busBusy=true;rotate(1);click();assert(RuntimeTestAccess::view(settingsUi).screen==Screen::system);
+  busBusy=false;idle();click();idle();assert(RuntimeTestAccess::view(settingsUi).screen==Screen::settings);
+  assert(!strcmp(RuntimeTestAccess::settings(settingsUi).title,"Network"));
+  assert(!strcmp(RuntimeTestAccess::settings(settingsUi).rows[1].value,wifiReview.rows[2].value));
+  assert(RuntimeTestAccess::settings(settingsUi).rows[1].dirty && !wifiScanFeed().pending());
+  assert(settingsSaves==beforeWifiSaves && submitted.size()==beforeWifiRF && captureProtected);
+  saveFrame(preview,"runtime-wifi-network-draft");back();idle();assert(RuntimeTestAccess::view(settingsUi).screen==Screen::home);
+  assert(Settings::runtimeMemory().used()==0);
+  auto openWifiRequest=[&](){
+    for(unsigned i=0;i<homeRows;i++){rotate(-1);idle();}for(unsigned i=0;i<systemHomeIndex;i++){rotate(1);idle();}
+    click();idle();rotate(1);idle();rotate(1);idle();click();idle();rotate(1);idle();click();idle();assert(wifiScanFeed().pending());
+  };
+  openWifiRequest();const auto cancelledWifi=wifiScanFeed().token();back();idle();assert(!wifiScanFeed().pending() && Settings::runtimeMemory().used()==0);
+  wifiScanFeed().finish(cancelledWifi,true,networks);idle();assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"System"));back();idle();
+  openWifiRequest();++settingsRevision;idle();assert(!wifiScanFeed().pending() && Settings::runtimeMemory().used()==0);
+  back();idle();back();idle();
+  openWifiRequest();testNow+=30001;authTestNow=testNow;settingsUi.tick(testNow,status,false,send,light);idle();
+  assert(!wifiScanFeed().pending() && Settings::runtimeMemory().used()==0);click();idle(); // wake only if display slept
+  if(RuntimeTestAccess::view(settingsUi).screen==Screen::status){click();idle();}
+  else {back();idle();back();idle();}
+  openWifiRequest();savedPixels=RuntimeTestAccess::losePixels(settingsUi);
+  assert(!settingsUi.tick(testNow,status,false,send,light));assert(!wifiScanFeed().pending() && Settings::runtimeMemory().used()==0);
+  RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();click();idle();
+  if(RuntimeTestAccess::view(settingsUi).screen==Screen::status){click();idle();}
+  for(unsigned i=0;i<homeRows;i++){rotate(-1);idle();}for(unsigned i=0;i<systemHomeIndex;i++){rotate(1);idle();}
+  click();idle();click();idle(); // default Restart confirmation
+
   savedPixels=RuntimeTestAccess::losePixels(settingsUi);
   assert(!settingsUi.tick(testNow,status,false,send,light));assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status && RuntimeTestAccess::noPresentation(settingsUi));
   RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();assert(systemRestarts==1);

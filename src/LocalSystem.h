@@ -15,7 +15,7 @@ public:
 // frame; this state owns neither another frame nor any dynamic allocation.
 class Form {
   Backend &backend;
-  enum class Page : uint8_t { closed, menu, confirm, files, guidance, result } page=Page::closed;
+  enum class Page : uint8_t { closed, menu, confirm, files, guidance, result, wifi } page=Page::closed;
   uint32_t generation=0,configurationGeneration=0;
   uint64_t observedAt=0,activityAt=0,restartGeneration=0;
   uint8_t cursor=0,file=0;
@@ -34,6 +34,9 @@ public:
   void activate(uint64_t);
   void back(uint64_t);
   void render(EntityAdmin::FormView &) const;
+  bool wantsWifiScan() const {return page==Page::wifi;}
+  void finishWifiScan(){if(page==Page::wifi){page=Page::menu;cursor=2;}}
+  void childActivity(uint64_t now){if(guard(now))touch(now);}
 };
 static_assert(sizeof(Form)<=80,"System borrows presentation storage and allocates nothing");
 Backend &runtimeBackend();
