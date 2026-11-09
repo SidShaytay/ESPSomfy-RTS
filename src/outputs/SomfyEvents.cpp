@@ -17,7 +17,7 @@ void SomfyGroup::emitState() { this->changed |= GROUP_CHANGED_STATE; }
 // The change fan-out.  Everything that changed about a shade or group in this
 // loop() pass goes out once: its MQTT topics, then one state event.
 void SomfyShadeController::sendChanges() {
-  if(!modelLoad.publishable())return;
+  if(!modelLoad.usable())return;
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     SomfyShade &shade = this->shades[i];
     const uint16_t changed = shade.changed;

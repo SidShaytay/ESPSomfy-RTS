@@ -37,9 +37,10 @@ struct{struct{bool enabled=true;const char *protocol="mqtt",*hostname="broker",*
 struct loop_item_t{int request=0;};
 struct{unsigned submitted=0;void submit(const loop_item_t &){++submitted;}}loopQueue;
 static unsigned parsed=0;static bool parseMqttCommand(const char *,byte *,uint32_t,int &){++parsed;return true;}
+extern MqttConnection mqtt;
 struct SomfyShade{
  uint8_t id=255;uint16_t changed=0;uint8_t getShadeId(){return id;}
- void publish(){}void publishTopics(uint16_t){}static void unpublish(uint8_t){}
+ void publish(){}void publishTopics(uint16_t){mqtt.publish("shades/1/name","unpersisted",true);}static void unpublish(uint8_t){}
 };
 struct SomfyGroup{uint8_t id=255,changed=0;int direction=0;uint8_t getGroupId(){return id;}void publish(){}void publish(const char *,int){}static void unpublish(uint8_t){};};
 struct SomfyShadeController {
@@ -48,7 +49,7 @@ struct SomfyShadeController {
  SomfyGroup *getGroupById(uint8_t id){for(auto &g:groups)if(g.id==id)return &g;return nullptr;}
  void publish();void sendChanges();
 }somfy;
-struct{unsigned events=0;void shade(SomfyShade &){++events;}void shadeState(SomfyShade &){++events;}void group(SomfyGroup &){++events;}void groupState(SomfyGroup &){++events;}}protoSocket;
+struct{unsigned events=0;uint8_t lastShadeId=255;void shade(SomfyShade &s){++events;lastShadeId=s.id;}void shadeState(SomfyShade &s){++events;lastShadeId=s.id;}void group(SomfyGroup &){++events;}void groupState(SomfyGroup &){++events;}}protoSocket;
 static char *itoa(int value,char *out,int){sprintf(out,"%d",value);return out;}
 MqttConnection mqtt;
 #include "production-mqtt.inc"
@@ -58,6 +59,9 @@ int main(){
  somfy.modelLoad.bootResult(ModelLoadStatus::absent);assert(somfy.modelLoad.usable());
  assert(!mqtt.connect()&&!mqttClient.connects&&mqttClient.messages.empty());
  somfy.publish();assert(!somfy.flagUpdates&&mqttClient.messages.empty());
+ somfy.shades[0].id=1;somfy.shades[0].changed=SHADE_CHANGED_CONFIG;
+ somfy.sendChanges();assert(protoSocket.events==1&&protoSocket.lastShadeId==1&&!somfy.shades[0].changed&&mqttClient.messages.empty());
+ protoSocket.events=0;
  somfy.modelLoad.bootResult(ModelLoadStatus::unknown);
  // Unknown/failed models neither announce online nor erase retained discovery.
  assert(!mqtt.connect()&&!mqttClient.connects&&!mqttClient.subscriptions&&mqttClient.messages.empty());
