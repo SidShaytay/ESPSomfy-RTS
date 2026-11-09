@@ -13,15 +13,16 @@
 #define DEVICE_OPS_H
 #include "LoopQueue.h"
 #include "GitUpdate.h"
+#include "SafeRestart.h"
 #ifdef LOCAL_QUEUE_FAKE_RESTORE_OPTIONS
 struct restore_options_t {bool settings=false,shades=false,network=false,transceiver=false,repeaters=false,mqtt=false;};
 #endif
 #ifndef LOCAL_QUEUE_EXTERNAL_REBOOT
-#ifndef utils_h
-#define utils_h
-struct rebootDelay_t {bool reboot=false;int rebootTime=0;bool closed=false;uint64_t externalOwnerGeneration=0;uint8_t externalOwnerKind=0;};
-#endif
-inline rebootDelay_t rebootDelay;
+inline bool pendingRestart=false;
+bool restartPending(){return pendingRestart;}
+inline unsigned restartMutationNotes=0;
+inline void noteRestartOperationAccepted(){++restartMutationNotes;}
+inline RestartResult requestOwnedRestart(const GitUpdateOwnerToken &,uint32_t){assert(false);return {};}
 #endif
 #ifndef LOCAL_QUEUE_REAL_UPDATE_OWNER
 inline GitUpdateClass gitUpdate;

@@ -12,7 +12,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unity.h>
-rebootDelay_t rebootDelay;
+static bool pendingRestart=false;
+bool restartPending(){return pendingRestart;}
 namespace LocalUi {
 static SecuritySnapshot security{AuthMode::none, true, false, 1, 1};
 static bool frozen = false;
@@ -45,7 +46,7 @@ struct Shade : RemoteSettings, ShadeSettings {
     if (expireDuringValidation)
       ++LocalUi::security.generation;
     if (restartDuringValidation)
-      rebootDelay.reboot = true;
+      pendingRestart = true;
     return gpioError;
   }
   bool isInGroup() { return false; }
@@ -198,7 +199,7 @@ void setUp() {
   LocalUi::security = {LocalUi::AuthMode::none, true, false, 1, 1};
   LocalUi::frozen = false;
   pendingCount = applies = commits = 0;
-  rebootDelay = {};
+  pendingRestart=false;
   somfy.configurationRevision = 1;
   somfy.restoreRevision = 1;
   for (auto &room : somfy.rooms) {
@@ -519,7 +520,7 @@ static void correctable_tilt_gpio_errors_and_final_expiry_preserve_draft() {
 }
 static void restart_pending_blocks_mutation_and_commit() {
   auto &b = runtimeBackend();
-  rebootDelay.reboot = true;
+  pendingRestart = true;
   Memory memory;
   JsonDocument doc(&memory);
   doc["roomId"] = 4;
@@ -600,11 +601,11 @@ static void hidden_new_sort_order_cannot_wrap_on_device_or_group_add() {
 static void authoritative_restart_mirror_is_checked_again_after_preflight() {
   auto &b = runtimeBackend();
   for (const bool duringValidation : {false, true}) {
-    rebootDelay = {};
+    pendingRestart=false;
     uint8_t id;
     TEST_ASSERT_TRUE(b.prepare(Kind::shade, 7, id));
     somfy.shade.restartDuringValidation = duringValidation;
-    rebootDelay.reboot = !duringValidation;
+    pendingRestart = !duringValidation;
     Memory memory;
     JsonDocument doc(&memory);
     doc["shadeId"] = 7;
@@ -678,7 +679,7 @@ static void order_rechecks_full_permutation_and_authority_after_allocation() {
           if (scenario == 2)
             pendingCount = 1;
           if (scenario == 3)
-            rebootDelay.reboot = true;
+            pendingRestart = true;
         }
         return Memory::allocate(n);
       }
@@ -686,7 +687,7 @@ static void order_rechecks_full_permutation_and_authority_after_allocation() {
     somfy.shade.id = 7;
     LocalUi::security.generation = 1;
     pendingCount = 0;
-    rebootDelay = {};
+    pendingRestart=false;
     expectedAllocator = &memory;
     expectedType = model_edit_type_t::shade_order;
     const uint8_t ids[] = {7};

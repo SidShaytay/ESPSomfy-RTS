@@ -25,7 +25,7 @@
 
 extern ConfigSettings settings;
 extern SSDPClass SSDP;
-extern rebootDelay_t rebootDelay;
+
 extern SomfyShadeController somfy;
 extern Web webServer;
 extern MqttConnection mqtt;

@@ -27,16 +27,13 @@ struct SomfyShadeController {
     return outcome;
   }
 } somfy;
-struct rebootDelay_t {
-  bool reboot = false;
-  int rebootTime = 0;
-  bool closed = false;
-  uint64_t externalOwnerGeneration=0;uint8_t externalOwnerKind=0;
-} rebootDelay;
+static bool pendingRestart=false;
+static uint32_t requestedDelay=0;
+static GitUpdateOwnerToken restartReservation;
 struct Socket {
   void replyModelCommit(const proto_reply_to_t &, ModelCommitReport value) {
     report = value;
-    TEST_ASSERT_FALSE(rebootDelay.reboot);
+    TEST_ASSERT_EQUAL(value.rebooting,pendingRestart);
     events.push_back("reply");
   }
   void modelPersistence(ModelCommitReport, uint32_t) {
@@ -56,7 +53,14 @@ bool LoopQueue::submit(const loop_item_t &item, bool first) {
 }
 uint32_t LoopQueue::pending() const { return pendingItems.size(); }
 #include "../../src/GitUpdate.cpp"
-RestartResult legacyGenericRestartAdmission() { return {true,RestartReason::none}; }
+RestartResult requestOwnedRestart(const GitUpdateOwnerToken &expected,uint32_t delay) {
+  if(pendingRestart)return {false,RestartReason::pending};
+  if(loopQueue.pending()) {gitUpdate.releaseRestartSource(expected,uint64_t(stubEspTimerMicros)/1000);return {false,RestartReason::queuedOperations};}
+  const bool held=gitUpdate.acquireRestart(restartReservation,uint64_t(stubEspTimerMicros)/1000,expected);
+  pendingRestart=held;requestedDelay=delay;return {held,held ? RestartReason::none : RestartReason::stale};
+}
+RestartResult requestRestart(uint32_t delay) {return requestOwnedRestart({},delay);}
+
 static GitUpdateOwnerToken source;
 static GitUpdateOwnerToken appSource() {
   const auto time=uint64_t(stubEspTimerMicros)/1000;
@@ -74,6 +78,8 @@ static unsigned long clockNow() { return 100; }
 #include "../../src/ModelCommitService.cpp"
 #undef millis
 void setUp() {
+  if(restartReservation.generation)gitUpdate.releaseExternal(restartReservation);
+  restartReservation={};
   const auto cleanup=gitUpdate.claimTransferCleanup(UINT64_MAX);
   if(cleanup.token.generation) {
     gitUpdate.transferResource(cleanup.token,false);
@@ -87,7 +93,7 @@ void setUp() {
   commits = 0;
   outcome = {};
   events.clear();
-  rebootDelay = {};
+  pendingRestart=false;requestedDelay=0;
 }
 void tearDown() {}
 static void admission_has_no_model_effect_and_commit_item_cannot_use_radio() {
@@ -107,11 +113,11 @@ failed_or_uncertain_commit_never_restarts_and_retry_does_not_keep_restart_author
   for(auto state:{ModelCommitState::failed,ModelCommitState::uncertain}) {
     loop_item_t item;item.restartAfterCommit=true;item.externalOwner=appSource();
     outcome={state,ModelCommitStage::sync};const auto before=commits;
-    runModelCommit(item);TEST_ASSERT_FALSE(rebootDelay.reboot);TEST_ASSERT_EQUAL(before+1,commits);
-    runModelCommit(item);TEST_ASSERT_FALSE(rebootDelay.reboot);TEST_ASSERT_EQUAL(before+1,commits);
+    runModelCommit(item);TEST_ASSERT_FALSE(pendingRestart);TEST_ASSERT_EQUAL(before+1,commits);
+    runModelCommit(item);TEST_ASSERT_FALSE(pendingRestart);TEST_ASSERT_EQUAL(before+1,commits);
   }
   outcome={ModelCommitState::saved,ModelCommitStage::none};loop_item_t ordinary;
-  runModelCommit(ordinary);TEST_ASSERT_FALSE(rebootDelay.reboot);TEST_ASSERT_EQUAL(3,commits);
+  runModelCommit(ordinary);TEST_ASSERT_FALSE(pendingRestart);TEST_ASSERT_EQUAL(3,commits);
 }
 static void
 verified_upload_commit_replies_and_notifies_before_requested_restart() {
@@ -120,8 +126,8 @@ verified_upload_commit_replies_and_notifies_before_requested_restart() {
   item.externalOwner=appSource();
   outcome = {ModelCommitState::saved, ModelCommitStage::none};
   runModelCommit(item);
-  TEST_ASSERT_TRUE(rebootDelay.reboot);
-  TEST_ASSERT_EQUAL(600, rebootDelay.rebootTime);
+  TEST_ASSERT_TRUE(pendingRestart);
+  TEST_ASSERT_EQUAL(500, requestedDelay);
   TEST_ASSERT_EQUAL_STRING("commit", events[0].c_str());
   TEST_ASSERT_EQUAL_STRING("reply", events[1].c_str());
   TEST_ASSERT_EQUAL_STRING("event", events[2].c_str());
@@ -157,7 +163,7 @@ upload_recovery_bypasses_held_head_but_never_replays_or_drops_pending_operations
   outcome = {ModelCommitState::saved, ModelCommitStage::none};
   runModelCommit(marker);
   TEST_ASSERT_EQUAL(1, commits);
-  TEST_ASSERT_FALSE(rebootDelay.reboot);
+  TEST_ASSERT_FALSE(pendingRestart);
   TEST_ASSERT_TRUE(report.file.saved());
   TEST_ASSERT_TRUE(report.restartDeferred);
   TEST_ASSERT_FALSE(report.rebooting);
@@ -182,11 +188,11 @@ pending_edit_alone_also_prevents_restart_and_no_authority_survives_retry() {
   outcome = {ModelCommitState::saved, ModelCommitStage::none};
   runModelCommit(marker);
   TEST_ASSERT_TRUE(report.restartDeferred);
-  TEST_ASSERT_FALSE(rebootDelay.reboot);
+  TEST_ASSERT_FALSE(pendingRestart);
   pendingItems.clear();
   loop_item_t ordinary;
   runModelCommit(ordinary);
-  TEST_ASSERT_FALSE(rebootDelay.reboot);
+  TEST_ASSERT_FALSE(pendingRestart);
   TEST_ASSERT_FALSE(report.restartDeferred);
   TEST_ASSERT_FALSE(report.rebooting);
 }
@@ -201,7 +207,7 @@ static void local_commit_returns_the_notified_file_result_without_restart() {
     TEST_ASSERT_EQUAL(actual.file.state, report.file.state);
     TEST_ASSERT_FALSE(actual.rebooting);
     TEST_ASSERT_FALSE(actual.restartDeferred);
-    TEST_ASSERT_FALSE(rebootDelay.reboot);
+    TEST_ASSERT_FALSE(pendingRestart);
     TEST_ASSERT_EQUAL(3, events.size());
     TEST_ASSERT_EQUAL_STRING("commit", events[0].c_str());
     TEST_ASSERT_EQUAL_STRING("reply", events[1].c_str());
@@ -215,7 +221,7 @@ static void stale_recovery_source_cannot_touch_a_newer_upload() {
   const auto cleanup=gitUpdate.claimTransferCleanup(30100);
   TEST_ASSERT_TRUE(gitUpdate.closeTransfer(cleanup.token));TEST_ASSERT_TRUE(gitUpdate.releaseExternal(cleanup.token));
   const auto newer=appSource();
-  runModelCommit(old);TEST_ASSERT_EQUAL(0,commits);TEST_ASSERT_FALSE(rebootDelay.reboot);
+  runModelCommit(old);TEST_ASSERT_EQUAL(0,commits);TEST_ASSERT_FALSE(pendingRestart);
   TEST_ASSERT_EQUAL(RestartReason::stale,report.refusal);TEST_ASSERT_TRUE(gitUpdate.ownsExternal(newer));
 }
 int main() {

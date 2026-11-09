@@ -6,8 +6,7 @@
 #include "DeviceOps.h"
 #include "SettingsApply.h"
 #include "SettingsCompletion.h"
-#include "LegacyRestartGuard.h"
-#include "LegacyRestartSource.h"
+#include "SafeRestart.h"
 #include "SettingsDurability.h"
 #include "ConfigSettings.h"
 #include "ESPNetwork.h"
@@ -25,7 +24,6 @@ extern SomfyShadeController somfy;
 extern ESPNetwork net;
 extern MqttConnection mqtt;
 extern Web webServer;
-extern rebootDelay_t rebootDelay;
 
 static std::atomic<bool> saveBusy(false);
 static SettingsRevisions settingsRevisions;
@@ -76,8 +74,7 @@ public:
   explicit RuntimeSettingsEffects(uint32_t origin) : securityBefore(settings.Security.type), originSocketClient(origin) {}
   RestartResult completed(settings_section_t section, bool reboot) override {
     settingsRevisions.completed(section);
-    return completeSettingsSave({section,securityBefore,settings.Security.type,originSocketClient,reboot},protoSocket,rebootDelay,millis(),
-                                reboot ? legacyGenericRestartAdmission() : RestartResult{});
+    return completeSettingsSave({section,securityBefore,settings.Security.type,originSocketClient,reboot},protoSocket,requestRestart);
   }
   bool wifiClientsPresent() const override { return WiFi.softAPgetStationNum() != 0; }
   void hostnameChanged() override { net.updateHostname(); }
@@ -158,8 +155,7 @@ void runDeviceOp(const loop_item_t &item) {
       protoSocket.endReply(item.replyTo);
       break;
     case proto_type_t::reboot: {
-      auto admission=legacyGenericRestartAdmission();
-      if(admission.admitted) admission=publishGenericLegacyRestart(rebootDelay,millis()+500);
+      const auto admission=requestRestart(500);
       if(!admission.admitted) {
         protoSocket.replyRefused(item.replyTo,proto_error_t::busy,restartReason(admission.reason));break;
       }
