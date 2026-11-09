@@ -1,3 +1,4 @@
+#include "QualifiedSettings.h"
 #include <unity.h>
 #include <nvs.h>
 #include "ConfigSettings.h"
@@ -7,33 +8,34 @@ void setUp() { FakeNvs::reset();settingsDurability()=SettingsDurability{}; }
 void tearDown() { TEST_ASSERT_TRUE(FakeNvs::handles.empty()); }
 static void test_open_failure_is_not_saved() {
   FakeNvs::failOpen=1;
-  WifiSettings cfg;
+  WifiSettings cfg;qualifySettings(cfg);
   TEST_ASSERT_EQUAL(settings_save_state_t::failed,cfg.save().state);
   TEST_ASSERT_EQUAL(0,FakeNvs::sets);
 }
 static void test_first_write_failure_is_not_saved() {
   FakeNvs::failSet=1;
-  WifiSettings cfg;
+  WifiSettings cfg;qualifySettings(cfg);
   TEST_ASSERT_EQUAL(settings_save_state_t::failed,cfg.save().state);
 }
 static void test_commit_failure_is_partial_even_for_empty_string() {
   FakeNvs::failCommit=1;
-  WifiSettings cfg;
+  WifiSettings cfg;qualifySettings(cfg);
   TEST_ASSERT_EQUAL(settings_save_state_t::partial,cfg.save().state);
 }
 static void test_readback_failure_is_partial() {
   FakeNvs::failRead=1;
-  WifiSettings cfg;
+  WifiSettings cfg;qualifySettings(cfg);
   TEST_ASSERT_EQUAL(settings_save_state_t::partial,cfg.save().state);
 }
 static void test_empty_strings_are_verified_and_saved() {
-  WifiSettings cfg;
+  WifiSettings cfg;qualifySettings(cfg);
   TEST_ASSERT_TRUE(cfg.save().saved());
   TEST_ASSERT_EQUAL(4,FakeNvs::reads);
   TEST_ASSERT_EQUAL(0,FakeNvs::values.at("WIFI/passphrase").bytes[0]);
 }
 template<class Settings>
 static void inject_every_operation(Settings cfg) {
+  qualifySettings(cfg);
   FakeNvs::reset();
   TEST_ASSERT_TRUE(cfg.save().saved());
   const int keyCount=FakeNvs::sets;
@@ -86,12 +88,12 @@ static void test_failed_write_retains_existing_namespace_keys() {
   TEST_ASSERT_TRUE(FakeNvs::values.count("SEC/pin"));
 }
 static void test_partial_write_reports_actual_remaining_durable_values() {
-  WifiSettings original;
+  WifiSettings original;qualifySettings(original);
   strcpy(original.ssid,"old network");
   strcpy(original.passphrase,"old passphrase");
   TEST_ASSERT_TRUE(original.save().saved());
   FakeNvs::failSet=FakeNvs::sets+2;
-  WifiSettings replacement;
+  WifiSettings replacement;qualifySettings(replacement);
   strcpy(replacement.ssid,"new network");
   auto result=replacement.save();
   TEST_ASSERT_EQUAL(settings_save_state_t::partial,result.state);
@@ -100,7 +102,7 @@ static void test_partial_write_reports_actual_remaining_durable_values() {
   TEST_ASSERT_EQUAL_STRING("old passphrase",reinterpret_cast<const char *>(FakeNvs::values.at("WIFI/passphrase").bytes.data()));
 }
 static void test_existing_key_types_are_preserved() {
-  MQTTSettings mqtt;
+  MQTTSettings mqtt;qualifySettings(mqtt);
   mqtt.port=65535;
   TEST_ASSERT_TRUE(mqtt.save().saved());
   TEST_ASSERT_EQUAL(FakeNvs::Type::i16,FakeNvs::values.at("MQTT/port").type);
@@ -110,19 +112,19 @@ static void test_existing_key_types_are_preserved() {
   SecuritySettings security;security.loadState=SecurityLoadState::knownEmpty; // Qualified boot fixture.
   TEST_ASSERT_TRUE(security.save().saved());
   TEST_ASSERT_EQUAL(FakeNvs::Type::i8,FakeNvs::values.at("SEC/type").type);
-  transceiver_config_t radio;
+  transceiver_config_t radio;qualifySettings(radio);
   TEST_ASSERT_TRUE(radio.save().saved());
   TEST_ASSERT_EQUAL(FakeNvs::Type::u8,FakeNvs::values.at("CC1101/type").type);
   TEST_ASSERT_EQUAL(FakeNvs::Type::blob,FakeNvs::values.at("CC1101/frequency").type);
 }
 static void test_partial_write_blocks_restart_until_that_full_namespace_is_verified() {
-  WifiSettings wifi;
+  WifiSettings wifi;qualifySettings(wifi);
   FakeNvs::failCommit=1;
   TEST_ASSERT_FALSE(wifi.save().saved());
   TEST_ASSERT_FALSE(settingsDurability().status().restartAllowed());
   TEST_ASSERT_EQUAL_UINT8(settingsNamespaceBit(SettingsNamespace::wifi),settingsDurability().status().uncertain);
   FakeNvs::failCommit=0;
-  MQTTSettings mqtt;TEST_ASSERT_TRUE(mqtt.save().saved());
+  MQTTSettings mqtt;qualifySettings(mqtt);TEST_ASSERT_TRUE(mqtt.save().saved());
   TEST_ASSERT_FALSE(settingsDurability().status().restartAllowed());
   TEST_ASSERT_TRUE(wifi.save().saved());
   TEST_ASSERT_TRUE(settingsDurability().status().restartAllowed());
@@ -136,7 +138,7 @@ static void legacy_migration_preserves_source_on_first_set_and_partial_failures(
     const auto source=FakeNvs::values;
     if(failure==0) FakeNvs::failSet=FakeNvs::sets+1;
     else FakeNvs::failCommit=FakeNvs::commits+1;
-    ConfigSettings current;strcpy(current.hostname,"legacy running");current.connType=conn_types_t::wifi;
+    ConfigSettings current;qualifySettings(current);strcpy(current.hostname,"legacy running");current.connType=conn_types_t::wifi;
     const auto result=current.saveLegacyMigration();
     TEST_ASSERT_FALSE(result.saved());TEST_ASSERT_EQUAL(0,FakeNvs::erases);
     TEST_ASSERT_TRUE(FakeNvs::values.at("WIFI/hostname").bytes==source.at("WIFI/hostname").bytes);
@@ -149,7 +151,7 @@ static void legacy_cleanup_follows_verified_cfg_and_preserves_active_wifi_keys()
   TEST_ASSERT_EQUAL(ESP_OK,nvs_set_str(h,"hostname","legacy running"));
   TEST_ASSERT_EQUAL(ESP_OK,nvs_set_u8(h,"ssdpBroadcast",1));
   TEST_ASSERT_EQUAL(ESP_OK,nvs_set_str(h,"ssid","active network"));nvs_close(h);
-  ConfigSettings current;strcpy(current.hostname,"legacy running");current.connType=conn_types_t::wifi;
+  ConfigSettings current;qualifySettings(current);strcpy(current.hostname,"legacy running");current.connType=conn_types_t::wifi;
   const auto migrated=current.saveLegacyMigration();
   TEST_ASSERT_TRUE(migrated.saved());TEST_ASSERT_TRUE(migrated.sourceCleaned);
   TEST_ASSERT_FALSE(FakeNvs::values.count("WIFI/hostname"));TEST_ASSERT_FALSE(FakeNvs::values.count("WIFI/ssdpBroadcast"));
@@ -164,7 +166,7 @@ static void optional_legacy_cleanup_failure_does_not_invalidate_verified_cfg() {
     TEST_ASSERT_EQUAL(ESP_OK,nvs_set_str(h,"hostname","legacy"));nvs_close(h);
     if(failure==0) FakeNvs::failOpen=FakeNvs::opens+2;
     else FakeNvs::failCommit=FakeNvs::commits+5;
-    ConfigSettings current;current.connType=conn_types_t::wifi;
+    ConfigSettings current;qualifySettings(current);current.connType=conn_types_t::wifi;
     const auto result=current.saveLegacyMigration();
     TEST_ASSERT_TRUE(result.saved());TEST_ASSERT_FALSE(result.sourceCleaned);
     TEST_ASSERT_TRUE(settingsDurability().status().restartAllowed());

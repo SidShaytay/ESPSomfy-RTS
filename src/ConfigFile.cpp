@@ -1,6 +1,9 @@
+#include "SelectedSettingsRestore.h"
+#include "DeviceOps.h"
+#include "ShadeGpioPolicy.h"
+#include <driver/gpio.h>
 #include <Arduino.h>
 #include <LittleFS.h>
-#include <Preferences.h>
 #include "esp_log.h"
 #include "ConfigFile.h"
 #include "GitUpdate.h"
@@ -9,14 +12,20 @@
 #include "Utils.h"
 #include "ConfigSettings.h"
 #include "ConfigValidation.h"
-#include "RollingCode.h"
 #include "BoardProfile.h"
 #include "ModelPersistence.h"
 #include "ModelRecords.h"
+#include "TaskWdt.h"
+#include "ModelIdleForAdministration.h"
+#include "LoopQueue.h"
+#include "SafeRestart.h"
+#include "RestoreExecution.h"
+#include "SettingsDurability.h"
 
 static const char *TAG = "ConfigFile";
 
 extern ConfigSettings settings;
+extern LoopQueue loopQueue;
 
 // The records' strings are read straight into these fields.
 static_assert(CFG_NAME_LEN == sizeof(SomfyShade::name), "shade name size");
@@ -212,68 +221,140 @@ static trans_record_t transRecord(const transceiver_config_t &cfg) {
   rec.noiseDetection = cfg.noiseDetection;
   return rec;
 }
-static void applySettingsRecord(const settings_record_t &rec) {
-  strlcpy(settings.hostname, rec.hostname, sizeof(settings.hostname));
-  strlcpy(settings.NTP.ntpServer, rec.ntpServer, sizeof(settings.NTP.ntpServer));
-  strlcpy(settings.NTP.posixZone, rec.posixZone, sizeof(settings.NTP.posixZone));
-  settings.ssdpBroadcast = rec.ssdpBroadcast;
-  settings.checkForUpdate = rec.checkForUpdate;
+// Counter values are collected from the same immutable bytes later adopted.
+// No model record, GPIO or NVS read is applied during adoption itself.
+static_assert(CounterLoad::maximumEntries==SOMFY_MAX_SHADES*(SOMFY_MAX_LINKED_REMOTES+1)+SOMFY_MAX_GROUPS,"Complete loaded counter address bound");
+static void cooperateCounterLoad(const void *){resetTaskWdt();delay(0);}
+static bool restoreIdle(SomfyShadeController *model,const RadioInstallToken &radio){
+  if(loopQueue.pending() || restartPending() || !modelIdleForAdministration(*model))return false;
+  return model->transceiver.installPauseHeld(radio);
 }
-static void applyNetRecord(const net_record_t &rec, const restore_options_t &opts, bool sameBoard) {
-  if(opts.network) {
-    settings.connType = static_cast<conn_types_t>(rec.connType);
-    settings.IP.dhcp = rec.dhcp;
-    settings.IP.ip.fromString(rec.ip);
-    settings.IP.gateway.fromString(rec.gateway);
-    settings.IP.subnet.fromString(rec.subnet);
-    settings.IP.dns1.fromString(rec.dns1);
-    settings.IP.dns2.fromString(rec.dns2);
-#if HAS_ETHERNET
-    if(sameBoard) {
-      ESP_LOGI(TAG, "Restoring Ethernet adapter settings");
-      settings.Ethernet.boardType = rec.ethBoardType;
-      settings.Ethernet.phyType = rec.ethPhyType;
-      settings.Ethernet.CLKMode = rec.ethClkMode;
-      settings.Ethernet.phyAddress = rec.ethPhyAddress;
-      settings.Ethernet.PWRPin = rec.ethPWRPin;
-      settings.Ethernet.MDCPin = rec.ethMDCPin;
-      settings.Ethernet.MDIOPin = rec.ethMDIOPin;
+static bool continueRestoreCounterLoad(const void *context){
+  return gitUpdate.transferRestoreClaimed(*static_cast<const GitUpdateOwnerToken *>(context),uint64_t(esp_timer_get_time())/1000);
+}
+bool ShadeConfigFile::prepareCounters(CounterLoadControl control) {
+  counters.clear();const uint32_t start=position();
+  if(!skipRecords(*this,header.roomRecords))return false;
+  for(unsigned i=0;i<header.shadeRecords;++i){
+    shade_record_t rec;
+    if(!readShadeRecord(*this,header,rec))return false;
+    if(rec.shadeId==255)continue;
+    if(!counters.include(rec.remoteAddress,rec.lastRollingCode))return false;
+    for(auto address:rec.linkedRemotes)if(!counters.include(address))return false;
+  }
+  for(unsigned i=0;i<header.groupRecords;++i){
+    group_record_t rec;
+    if(!readGroupRecord(*this,header,rec))return false;
+    if(rec.groupId!=255 && !counters.include(rec.remoteAddress,rec.hasRollingCode?rec.lastRollingCode:0))return false;
+  }
+  if(readFailed || !seekRead(start))return false;
+  const auto result=counters.resolve(control);
+  if(!result.ready())ESP_LOGE(TAG,"Model counter load failed at stage %u",unsigned(result.stage));
+  return result.ready();
+}
+
+// Restore is an external input boundary. Boot keeps the historical codec,
+// while selected restore records must be complete before any narrowing cast.
+bool ShadeConfigFile::validateRestoreRecords(const restore_options_t &opts){
+  const uint32_t modelStart=position();
+  config_header_t checkedHeader;
+  if(!seekRead(0))return false;
+  beginCheckedValues();readConfigHeader(*this,checkedHeader);
+  const auto headerValues=endCheckedValues();const auto v=checkedHeader.version;
+  const unsigned headerFields=4+(v>=19?2:0)+(v>10?2:0)+(v>=21?2:0)+(v>13?4:0);
+  if(!headerValues.valid || headerValues.fields!=headerFields || readFailed || position()!=modelStart ||
+      !seekRead(modelStart))return false;
+  header=checkedHeader;
+  auto checked=[&](unsigned fields,auto decode){
+    beginCheckedValues();const bool parsed=decode();const auto values=endCheckedValues();
+    return parsed&&values.valid&&values.fields==fields&&!readFailed;
+  };
+  const auto knownProtocol=[](radio_proto proto){
+    return proto==radio_proto::RTS || proto==radio_proto::RTW || proto==radio_proto::RTV ||
+        proto==radio_proto::GP_Relay || proto==radio_proto::GP_Remote;
+  };
+  uint32_t roomsSeen=0,shadesSeen=0,groupsSeen=0;
+  const auto uniqueId=[](uint32_t &seen,uint8_t id,uint8_t maximum,uint8_t unused){
+    if(id==unused)return true;
+    if(!id || id>maximum)return false;
+    const uint32_t mask=uint32_t(1)<<(id-1);
+    if(seen&mask)return false;
+    seen|=mask;return true;
+  };
+  static_assert(SOMFY_MAX_ROOMS<=32 && SOMFY_MAX_SHADES<=32 && SOMFY_MAX_GROUPS<=32,"Bounded stable ID sets");
+  bool valid=true;
+  if(opts.shades){
+    const unsigned shadeFields=12+(v<5?5:SOMFY_MAX_LINKED_REMOTES)+(v<4?1:2)+
+        (v>6?1:0)+(v>1?1:0)+(v>5?1:0)+(v>7?1:0)+(v>=9?1:0)+(v>=10?1:0)+
+        (v>=12?1:0)+(v>=13?1:0)+(v>14?2:0)+(v>15?1:0)+(v>16?1:0)+(v>=19?1:0);
+    const unsigned groupFields=6+SOMFY_MAX_GROUPED_SHADES+(v>=23?1:0)+
+        (v>=12?1:0)+(v>=13?1:0)+(v>=18?1:0)+(v>=19?1:0);
+    for(unsigned i=0;valid&&i<header.roomRecords;++i)valid=checked(3,[&]{
+      room_record_t rec;return readRoomRecord(*this,rec)&&uniqueId(roomsSeen,rec.roomId,SOMFY_MAX_ROOMS,0);
+    });
+    for(unsigned i=0;valid&&i<header.shadeRecords;++i)valid=checked(shadeFields,[&]{
+      shade_record_t rec;if(!readShadeRecord(*this,header,rec))return false;
+      return rec.shadeId==255 || (uniqueId(shadesSeen,rec.shadeId,SOMFY_MAX_SHADES,255) &&
+          uint8_t(rec.shadeType)<=uint8_t(shade_types::rgate1) &&
+          uint8_t(rec.tiltType)<=uint8_t(tilt_types::euromode) && knownProtocol(rec.proto));
+    });
+    for(unsigned i=0;valid&&i<header.groupRecords;++i)valid=checked(groupFields,[&]{
+      group_record_t rec;if(!readGroupRecord(*this,header,rec))return false;
+      return rec.groupId==255 || (uniqueId(groupsSeen,rec.groupId,SOMFY_MAX_GROUPS,255) &&
+          rec.groupType==group_types::channel &&
+          (rec.proto==radio_proto::RTS || rec.proto==radio_proto::RTW || rec.proto==radio_proto::RTV));
+    });
+  }else valid=skipRecords(*this,uint32_t(header.roomRecords)+header.shadeRecords+header.groupRecords);
+  if(opts.repeaters){
+    for(unsigned i=0;valid&&i<header.repeaterRecords;++i)valid=checked(SOMFY_MAX_REPEATERS,[&]{
+      uint32_t addresses[SOMFY_MAX_REPEATERS];if(!readRepeaterRecord(*this,addresses))return false;
+      for(auto address:addresses)if(address>0xffffff)return false;
+      return true;
+    });
+  }
+  const bool rewound=seekRead(modelStart);
+  return valid&&rewound&&!readFailed;
+}
+
+// Two bounded passes over the SAME immutable model: count physically touched
+// pads, then validate each assignment against projected settings and its peers.
+// No model draft, mutable-file reread, pin operation or counter I/O is needed.
+bool ShadeConfigFile::validateRestoreGPIOs(SomfyShadeController *model,bool imported,
+    const SelectedSettingsRestore &stage){
+  static_assert(3*SOMFY_MAX_SHADES<255,"Per-pin owner counts cannot overflow");
+  uint8_t owners[256]={};const uint32_t start=position();
+  auto visit=[&](auto action){
+    if(!imported){
+      for(auto &shade:model->shades)if(shade.getShadeId()!=255 &&
+          !action(shade.proto,shade.gpioUp,shade.gpioDown,shade.gpioMy))return false;
+      return true;
     }
-#else
-    (void)sameBoard;
-#endif
-  }
-  if(opts.mqtt) {
-    strlcpy(settings.MQTT.protocol, rec.mqttProtocol, sizeof(settings.MQTT.protocol));
-    strlcpy(settings.MQTT.hostname, rec.mqttHostname, sizeof(settings.MQTT.hostname));
-    settings.MQTT.port = rec.mqttPort;
-    settings.MQTT.pubDisco = rec.mqttPubDisco;
-    strlcpy(settings.MQTT.rootTopic, rec.mqttRootTopic, sizeof(settings.MQTT.rootTopic));
-    strlcpy(settings.MQTT.discoTopic, rec.mqttDiscoTopic, sizeof(settings.MQTT.discoTopic));
-  }
-}
-static void applyTransRecord(const trans_record_t &rec, transceiver_config_t &cfg) {
-  cfg.enabled = rec.enabled;
-  cfg.proto = rec.proto;
-  cfg.type = rec.type;
-  cfg.SCKPin = rec.SCKPin;
-  cfg.CSNPin = rec.CSNPin;
-  cfg.MOSIPin = rec.MOSIPin;
-  cfg.MISOPin = rec.MISOPin;
-  cfg.TXPin = rec.TXPin;
-  cfg.RXPin = rec.RXPin;
-  cfg.frequency = rec.frequency;
-  cfg.rxBandwidth = rec.rxBandwidth;
-  cfg.deviation = rec.deviation;
-  cfg.txPower = rec.txPower;
-  cfg.noiseDetection = rec.noiseDetection;
-}
-// NVS keeps the last rolling code each remote sent.
-static uint16_t keepRollingCode(Preferences &pref, SomfyRemote *remote, uint16_t inFile) {
-  const uint16_t stored = pref.getUShort(remote->getRemotePrefId(), 0);
-  const uint16_t code = rollingCodeAfterLoad(stored, inFile);
-  if(code != stored) pref.putUShort(remote->getRemotePrefId(), code);
-  return code;
+    bool valid=seekRead(start)&&skipRecords(*this,header.roomRecords);
+    for(unsigned i=0;valid&&i<header.shadeRecords;++i){
+      shade_record_t shade;
+      valid=readShadeRecord(*this,header,shade);
+      if(valid&&shade.shadeId!=255)valid=action(shade.proto,shade.gpioUp,shade.gpioDown,shade.gpioMy);
+    }
+    const bool rewound=seekRead(start);
+    return valid&&rewound&&!readFailed;
+  };
+  if(!visit([&](radio_proto proto,uint8_t up,uint8_t down,uint8_t my){
+    const uint8_t mask=ShadeGpioPolicy::physicalMask(proto),pins[]={up,down,my};
+    for(unsigned i=0;i<3;++i)if((mask&(1u<<i))&&pins[i]!=255)++owners[pins[i]];
+    return true;
+  }))return false;
+  pin_users_t invalid;
+  invalid.uses=[](uint8_t pin,void *){return !GPIO_IS_VALID_OUTPUT_GPIO(pin);};
+  return visit([&](radio_proto proto,uint8_t up,uint8_t down,uint8_t my){
+    struct Context{const uint8_t *owners;uint8_t mask,pins[3];} context{owners,ShadeGpioPolicy::physicalMask(proto),{up,down,my}};
+    pin_users_t others;others.ctx=&context;
+    others.uses=[](uint8_t pin,void *opaque){
+      const auto &current=*static_cast<const Context *>(opaque);unsigned own=0;
+      for(unsigned i=0;i<3;++i)if((current.mask&(1u<<i))&&current.pins[i]==pin)++own;
+      return current.owners[pin]>own;
+    };
+    return stage.validateGPIOs(proto,up,down,my,settings,model->transceiver.config,others,invalid,model->transceiver.retainedPinClaims(),retainedEthernetPinClaims())==0;
+  });
 }
 
 void ShadeConfigFile::readRoom(SomfyRoom *room) {
@@ -290,8 +371,10 @@ void ShadeConfigFile::readShade(SomfyShade *shade) {
     shade->clear();
     return;
   }
-  Preferences pref;
-  pref.begin("ShadeCodes");
+  uint16_t ownCode=rec.lastRollingCode,linkedCodes[SOMFY_MAX_LINKED_REMOTES]={};
+  if(rec.remoteAddress && !counters.lookup(rec.remoteAddress,ownCode)){readFailed=true;return;}
+  for(unsigned i=0;i<SOMFY_MAX_LINKED_REMOTES;++i)
+    if(rec.linkedRemotes[i] && !counters.lookup(rec.linkedRemotes[i],linkedCodes[i])){readFailed=true;return;}
   shade->setShadeId(rec.shadeId);
   shade->paired = rec.paired;
   shade->shadeType = rec.shadeType;
@@ -307,11 +390,9 @@ void ShadeConfigFile::readShade(SomfyShade *shade) {
   for(uint8_t j = 0; j < SOMFY_MAX_LINKED_REMOTES; j++) {
     SomfyLinkedRemote *rem = &shade->linkedRemotes[j];
     rem->setRemoteAddress(rec.linkedRemotes[j]);
-    if(rem->getRemoteAddress() != 0) rem->lastRollingCode = pref.getUShort(rem->getRemotePrefId(), 0);
+    if(rem->getRemoteAddress() != 0) rem->lastRollingCode = linkedCodes[j];
   }
-  shade->lastRollingCode = rec.lastRollingCode;
-  if(shade->getRemoteAddress() != 0) shade->lastRollingCode = keepRollingCode(pref, shade, rec.lastRollingCode);
-  pref.end();
+  shade->lastRollingCode = ownCode;
   shade->setFlags(rec.flags);
   // The targets are where the shade is.
   shade->restore(rec.currentPos, rec.currentTiltPos, rec.myPos, rec.myTiltPos);
@@ -335,6 +416,8 @@ void ShadeConfigFile::readGroup(SomfyGroup *group) {
     group->clear();
     return;
   }
+  uint16_t ownCode=rec.lastRollingCode;
+  if(rec.remoteAddress && !counters.lookup(rec.remoteAddress,ownCode)){readFailed=true;return;}
   group->setGroupId(rec.groupId);
   group->groupType = rec.groupType;
   group->setRemoteAddress(rec.remoteAddress);
@@ -347,14 +430,7 @@ void ShadeConfigFile::readGroup(SomfyGroup *group) {
   group->sortOrder = rec.sortOrder;
   group->flipCommands = rec.flipCommands;
   group->roomId = rec.roomId;
-  group->lastRollingCode = rec.lastRollingCode;
-  if(group->getRemoteAddress() != 0) {
-    Preferences pref;
-    pref.begin("ShadeCodes");
-    // Before version 23 the file has no group code; keep this address's NVS value.
-    group->lastRollingCode = keepRollingCode(pref, group, rec.hasRollingCode ? rec.lastRollingCode : 0);
-    pref.end();
-  }
+  group->lastRollingCode = ownCode;
 }
 void ShadeConfigFile::readRepeaters(SomfyShadeController *s) {
   uint32_t repeaters[SOMFY_MAX_REPEATERS];
@@ -378,7 +454,7 @@ bool ShadeConfigFile::begin(const char *filename, bool readOnly) {
   if(!readOnly)return false;
   return ConfigFile::begin(filename,true);
 }
-void ShadeConfigFile::end() { ConfigFile::end(); }
+void ShadeConfigFile::end() { counters.clear();ConfigFile::end(); }
 bool ShadeConfigFile::writeModel(SomfyShadeController *s,
                                  ConfigWriter &writer) {
   this->header.version = SHADE_HDR_VER;
@@ -606,100 +682,90 @@ bool ShadeConfigFile::validateFile(const char *filename) {
   file.end();
   return valid;
 }
-bool ShadeConfigFile::restore(SomfyShadeController *s, const char *filename, restore_options_t &opts, const GitUpdateOwnerToken &owner) {
-  if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000) || s->transceiver.counterEditUncertain()) return false;
+RestoreApplyResult ShadeConfigFile::restore(SomfyShadeController *s,const char *filename,
+    restore_options_t &opts,const GitUpdateOwnerToken &owner,const RadioInstallToken &radio){
   ShadeConfigFile file;
-  if(file.begin(filename, true)) {
-    bool success = file.restoreFile(s, filename, opts, owner);
-    file.end();
-    return success;
-  }
-  return false;
+  return file.restoreFile(s,filename,opts,owner,radio);
 }
-bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename, restore_options_t &opts, const GitUpdateOwnerToken &owner) {
-  if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000) || s->transceiver.counterEditUncertain()) return false;
-  bool opened = false;
-  if(!this->isOpen()) {
-    ESP_LOGI(TAG, "Opening shade restore file");
-    this->begin(filename, true);
-    opened = true;
+RestoreApplyResult ShadeConfigFile::restoreFile(SomfyShadeController *s,const char *filename,
+    restore_options_t &opts,const GitUpdateOwnerToken &owner,const RadioInstallToken &radio){
+  RestoreApplyResult result;
+  if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000) ||
+      !restoreExecutionHolds(owner,radio)) {result.refusal=RestoreRefusal::ownership;return result;}
+  if(s->transceiver.counterEditUncertain()){result.refusal=RestoreRefusal::busy;return result;}
+  bool opened=false;
+  if(!isOpen()){begin(filename,true);opened=true;}
+  struct CloseOpened{ShadeConfigFile &file;bool active;~CloseOpened(){if(active)file.end();}}close{*this,opened};
+  if(!validate())return result;
+  if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000)){
+    result.refusal=RestoreRefusal::ownership;return result;
   }
-  if(!this->validate()) {
-    ESP_LOGE(TAG, "Shade restore file invalid!");
-    if(opened) this->end();
-    return false;
-  }
-  if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000) || s->transceiver.counterEditUncertain()) {
-    if(opened) this->end();return false;
-  }
+  if(!restoreIdle(s,radio)){result.refusal=RestoreRefusal::busy;return result;}
   const bool recovering=!s->modelLoad.usable();
-  if(recovering && (!opts.shades || !opts.repeaters)) {
-    if(opened)this->end();return false;
+  if(recovering && (!opts.shades || !opts.repeaters)){
+    result.refusal=RestoreRefusal::incompleteModel;return result;
+  }
+  if(!opts.shades&&!opts.repeaters&&!opts.settings&&!opts.network&&!opts.mqtt&&!opts.transceiver)return result;
+  if(!validateRestoreRecords(opts)){result.refusal=RestoreRefusal::invalid;return result;}
+  SelectedSettingsRestore stage;
+  const bool selected=opts.settings||opts.network||opts.mqtt||opts.transceiver;
+  const uint32_t modelStart=position();
+  // Even model-only restore prepares the no-write settings context so pin
+  // projection may use proven current owners without allocating a draft.
+  if(!selected && !stage.prepare(settings,s->transceiver.config,opts,header,*this,false,s->transceiver.retainedPinClaims(),retainedEthernetPinClaims(),retainedGpioPinClaims())){
+    result.settings=stage.status();result.refusal=RestoreRefusal::settings;return result;
+  }
+  if(selected){
+    const bool sameBoard=header.serverId[0]&&settings.serverId[0]&&!strcmp(header.serverId,settings.serverId);
+    if(!skipRecords(*this,uint32_t(header.roomRecords)+header.shadeRecords+header.groupRecords+header.repeaterRecords) ||
+       !stage.prepare(settings,s->transceiver.config,opts,header,*this,
+          sameBoard,s->transceiver.retainedPinClaims(),retainedEthernetPinClaims(),retainedGpioPinClaims()) || readFailed){
+      result.settings=stage.status();result.refusal=RestoreRefusal::settings;return result;
+    }
+    result.settings=stage.status();
+    if(!seekRead(modelStart)){result.refusal=RestoreRefusal::invalid;return result;}
+  }
+  if((opts.shades||opts.network||opts.transceiver) && !validateRestoreGPIOs(s,opts.shades,stage)){
+    result.refusal=RestoreRefusal::invalid;return result;
+  }
+  if(opts.shades){
+    const bool prepared=prepareCounters({&owner,continueRestoreCounterLoad,cooperateCounterLoad});
+    result.counterWriteAttempted=counters.result().writeAttempted;
+    if(!prepared){
+      if(result.counterWriteAttempted)s->modelLoad.fail();
+      result.refusal=RestoreRefusal::counterStorage;return result;
+    }
+  }
+  // Preflight itself consumes time for every selection, including repeater-only
+  // and settings-only restore. No revision or live mutation uses an expired grant.
+  if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000) || !restoreIdle(s,radio)){
+    if(result.counterWriteAttempted)s->modelLoad.fail();
+    result.refusal=RestoreRefusal::ownership;return result;
   }
   if(opts.shades)s->modelLoad.fail();
-  invalidateDeviceSettingsRevisions();
-  ++s->configurationRevision;
-  ++s->restoreRevision;
-  if(opts.shades) {
-    ESP_LOGI(TAG, "Restoring the rooms, shades and groups");
-    this->readModel(s);
-  }
-  else {
-    ESP_LOGI(TAG, "Shade data ignored");
-    skipRecords(*this, this->header.roomRecords + this->header.shadeRecords + this->header.groupRecords);
-  }
-  if(opts.repeaters) {
-    ESP_LOGI(TAG, "Restoring Repeaters...");
-    memset(s->repeaters, 0x00, sizeof(s->repeaters));
-    for(uint8_t i = 0; i < this->header.repeaterRecords; i++) this->readRepeaters(s);
-  }
-  else skipRecords(*this, this->header.repeaterRecords);
-  if(this->header.settingsRecordSize > 0) {
-    if(opts.settings) {
-      settings_record_t rec = settingsRecord();
-      readSettingsRecord(*this, this->header, rec);
-      applySettingsRecord(rec);
-    }
-    else skipRecords(*this, 1);
-  }
-  if(this->header.netRecordSize > 0) {
-    if(opts.network || opts.mqtt) {
-      // Only the board that wrote the Ethernet settings takes them back.
-      const bool sameBoard = HAS_ETHERNET && strncmp(settings.serverId, this->header.serverId, sizeof(settings.serverId)) == 0;
-      net_record_t rec = netRecord();
-      readNetRecord(*this, this->header, rec, sameBoard);
-      applyNetRecord(rec, opts, sameBoard);
-    }
-    else skipRecords(*this, 1);
-  }
-  // The repeaters are saved in shades.cfg too.  Left to somfy.loop(), they
-  // race the reboot.
-  if(opts.shades || opts.repeaters) {
+  invalidateDeviceSettingsRevisions();++s->configurationRevision;++s->restoreRevision;
+  if(opts.shades){
+    result.modelApplied=true;readModel(s);
+    if(readFailed){result.refusal=RestoreRefusal::invalid;return result;}
+  }else skipRecords(*this,header.roomRecords+header.shadeRecords+header.groupRecords);
+  if(opts.repeaters){
+    result.modelApplied=true;memset(s->repeaters,0,sizeof(s->repeaters));
+    for(unsigned i=0;i<header.repeaterRecords;++i)readRepeaters(s);
+  }else skipRecords(*this,header.repeaterRecords);
+  if(readFailed){if(result.modelApplied)s->modelLoad.fail();return result;}
+  if(opts.shades||opts.repeaters){
     if(opts.shades)s->modelLoad.beginRecoveryCommit();
-    const auto saved=s->commit();
-    if(opts.shades)s->modelLoad.finishRecoveryCommit(saved.saved());
-    if(!saved.saved()){if(opened)this->end();return false;}
+    result.modelFile=s->commit();
+    if(opts.shades)s->modelLoad.finishRecoveryCommit(result.modelFile.saved());
+    if(!result.modelFile.saved()){result.refusal=RestoreRefusal::modelStorage;return result;}
   }
-  if(opts.transceiver && this->header.transRecordSize > 0) {
-    // Read into a copy so the radio task never transmits on a half restored config.
-    trans_record_t rec = transRecord(s->transceiver.config);
-    readTransRecord(*this, rec);
-    transceiver_config_t cfg = s->transceiver.config;
-    applyTransRecord(rec, cfg);
-    s->transceiver.setConfig(cfg);
-  }
-  if(opts.settings || opts.network) settings.save();
-  if(opts.settings && settings.NTP.save().saved()) settings.NTP.apply();
-  if(opts.network) {
-    settings.IP.save();
-    settings.WIFI.save();
-#if HAS_ETHERNET
-    settings.Ethernet.save();
-#endif
-  }
-  if(opts.mqtt) settings.MQTT.save();
-  if(opts.shades) s->configureGPIOs();
-  return true;
+  if(selected)result.settings=applyPreparedSettingsRestore(stage,s->transceiver,owner,radio);
+  // Final actual ownership, including a live radio adoption followed by a
+  // marker failure, governs physical setup. Never project from stale pins.
+  if(s->modelLoad.usable() && (opts.shades || ((opts.network||opts.transceiver) &&
+      (result.settings.appliedNamespaces || result.settings.persistence.liveApplied))))s->configureGPIOs();
+  result.complete=result.settings.saved();
+  result.refusal=result.complete?RestoreRefusal::none:RestoreRefusal::settings;return result;
 }
 bool ShadeConfigFile::loadFile(SomfyShadeController *s, const char *filename) {
   bool opened = false;
@@ -713,7 +779,10 @@ bool ShadeConfigFile::loadFile(SomfyShadeController *s, const char *filename) {
     if(opened) this->end();
     return false;
   }
+  s->modelLoad.fail();
+  if(!prepareCounters({nullptr,nullptr,cooperateCounterLoad})){if(opened)this->end();return false;}
   this->readModel(s);
+  if(readFailed){if(opened)this->end();return false;}
   if(this->header.repeaterRecords > 0) {
     memset(s->repeaters, 0x00, sizeof(s->repeaters));
     for(uint8_t i = 0; i < this->header.repeaterRecords; i++) this->readRepeaters(s);

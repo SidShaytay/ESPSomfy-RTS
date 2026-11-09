@@ -1,5 +1,6 @@
 #include "Arduino.h"
 #include "SomfyFrame.h"
+#include "SettingsLoadState.h"
 #include "esp_log.h"
 #include <assert.h>
 #include <stdio.h>
@@ -10,6 +11,7 @@ static const char *TAG = "Group test";
 // group dispatcher, member behaviour and elapsed-time movement stay production.
 struct Transceiver {
   struct {
+    SettingsLoadStatus loadStatus{SettingsLoadState::loaded};
     uint8_t type = 56;
     radio_proto proto = radio_proto::RTS;
   } config;
@@ -27,6 +29,7 @@ struct Transceiver {
 #include "LoopQueue.h"
 #include "SettingsDurability.h"
 #include "Somfy.h"
+#include "QualifiedSettings.h"
 #include "Utils.h"
 #include "esp_timer.h"
 // This restart fixture never installs a counter quarantine.
@@ -104,7 +107,7 @@ void SomfyShade::emitCommand(somfy_commands, const char *, uint32_t) {}
 #include "production-group-domain.inc"
 #undef millis
 int main(int argc, char **argv) {
-  settings.Security.loadState=SecurityLoadState::knownEmpty;
+  qualifySettings(settings);
   assert(argc == 2);
   const std::string mode = argv[1];
   stubEspTimerMicros = 1000;

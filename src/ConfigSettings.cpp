@@ -9,6 +9,7 @@
 #endif
 #include "Utils.h"
 #include "Secrets.h"
+#include "Transceiver.h"
 #include "esp_chip_info.h"
 #include "esp_ota_ops.h"
 #include "esp_log.h"
@@ -154,44 +155,42 @@ bool ConfigSettings::begin() {
     (uint16_t)((chipId >> 16) & 0xff),
     (uint16_t)((chipId >> 8) & 0xff),
     (uint16_t)chipId & 0xff);
-  this->load();
-  const bool securityReady=this->Security.begin();
-  this->IP.begin();
-  this->WIFI.begin();
-#if HAS_ETHERNET
-  this->Ethernet.begin();
-#endif
-  this->NTP.begin();
-  this->MQTT.begin();
-  this->print();
-  return securityReady;
-}
-bool ConfigSettings::load() {
-  Preferences pref;
-  this->fwVersion.parse(FW_VERSION);
   this->getAppVersion();
-  pref.begin("CFG");
-  pref.getString("hostname", this->hostname, sizeof(this->hostname));
-  this->ssdpBroadcast = pref.getBool("ssdpBroadcast", true);
-  this->checkForUpdate = pref.getBool("checkForUpdate", true);
-  this->connType = static_cast<conn_types_t>(pref.getChar("connType", 0x00));
-  //Serial.printf("Preference GFG Free Entries: %d\n", pref.freeEntries());
-  pref.end();
-  if(this->connType == conn_types_t::unset) {
-    // We are doing this to convert the data from previous versions.
-    this->connType = conn_types_t::wifi;
-    pref.begin("WIFI");
-    pref.getString("hostname", this->hostname, sizeof(this->hostname));
-    this->ssdpBroadcast = pref.getBool("ssdpBroadcast", true);
-    pref.end();
-    const auto migrated=this->saveLegacyMigration();
-    if(!migrated.saved())
-      ESP_LOGW(TAG,"Legacy settings migration was not fully saved; source keys retained");
-    else if(!migrated.sourceCleaned)
-      ESP_LOGW(TAG,"Legacy settings saved; obsolete source cleanup incomplete");
-  }
-  return true;
+  bool ready=this->load();
+  ready &= this->Security.begin();
+  ready &= this->IP.begin();
+  ready &= this->WIFI.begin();
+#if HAS_ETHERNET
+  ready &= this->Ethernet.begin();
+#endif
+  ready &= this->NTP.begin();
+  ready &= this->MQTT.begin();
+  if(ready)this->print();
+  else ESP_LOGW(TAG,"Settings require repair; unavailable values were not applied");
+  return ready;
 }
+
+bool ConfigSettings::applyStartup(const transceiver_config_t &radio) {
+  // All namespaces must have completed their read phase before any side effect.
+  if(loadStatus.state==SettingsLoadState::unknown || NTP.loadStatus.state==SettingsLoadState::unknown ||
+     IP.loadStatus.state==SettingsLoadState::unknown || WIFI.loadStatus.state==SettingsLoadState::unknown ||
+     MQTT.loadStatus.state==SettingsLoadState::unknown || Security.loadState==SecurityLoadState::unknown ||
+     radio.loadStatus.state==SettingsLoadState::unknown
+#if HAS_ETHERNET
+     || Ethernet.loadStatus.state==SettingsLoadState::unknown
+#endif
+     )return false;
+  if(startupApplied)return settingsUsable() && radio.loadStatus.usable();
+  startupApplied=true;
+  if(NTP.loadStatus.usable())NTP.apply();
+  if(legacyMigrationPending && loadStatus.usable() && WIFI.loadStatus.usable()) {
+    const auto migrated=saveLegacyMigration();
+    if(!migrated.saved())ESP_LOGW(TAG,"Legacy settings migration not saved; source retained");
+    else legacyMigrationPending=false;
+  }
+  return settingsUsable() && radio.loadStatus.usable();
+}
+
 bool ConfigSettings::getAppVersion() {
 #if defined(ESPSOMFY_BUNDLED_WEB)
   this->appVersion.parse(BundledWeb::sourceVersion());
@@ -219,38 +218,10 @@ void ConfigSettings::print() {
   if(this->connType == conn_types_t::ethernet || this->connType == conn_types_t::ethernetpref) this->Ethernet.print();
 #endif
 }
-bool MQTTSettings::begin() {
-  this->load();
-  return true;
-}
-bool MQTTSettings::load() {
-  Preferences pref;
-  pref.begin("MQTT");
-  pref.getString("protocol", this->protocol, sizeof(this->protocol));
-  pref.getString("hostname", this->hostname, sizeof(this->hostname));
-  this->port = pref.getShort("port", 1883);
-  pref.getString("username", this->username, sizeof(this->username));
-  pref.getString("password", this->password, sizeof(this->password));
-  pref.getString("rootTopic", this->rootTopic, sizeof(this->rootTopic));
-  this->enabled = pref.getBool("enabled", false);
-  this->pubDisco = pref.getBool("pubDisco", false);
-  pref.getString("discoTopic", this->discoTopic, sizeof(this->discoTopic));
-  pref.end();
-  return true;
-}
-bool NTPSettings::begin() {
-  this->load();
-  this->apply();
-  return true;
-}
-bool NTPSettings::load() {
-  Preferences pref;
-  pref.begin("NTP");
-  pref.getString("ntpServer", this->ntpServer, sizeof(this->ntpServer));
-  pref.getString("posixZone", this->posixZone, sizeof(this->posixZone));
-  pref.end();
-  return true;
-}
+
+
+
+
 void NTPSettings::print() {
   ESP_LOGD(TAG, "NTP Settings %s TZ:%s", this->ntpServer, this->posixZone);
 }
@@ -261,61 +232,16 @@ bool NTPSettings::apply() {
   configTzTime(this->posixZone, this->ntpServer);
   return true;
 }
-bool IPSettings::begin() {
-  this->load();
-  return true;
-}
-bool IPSettings::load() {
-  Preferences pref;
-  pref.begin("IP");
-  this->dhcp = pref.getBool("dhcp", true);
-  char buff[16];
-  if(pref.isKey("ip")) {
-    pref.getString("ip", buff, sizeof(buff));
-    this->ip.fromString(buff);
-  }
-  if(pref.isKey("gateway")) {
-    pref.getString("gateway", buff, sizeof(buff));
-    this->gateway.fromString(buff);
-  }
-  if(pref.isKey("subnet")) {
-    pref.getString("subnet", buff, sizeof(buff));
-    this->subnet.fromString(buff);
-  }
-  if(pref.isKey("dns1")) {
-    pref.getString("dns1", buff, sizeof(buff));
-    this->dns1.fromString(buff);
-  }
-  if(pref.isKey("dns2")) {
-    pref.getString("dns2", buff, sizeof(buff));
-    this->dns2.fromString(buff);
-  }
-  ESP_LOGD(TAG, "Preference IP Free Entries: %d", pref.freeEntries());
-  pref.end();
-  return true;
-}
+
+
 
 void SecuritySettings::print() {
   ESP_LOGD(TAG, "SECURITY   Type:%u Username:[%s] Password:[%s] Pin:[%s]",
     static_cast<uint8_t>(this->type), this->username, maskSecret(this->password), maskSecret(this->pin));
 }
 
-bool WifiSettings::begin() {
-  this->load();
-  return true;
-}
-bool WifiSettings::load() {
-  Preferences pref;
-  pref.begin("WIFI");
-  pref.getString("ssid", this->ssid, sizeof(this->ssid));
-  pref.getString("passphrase", this->passphrase, sizeof(this->passphrase));
-  this->ssid[sizeof(this->ssid) - 1] = '\0';
-  this->passphrase[sizeof(this->passphrase) - 1] = '\0';
-  this->roaming = pref.getBool("roaming", true);
-  this->hidden = pref.getBool("hidden", false);
-  pref.end();
-  return true;
-}
+
+
 String WifiSettings::mapEncryptionType(int type) {
   switch(type) {
     case WIFI_AUTH_OPEN:
@@ -354,30 +280,9 @@ bool WifiSettings::ssidExists(const char *ssid) {
   return false;
 }
 #if HAS_ETHERNET
-bool EthernetSettings::begin() {
-  this->load();
-  return true;
-}
-bool EthernetSettings::usesPin(uint8_t pin) {
-  if(ethClockPin(this->CLKMode) == pin) return true;
-  else if(this->PWRPin == pin) return true;
-  else if(this->MDCPin == pin) return true;
-  else if(this->MDIOPin == pin) return true;
-  return false;  
-}
-bool EthernetSettings::load() {
-  Preferences pref;
-  pref.begin("ETH");
-  this->boardType = pref.getChar("boardType", this->boardType);
-  this->phyType = pref.getChar("phyType", this->phyType);
-  this->CLKMode = pref.getChar("CLKMode", this->CLKMode);
-  this->phyAddress = pref.getChar("phyAddress", this->phyAddress);
-  this->PWRPin = pref.getChar("PWRPin", this->PWRPin);
-  this->MDCPin = pref.getChar("MDCPin", this->MDCPin);
-  this->MDIOPin = pref.getChar("MDIOPin", this->MDIOPin);
-  pref.end();
-  return true;
-}
+
+bool EthernetSettings::usesPin(uint8_t pin) const {return LivePinClaims::contains(pinClaims(),pin);}
+
 void EthernetSettings::print() {
   ESP_LOGD(TAG, "Ethernet Settings Board:%d PHYType:%d CLK:%d ADDR:%d PWR:%d MDC:%d MDIO:%d",
     this->boardType, this->phyType, this->CLKMode, this->phyAddress, this->PWRPin, this->MDCPin, this->MDIOPin);

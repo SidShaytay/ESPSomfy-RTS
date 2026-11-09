@@ -42,6 +42,20 @@ void addAddress(SnapshotWriter &writer, proto_field_t field, const IPAddress &ip
 }
 bool readSettingsSnapshot(settings_section_t section, const ConfigSettings &settings,
                           const transceiver_config_t &cfg, SettingsSnapshotSink &sink) {
+  bool readable=false;
+  switch(section){
+   case settings_section_t::general:readable=settings.loadStatus.readable() && settings.NTP.loadStatus.readable();break;
+   case settings_section_t::network:readable=settings.loadStatus.readable() && settings.WIFI.loadStatus.readable() && settings.IP.loadStatus.readable()
+#if HAS_ETHERNET
+     && settings.Ethernet.loadStatus.readable()
+#endif
+     ;break;
+   case settings_section_t::mqtt:readable=settings.MQTT.loadStatus.readable();break;
+   case settings_section_t::security:readable=settings.Security.loadTrusted();break;
+   case settings_section_t::radio:readable=cfg.loadStatus.readable();break;
+  }
+  if(!readable)return false;
+
   SnapshotWriter w(sink);
   switch(section) {
     case settings_section_t::general:
@@ -67,11 +81,11 @@ bool readSettingsSnapshot(settings_section_t section, const ConfigSettings &sett
       w.add(proto_field_t::MDIOPin, settings.Ethernet.MDIOPin);
 #endif
       w.add(proto_field_t::dhcp, settings.IP.dhcp);
-      addAddress(w, proto_field_t::ip, settings.IP.ip);
-      addAddress(w, proto_field_t::gateway, settings.IP.gateway);
-      addAddress(w, proto_field_t::subnet, settings.IP.subnet);
-      addAddress(w, proto_field_t::dns1, settings.IP.dns1);
-      addAddress(w, proto_field_t::dns2, settings.IP.dns2);
+      if(settings.IP.invalidAddress[0][0])w.add(proto_field_t::ip,settings.IP.invalidAddress[0]);else addAddress(w, proto_field_t::ip, settings.IP.ip);
+      if(settings.IP.invalidAddress[1][0])w.add(proto_field_t::gateway,settings.IP.invalidAddress[1]);else addAddress(w, proto_field_t::gateway, settings.IP.gateway);
+      if(settings.IP.invalidAddress[2][0])w.add(proto_field_t::subnet,settings.IP.invalidAddress[2]);else addAddress(w, proto_field_t::subnet, settings.IP.subnet);
+      if(settings.IP.invalidAddress[3][0])w.add(proto_field_t::dns1,settings.IP.invalidAddress[3]);else addAddress(w, proto_field_t::dns1, settings.IP.dns1);
+      if(settings.IP.invalidAddress[4][0])w.add(proto_field_t::dns2,settings.IP.invalidAddress[4]);else addAddress(w, proto_field_t::dns2, settings.IP.dns2);
       break;
     case settings_section_t::mqtt:
       w.add(proto_field_t::enabled, settings.MQTT.enabled);

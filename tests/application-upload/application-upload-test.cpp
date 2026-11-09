@@ -1,8 +1,13 @@
+#include "RestoreExecution.h"
+#include "SettingsDurability.h"
+#include "SettingsRevisions.h"
+#include "ProtoSettings.h"
 #include "ModelLoadTrust.h"
 #include "ESPAsyncWebServer.h"
 #include "ModelCommitService.h"
 #include "SafeRestart.h"
 #include "SomfyFrame.h"
+#include "SettingsLoadState.h"
 #include "LoopQueue.h"
 #include "Update.h"
 #include "Utils.h"
@@ -16,9 +21,14 @@
 struct SomfyShadeController {
   ModelLoadTrust modelLoad{ModelLoadStatus::loaded};
   struct Radio {
+    struct {SettingsLoadStatus loadStatus{SettingsLoadState::loaded};}config;
     bool uncertain=false;
     bool counterEditUncertain() const{return uncertain;}
-    bool sealed=false;
+    bool sealed=false,restorePaused=false;uint64_t restoreGeneration=0;
+    bool pauseForRestore(RadioInstallToken &out){if(sealed||uncertain||out.generation)return false;sealed=restorePaused=true;out.generation=++restoreGeneration;return true;}
+    bool installPauseHeld(const RadioInstallToken &token)const{return restorePaused&&sealed&&token.generation==restoreGeneration;}
+    RadioInstallResume resumeAfterInstall(const RadioInstallToken &token){if(!installPauseHeld(token))return RadioInstallResume::stale;restorePaused=sealed=false;return RadioInstallResume::resumed;}
+
     bool restartQuiescent() const{return true;}
     bool sealForRestart(){sealed=true;return true;}
     void reopenAfterRefusedRestart(){sealed=false;}
@@ -33,10 +43,12 @@ struct SomfyShadeController {
   Shade *getShadeById(uint8_t id){for(auto &shade:shades)if(id && id!=255 && shade.id==id)return &shade;return nullptr;}
   ModelCommitResult commit(){noteModelCommit({ModelCommitState::saved});return {ModelCommitState::saved};}
 } somfy;
-struct ConfigSettings { bool hasOtaSlot=true;struct { bool trusted=true;bool loadTrusted()const{return trusted;} } Security; } settings; // Qualified boot fixture.
+struct ConfigSettings { bool settingsUsable()const{return Security.loadTrusted();} bool hasOtaSlot=true;struct { bool trusted=true;bool loadTrusted()const{return trusted;} } Security; } settings; // Qualified boot fixture.
 #define configsettings_h
+static std::function<void()> duringAuthentication;
 struct Web {
   bool uploadSuccess = false;
+  bool isAuthenticated(AsyncWebServerRequest *request){if(duringAuthentication)duringAuthentication();return request->allowed&&settings.Security.trusted;}
 } webServer;
 struct MqttConnection {
   unsigned stops = 0;
@@ -44,6 +56,8 @@ struct MqttConnection {
 } mqtt;
 FakeUpdate Update;
 
+static SettingsRevisions restoreSecurityHistory;
+uint64_t securityConfigurationRevision(){return restoreSecurityHistory.get(settings_section_t::security);}
 static bool admitted = true;
 static std::vector<bool> restarts;
 static unsigned resets = 0;
@@ -60,19 +74,32 @@ struct restore_options_t {
 };
 struct ShadeConfigFile {
   static bool validateFile(const char*){++validations;if(duringValidation)duringValidation();if(expireDuringValidation)manualClockMs+=30001;return restoreValid;}
-  static bool restore(SomfyShadeController*,const char*,restore_options_t&,const GitUpdateOwnerToken &owner) {
-    assert(gitUpdate.transferRestoreClaimed(owner,manualClockMs));
-    if(somfy.transceiver.uncertain)return false;
-    ++restores;return restoreValid;
+  static RestoreApplyResult restore(SomfyShadeController*,const char*,restore_options_t &opts,const GitUpdateOwnerToken &owner,const RadioInstallToken &radio) {
+    assert(gitUpdate.transferRestoreClaimed(owner,manualClockMs)&&restoreExecutionHolds(owner,radio));
+    RestoreApplyResult result;
+    if(somfy.transceiver.uncertain)return result;
+    restoreSecurityHistory.invalidateAll(); // Actual restore invalidates history after consuming its grant.
+    ++restores;result.complete=restoreValid;result.refusal=restoreValid?RestoreRefusal::none:RestoreRefusal::invalid;
+    result.modelApplied=opts.shades||opts.repeaters;result.modelFile={ModelCommitState::saved};
+    if(opts.settings||opts.network||opts.mqtt||opts.transceiver){
+      result.settings.state=RestoreSettingsState::saved;
+      if(opts.settings)result.settings.requestedNamespaces|=settingsNamespaceBit(SettingsNamespace::cfg)|settingsNamespaceBit(SettingsNamespace::ntp);
+      if(opts.network)result.settings.requestedNamespaces|=settingsNamespaceBit(SettingsNamespace::cfg)|settingsNamespaceBit(SettingsNamespace::ip);
+      if(opts.mqtt)result.settings.requestedNamespaces|=settingsNamespaceBit(SettingsNamespace::mqtt);
+      if(opts.transceiver)result.settings.requestedNamespaces|=settingsNamespaceBit(SettingsNamespace::radio);
+      result.settings.verifiedNamespaces=result.settings.appliedNamespaces=result.settings.requestedNamespaces;
+    }
+    return result;
   }
 };
 struct RecordingRequests {shade_request_result_t run(const shade_request_t&){return shade_request_result_t::done;}} shadeRequests;
 #define LOCAL_QUEUE_EXTERNAL_REBOOT
 #define LOCAL_QUEUE_EXTERNAL_CONFIG_FILE
 #define LOCAL_QUEUE_REAL_UPDATE_OWNER
+#define LOCAL_QUEUE_REAL_RESTORE_EXECUTION
 #include "../ui-adapter/LoopHarness.h"
-bool asyncHasParam(AsyncWebServerRequest *request,const char*){return request->hasRestoreOptions;}
-String asyncParam(AsyncWebServerRequest *request,const char*){return String(request->restoreOptions);}
+bool asyncHasParam(AsyncWebServerRequest *request,const char *name){return std::string(name)=="data"?request->hasRestoreOptions:request->params.count(name);}
+String asyncParam(AsyncWebServerRequest *request,const char *name){return String(std::string(name)=="data"?request->restoreOptions:request->params[name]);}
 bool queueLoopItem(AsyncWebServerRequest *request,const loop_item_t &item){
   restoreMarker=item;
   const bool queued=restoreQueue && loopQueue.submit(item);
@@ -95,6 +122,9 @@ bool submitModelCommit(const proto_reply_to_t &, ModelCommitMode mode,const GitU
   restarts.push_back(mode == ModelCommitMode::applicationRecoveryAndRestart);
   return admitted;
 }
+void completeRestoreModel(const RestoreApplyResult &result){assert(result.modelApplied);}
+uint32_t restoreTestRandom(){return 42;}
+#include "../../src/RestoreExecution.cpp"
 #include "../../src/entryPoints/ManualUploadSession.cpp"
 #include "../../src/entryPoints/ApplicationUpload.cpp"
 #include "../../src/entryPoints/FirmwareUpload.cpp"
@@ -113,6 +143,7 @@ static void reset() {
   resets = 0;restartLoop();
 }
 int main() {
+  assert(beginRestoreExecution());
   AsyncWebServer server;
   registerApplicationUploadRoute(server);
   uint8_t byte = 42;loopQueue.begin();
@@ -315,9 +346,45 @@ int main() {
   restoreServer.upload(&restoreSuccess,String("x.backup"),0,&byte,1,true);restoreServer.complete(&restoreSuccess);
   assert(restoreSuccess.status==202 && restoreMarker.externalOwner.generation && restoreMarker.externalOwner.kind==GitUpdateExternalOwner::restore);
   const auto restoreSource=restoreMarker.externalOwner;
+  const auto status=restoreExecutionStatus();
+  assert(restoreSuccess.body.find("\"bootSession\":\""+std::to_string(status.bootSession)+"\"")!=std::string::npos);
+  assert(restoreSuccess.body.find("\"generation\":\""+std::to_string(restoreSource.generation)+"\"")!=std::string::npos);
+  assert(restoreServer.statusGet);
+  AsyncWebServerRequest query;query.params={{"bootSession",std::to_string(status.bootSession)},{"generation",std::to_string(status.generation)}};
+  query.allowed=false;restoreServer.statusGet(&query);assert(query.status==401);
+  query.allowed=true;query.params["generation"]="01";restoreServer.statusGet(&query);assert(query.status==400);
+  query.params["generation"]="18446744073709551616";restoreServer.statusGet(&query);assert(query.status==400);
+  query.params["generation"]=std::to_string(status.generation);query.params["bootSession"]="1";
+  restoreServer.statusGet(&query);assert(query.status==409);
+  query.params["bootSession"]=std::to_string(status.bootSession);restoreServer.statusGet(&query);
+  assert(query.status==200&&query.body.find("\"phase\":\"queued\"")!=std::string::npos);
+
   restoreSuccess.disconnected();assert(gitUpdate.ownsExternal(restoreSource));
   loopQueue.drain();assert(restores==1 && restartPending() && !gitUpdate.ownsExternal(restoreSource));
   assert(!LittleFS.files.count("/shades.tmp") && gitUpdate.busy());
+  restoreServer.statusGet(&query);assert(query.status==200&&query.body.find("\"phase\":\"applied\"")!=std::string::npos&&query.body.find("\"restartScheduled\":true")!=std::string::npos);
+  for(unsigned revoke=0;revoke<3;++revoke){
+    reset();AsyncWebServerRequest revokedQueued;
+    restoreServer.upload(&revokedQueued,String("x.backup"),0,&byte,1,true);restoreServer.complete(&revokedQueued);
+    assert(revokedQueued.status==202);
+    if(revoke==0)settings.Security.trusted=false;
+    else for(unsigned save=0;save<revoke;++save)restoreSecurityHistory.completed(settings_section_t::security);
+    loopQueue.drain();assert(restores==0 && !restartPending() && !gitUpdate.busy() && !LittleFS.files.count("/shades.tmp"));
+    assert(restoreExecutionStatus().phase==RestoreExecutionPhase::refused);
+  }
+  reset();AsyncWebServerRequest revokedBeforeCompletion;
+  restoreServer.upload(&revokedBeforeCompletion,String("x.backup"),0,&byte,1,true);
+  restoreSecurityHistory.completed(settings_section_t::security);
+  restoreServer.complete(&revokedBeforeCompletion);
+  assert(revokedBeforeCompletion.status==409&&!loopQueue.pending()&&!gitUpdate.busy()&&!LittleFS.files.count("/shades.tmp"));
+  reset();AsyncWebServerRequest revokedToken;
+  restoreServer.upload(&revokedToken,String("x.backup"),0,&byte,1,true);revokedToken.allowed=false;
+  restoreServer.complete(&revokedToken);assert(revokedToken.status==409&&!loopQueue.pending()&&!gitUpdate.busy());
+  reset();AsyncWebServerRequest changingAdmission;bool changed=false;
+  duringAuthentication=[&]{if(!changed){changed=true;restoreSecurityHistory.completed(settings_section_t::security);}};
+  restoreServer.upload(&changingAdmission,String("x.backup"),0,&byte,1,true);duringAuthentication={};
+  restoreServer.complete(&changingAdmission);
+  assert(changed&&changingAdmission.status==409&&!LittleFS.opens&&!loopQueue.pending()&&!gitUpdate.busy());
   reset();
   AsyncWebServerRequest staleRestore,newerRestore;
   restoreServer.upload(&staleRestore,String("x.backup"),0,&byte,1,true);restoreServer.complete(&staleRestore);
@@ -333,6 +400,23 @@ int main() {
   AsyncWebServerRequest fullRestore;
   restoreServer.upload(&fullRestore,String("x.backup"),0,&byte,1,true);restoreServer.complete(&fullRestore);
   assert(fullRestore.status==503 && loopQueue.pending()==LOOP_QUEUE_SIZE && !gitUpdate.busy() && !LittleFS.files.count("/shades.tmp"));
+  assert(restoreExecutionStatus().phase==RestoreExecutionPhase::refused);
+  for(const bool disconnect:{false,true}){
+    reset();AsyncWebServerRequest gap;
+    restoreServer.upload(&gap,String("x.backup"),0,&byte,1,true);bool fired=false;
+    duringClock=[&]{const auto status=restoreExecutionStatus();if(!fired&&status.phase==RestoreExecutionPhase::queued&&status.generation==manualUploadState(&gap)->owner.generation){fired=true;if(disconnect)gap.disconnected();else manualClockMs+=30001;}};
+    restoreServer.complete(&gap);duringClock={};
+    assert(fired);
+    if(disconnect){
+      // The existing lifecycle intentionally retains a queued source across
+      // HTTP disconnect; its exact FIFO marker still executes only once.
+      assert(gap.status==202&&loopQueue.pending()==1);
+      loopQueue.drain();assert(restores==1&&restoreExecutionStatus().phase==RestoreExecutionPhase::applied);
+    }else{
+      assert(gap.status==409&&!loopQueue.pending()&&restoreExecutionStatus().phase==RestoreExecutionPhase::refused);
+      manualUploadLoop();assert(!gitUpdate.busy());
+    }
+  }
   reset();
   LittleFS.shortWrite=true;AsyncWebServerRequest shortRestore;
   restoreServer.upload(&shortRestore,String("x.backup"),0,&byte,1,true);restoreServer.complete(&shortRestore);

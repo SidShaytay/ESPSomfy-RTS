@@ -6,7 +6,9 @@ namespace {
 struct SettingsDraft {
   ConfigSettings value;
   explicit SettingsDraft(const ConfigSettings &source) {
-    // Only persisted fields belong in the draft; omit boot/status metadata.
+    // Persisted fields and their read provenance belong in the draft.
+    value.loadStatus=source.loadStatus;
+    // Omit unrelated boot/status metadata.
     strcpy(value.hostname,source.hostname);
     value.ssdpBroadcast=source.ssdpBroadcast;
     value.checkForUpdate=source.checkForUpdate;
@@ -51,12 +53,17 @@ const char *settingsSaveFailureDescription(settings_save_state_t state) {
     "Settings were not saved; running settings unchanged.";
 }
 const char *settingsApplyFailureDescription(const settings_apply_result_t &result) {
+  if(result.persistence.radioCleanupFault)
+    return "Radio cleanup fault; further radio saves and restart remain blocked. No automatic retry or recovery was performed.";
+  if(result.persistence.liveApplied)
+    return "Radio settings applied; initialization status is uncertain. Reopen Radio before retrying; restart remains blocked.";
   switch(result.refusal) {
     case settings_apply_refusal_t::invalidPin: return "PIN must contain exactly four bytes; nothing was saved.";
     case settings_apply_refusal_t::usernameRequired: return "Password security requires a username; nothing was saved.";
     case settings_apply_refusal_t::passwordRequired: return "Password security requires a password; nothing was saved.";
     case settings_apply_refusal_t::unauthorized: return "Unlock again before saving; nothing was saved.";
     case settings_apply_refusal_t::stale: return "Settings changed; reopen the form before saving.";
+    case settings_apply_refusal_t::pinOwnership: return "Hardware pin ownership is unavailable or overlaps; nothing was saved.";
     case settings_apply_refusal_t::busy: return "Actions are queued; retry Save when they finish. Nothing was saved.";
     default: return settingsSaveFailureDescription(result.persistence.state);
   }
@@ -90,6 +97,8 @@ settings_apply_result_t applySettings(ConfigSettings &current, settings_section_
     const auto refusal = securityRefusal(current.Security,next.Security);
     if(refusal != settings_apply_refusal_t::none) return settings_apply_result_t::refused(refusal);
   }
+  if((settingsSets(parts,settings_part_t::conn) || settingsSets(parts,settings_part_t::ethernet)) &&
+     !effects.networkPinsAvailable(next))return settings_apply_result_t::refused(settings_apply_refusal_t::pinOwnership);
   auto persist = [&](settings_part_t part, auto &value) {
     if(!settingsSets(parts,part)) return true;
     out.persistence = value.save();
@@ -118,6 +127,8 @@ settings_apply_result_t applySettings(ConfigSettings &current, settings_section_
     strcpy(current.hostname,next.hostname);
     current.ssdpBroadcast=next.ssdpBroadcast;
   }
+  if(settingsSets(parts,settings_part_t::general) || settingsSets(parts,settings_part_t::conn))
+    current.loadStatus=next.loadStatus; // Only the fully verified selected save qualifies live CFG.
   const bool connectionChanged = next.connType != current.connType;
   if(settingsSets(parts,settings_part_t::conn)) current.connType=next.connType;
   if(settingsSets(parts,settings_part_t::ntp)) current.NTP=next.NTP;
