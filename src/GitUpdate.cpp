@@ -134,6 +134,11 @@ bool GitUpdateClass::acquireRestart(GitUpdateOwnerToken &result,uint64_t now,con
   } else if(!acquire(Owner::restart)) return false;
   result={ownerGeneration,GitUpdateExternalOwner::restart};return true;
 }
+bool GitUpdateClass::releaseRestartSource(const GitUpdateOwnerToken &token,uint64_t now) {
+  Guard guard;
+  if(!owns(token) || !manualTransfer.cancelRestart(token,now)) return false;
+  owner=Owner::none;return true;
+}
 bool GitUpdateClass::finishTransfer(const GitUpdateOwnerToken &token,uint64_t now,bool progress) {
   Guard guard;return owns(token) && manualTransfer.finish(token,now,progress);
 }
