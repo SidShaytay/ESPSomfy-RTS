@@ -47,6 +47,15 @@ static void preserved(SomfyShadeController &model,unsigned slot,unsigned id) {
   assert(!strcmp(group.name,"Preserved group") && group.sortOrder==9 && group.linkedShades[0]==id && group.roomId==id && group.flags==67);
 }
 int main() {
+  { SomfyShadeController model;auto &shade=model.shades[0];
+    assert(shade.idleForAdministration());
+    shade.gpioRelease=1;assert(!shade.idleForAdministration());
+    shade.gpioRelease=0;assert(shade.idleForAdministration());
+    shade.lastFrame.await=1;assert(!shade.idleForAdministration());
+    shade.lastFrame.processed=true;assert(shade.idleForAdministration());
+    assert(!ioCalls);
+  }
+
   // Exact packed-after-reboot regression: free ID1 is unrelated to occupied slot0.
   { SomfyShadeController model;seed(model,0,2);
     assert(model.addRoom()==&model.rooms[1]);assert(model.rooms[1].roomId==1);preserved(model,0,2);
