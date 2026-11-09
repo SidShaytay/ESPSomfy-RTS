@@ -392,9 +392,11 @@ void Form::render(FormView &out) {
             return;
           }
           snprintf(row.label, sizeof(row.label), "%s", item.label);
+          if (s.target.scope == Scope::devices)
+            snprintf(row.value, sizeof(row.value), "Code %u",
+                     unsigned(item.rollingCode));
           if (s.target.scope == Scope::groups)
-            strcpy(row.value,
-                   item.missing ? "Missing: repair" : "Present (read only)");
+            strcpy(row.value, item.missing ? "Missing: repair" : "View only");
         }
       }
   }

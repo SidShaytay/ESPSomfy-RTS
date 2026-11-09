@@ -87,6 +87,7 @@ struct Model : Advanced::Backend {
       return false;
     out = {};
     out.key = 1234;
+    out.rollingCode = 65535;
     out.slot = 6;
     out.missing = true;
     strcpy(out.label, "1234");
@@ -275,6 +276,19 @@ static void stable_label_identity_is_required() {
     TEST_ASSERT_EQUAL(0, memory.used());
   }
 }
+static void linked_remote_list_keeps_readonly_counter_visible() {
+  Model model;
+  JsonAllocator memory(4096, acquire, release);
+  Advanced::Form form(model, memory);
+  form.open(Scope::devices, 10);
+  form.activate(11);
+  form.turn(1, 12);
+  form.activate(13);
+  FormView view;
+  form.render(view);
+  TEST_ASSERT_EQUAL_STRING("Code 65535", view.rows[0].value);
+  TEST_ASSERT_EQUAL(0, model.saves);
+}
 static void confirmation_names_exact_association_and_configuration_effect() {
   Model model;
   JsonAllocator memory(4096, acquire, release);
@@ -312,5 +326,6 @@ int main() {
   RUN_TEST(file_retry_busy_keeps_commit_only_result);
   RUN_TEST(stable_label_identity_is_required);
   RUN_TEST(confirmation_names_exact_association_and_configuration_effect);
+  RUN_TEST(linked_remote_list_keeps_readonly_counter_visible);
   return UNITY_END();
 }

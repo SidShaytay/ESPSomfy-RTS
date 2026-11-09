@@ -1,7 +1,7 @@
 # Advanced configuration
 
 The Advanced component is not connected to production navigation yet. This
-checkpoint supplies the bounded screen state and backend contract. It does not
+checkpoint supplies the bounded screen state and production metadata backend. It does not
 implement radio commands, learning, counter changes or Favorite programming.
 
 The approved first screen flow is Administration → More, with Advanced selectors
@@ -59,3 +59,14 @@ The planned receive-only learning cache and RF sequencer are separate increments
 Their entry and stage transitions must never automatically transmit. Favorite
 programming remains pending a decision about its existing automatic movement and
 later My-command sequence.
+
+The metadata backend uses the existing shared configuration owner. It refuses
+stale or busy requests before acquiring that owner, then rechecks the exact
+lease, permission/history/context, queue/restart state and applicable idle rules
+after allocation. Missing members do not prevent repairing their own references;
+present members must be idle. Repeater removal waits for the radio's complete
+quiescent query without sealing, flushing or cancelling accepted work. Shared
+`applyModelEdit` and `applyModelCommit` provide the ordinary checked persistence
+and notification outcomes. Only the first changes metadata. Linked-remote lists
+retain the current read-only rolling-code display; no counter correction API is
+exposed by these screens.

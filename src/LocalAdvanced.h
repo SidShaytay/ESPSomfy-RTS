@@ -30,6 +30,7 @@ struct Item {
   uint32_t key = 0;
   uint8_t slot = 0;
   bool missing = false;
+  uint16_t rollingCode = 0;
   char label[32]{};
 };
 enum class ActionKind : uint8_t {
