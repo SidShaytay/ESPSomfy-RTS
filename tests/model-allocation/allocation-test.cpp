@@ -8,7 +8,7 @@
 struct Transceiver { struct {uint8_t type=56;radio_proto proto=radio_proto::RTS;} config; };
 #include "Somfy.h"
 static unsigned ioCalls=0;
-SomfyShadeController::SomfyShadeController() : startingAddress(100) {}
+SomfyShadeController::SomfyShadeController() : startingAddress(100) {modelLoad.bootResult(ModelLoadStatus::loaded);}
 SomfyShadeController somfy;
 bool SomfyRemote::isLastCommand(somfy_commands){return false;}
 uint16_t SomfyRemote::setRollingCode(uint16_t){++ioCalls;return 0;}

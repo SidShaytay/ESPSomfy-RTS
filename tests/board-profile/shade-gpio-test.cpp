@@ -1,3 +1,4 @@
+#include "ModelLoadTrust.h"
 #include <assert.h>
 #include <stdio.h>
 #include <initializer_list>
@@ -40,6 +41,7 @@ struct SomfyShade : SomfyRemote, ShadeSettings {
 #define SHADE_GPIO_ADMISSION_HOST_TEST
 #define HAS_ETHERNET 0
 struct SomfyShadeController {
+  ModelLoadTrust modelLoad{ModelLoadStatus::loaded};
   SomfyShade shades[2];
   void configureGPIOs();
   struct Radio {bool usesPin(uint8_t pin){return BoardProfile::usesPin(pin);}} transceiver;

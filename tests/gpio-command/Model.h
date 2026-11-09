@@ -1,3 +1,4 @@
+#include "ModelLoadTrust.h"
 #pragma once
 #define SOMFY_H
 #include "ShadeSettings.h"
@@ -53,6 +54,7 @@ struct SomfyShade:SomfyRemote,ShadeSettings,MotorLink,ShadeEvents {
  bool sendTiltCommand(somfy_commands);bool moveToTarget(float,float=-1);bool moveToTiltTarget(float);bool setMyPosition(int8_t,int8_t=-1);bool moveToMyPosition();
 };
 struct SomfyShadeController {
+  ModelLoadTrust modelLoad{ModelLoadStatus::loaded};
  SomfyShade shades[2];void configureGPIOs();
  unsigned frames=0,processed=0;
  struct Transceiver {struct Config{uint8_t type=56;}config;uint32_t blocked=0;bool counterBlocksIdentity(uint32_t address){return blocked&&address==blocked;} bool submitTx(somfy_tx_job_t &){return true;}}transceiver;

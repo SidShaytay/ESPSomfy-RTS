@@ -31,7 +31,9 @@ static void markEdited(const model_edit_t &edit, const edit_result_t &result) {
     protoSocket.roomRemoved(c.removedRoomId);
 }
 edit_result_t applyModelEdit(model_edit_t &edit) {
-  const auto result = mutateModelEdit(edit);
+  edit_result_t result;
+  if(!somfy.modelLoad.usable())result.desc="Model load failed; restore a complete model before editing";
+  else result=mutateModelEdit(edit);
   if (!result.ok)
     ESP_LOGW(TAG, "Edit %u %s: %s", static_cast<uint8_t>(edit.type),
              result.applied ? "applied but not saved" : "refused", result.desc);

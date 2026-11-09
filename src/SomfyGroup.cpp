@@ -51,6 +51,7 @@ int8_t SomfyGroup::p_direction(int8_t dir) {
 }
 bool SomfyGroup::sendCommand(somfy_commands cmd) { return this->sendCommand(cmd, this->repeats); }
 bool SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
+  if(!somfy.modelLoad.usable())return false;
   if(!counterCommandAllowed(this->getRemoteAddress(),cmd))return false;
   ESP_LOGI(TAG, "[Group %u] sendCommand cmd=%s repeat=%u", this->getGroupId(), translateSomfyCommand(cmd).c_str(), repeat);
   // This sendCommand function will always be called externally. sendCommand at the remote level
