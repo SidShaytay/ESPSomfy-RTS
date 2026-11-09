@@ -50,14 +50,14 @@ static void reservation_quarantines_only_its_identity_and_never_clears() {
   TEST_ASSERT_EQUAL(CounterEditAdmission::admitted,safety.reserve(a,true,false,false));
   TEST_ASSERT_TRUE(safety.blocks(a));TEST_ASSERT_FALSE(safety.blocks(b));
   TEST_ASSERT_EQUAL(CounterEditAdmission::busy,safety.reserve(b,true,false,false));
-  safety.finish({CounterEditState::failed});
+  safety.finish({CounterEditState::failed},{});
   TEST_ASSERT_FALSE(safety.blocks(a));
   TEST_ASSERT_EQUAL(CounterEditAdmission::admitted,safety.reserve(a,true,false,false));
-  safety.finish({CounterEditState::uncertain});
+  safety.finish({CounterEditState::uncertain},{});
   TEST_ASSERT_TRUE(safety.uncertain());
   TEST_ASSERT_TRUE(safety.blocks(a));TEST_ASSERT_FALSE(safety.blocks(b));
   TEST_ASSERT_EQUAL(CounterEditAdmission::blocked,safety.reserve(b,true,false,false));
-  safety.finish({CounterEditState::saved}); // No later completion clears quarantine.
+  safety.finish({CounterEditState::saved},{ModelCommitState::saved}); // No later completion clears quarantine.
   TEST_ASSERT_TRUE(safety.uncertain());TEST_ASSERT_TRUE(safety.blocks(a));
 }
 static void scheduler_waiting_taken_and_repeater_work_refuse_edit_admission() {
@@ -79,10 +79,43 @@ static void scheduler_waiting_taken_and_repeater_work_refuse_edit_admission() {
   TEST_ASSERT_TRUE(scheduler.next(3,job,wait));TEST_ASSERT_TRUE(scheduler.hasRepeaterWork());
   scheduler.ended(job.ticket,true,4);TEST_ASSERT_FALSE(scheduler.hasRepeaterWork());
   TEST_ASSERT_EQUAL(CounterEditAdmission::admitted,safety.reserve(a,true,false,false));
-  safety.finish({CounterEditState::saved});TEST_ASSERT_FALSE(safety.blocks(a));
+  safety.finish({CounterEditState::saved},{ModelCommitState::saved});TEST_ASSERT_FALSE(safety.blocks(a));
+}
+static void verified_nvs_file_failure_requires_only_file_recovery() {
+  CounterEditSafety safety;
+  TEST_ASSERT_EQUAL(CounterEditAdmission::admitted,safety.reserve(a,true,false,false));
+  safety.finish({CounterEditState::saved},{ModelCommitState::failed,ModelCommitStage::write});
+  TEST_ASSERT_EQUAL(CounterQuarantine::filePending,safety.quarantine());
+  TEST_ASSERT_TRUE(safety.blocks(a));TEST_ASSERT_FALSE(safety.blocks(b));
+  TEST_ASSERT_EQUAL(a,safety.fileRecoveryAddress());
+  safety.finishFileRecovery({ModelCommitState::saved}); // No held recovery claim.
+  TEST_ASSERT_TRUE(safety.blocks(a));
+  TEST_ASSERT_EQUAL(CounterEditAdmission::blocked,safety.reserve(b,true,false,false));
+  TEST_ASSERT_EQUAL(CounterEditAdmission::busy,safety.reserveFileRecovery(true));
+  TEST_ASSERT_EQUAL(CounterEditAdmission::admitted,safety.reserveFileRecovery(false));
+  safety.finishFileRecovery({ModelCommitState::uncertain,ModelCommitStage::replace});
+  TEST_ASSERT_EQUAL(CounterQuarantine::filePending,safety.quarantine());
+  TEST_ASSERT_EQUAL(CounterEditAdmission::admitted,safety.reserveFileRecovery(false));
+  safety.finishFileRecovery({ModelCommitState::saved});
+  TEST_ASSERT_FALSE(safety.uncertain());TEST_ASSERT_FALSE(safety.blocks(a));
+  TEST_ASSERT_EQUAL(CounterEditAdmission::invalid,safety.reserveFileRecovery(false));
+}
+static void unknown_nvs_cannot_be_cleared_by_file_or_unrelated_completions() {
+  CounterEditSafety safety;
+  TEST_ASSERT_EQUAL(CounterEditAdmission::admitted,safety.reserve(a,true,false,false));
+  safety.finish({CounterEditState::uncertain},{ModelCommitState::saved});
+  TEST_ASSERT_EQUAL(CounterQuarantine::nvsUnknown,safety.quarantine());
+  TEST_ASSERT_EQUAL(0,safety.fileRecoveryAddress());
+  TEST_ASSERT_EQUAL(CounterEditAdmission::blocked,safety.reserveFileRecovery(false));
+  safety.finishFileRecovery({ModelCommitState::saved});
+  safety.finish({CounterEditState::saved},{ModelCommitState::saved});
+  TEST_ASSERT_TRUE(safety.blocks(a));
+  TEST_ASSERT_EQUAL(CounterQuarantine::nvsUnknown,safety.quarantine());
 }
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(verified_nvs_file_failure_requires_only_file_recovery);
+  RUN_TEST(unknown_nvs_cannot_be_cleared_by_file_or_unrelated_completions);
   RUN_TEST(verified_writer_checks_set_commit_and_readback);
   RUN_TEST(prewrite_failure_never_touches_storage);
   RUN_TEST(attempted_write_failures_are_uncertain_and_never_replayed);
