@@ -305,13 +305,15 @@ ModelCommitReport applyModelCommit(const proto_reply_to_t &,ModelCommitMode mode
   return {{entityCommitState,ModelCommitStage::write}};
 }
 #include "../../src/LocalEntityRuntime.cpp"
+static std::vector<shade_request_t> submitted;
+struct RecordingRequests {shade_request_result_t run(const shade_request_t &r){submitted.push_back(r);return shade_request_result_t::done;}} shadeRequests;
+#define ShadeRequests RecordingRequests
 #include "../../src/LocalAdvancedRuntime.cpp"
+#undef ShadeRequests
 static LocalUi::Authorization authorization;
 static LocalUi::View lastQuery;
-static std::vector<shade_request_t> submitted;
 static unsigned bands=0,presentations=0,locks=0;
 static bool busBusy=false,captureProtected=true;
-struct RecordingRequests {shade_request_result_t run(const shade_request_t &r){submitted.push_back(r);return shade_request_result_t::done;}} shadeRequests;
 #include "../ui-adapter/LoopHarness.h"
 #define ShadeRequests RecordingRequests
 #define snapshotModel adapterSnapshotModel
@@ -948,6 +950,7 @@ int main(int argc,char **argv){
   const auto remoteBefore=entityEdits;click();idle();assert(entityEdits==remoteBefore && advancedShade.linkedRemotes[6].address==2748); // default Cancel
   click();idle();rotate(1);idle();click();idle();assert(!advancedShade.linkedRemotes[6].address && advancedShade.lastRollingCode==123);
   click();idle();closeAdministration();
+<<<<<<< HEAD
   openAdvanced(2);assert(RuntimeTestAccess::administration(settingsUi).total==33);
   const auto memberBefore=entityEdits;click();idle();
   assert(RuntimeTestAccess::administration(settingsUi).mode==EntityAdmin::Mode::membershipReview && RuntimeTestAccess::administration(settingsUi).selected==0);
@@ -956,6 +959,11 @@ int main(int argc,char **argv){
   for(unsigned i=0;i<31;++i){rotate(1);idle();}click();idle();
   assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[1].label,"Remove ALL #88 entries"));
   saveFrame(preview,"runtime-membership-missing-review");
+=======
+  openAdvanced(2);click();idle();assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].value,"View only"));
+  const auto memberBefore=entityEdits;click();idle();assert(entityEdits==memberBefore);rotate(1);idle();click();idle();
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[1].label,"Remove #88"));saveFrame(preview,"runtime-advanced-missing-member-confirm");
+>>>>>>> ebf4cf0 (Add confirmed LCD remote chords through the shared radio request queue)
   rotate(1);idle();click();idle();assert(!advancedGroup.linkedShades[31] && advancedGroup.linkedShades[0]==4 && entityEdits==memberBefore+1);
   assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Membership saved"));
   click();idle();closeAdministration();
@@ -1004,6 +1012,28 @@ int main(int argc,char **argv){
   assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status && Settings::runtimeMemory().used()==0 && settingsAllocations.empty());
   assert(entityEdits==noMoreEdits && submitted.size()==rfBeforeAdvanced && !gitUpdate.busy() && advancedShade.lastRollingCode==123);
   click();idle();assert(lastQuery.screen==Screen::status); // Wake without a navigation action.
+  // Explicit remote commands use the actual protected form, RF-aware FIFO and
+  // production adapter; only the hardware request sink records calls.
+  advancedShade.proto=radio_proto::RTS;advancedShade.bitLength=56;++somfy.configurationRevision;
+  auto openRemoteActual=[&](){openAdvanced(1);for(unsigned i=0;i<4;++i){rotate(1);idle();}click();idle();};
+  openRemoteActual();assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].label,"Up + Down"));
+  for(unsigned i=0;i<4;++i){rotate(1);idle();}
+  busBusy=true;click();rotate(1);click();assert(submitted.size()==rfBeforeAdvanced);
+  busBusy=false;idle();saveFrame(preview,"runtime-remote-prog-confirm");
+  assert(RuntimeTestAccess::administration(settingsUi).selected==1); // Rotation changed draft only; unseen activation was refused.
+  somfy.transceiver.room=false;click();idle();
+  assert(submitted.size()==rfBeforeAdvanced);assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].label,"Cancel queued request"));
+  saveFrame(preview,"runtime-remote-pending");back();idle();somfy.transceiver.room=true;idle();assert(submitted.size()==rfBeforeAdvanced);
+  closeAdministration();
+  openRemoteActual();for(unsigned i=0;i<4;++i){rotate(1);idle();}click();idle();rotate(1);idle();click();idle();
+  assert(submitted.size()==rfBeforeAdvanced); // Metadata fixture deliberately has unavailable radio.
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].label,"Request refused"));
+  saveFrame(preview,"runtime-remote-refused");click();idle();closeAdministration();
+  somfy.transceiver.ready=true;
+  openRemoteActual();for(unsigned i=0;i<4;++i){rotate(1);idle();}click();idle();rotate(1);idle();click();idle();
+  assert(submitted.size()==rfBeforeAdvanced+1&&submitted.back().command==somfy_commands::Prog&&submitted.back().id==4);
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].label,"Request accepted"));
+  saveFrame(preview,"runtime-remote-accepted");click();idle();closeAdministration();somfy.transceiver.ready=false;
   // Learn is explicit observation -> protected review -> one bounded FIFO
   // marker -> checked shared-domain outcome. No receive event links itself.
   advancedShade.proto=radio_proto::RTS;advancedShade.bitLength=56;++somfy.configurationRevision;

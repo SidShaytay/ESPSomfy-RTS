@@ -33,6 +33,7 @@ struct Remote {
   uint32_t getRemoteAddress() { return address; }
 };
 struct Shade {
+  radio_proto proto=radio_proto::RTS;uint8_t bitLength=56;
   uint8_t id = 255;
   uint32_t address = 100;
   uint32_t gpioRelease=0;uint8_t bitLength=56;radio_proto proto=radio_proto::RTS;int8_t sortOrder=0;char name[21]="Office";
@@ -49,6 +50,7 @@ struct Shade {
   bool idleForAdministration() { return idle&&!gpioRelease; }
 };
 struct Group {
+  radio_proto proto=radio_proto::RTS;uint8_t bitLength=56;
   int8_t direction = 1;
   somfy_frame_t lastFrame;
   uint8_t id = 255;
@@ -71,8 +73,15 @@ struct SomfyShadeController {
   struct {
     bool available()const{return true;}
     uint64_t configurationRevision = 1;
+<<<<<<< HEAD
     bool quiet = true;bool paused=false;struct{uint8_t type=56;}config;
     bool txSuspended(){return paused;}
+=======
+    bool quiet = true;
+    bool present=true,suspended=false;
+    struct {uint8_t type=56;} config;
+    bool available(){return present;}bool txSuspended(){return suspended;}
+>>>>>>> ebf4cf0 (Add confirmed LCD remote chords through the shared radio request queue)
     uint32_t blocked = 0;
     CounterQuarantine quarantine = CounterQuarantine::none;
     CounterQuarantine counterQuarantine() { return quarantine; }
@@ -254,10 +263,14 @@ Backend &runtimeBackend() {
 } // namespace EntityAdmin
 } // namespace LocalUi
 #include "../../src/GitUpdate.cpp"
+static unsigned radioCommands=0;static shade_request_t sentRemote;
+struct RecordingRequests {shade_request_result_t run(const shade_request_t &request){++radioCommands;sentRemote=request;return shade_request_result_t::done;}} shadeRequests;
+#define ShadeRequests RecordingRequests
 #include "../../src/LocalAdvancedRuntime.cpp"
+#undef ShadeRequests
 #include "../../src/LocalLearnQueueRuntime.cpp"
 void setUp() {
-  somfy = {};
+  somfy = {};radioCommands=0;sentRemote={};
   somfy.shades[0].id = 7;
   somfy.shades[0].linkedRemotes[6].address = 123456;
   somfy.shades[0].linkedRemotes[6].lastRollingCode = 321;
@@ -650,6 +663,7 @@ static void primary_final_read_side_effect_and_witness_changes_refuse_without_co
     TEST_ASSERT_EQUAL(0,primaryWrites);
   }
 }
+<<<<<<< HEAD
 static void membership_reads_all_slots_and_mixed_unpaired_candidates_without_rf_filter() {
   const Target target{Scope::groups,9};Context context;source().capture(target,context);
   somfy.groups[0].linkedShades[2]=255;somfy.groups[0].linkedShades[29]=7;somfy.groups[0].linkedShades[31]=88;source().capture(target,context);
@@ -731,6 +745,35 @@ int main() {
   RUN_TEST(repeater_candidate_bounds_duplicate_capacity_and_final_authority_refuse);
   RUN_TEST(repeater_applied_persistence_failures_never_certify_counter_storage);
   RUN_TEST(repeater_learning_uses_address_only_metadata_without_counter_linking);
+=======
+static void remote_runtime_uses_exact_shared_request_and_fresh_admission() {
+  struct Witness:LearnPending {
+    bool valid=true;
+    LearnQueueReason current(uint64_t) override{return valid?LearnQueueReason::ready:LearnQueueReason::expired;}
+    void execute(uint64_t) override{}void cancelled(LearnQueueReason) override{}
+    bool usesRadio()const override{return true;}
+  } witness;
+  Target target{Scope::devices,7};Context context;TEST_ASSERT_TRUE(source().capture(target,context));
+  RemoteProgram program;program.command=somfy_commands::Prog;program.repeats=7;
+  TEST_ASSERT_TRUE(source().supportsProgramming(target));
+  const EntityAdmin::Authorization auth{true,1,1};
+  auto result=source().sendProgramming(target,context,auth,1,program,witness);
+  TEST_ASSERT_EQUAL(Admission::accepted,result.admission);TEST_ASSERT_EQUAL(1,radioCommands);
+  TEST_ASSERT_EQUAL(7,sentRemote.id);TEST_ASSERT_EQUAL(somfy_commands::Prog,sentRemote.command);TEST_ASSERT_EQUAL(7,sentRemote.repeat);
+  somfy.shades[0].idle=false;source().sendProgramming(target,context,auth,1,program,witness);TEST_ASSERT_EQUAL(1,radioCommands);
+  somfy.shades[0].idle=true;witness.valid=false;source().sendProgramming(target,context,auth,1,program,witness);TEST_ASSERT_EQUAL(1,radioCommands);
+  witness.valid=true;pendingRestart=true;source().sendProgramming(target,context,auth,1,program,witness);TEST_ASSERT_EQUAL(1,radioCommands);pendingRestart=false;
+  somfy.shades[0].configurationRevision++;source().sendProgramming(target,context,auth,1,program,witness);TEST_ASSERT_EQUAL(1,radioCommands);
+  TEST_ASSERT_TRUE(source().capture(target,context));somfy.shades[0].proto=radio_proto::GP_Relay;
+  TEST_ASSERT_FALSE(source().supportsProgramming(target));source().sendProgramming(target,context,auth,1,program,witness);TEST_ASSERT_EQUAL(1,radioCommands);
+  auto queued=submitLocalLearn(witness,10);TEST_ASSERT_EQUAL(LearnQueueReason::ready,queued.reason);
+  TEST_ASSERT_TRUE(learnedMarker.localRadio);TEST_ASSERT_TRUE(loopItemUsesRadio(learnedMarker));
+  TEST_ASSERT_TRUE(cancelLocalLearn(queued.token,witness));
+}
+int main() {
+  UNITY_BEGIN();
+  RUN_TEST(remote_runtime_uses_exact_shared_request_and_fresh_admission);
+>>>>>>> ebf4cf0 (Add confirmed LCD remote chords through the shared radio request queue)
   RUN_TEST(primary_counter_read_and_final_apply_share_fresh_context_without_nested_owner);
   RUN_TEST(primary_final_read_side_effect_and_witness_changes_refuse_without_correction);
   RUN_TEST(checked_link_uses_only_address_counter_and_domain_owned_lease);
