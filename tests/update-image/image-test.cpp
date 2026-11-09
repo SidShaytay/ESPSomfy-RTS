@@ -1,4 +1,5 @@
 #include "GitUpdateImage.h"
+#include <mbedtls/sha256.h>
 #include <cassert>
 #include <cstring>
 #include <fstream>
@@ -7,7 +8,10 @@
 #include <vector>
 int hashFailure=0;unsigned activeHashes=0;
 static unsigned yields=0,stopAt=0;
-static bool stop(){return stopAt && yields>=stopAt;}
+static bool forcedStop=false;
+static bool stop(){return forcedStop || (stopAt && yields>=stopAt);}
+static void finishStop(){if(FakeSha256::finishes==7)forcedStop=true;}
+static void freeStop(){if(FakeSha256::frees==7)forcedStop=true;}
 static void cooperate(){++yields;}
 int main(int argc,char **argv) {
   assert(argc==6 || argc==7);const std::string mode=argv[1];
@@ -29,10 +33,13 @@ int main(int argc,char **argv) {
   if(mode=="finishHash")hashFailure=3;
   if(mode=="cancel")stopAt=1;
   if(mode=="cancelLate")stopAt=8;
+  if(mode=="cancelFinish")FakeSha256::afterFinish=finishStop;
+  if(mode=="cancelFree")FakeSha256::afterFree=freeStop;
   GitUpdateImage::Identity identity;strcpy(identity.sourceSha,"old stale output");
   const std::string boot=argc==7 ? argv[6] : std::string("ESPSOMFY_BOOT_ID:0:24576:")+std::string(64,'b');
   const auto result=GitUpdateImage::verify(bytes.data(),bytes.size(),boot.c_str(),manifest,identity,{stop,cooperate});
   const bool good=std::string(argv[5])=="yes";
+  if(mode=="cancelFinish" || mode=="cancelFree")assert(result==GitUpdateImage::Result::interrupted);
   assert((result==GitUpdateImage::Result::verified)==good);assert(!activeHashes);
   if(good) {assert(mode=="actual" || std::strcmp(identity.sourceSha,expected.sourceSha.c_str())==0);assert(std::strcmp(identity.appCompat,argv[4])==0);assert(std::strcmp(identity.appVersion,"4.0.1")==0);assert(std::strcmp(identity.imageSha,argv[3])==0);}
   else assert(identity.sourceSha[0]==0 && identity.version[0]==0 && identity.appCompat[0]==0 && identity.imageSha[0]==0);

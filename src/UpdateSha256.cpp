@@ -17,6 +17,7 @@ UpdateAttestation updateSha256(const uint8_t *data,size_t size,char (&hex)[65],U
   uint8_t digest[32];
   if(result==UpdateAttestation::verified && mbedtls_sha256_finish(&state,digest)!=0)result=UpdateAttestation::hashError;
   mbedtls_sha256_free(&state);
+  if(control.stopped())return UpdateAttestation::interrupted;
   if(result==UpdateAttestation::verified) {
     constexpr char digits[]="0123456789abcdef";
     for(size_t i=0;i<32;++i){hex[i*2]=digits[digest[i]>>4];hex[i*2+1]=digits[digest[i]&15];}hex[64]=0;
