@@ -198,11 +198,27 @@ static void all_32_members_and_partial_refusal_stay_bounded() {
   sent.clear();refuseAt=16;somfy.shades[31].idle=true;assert(dispatch(command(view,Action::stop))==DispatchResult::queued);loopQueue.drain();
   assert(sent.size()==16 && result()==DispatchResult::partial); // one refused member, no invented retry
 }
+static void restart_seal_preserves_every_accepted_item_and_refuses_late_submission() {
+  reset();
+  loop_item_t read;read.type=loop_item_type_t::proto_read;
+  assert(loopQueue.submit(read));
+  assert(!loopQueue.sealForRestart()); // accepted work cannot be erased
+  loopQueue.drain();assert(loopReads==1);
+  beforeQueueSend=[] {assert(!loopQueue.sealForRestart());};
+  assert(loopQueue.submit(read)); // producer in-flight across seal attempt
+  beforeQueueSend=nullptr;
+  loopQueue.drain();assert(loopReads==2);
+  assert(loopQueue.sealForRestart());
+  assert(!loopQueue.submit(read) && !loopQueue.submit(read,true));
+  assert(loopQueue.pending()==0 && !loopQueue.sealForRestart());
+  loopQueue.reopenAfterRefusedRestart();
+  assert(loopQueue.submit(read));loopQueue.drain();assert(loopReads==3);
+}
 int main() {
   static_assert(sizeof(loop_item_t)<=80,"Queue markers must not copy target contexts into 32 slots");
   queueAllocationOK=false;loopQueue.begin();auto noQueue=reset();
   assert(dispatch(command(noQueue,Action::up))==DispatchResult::busy && !localControlPending() && sent.empty());
-  queueAllocationOK=true;loopQueue.begin();deferred_fifo_backpressure_and_cancel();age_clock_context_and_freeze_guards();
+  queueAllocationOK=true;loopQueue.begin();restart_seal_preserves_every_accepted_item_and_refuses_late_submission();deferred_fifo_backpressure_and_cancel();age_clock_context_and_freeze_guards();
   invalid_or_active_replacement_sources_cannot_authorize_old_intents();
   stop_supersedes_only_same_authorized_context_at_fifo_tail();
   pending_stop_observes_idle_behind_a_held_head_and_never_gains_motion();

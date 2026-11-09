@@ -471,10 +471,28 @@ static void test_repeater_frame_doesnt_hold_back_a_stop() {
   discardEvents(s);
 }
 
+static void restart_work_includes_waiting_taken_and_unobserved_outcomes() {
+  RadioScheduler scheduler;TEST_ASSERT_FALSE(scheduler.hasWork());
+  const auto ticket=submit(scheduler,REMOTE_A);TEST_ASSERT_TRUE(scheduler.hasWork());
+  TEST_ASSERT_FALSE(scheduler.sealForRestart());
+  somfy_tx_job_t job;uint32_t wait=0;
+  TEST_ASSERT_TRUE(scheduler.next(0,job,wait));TEST_ASSERT_TRUE(scheduler.hasWork());
+  TEST_ASSERT_TRUE(scheduler.start(ticket,0));TEST_ASSERT_TRUE(scheduler.hasWork());
+  scheduler.ended(ticket,true,1);TEST_ASSERT_TRUE(scheduler.hasWork());
+  somfy_tx_event_t event;while(scheduler.popEvent(event)) {}
+  TEST_ASSERT_FALSE(scheduler.hasWork());
+  TEST_ASSERT_TRUE(scheduler.sealForRestart());
+  TEST_ASSERT_EQUAL(0,submit(scheduler,REMOTE_B));
+  TEST_ASSERT_FALSE(scheduler.hasWork());
+  TEST_ASSERT_FALSE(scheduler.sealForRestart());
+  scheduler.reopenAfterRefusedRestart();
+  TEST_ASSERT_NOT_EQUAL(0,submit(scheduler,REMOTE_B));
+}
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(restart_work_includes_waiting_taken_and_unobserved_outcomes);
   RUN_TEST(test_jobs_go_out_in_the_order_they_came);
   RUN_TEST(test_tickets_are_distinct_and_set_in_the_job);
   RUN_TEST(test_nothing_waiting_sleeps_until_woken);

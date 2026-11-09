@@ -98,6 +98,9 @@ class Transceiver {
     bool txSuspended();
     bool txHasRoom();
     bool counterEditUncertain();
+    bool restartQuiescent();
+    bool sealForRestart();
+    void reopenAfterRefusedRestart();
     void beginTransmit();
     void endTransmit();
     void emitFrame(somfy_frame_t *frame, somfy_rx_t *rx = nullptr);

@@ -12,6 +12,7 @@ static bool admits(uint32_t spaces, bool priority) {
   return spaces > (priority ? 0u : (uint32_t)TX_RESERVED_SLOTS);
 }
 uint32_t RadioScheduler::submit(somfy_tx_job_t &job, bool priority, uint16_t delayMs, uint32_t now) {
+  if(restartSealed) return 0;
   job.ticket = 0;
   if(this->suspendMask) {
     ESP_LOGW(TAG, "Radio TX suspended, dropping transmission");
