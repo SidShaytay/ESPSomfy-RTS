@@ -103,8 +103,33 @@ static void rollback_refuses_async_admission_before_any_model_io() {
   auto fresh=coordinator.begin(500,1600,current);TEST_ASSERT_TRUE(fresh.ready());
   TEST_ASSERT_TRUE(coordinator.release(fresh));coordinator.cancel();
 }
+static void distinct_configuration_and_completed_operation_histories_refuse_old_requests() {
+  for(unsigned field=0;field<2;++field) {
+    StorageLeaseGate storage;RestartCoordinator coordinator(storage);RestartObservation current;
+    coordinator.observe(100,current);TEST_ASSERT_EQUAL(RestartSubmission::queued,coordinator.submit(500));
+    if(field==0)++current.modelConfigurationRevision;else ++current.operationEpoch;
+    TEST_ASSERT_FALSE(coordinator.prepareQueued(200,current).ready());TEST_ASSERT_FALSE(storage.busy());
+    auto work=coordinator.begin(500,300,current);TEST_ASSERT_TRUE(work.ready());
+    TEST_ASSERT_TRUE(coordinator.completeAdmission(work,300,current).admitted);TEST_ASSERT_TRUE(coordinator.release(work));
+    if(field==0)++current.modelConfigurationRevision;else ++current.operationEpoch;
+    TEST_ASSERT_FALSE(coordinator.prepareFinal(800,current).ready());
+    TEST_ASSERT_FALSE(coordinator.prepareFinal(900,current).ready());
+  }
+}
+static void exclusive_update_refuses_missing_history_bindings_without_a_lease() {
+  for(unsigned field=0;field<2;++field) {
+    StorageLeaseGate storage;RestartCoordinator coordinator(storage);RestartObservation current;
+    if(field==0)current.modelConfigurationRevision=0;else current.operationEpoch=0;
+    StorageLease token;TEST_ASSERT_FALSE(coordinator.acquireUpdate(current,token));
+    TEST_ASSERT_FALSE(storage.busy());TEST_ASSERT_EQUAL_UINT64(0,token.generation);
+    current.modelConfigurationRevision=current.operationEpoch=1;
+    TEST_ASSERT_TRUE(coordinator.acquireUpdate(current,token));TEST_ASSERT_TRUE(storage.release(token));
+  }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(exclusive_update_refuses_missing_history_bindings_without_a_lease);
+  RUN_TEST(distinct_configuration_and_completed_operation_histories_refuse_old_requests);
   RUN_TEST(rollback_refuses_io_work_before_acquiring_storage_and_never_resurrects);
   RUN_TEST(rollback_refuses_async_admission_before_any_model_io);
   RUN_TEST(manual_exclusion_denies_restart_without_wait_or_io_and_stale_tokens_cannot_release);

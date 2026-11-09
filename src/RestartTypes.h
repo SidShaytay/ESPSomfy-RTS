@@ -14,6 +14,7 @@ struct RestartSnapshot {
   RestartPhase phase=RestartPhase::idle;
   RestartReason reason=RestartReason::none;
   uint64_t settingsEpoch=0,modelEpoch=0,generation=0;
+  uint64_t modelConfigurationRevision=0,operationEpoch=0;
   bool pending() const { return phase==RestartPhase::queued || phase==RestartPhase::admitted || phase==RestartPhase::restarting; }
 };
 const char *restartReason(RestartReason reason);
