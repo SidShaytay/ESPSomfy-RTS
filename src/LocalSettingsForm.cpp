@@ -727,6 +727,11 @@ void Form::save(uint64_t now) {
       frame.restartReason = result.restartReason;
     return;
   }
+  if(result.persistence.radioCleanupFault) {close(Notice::cleanupFault);return;}
+  if(result.persistence.liveApplied) {
+    close(Notice::appliedUncertain);
+    return;
+  }
   if (result.refusal == settings_apply_refusal_t::unauthorized) {
     close(Notice::locked);
     return;

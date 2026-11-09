@@ -106,7 +106,9 @@ public:
   settings_save_result_t saveRadio(JsonObject request) override {
     transceiver_config_t next = somfy.transceiver.config;
     next.fromJSON(request);
-    return somfy.transceiver.setConfig(next);
+    const auto result=somfy.transceiver.setConfig(next);
+    if(result.liveApplied && !result.saved())noteDeviceSettingsCompleted(settings_section_t::radio);
+    return result;
   }
 };
 settings_apply_result_t applyDeviceSettings(settings_section_t section, JsonObject request, uint32_t originSocketClient) {

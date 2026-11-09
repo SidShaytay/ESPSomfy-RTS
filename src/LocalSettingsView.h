@@ -29,7 +29,9 @@ enum class Notice : uint8_t {
   unchanged,
   busy,
   savedRestartBlocked,
-  unavailable
+  unavailable,
+  appliedUncertain,
+  cleanupFault
 };
 struct FormRow {
   char label[32] = {}, value[48] = {};

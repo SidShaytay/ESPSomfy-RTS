@@ -37,8 +37,9 @@ public:
   virtual RestartResult completed(settings_section_t section, bool reboot) = 0;
 };
 // loop() only, after expandSettingsPayload has validated/expanded the request.
-// Failed/partial persistence leaves the in-memory settings and runtime effects
-// unchanged, but durable keys may have changed. No transactional rollback claim.
+// General failed/partial persistence leaves RAM/effects unchanged. Radio may
+// fail its marker after live adoption: persistence.liveApplied reports that
+// distinct outcome. Durable keys may change; there is no rollback claim.
 settings_apply_result_t applySettings(ConfigSettings &current, settings_section_t section, JsonObject request, SettingsEffects &effects);
 const char *settingsSaveFailureDescription(settings_save_state_t state);
 const char *settingsApplyFailureDescription(const settings_apply_result_t &result);

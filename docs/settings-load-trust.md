@@ -50,9 +50,26 @@ settings writes and no dirty uncommitted model. An unavailable snapshot closes
 its LCD form with an explicit unavailable notice, without entering Replace or
 retaining a draft. Only readable invalid originals use the existing Replace flow.
 
-Radio Save still requires the shared same-owner queue/radio pause admission as a
-separate required consumer; a snapshot-only check is insufficient. Selected
-restore outcome integration remains required. Existing backups omit WiFi and
+Live Radio Save now acquires the existing configuration owner, proves every
+model member administratively idle, seals the loop producer queue without
+removing accepted work, and retains the exact shared radio pause through
+persistence/application. Scans, foreign owners, queued/repeater/radio work and
+movement refuse before persistence. Cleanup retains the owner and seals when
+resume is busy, then reduces them on later loop passes; there is no flush or RF
+command. Already-owned restore uses a separate exact owner/pause-token path,
+without acquiring another owner. A stale cleanup capability latches a visible
+cleanup fault and retains its owner, producer seal and radio token. It cannot
+resume/release another session, retry itself or admit another radio save; no
+automatic fault recovery is claimed.
+
+A checked initialization-marker failure after live adoption reports an applied
+partial outcome, advances the radio section revision and closes the old LCD
+draft. It never claims running settings stayed unchanged or emits complete-save
+notification. The operator must reopen Radio; a button cannot replay the old
+draft. The compact result keeps its original 16-byte host/8-byte target size,
+and the existing 64-byte restore-status budget remains unchanged.
+
+Selected restore outcome integration remains required. Existing backups omit WiFi and
 MQTT credentials, so they cannot qualify unreadable uncovered fields using
 running defaults. New failed-namespace replacement flows remain pending Sid's
 choice and are not implemented here.

@@ -53,6 +53,10 @@ const char *settingsSaveFailureDescription(settings_save_state_t state) {
     "Settings were not saved; running settings unchanged.";
 }
 const char *settingsApplyFailureDescription(const settings_apply_result_t &result) {
+  if(result.persistence.radioCleanupFault)
+    return "Radio cleanup fault; further radio saves and restart remain blocked. No automatic retry or recovery was performed.";
+  if(result.persistence.liveApplied)
+    return "Radio settings applied; initialization status is uncertain. Reopen Radio before retrying; restart remains blocked.";
   switch(result.refusal) {
     case settings_apply_refusal_t::invalidPin: return "PIN must contain exactly four bytes; nothing was saved.";
     case settings_apply_refusal_t::usernameRequired: return "Password security requires a username; nothing was saved.";
@@ -120,6 +124,8 @@ settings_apply_result_t applySettings(ConfigSettings &current, settings_section_
     strcpy(current.hostname,next.hostname);
     current.ssdpBroadcast=next.ssdpBroadcast;
   }
+  if(settingsSets(parts,settings_part_t::general) || settingsSets(parts,settings_part_t::conn))
+    current.loadStatus=next.loadStatus; // Only the fully verified selected save qualifies live CFG.
   const bool connectionChanged = next.connType != current.connType;
   if(settingsSets(parts,settings_part_t::conn)) current.connType=next.connType;
   if(settingsSets(parts,settings_part_t::ntp)) current.NTP=next.NTP;

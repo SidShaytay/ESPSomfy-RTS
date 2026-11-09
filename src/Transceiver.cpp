@@ -21,7 +21,10 @@
 #include "CounterTxPolicy.h"
 #include "CounterCommandGuard.h"
 #include "SettingsTypedValidation.h"
+#include "SettingsDurability.h"
 #include "RadioInitMarker.h"
+#include "RadioSettingsAdmission.h"
+#include "GitUpdate.h"
 
 static const char *TAG = "Somfy";
 
@@ -466,9 +469,17 @@ void Transceiver::disableReceive(void) {
   
 }
 settings_save_result_t Transceiver::setConfig(const transceiver_config_t &cfg) {
+  return saveRadioConfiguration(*this,cfg);
+}
+settings_save_result_t Transceiver::setConfigWhilePaused(const transceiver_config_t &cfg,
+    const RadioInstallToken &pause,const GitUpdateOwnerToken &owner) {
+  if((owner.kind!=GitUpdateExternalOwner::configuration && owner.kind!=GitUpdateExternalOwner::restore) ||
+     !gitUpdate.ownsExternal(owner) || !installPauseHeld(pause))
+    return {settings_save_state_t::failed,"radio admission"};
   // Persist before touching live pins/config. A partial NVS write is reported
   // honestly, without applying it to the running radio or claiming rollback.
   RadioLock lock(portMAX_DELAY, true);
+  if(!lock.locked)return {settings_save_state_t::failed,"radio lock"};
   transceiver_config_t next = cfg;
   next.applyBoardPins();
   const auto result = next.save();
@@ -476,8 +487,13 @@ settings_save_result_t Transceiver::setConfig(const transceiver_config_t &cfg) {
   if(this->config.enabled && this->config.TXPin != next.TXPin) pinMode(this->config.TXPin, INPUT);
   ++configurationRevision;
   this->config = next;
-  this->config.apply();
-  return result;
+  auto applied=this->config.apply();
+  applied.liveApplied=true;
+  if(!applied.saved()) {
+    applied.state=settings_save_state_t::partial;
+    settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::radio));
+  }
+  return applied;
 }
 bool Transceiver::usesPin(uint8_t pin) {
   if(BoardProfile::usesPin(pin)) return true;
@@ -611,15 +627,15 @@ static bool checkBoardRadio(float frequency) {
     (modem & 0x70) == 0x30 && actual > frequency - 0.01f && actual < frequency + 0.01f;
 }
 
-void transceiver_config_t::apply() {
+settings_save_result_t transceiver_config_t::apply() {
     if(!loadStatus.usable() || !validSettings(*this)) {
-      radioInit=false;somfy.transceiver._available=false;return;
+      radioInit=false;somfy.transceiver._available=false;return {settings_save_state_t::failed,"radio configuration"};
     }
     // A transmission in flight stops after its current frame so the radio can
     // be reconfigured.  Queued frames are already encoded and go out with the
     // new settings.
     RadioLock lock(portMAX_DELAY, true);
-    if(!lock.locked){radioInit=false;somfy.transceiver._available=false;return;}
+    if(!lock.locked){radioInit=false;somfy.transceiver._available=false;return {settings_save_state_t::failed,"radio configuration"};}
     // Reconfiguring the radio ends a frequency scan so TX may resume.
     const bool wasScanning = rxmode == 3;
     somfy.transceiver.disableReceive();
@@ -635,10 +651,11 @@ void transceiver_config_t::apply() {
     if(this->enabled) {
       this->radioInit = false;
       if(!startupInitAllowed) {
-        ESP_LOGW(TAG,"Radio initialization previously interrupted; save radio settings to retry");return;
+        ESP_LOGW(TAG,"Radio initialization previously interrupted; save radio settings to retry");return {settings_save_state_t::failed,"radioInit"};
       }
-      if(!writeRadioInitMarker(false).saved()){startupInitAllowed=false;return;}
-      if(!BoardProfile::prepareRadio(this->frequency))return;
+      const auto before=writeRadioInitMarker(false);
+      if(!before.saved()){startupInitAllowed=false;return before;}
+      if(!BoardProfile::prepareRadio(this->frequency))return {};
       ESP_LOGD(TAG, "Applying radio settings - Setting Data Pins RX:%u TX:%u", this->RXPin, this->TXPin);
       // The pins the CC1101 drives: at power-up GDO0 puts out a clock, GDO2
       // CHIP_RDYn, and SO follows CHIP_RDYn while CSN is low.  Once it is
@@ -702,8 +719,9 @@ void transceiver_config_t::apply() {
       if(BoardProfile::integratedRadio)
         Serial.printf("CC1101 detection=%s register validation=%s\n",
           detected ? "PASS" : "FAIL", boardRadioValid ? "PASS" : "FAIL");
-      if(!writeRadioInitMarker(true).saved()) {
-        radioInit=false;startupInitAllowed=false;return;
+      const auto after=writeRadioInitMarker(true);
+      if(!after.saved()) {
+        radioInit=false;startupInitAllowed=false;return after;
       }
       if (!detected || !boardRadioValid) {
           ESP_LOGE(TAG, "Error setting up the radio");
@@ -723,6 +741,7 @@ void transceiver_config_t::apply() {
       this->radioInit = false;
     }
     //somfy.transceiver.printBuffer = this->printBuffer;
+    return {};
 }
 bool Transceiver::loadReadOnly() {
     this->config.applyChipDefaults();
