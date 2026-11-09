@@ -55,17 +55,68 @@ int testPins[64]={};uint32_t testNow=0;
 SomfyShadeController somfy;
 edit_result_t applyModelEdit(model_edit_t &edit) {
   auto object=edit.doc.as<JsonObject>();
-  uint8_t id=object["roomId"]|0;auto *room=id?somfy.getRoomById(id):nullptr;
-  if(edit.type==model_edit_type_t::add_room) {
-    id=somfy.getNextRoomId();assert(id);
-    for(auto &candidate:somfy.rooms)if(!candidate.roomId){room=&candidate;room->roomId=id;room->sortOrder=somfy.getMaxRoomOrder()+1;break;}
-  }
-  assert(room);
-  if(edit.type==model_edit_type_t::delete_room)*room={};
-  else {
-    assert(edit.type==model_edit_type_t::add_room || edit.type==model_edit_type_t::save_room);
-    if(!object["name"].isNull())snprintf(room->name,sizeof(room->name),"%s",object["name"].as<const char *>());
-    if(!object["sortOrder"].isNull())room->sortOrder=object["sortOrder"].as<int8_t>();
+  const bool roomOp=edit.type==model_edit_type_t::add_room||edit.type==model_edit_type_t::save_room||edit.type==model_edit_type_t::delete_room;
+  const bool shadeOp=edit.type==model_edit_type_t::add_shade||edit.type==model_edit_type_t::save_shade||edit.type==model_edit_type_t::delete_shade;
+  const bool adding=edit.type==model_edit_type_t::add_room||edit.type==model_edit_type_t::add_shade||edit.type==model_edit_type_t::add_group;
+  const bool deleting=edit.type==model_edit_type_t::delete_room||edit.type==model_edit_type_t::delete_shade||edit.type==model_edit_type_t::delete_group;
+  const char *key=roomOp?"roomId":shadeOp?"shadeId":"groupId";
+  uint8_t id=object[key]|0;
+  auto common=[&](auto *remote) {
+    if(!object["name"].isNull())snprintf(remote->name,sizeof(remote->name),"%s",object["name"].as<const char *>());
+    if(!object["remoteAddress"].isNull())remote->address=object["remoteAddress"].as<uint32_t>();
+    if(!object["roomId"].isNull())remote->roomId=object["roomId"].as<uint8_t>();
+    if(!object["proto"].isNull())remote->proto=radio_proto(object["proto"].as<uint8_t>());
+    if(!object["bitLength"].isNull())remote->bitLength=object["bitLength"].as<uint8_t>();
+    if(!object["repeats"].isNull())remote->repeats=object["repeats"].as<uint8_t>();
+    if(!object["flipCommands"].isNull())remote->flipCommands=object["flipCommands"].as<bool>();
+    ++remote->configurationRevision;
+  };
+  if(roomOp) {
+    auto *room=id?somfy.getRoomById(id):nullptr;
+    if(adding) {
+      id=somfy.getNextRoomId();assert(id);
+      for(auto &candidate:somfy.rooms)if(!candidate.roomId){room=&candidate;room->roomId=id;room->sortOrder=somfy.getMaxRoomOrder()+1;break;}
+    }
+    assert(room);
+    if(deleting)*room={};
+    else {
+      if(!object["name"].isNull())snprintf(room->name,sizeof(room->name),"%s",object["name"].as<const char *>());
+      if(!object["sortOrder"].isNull())room->sortOrder=object["sortOrder"].as<int8_t>();
+    }
+  } else if(shadeOp) {
+    auto *shade=id?somfy.getShadeById(id):nullptr;
+    if(adding) {
+      id=somfy.getNextShadeId();assert(id!=255);const int8_t order=somfy.getMaxShadeOrder()+1;
+      for(auto &candidate:somfy.shades)if(candidate.id==255){shade=&candidate;*shade={};shade->id=id;shade->sortOrder=order;shade->paired=false;shade->lastRollingCode=0;shade->gpioUp=shade->gpioDown=shade->gpioMy=255;break;}
+    }
+    assert(shade);
+    if(deleting)*shade={};
+    else {
+      common(shade);
+      if(!object["shadeType"].isNull())shade->shadeType=shade_types(object["shadeType"].as<uint8_t>());
+      if(!object["tiltType"].isNull())shade->tiltType=tilt_types(object["tiltType"].as<uint8_t>());
+      if(!object["upTime"].isNull())shade->upTime=object["upTime"].as<uint32_t>();
+      if(!object["downTime"].isNull())shade->downTime=object["downTime"].as<uint32_t>();
+      if(!object["tiltTime"].isNull())shade->tiltTime=object["tiltTime"].as<uint32_t>();
+      if(!object["stepSize"].isNull())shade->stepSize=object["stepSize"].as<uint16_t>();
+      if(!object["flipPosition"].isNull())shade->flipPosition=object["flipPosition"].as<bool>();
+      if(!object["sunSensor"].isNull())shade->sunSensor=object["sunSensor"].as<bool>();
+      if(!object["light"].isNull())shade->light=object["light"].as<bool>();
+      if(!object["simMy"].isNull())shade->simMy=object["simMy"].as<bool>();
+      for(auto field:{"gpioUp","gpioDown","gpioMy"})if(!object[field].isNull()) {
+        auto &pin=!strcmp(field,"gpioUp")?shade->gpioUp:!strcmp(field,"gpioDown")?shade->gpioDown:shade->gpioMy;
+        pin=object[field].as<uint8_t>();
+      }
+      if(!object["gpioLLTrigger"].isNull())shade->gpioFlags=object["gpioLLTrigger"].as<bool>()?1:0;
+    }
+  } else {
+    assert(edit.type==model_edit_type_t::add_group||edit.type==model_edit_type_t::save_group||edit.type==model_edit_type_t::delete_group);
+    auto *group=id?somfy.getGroupById(id):nullptr;
+    if(adding) {
+      id=somfy.getNextGroupId();assert(id!=255);const int8_t order=somfy.getMaxGroupOrder()+1;
+      for(auto &candidate:somfy.groups)if(candidate.id==255){group=&candidate;*group={};group->id=id;group->sortOrder=order;break;}
+    }
+    assert(group);if(deleting)*group={};else common(group);
   }
   ++entityEdits;++somfy.configurationRevision;
   edit_result_t result;result.applied=true;result.ok=entitySaveState==ModelCommitState::saved;
@@ -325,8 +376,77 @@ int main(int argc,char **argv){
   assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status);
   assert(Settings::runtimeMemory().used()==0 && settingsAllocations.empty() && entityEdits==3);
   assert(somfy.getRoomById(12)->sortOrder==1 && submitted.size()==beforeGraphicsCommand);
+  // Standalone Device/Group journeys use the actual Controller, Runtime,
+  // Administration, Form and production backend with fake model/file effects.
+  click();idle();assert(lastQuery.screen==Screen::status); // wake only after sleep
+  auto &editable=somfy.shades[25];assert(editable.id==255);
+  editable.id=4;editable.address=1004;editable.bitLength=56;editable.repeats=1;
+  editable.paired=false;editable.idle=true;editable.lastRollingCode=44;strcpy(editable.name,"Office device");
+  auto &editableGroup=somfy.groups[12];assert(editableGroup.id==255);
+  editableGroup.id=4;editableGroup.address=504;editableGroup.bitLength=56;editableGroup.repeats=1;
+  editableGroup.linkedShades[7]=31;strcpy(editableGroup.name,"Office group"); // missing member remains administrable
+  ++somfy.configurationRevision;somfy.transceiver.ready=false;
+  auto openAdministration=[&](unsigned type) {
+    assert(lastQuery.screen==Screen::status);rotate(1);idle();
+    for(unsigned i=0;i<administrationHomeIndex;i++){rotate(1);idle();}
+    click();idle();assert(lastQuery.screen==Screen::administration && captureProtected);
+    busBusy=true;for(unsigned i=0;i<type;i++){rotate(1);idle();}click();
+    assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Administration"));
+    busBusy=false;idle();click();idle();
+  };
+  auto closeAdministration=[&] {
+    back();idle();back();idle();assert(lastQuery.screen==Screen::home);
+    rotate(-1);idle();click();idle();assert(lastQuery.screen==Screen::status && !captureProtected);
+  };
+  for(unsigned type=1;type<3;type++) {
+    const unsigned fields=type==1?21:7,repeatsField=type==1?16:6;
+    const auto editsBefore=entityEdits,commitsBefore=entityCommits;
+    openAdministration(type);
+    assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,type==1?"Devices":"Groups"));
+    busBusy=true;rotate(1);click();assert(entityEdits==editsBefore);
+    assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,type==1?"Devices":"Groups"));
+    busBusy=false;idle();click();idle();
+    assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,type==1?"Edit Shade 4":"Edit Group 4"));
+    for(unsigned i=0;i<repeatsField;i++){rotate(1);idle();}
+    click();idle();rotate(1);idle();click();idle();rotate(-1);idle();click();idle();
+    assert(Settings::runtimeMemory().used()>0 && entityEdits==editsBefore);
+    busBusy=true;for(unsigned i=repeatsField;i<fields;i++){rotate(1);idle();}click();
+    assert(RuntimeTestAccess::administration(settingsUi).mode==EntityAdmin::Mode::fields && entityEdits==editsBefore);
+    busBusy=false;idle();click();idle();
+    assert(RuntimeTestAccess::administration(settingsUi).mode==EntityAdmin::Mode::confirm);
+    click();idle();assert(entityEdits==editsBefore); // Save Cancel is harmless.
+    click();idle();busBusy=true;rotate(1);click();assert(entityEdits==editsBefore);
+    busBusy=false;idle();entitySaveState=ModelCommitState::failed;click();idle();
+    assert(entityEdits==editsBefore+1 && RuntimeTestAccess::administration(settingsUi).id==4);
+    assert(RuntimeTestAccess::administration(settingsUi).notice==EntityAdmin::Notice::appliedNotSaved);
+    if(type==1)assert(editable.repeats==2 && editable.lastRollingCode==44 && !editable.paired);
+    else assert(editableGroup.repeats==2 && editableGroup.linkedShades[7]==31);
+    saveFrame(preview,type==1?"runtime-device-file-failed":"runtime-group-file-failed");
+    rotate(1);idle();click();idle();assert(entityCommits==commitsBefore+1 && entityEdits==editsBefore+1);
+    click();idle();assert(RuntimeTestAccess::administration(settingsUi).id==4);
+    click();idle();for(unsigned i=0;i<fields+2;i++){rotate(1);idle();}click();idle();
+    assert(RuntimeTestAccess::administration(settingsUi).mode==EntityAdmin::Mode::confirm);
+    click();idle();assert(entityEdits==editsBefore+1); // Delete Cancel.
+    click();idle();rotate(1);idle();entitySaveState=ModelCommitState::saved;click();idle();
+    assert(entityEdits==editsBefore+2);
+    assert(type==1?!somfy.getShadeById(4):!somfy.getGroupById(4));
+    click();idle();assert(RuntimeTestAccess::administration(settingsUi).id==0);
+    click();idle();assert(RuntimeTestAccess::administration(settingsUi).id==1);
+    for(unsigned i=0;i<fields;i++){rotate(1);idle();}click();idle();
+    assert(RuntimeTestAccess::administration(settingsUi).mode==EntityAdmin::Mode::confirm);
+    assert(entityEdits==editsBefore+2);rotate(1);idle();click();idle();
+    assert(entityEdits==editsBefore+3 && RuntimeTestAccess::administration(settingsUi).id==1);
+    if(type==1)assert(somfy.getShadeById(1) && !somfy.getShadeById(1)->paired && somfy.getShadeById(1)->gpioUp==255);
+    else assert(somfy.getGroupById(1) && somfy.getGroupById(1)->address!=somfy.getShadeById(1)->address);
+    saveFrame(preview,type==1?"runtime-device-added":"runtime-group-added");
+    click();idle();assert(RuntimeTestAccess::administration(settingsUi).id==1);
+    closeAdministration();
+    assert(Settings::runtimeMemory().used()==0 && settingsAllocations.empty());
+    assert(submitted.size()==beforeGraphicsCommand);
+  }
+  somfy.transceiver.ready=true;
   free(allocated);allocated=nullptr;hasPsram=false;
   Runtime missing;missing.begin();assert(missing.failure()==GraphicsFailure::missing && !missing.tick(testNow,status,false,send,light));
   hasPsram=true;allocateOK=false;Runtime failed;failed.begin();assert(failed.failure()==GraphicsFailure::allocation && !failed.tick(testNow,status,false,send,light));
-  puts("Production runtime/adapter: dynamic navigation, presented target/STOP, context change, unlock, capture transitions, 30 s lease, standalone settings/presentation/wipe and fallback passed.");
+  puts("Production runtime/adapter: dynamic navigation, presented target/STOP, context change, unlock, capture transitions, 30 s lease, standalone settings/room/device/group admin, presentation/wipe and fallback passed.");
 }
