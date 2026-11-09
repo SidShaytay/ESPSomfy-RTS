@@ -24,7 +24,7 @@ int main(int argc,char **argv){assert(argc==2);const std::string mode=argv[1];fr
  if(mode=="pending")loopQueue.work=1;
  if(mode=="producer")loopQueue.producers=1;
  if(mode=="radio") {somfy_tx_job_t job;job.frame.remoteAddress=55;job.frame.cmd=somfy_commands::Up;assert(somfy.transceiver.sched.submit(job,false,0,0));}
- if(mode=="scan")rxmode=3;
+ if(mode=="scan"){rxmode=3;assert(somfy.transceiver.sched.sealForRestart());somfy.transceiver._administrationPaused=true;}
  if(mode=="restart")restarting=true;
  if(mode=="untrusted")somfy.modelLoad.trusted=false;
  if(mode=="lateMovement")beforeDetach=[]{somfy.shades[0].id=1;somfy.shades[0].idle=false;};
@@ -33,8 +33,8 @@ int main(int argc,char **argv){assert(argc==2);const std::string mode=argv[1];fr
  if(mode=="staleCleanup")duringSave=[]{++somfy.transceiver.installGeneration;};
  if(mode=="busyCleanup")duringSave=[]{radioBusy=true;cleanupAfterSaveBusy=true;};
  const bool refused=mode!="success"&&mode!="groupCompleted"&&mode!="marker"&&mode!="persist"&&mode!="busyCleanup"&&mode!="staleCleanup";
- const auto scanSeal=somfy.transceiver.sched.hasWork();const auto scanGeneration=somfy.transceiver.installGeneration;const auto result=somfy.transceiver.setConfig(next);
- if(mode=="scan")assert(rxmode==3 && somfy.transceiver.installGeneration==scanGeneration && somfy.transceiver.sched.hasWork()==scanSeal && !somfy.transceiver._administrationPaused.load());
+ const auto scanSeal=somfy.transceiver.sched.sealedForRestart();const auto scanGeneration=somfy.transceiver.installGeneration;const auto result=somfy.transceiver.setConfig(next);
+ if(mode=="scan")assert(rxmode==3 && somfy.transceiver.installGeneration==scanGeneration && somfy.transceiver.sched.sealedForRestart()==scanSeal && somfy.transceiver._administrationPaused.load());
  if(refused){assert(!result.saved()&&!saves&&!applies);assert(somfy.transceiver.config.RXPin==8);assert(loopQueue.work==unsigned(mode=="pending"));assert(!loopQueue.restartSealed.load());}
  else if(mode=="persist")assert(!result.saved()&&saves==1&&!applies&&somfy.transceiver.config.RXPin==8);
  else if(mode=="staleCleanup" || mode=="busyCleanup")assert(saves==1&&!applies&&somfy.transceiver.config.RXPin==8&&result.radioNamespaceVerified&&result.state==settings_save_state_t::partial);
