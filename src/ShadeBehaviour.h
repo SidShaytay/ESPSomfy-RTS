@@ -68,6 +68,13 @@ class ShadeBehaviour {
     ShadeBehaviour &operator=(const ShadeBehaviour &) = delete;
     const State &state() const { return this->s; }
     bool isIdle() const;
+    // Read-only admission for configuration/persistence/shutdown operations.
+    // An idle position estimate can still have held input or unresolved TX.
+    bool idleForAdministration() const {
+      return isIdle() && !settingMyPos && !settingPos && !settingTiltPos && !awaitMy &&
+        !tx.hold.held() && !tx.stopTicket && !tx.myTicket &&
+        (!lastFrame.await || lastFrame.processed);
+    }
     bool isAtTarget() const;
 
     // A frame from a remote, sensor or linked remote, or one the shade or
