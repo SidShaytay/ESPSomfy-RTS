@@ -15,7 +15,7 @@ enum class Mode : uint8_t {
   draft,
   validation,
   wifiReview,
-  wifiList
+  stackedRows
 };
 enum class Notice : uint8_t {
   none,
