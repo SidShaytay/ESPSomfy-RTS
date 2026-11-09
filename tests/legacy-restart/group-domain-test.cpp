@@ -29,6 +29,8 @@ struct Transceiver {
 #include "Somfy.h"
 #include "Utils.h"
 #include "esp_timer.h"
+// This restart fixture never installs a counter quarantine.
+bool counterCommandAllowed(uint32_t,somfy_commands){return true;}
 static unsigned radioCalls = 0, nvsCalls = 0, commits = 0, shutdowns = 0;
 static uint32_t nowMs = 1;
 static unsigned long clockNow() { return nowMs; }

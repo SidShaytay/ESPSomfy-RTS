@@ -72,6 +72,8 @@ class Transceiver {
     RadioUpdateActivity updateActivityLocked() const;
     void startTxTask();
     bool transmitJob(somfy_tx_job_t &job);
+    // Loop only: process one raw repeater head, never flush/reorder its tail.
+    void serviceRepeater();
     // Sends a job taken off the queue and leaves a frame beat after it.
     void runJob(somfy_tx_job_t &job);
   public:
@@ -120,6 +122,7 @@ class Transceiver {
     uint32_t counterFileRecoveryAddress();
     CounterQuarantine counterQuarantine();
     bool counterBlocksIdentity(uint32_t address);
+    uint32_t blockedCounterAddress();
     void beginTransmit();
     void endTransmit();
     void emitFrame(somfy_frame_t *frame, somfy_rx_t *rx = nullptr);
