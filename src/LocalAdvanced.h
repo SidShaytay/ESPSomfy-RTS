@@ -102,7 +102,9 @@ class Form {
   ArduinoJson::Allocator &allocator;
   Session *session = nullptr;
   EntityAdmin::Notice status = EntityAdmin::Notice::none;
+  bool privateProjectionDiscarded = false;
   void close(EntityAdmin::Notice);
+  void endLearning();
   bool guard(uint64_t);
   void touch(uint64_t);
   bool select();
@@ -127,6 +129,11 @@ public:
   void back(uint64_t now);
   void discard() { close(EntityAdmin::Notice::none); }
   bool closed() const { return !session; }
+  bool takePrivateProjectionDiscard() {
+    const bool value = privateProjectionDiscarded;
+    privateProjectionDiscarded = false;
+    return value;
+  }
   EntityAdmin::Notice notice() const { return status; }
   uint64_t epoch() const;
   void render(EntityAdmin::FormView &);

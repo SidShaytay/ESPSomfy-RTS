@@ -622,8 +622,34 @@ failed_prewrite_stays_unapplied_and_file_uncertainty_preserves_prior_link() {
     TEST_ASSERT_EQUAL(0, memory.used());
   }
 }
+static void projection_discard_event_survives_cache_and_session_erasure_once() {
+  Model model;
+  JsonAllocator memory(4096, acquire, release);
+  Advanced::Form form(model, memory);
+  TEST_ASSERT_EQUAL(32, sizeof(form));
+  openLearn(form);
+  form.turn(1, 5);
+  form.activate(6);
+  received(model, 7, 123, 20);
+  form.activate(8);
+  TEST_ASSERT_FALSE(form.takePrivateProjectionDiscard());
+  form.back(9);
+  form.back(10);
+  TEST_ASSERT_TRUE(form.takePrivateProjectionDiscard());
+  TEST_ASSERT_FALSE(form.takePrivateProjectionDiscard());
+  TEST_ASSERT_FALSE(model.received.active());
+  form.activate(11);
+  form.turn(1, 12);
+  form.activate(13);
+  received(model, 14, 123, 20);
+  form.discard();
+  TEST_ASSERT_EQUAL(0, memory.used());
+  TEST_ASSERT_TRUE(form.takePrivateProjectionDiscard());
+  TEST_ASSERT_FALSE(form.takePrivateProjectionDiscard());
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(projection_discard_event_survives_cache_and_session_erasure_once);
   RUN_TEST(uncertain_nvs_has_no_retry_and_observation_or_queue_expiry_wipes);
   RUN_TEST(
       failed_prewrite_stays_unapplied_and_file_uncertainty_preserves_prior_link);

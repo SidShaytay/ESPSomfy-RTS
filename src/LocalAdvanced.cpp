@@ -49,12 +49,22 @@ struct Form::Session final : LearnPending {
   bool paired = false;
 };
 uint64_t Form::epoch() const { return session ? session->revision : 0; }
+void Form::endLearning() {
+  if (!session)
+    return;
+  if (session->listening || session->selection.session ||
+      session->candidates.count())
+    privateProjectionDiscarded = true;
+  session->candidates.end();
+  session->listening = false;
+  session->selection = {};
+}
 void Form::close(Notice n) {
   if (session) {
     if (session->ticket)
       backend.cancelLearn(session->ticket, *session);
     session->ticket = 0;
-    session->candidates.end();
+    endLearning();
     session->~Session();
     allocator.deallocate(session);
     session = nullptr;
@@ -422,9 +432,7 @@ void Form::runLearn(uint64_t) {
     return;
   }
   if (!result.edit.hasCounterResult) {
-    s.candidates.end();
-    s.listening = false;
-    s.selection = {};
+    endLearning();
     s.counterOutcome = CounterDomainState::invalid;
     s.canRetryFile = false;
     s.page = Session::Page::learnResult;
@@ -436,9 +444,7 @@ void Form::runLearn(uint64_t) {
     s.linkApplied = true;
     s.fileVerified = result.edit.persistence.saved();
     s.refusal[0] = 0;
-    s.candidates.end();
-    s.listening = false;
-    s.selection = {};
+    endLearning();
     s.action = {};
     memset(s.ids, 0, sizeof(s.ids));
     memset(s.slots, 0, sizeof(s.slots));
@@ -456,9 +462,7 @@ void Form::runLearn(uint64_t) {
   }
   if (s.counterOutcome == CounterDomainState::nvsUncertain ||
       s.counterOutcome == CounterDomainState::quarantined) {
-    s.candidates.end();
-    s.listening = false;
-    s.selection = {};
+    endLearning();
     s.canRetryFile = false;
     s.page = Session::Page::learnResult;
     s.cursor = 0;
@@ -570,9 +574,7 @@ void Form::activate(uint64_t now) {
     if (!s.candidates.count())
       break;
     if (s.candidates.select(s.cursor, now, s.selection) != LearnCheck::ready) {
-      s.candidates.end();
-      s.listening = false;
-      s.selection = {};
+      endLearning();
       s.page = Session::Page::learnStart;
       s.cursor = 0;
       status = Notice::changed;
@@ -593,9 +595,7 @@ void Form::activate(uint64_t now) {
     return;
   case Session::Page::learnFault:
     if (!s.cursor) {
-      s.candidates.end();
-      s.listening = false;
-      s.selection = {};
+      endLearning();
       s.page = Session::Page::menu;
       s.cursor = 2;
     } else {
@@ -654,9 +654,7 @@ void Form::back(uint64_t now) {
   if (s.page == Session::Page::learnStart ||
       s.page == Session::Page::learnList ||
       s.page == Session::Page::learnFault) {
-    s.candidates.end();
-    s.listening = false;
-    s.selection = {};
+    endLearning();
     s.page = Session::Page::menu;
     s.cursor = 2;
     status = Notice::none;
