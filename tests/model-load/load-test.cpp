@@ -144,7 +144,7 @@ static SomfyShadeController *expectedApplyModel=nullptr;
 bool Transceiver::installPauseHeld(const RadioInstallToken &pause)const{return static_cast<const TestRadio *>(this)->installPauseHeld(pause);}
 settings_save_result_t Transceiver::setConfigWhilePaused(const transceiver_config_t &next,const RadioInstallToken &pause,const GitUpdateOwnerToken &owner){
  assert(installPauseHeld(pause)&&gitUpdate.ownsExternal(owner));auto copy=next;const auto persisted=copy.save();if(!persisted.saved())return persisted;
- config=copy;if(radioApplyPartial){settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::radio));return {settings_save_state_t::partial,"radioInit",true};}
+ config=copy;config.radioInit=!radioApplyPartial;if(radioApplyPartial){settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::radio));return {settings_save_state_t::partial,"radioInit",true};}
  return {settings_save_state_t::saved,nullptr,true};
 }
 struct RestoreEffects:SettingsEffects {
@@ -176,6 +176,15 @@ static std::string gpioModel(uint8_t up,uint8_t down,uint8_t my,radio_proto prot
  trans_record_t radio;radio.enabled=true;radio.TXPin=27;
  if(withRadio){ConfigCounter count;assert(writeTransRecord(count,radio));h.transRecordSize=count.bytes;}
  assert(writeConfigHeader(w,h));shade_record_t rec;rec.shadeId=1;rec.proto=protocol;rec.remoteAddress=100;rec.lastRollingCode=200;rec.gpioUp=up;rec.gpioDown=down;rec.gpioMy=my;assert(writeShadeRecord(w,rec));if(withRadio)assert(writeTransRecord(w,radio));return w.bytes;
+}
+static std::string fullSettingsModel(){
+ const auto base=aliasesModel(false);
+ struct Input:ConfigReader {const std::string &text;size_t at=0;explicit Input(const std::string &s):text(s){}bool readByte(uint8_t &v)override{if(at==text.size())return false;v=text[at++];return true;}uint32_t position()override{return at;}}input(base);
+ config_header_t header;assert(readConfigHeader(input,header));const auto body=base.substr(input.position());
+ Writer tail;settings_record_t general;strcpy(general.hostname,"restored");strcpy(general.ntpServer,"restore.clock");strcpy(general.posixZone,"UTC0");assert(writeSettingsRecord(tail,general));header.settingsRecordSize=tail.bytes.size();
+ const auto netStart=tail.bytes.size();net_record_t network;network.connType=1;strcpy(network.mqttProtocol,"mqtt");strcpy(network.mqttHostname,"restored-broker");strcpy(network.mqttRootTopic,"restored-root");strcpy(network.mqttDiscoTopic,"discovery");assert(writeNetRecord(tail,network,false));header.netRecordSize=tail.bytes.size()-netStart;
+ const auto radioStart=tail.bytes.size();trans_record_t radio;radio.enabled=true;radio.TXPin=27;assert(writeTransRecord(tail,radio));header.transRecordSize=tail.bytes.size()-radioStart;
+ Writer writer;assert(writeConfigHeader(writer,header));return writer.bytes+body+tail.bytes;
 }
 static void stored(uint32_t address,uint16_t value){char key[32];snprintf(key,sizeof(key),"ShadeCodes/_%lu",static_cast<unsigned long>(address));FakeNvs::values[key]={FakeNvs::Type::u16,{uint8_t(value),uint8_t(value>>8)}};}
 static void retireRestore(){restoreAllowed=false;}
@@ -284,6 +293,26 @@ int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));Lit
  // GP_Relay's dormant MY pad is not a physically touched owner.
  FakeNvs::reset();stored(100,100);writeAt("/shades.tmp",gpioModel(17,40,17,radio_proto::GP_Relay));restoreAllowed=true;
  {SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);ShadeConfigFile file;restore_options_t opts;opts.shades=true;assert(file.restoreFile(&live,"/shades.tmp",opts,RestoreOwner,RadioInstallToken{1}).complete);}
+ // One actual ConfigFile + actual Stage + checked namespace-writer flow,
+ // including selected preflight and model-file failure before any settings write.
+ for(unsigned failure=0;failure<5;++failure){
+  FakeNvs::reset();settingsDurability()=SettingsDurability{};stored(100,100);stored(101,900);writeAt("/shades.tmp",fullSettingsModel());restoreAllowed=true;
+  const auto previous=settings;qualifySettings(settings);strcpy(settings.hostname,"ESPSomfyRTS");strcpy(settings.MQTT.username,"keep-user");strcpy(settings.MQTT.password,"keep-secret");
+  if(failure==2)settings.MQTT.loadStatus.state=SettingsLoadState::failed;
+  if(failure==4)settings.WIFI.loadStatus.state=SettingsLoadState::failed;
+  SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);live.saveOK=failure!=1;radioApplyPartial=failure==3;
+  ShadeConfigFile file;restore_options_t opts;opts.shades=opts.repeaters=opts.settings=opts.network=opts.mqtt=opts.transceiver=true;
+  const auto effects=settingEffects;const auto result=file.restoreFile(&live,"/shades.tmp",opts,RestoreOwner,RadioInstallToken{1});
+  if(failure==2){assert(!result.complete&&!result.modelApplied&&!result.counterWriteAttempted&&!FakeNvs::writeOpens&&!live.adopted&&live.modelLoad.publishable());}
+  else if(failure==1){assert(!result.complete&&result.modelApplied&&!result.modelFile.saved()&&!FakeNvs::values.count("CFG/hostname")&&settingEffects==effects&&!live.gpio);}
+  else if(failure==3){assert(!result.complete&&result.partial()&&result.modelFile.saved()&&result.settings.persistence.liveApplied&&strcmp(settings.hostname,"ESPSomfyRTS")==0&&settingEffects==effects&&!settingsDurability().status().restartAllowed());}
+  else{assert(result.complete&&result.modelApplied&&result.modelFile.saved()&&result.settings.saved()&&strcmp(settings.hostname,"restored")==0&&settingEffects==effects+3);
+   assert(strcmp(settings.MQTT.username,"keep-user")==0&&strcmp(settings.MQTT.password,"keep-secret")==0);
+   assert(!FakeNvs::values.count("WIFI/ssid")&&!FakeNvs::values.count("SEC/type"));
+   if(failure==4)assert(!settings.WIFI.loadStatus.usable()&&!settings.settingsUsable());
+  }
+  settings=previous;radioApplyPartial=false;
+ }
  // Actual behavior administration query refuses movement, unresolved held
  // input and GPIO pulses before counter I/O, and preserves accepted STOP work.
  for(unsigned busy=0;busy<15;++busy){
