@@ -63,6 +63,7 @@ class Transceiver {
     friend struct transceiver_config_t;
     // Published under the radio lock; queue producers never wait on SPI.
     std::atomic<bool> _available{false};
+    std::atomic<bool> _administrationPaused{false};
     static void handleReceive();
     static void txTask(void *arg);
     bool _received = false;
@@ -70,9 +71,10 @@ class Transceiver {
     // Only touched under the TX queue lock.
     RadioScheduler sched;
     CounterEditSafety counterEdits;
-    uint64_t installGeneration=0;
+    uint64_t installGeneration=0,installConfigurationRevision=0;
     bool installActive=false,installResumeReceive=false;
     RadioUpdateActivity updateActivityLocked() const;
+    bool pauseForAdministration(RadioInstallToken &,bool requireReady);
     void startTxTask();
     bool transmitJob(somfy_tx_job_t &job);
     // Loop only: process one raw repeater head, never flush/reorder its tail.
@@ -84,7 +86,7 @@ class Transceiver {
     transceiver_config_t config;
     // Nonblocking read-only LCD snapshot; outputs are unchanged if busy.
     bool displayStatus(bool &ready, float &frequency) const;
-    bool available() const { return _available.load(); }
+    bool available() const { return _available.load() && !_administrationPaused.load(); }
     bool printBuffer = false;
     bool fromJSON(JsonObject& obj);
     // Persists a prepared config before swapping/applying it. Failed or partial
@@ -113,6 +115,11 @@ class Transceiver {
     // callers provide an empty token and retain it through resume/adoption.
     bool updateActivity(RadioUpdateActivity &) const;
     bool pauseForInstall(RadioInstallToken &);
+    // Same exact pause token/seal; permits idle unavailable radio config repair.
+    bool pauseForRestore(RadioInstallToken &);
+    // Quarantined model only: discard bounded RX memory, never model/repeater/
+    // RF/NVS work. Trusted callers and a retained pause leave buffers untouched.
+    void serviceUntrustedReceive();
     RadioInstallResume resumeAfterInstall(const RadioInstallToken &);
     bool installPauseHeld(const RadioInstallToken &) const;
 

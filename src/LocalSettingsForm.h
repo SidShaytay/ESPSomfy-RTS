@@ -64,6 +64,9 @@ public:
   Form &operator=(const Form &) = delete;
   bool open(uint64_t now);
   bool openSection(settings_section_t section, uint64_t now);
+  // Scan handoff stages SSID only; nullptr selects manual entry with no draft.
+  bool openNetworkSSID(const char *ssid, uint64_t now, Authorization expected,
+                       uint64_t expectedNetworkRevision);
   void tick(uint64_t now);
   void turn(int direction, uint64_t now);
   void activate(uint64_t now);
