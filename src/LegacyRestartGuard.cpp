@@ -2,13 +2,32 @@
 #include "LegacyRestartSource.h"
 #include "Somfy.h"
 #include "Utils.h"
+#include "LoopQueue.h"
+#include "SettingsDurability.h"
 #include <esp_timer.h>
 #include "esp_log.h"
 extern SomfyShadeController somfy;
 extern rebootDelay_t rebootDelay;
+extern LoopQueue loopQueue;
+namespace {
+RestartResult readiness() {
+  const auto stored=settingsDurability().status();
+  if(stored.exhausted) return {false,RestartReason::exhausted};
+  if(!stored.restartAllowed()) return {false,RestartReason::settingsUncertain};
+  if(somfy.transceiver.counterEditUncertain()) return {false,RestartReason::counterUncertain};
+  if(loopQueue.pending() || !somfy.transceiver.restartQuiescent()) return {false,RestartReason::queuedOperations};
+  for(auto &shade:somfy.shades)
+    if(shade.getShadeId()!=255 && (!shade.isIdle() || shade.gpioRelease))
+      return {false,RestartReason::activeMovement};
+  for(auto &group:somfy.groups)
+    if(group.getGroupId()!=255 && group.direction) return {false,RestartReason::activeMovement};
+  return {true,RestartReason::none};
+}
+}
+
 RestartResult legacyGenericRestartAdmission() {
   if(gitUpdate.busy()) return {false,RestartReason::persistenceBusy};
-  if(somfy.transceiver.counterEditUncertain()) return {false,RestartReason::counterUncertain};
+  const auto ready=readiness();if(!ready.admitted)return ready;
   if(snapshotLegacyRestart(rebootDelay).reboot) return {false,RestartReason::pending};
   return {true,RestartReason::none};
 }
@@ -41,6 +60,35 @@ bool legacyRestartLoop() {
   if(!result.admitted) {
     ESP_LOGW("Restart","Restart refused: %s",restartReason(result.reason));
     clearLegacyRestart(rebootDelay,snapshot);return false;
+  }
+  bool queueSealed=false,radioSealed=false;
+  auto final=readiness();
+  if(final.admitted) {
+    queueSealed=loopQueue.sealForRestart();
+    if(!queueSealed) final={false,RestartReason::queuedOperations};
+  }
+  if(final.admitted) {
+    radioSealed=somfy.transceiver.sealForRestart();
+    if(!radioSealed) final={false,RestartReason::queuedOperations};
+  }
+  if(final.admitted) {
+    const auto settingsEpoch=settingsDurability().status().epoch;
+    const auto modelEpoch=somfy.configurationRevision;
+    // The same non-expiring owner and both admission seals span file I/O.
+    // No edit, rolling-code correction or command is replayed here.
+    const auto file=somfy.commit();
+    final=readiness();
+    if(!file.saved()) final={false,file.state==ModelCommitState::uncertain ? RestartReason::modelUncertain : RestartReason::modelFailed};
+    else if(final.admitted && (settingsEpoch!=settingsDurability().status().epoch || modelEpoch!=somfy.configurationRevision))
+      final={false,RestartReason::stale};
+  }
+  if(!final.admitted) {
+    if(radioSealed)somfy.transceiver.reopenAfterRefusedRestart();
+    if(queueSealed)loopQueue.reopenAfterRefusedRestart();
+    gitUpdate.releaseExternal(reservation);
+    clearLegacyRestart(rebootDelay,snapshot);
+    ESP_LOGW("Restart","Final restart refused: %s",restartReason(final.reason));
+    return false;
   }
   performLegacyShutdown();return true;
 }

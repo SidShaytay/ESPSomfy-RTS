@@ -41,7 +41,7 @@ int main(int argc,char **argv) {
   const RestartReason causes[]={RestartReason::none,RestartReason::settingsUncertain,RestartReason::modelFailed,
     RestartReason::modelUncertain,RestartReason::queuedOperations,RestartReason::pending,RestartReason::stale,
     RestartReason::cancelled,RestartReason::exhausted,RestartReason::clock,RestartReason::invalidRequest,
-    RestartReason::notReady,RestartReason::persistenceBusy,RestartReason::counterUncertain,RestartReason(255)};
+    RestartReason::notReady,RestartReason::persistenceBusy,RestartReason::counterUncertain,RestartReason::activeMovement,RestartReason(255)};
   std::vector<uint16_t> queued;
   for(const auto cause:causes) {
     blocked.restartReason=cause;

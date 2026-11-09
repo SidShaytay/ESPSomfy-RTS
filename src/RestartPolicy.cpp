@@ -7,11 +7,12 @@ const char *restartReason(RestartReason reason) {
   static const char *const text[]={"","Settings storage is uncertain; save current RUNNING settings before Restart.",
     "Model file save failed; save the current model, then explicitly Restart.",
     "Model file storage is uncertain; save the current model, then explicitly Restart.",
-    "Operations remain queued; resolve them, then explicitly Restart.",
+    "Operations remain queued or active; finish them, then explicitly Restart.",
     "A restart request is already pending.","Restart request expired after state changed; explicitly request Restart again.",
     "Restart cancelled.","Restart history is exhausted.","Monotonic restart clock moved backward.",
     "Invalid restart request.","Restart admission is not ready.","Storage or update I/O is active; explicitly request Restart again when finished.",
-    "Counter storage is uncertain; managed restart and affected identity commands are blocked. No automatic counter recovery is available."};
+    "Counter storage is uncertain; managed restart and affected identity commands are blocked. No automatic counter recovery is available.",
+    "Movement or a GPIO pulse is active; wait for it to finish before Restart."};
   const auto index=static_cast<unsigned>(reason);
   return index<sizeof(text)/sizeof(*text) ? text[index] : "Restart refused.";
 }
