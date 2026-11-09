@@ -333,8 +333,32 @@ static void actual_completion_refusal_is_reported_without_replaying_effects() {
     TEST_ASSERT_EQUAL_UINT64(2,effects.revisions.get(settings_section_t::network));
   }
 }
+static void verified_cfg_repair_adopts_provenance_only_after_all_selected_writes() {
+ for(bool network:{false,true}) {
+  FakeNvs::reset();settingsDurability()=SettingsDurability{};
+  ConfigSettings current;qualifySettings(current);current.Security.loadState=SecurityLoadState::knownEmpty;
+  current.loadStatus.state=SettingsLoadState::invalid;
+  if(network)current.connType=conn_types_t(99);
+  Effects effects;
+  const auto result=apply(current,network?settings_section_t::network:settings_section_t::general,
+    network?R"({"connType":1})":R"({"hostname":"repaired"})",effects);
+  TEST_ASSERT_TRUE(result.saved());TEST_ASSERT_EQUAL(SettingsLoadState::loaded,current.loadStatus.state);
+  TEST_ASSERT_TRUE(current.networkUsable());TEST_ASSERT_TRUE(current.settingsUsable());
+ }
+ for(int failure=0;failure<3;++failure) {
+  FakeNvs::reset();settingsDurability()=SettingsDurability{};
+  ConfigSettings current;qualifySettings(current);current.Security.loadState=SecurityLoadState::knownEmpty;
+  current.loadStatus.state=SettingsLoadState::invalid;strcpy(current.hostname,"prior");
+  if(failure==0)FakeNvs::failOpen=1;
+  if(failure==1)FakeNvs::failCommit=1;
+  if(failure==2)FakeNvs::failOpen=2;
+  Effects effects;const auto result=apply(current,settings_section_t::general,R"({"hostname":"repaired","ntpServer":"new.clock"})",effects);
+  TEST_ASSERT_FALSE(result.saved());TEST_ASSERT_EQUAL(SettingsLoadState::invalid,current.loadStatus.state);
+  TEST_ASSERT_EQUAL_STRING("prior",current.hostname);TEST_ASSERT_FALSE(current.networkUsable());TEST_ASSERT_EQUAL(0,effects.completions);
+ }
+}
 int main() {
-  UNITY_BEGIN();
+  UNITY_BEGIN();RUN_TEST(verified_cfg_repair_adopts_provenance_only_after_all_selected_writes);
   RUN_TEST(actual_completion_refusal_is_reported_without_replaying_effects);
   RUN_TEST(test_composite_failure_remarks_earlier_full_draft_namespace);
   RUN_TEST(test_unrelated_success_reports_saved_but_restart_blocked_before_completion);
