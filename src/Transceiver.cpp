@@ -24,6 +24,9 @@
 #include "SettingsDurability.h"
 #include "RadioInitMarker.h"
 #include "RadioSettingsAdmission.h"
+#include "FrequencyScanAdmission.h"
+#include "LoopQueue.h"
+extern LoopQueue loopQueue;
 #include "PinOwnership.h"
 #include "GitUpdate.h"
 #include <esp_timer.h>
@@ -297,6 +300,8 @@ int currRSSI = -100;
 float markFreq = 433.0f;
 int markRSSI = -100;
 uint32_t lastScan = 0;
+static std::atomic<bool> scanActive{false};
+bool frequencyScanActive(){return scanActive.load();}
 static uint32_t scanStart = 0;
 static bool scanResumeReceive = false;
 static std::atomic<bool> scanStopRequested{false};
@@ -307,16 +312,18 @@ static std::atomic<bool> scanEmitPending{false};
 // A scan nobody ended (closed browser tab) stops on its own after this long so
 // the radio doesn't stay unable to transmit.
 #define SCAN_MAX_MS 300000
-void Transceiver::beginFrequencyScan() {
+bool Transceiver::beginFrequencyScan() {
   // Refuse accepted work; observation must never flush/preempt a command.
-  if(!radioUpdateResourcesReady())return;
-  RadioLock lock(0);if(!lock.locked)return;
-  TxQueueLock queue(0);if(!queue.locked)return;
+  if(!radioUpdateResourcesReady()||!loopQueue.sealForRestart())return false;
+  struct AdmissionGuard {~AdmissionGuard(){loopQueue.reopenAfterRefusedRestart();}} admissionGuard;
+  RadioLock lock(0);if(!lock.locked)return false;
+  TxQueueLock queue(0);if(!queue.locked)return false;
   {
     RxTaskLock receiveLock;
     const auto activity=this->updateActivityLocked();
     if(!this->config.enabled || !this->available() || !activity.canPause() ||
-       !this->sched.sealForRestart())return;
+       !this->sched.sealForRestart())return false;
+    scanActive=true;
     scanResumeReceive = rxmode == 1;
     scanStopRequested = false;
     rxPausedForInstall = true;
@@ -336,6 +343,7 @@ void Transceiver::beginFrequencyScan() {
   attachInterrupt(interruptPin, handleReceive, CHANGE);
   { RxTaskLock receiveLock;rxPausedForInstall = false; }
   scanEmitPending = true;
+  return true;
 }
 void Transceiver::processFrequencyScan(bool received) {
   if(scanStopRequested.load()) return;
@@ -401,6 +409,7 @@ void Transceiver::endFrequencyScan() {
   // Restoration has completed before transmission is allowed again.
   this->sched.reopenAfterRefusedRestart();
   this->_administrationPaused = false;
+  scanActive=false;
 }
 void Transceiver::emitFrequencyScan() {
   if(protoSocket.subscribed(proto_feed_t::frequencyScan)) {

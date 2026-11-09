@@ -49,6 +49,7 @@ struct loop_item_t {
   uint8_t section = 0;            // proto_device: getSettings' settings_section_t
   settings_save_t *save = nullptr; // proto_device: saveSettings' save, which loop() frees
   uint64_t localToken = 0;        // local_control/local_advanced: bounded loop-owned slot
+  bool radioScanAtAdmission = false; // Never replay an RF request accepted during a scan.
   bool localRadio = false;       // exact admitted protocol, never inferred from row/request type
   GitUpdateOwnerToken externalOwner; // Exact queued upload/restore source; never request pointers.
 };
