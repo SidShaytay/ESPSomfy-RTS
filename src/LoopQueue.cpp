@@ -37,16 +37,29 @@ void LoopQueue::begin() {
   if(!this->queue) this->queue = xQueueCreate(LOOP_QUEUE_SIZE, sizeof(loop_item_t));
 }
 bool LoopQueue::submit(const loop_item_t &item, bool first) {
-  if(!this->queue) return false;
+  if(!this->queue || restartSealed.load()) return false;
+  producers.fetch_add(1);
+  // A producer observed before sealing keeps it from completing; a producer
+  // arriving after sealing cannot enqueue. No mutex spans an RTOS queue call.
+  if(restartSealed.load()) {producers.fetch_sub(1);return false;}
   // async_tcp also services the sockets, so it must never wait on loop() or
   // the radio.
   QueueHandle_t q = static_cast<QueueHandle_t>(this->queue);
-  if((first ? xQueueSendToFront(q, &item, 0) : xQueueSend(q, &item, 0)) != pdTRUE) {
+  const bool accepted=(first ? xQueueSendToFront(q, &item, 0) : xQueueSend(q, &item, 0)) == pdTRUE;
+  producers.fetch_sub(1);
+  if(!accepted) {
     ESP_LOGE(TAG, "Loop queue full, dropping item");
     return false;
   }
   return true;
 }
+bool LoopQueue::sealForRestart() {
+  bool expected=false;
+  if(!restartSealed.compare_exchange_strong(expected,true)) return false;
+  if(producers.load() || pending()) {restartSealed.store(false);return false;}
+  return true;
+}
+void LoopQueue::reopenAfterRefusedRestart() {restartSealed.store(false);}
 uint32_t LoopQueue::pending() const {
   return this->queue ? uxQueueMessagesWaiting(static_cast<QueueHandle_t>(this->queue)) : 0;
 }

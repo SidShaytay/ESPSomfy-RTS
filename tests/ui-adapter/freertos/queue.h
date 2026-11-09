@@ -7,15 +7,16 @@ using QueueHandle_t=void *;
 inline uint64_t lastLocalToken=0;
 struct FakeRtosQueue {std::deque<loop_item_t> items;unsigned capacity;};
 inline bool queueAllocationOK=true;
+inline void (*beforeQueueSend)()=nullptr;
 inline void *xQueueCreate(unsigned capacity,unsigned bytes) {assert(bytes==sizeof(loop_item_t));if(!queueAllocationOK)return nullptr;return new FakeRtosQueue{{},capacity};}
 inline int xQueueSend(QueueHandle_t q,const void *item,unsigned wait) {
-  assert(!wait);auto &queue=*static_cast<FakeRtosQueue *>(q);
+  assert(!wait);if(beforeQueueSend)beforeQueueSend();auto &queue=*static_cast<FakeRtosQueue *>(q);
   if(queue.items.size()==queue.capacity)return 0;
   const auto &value=*static_cast<const loop_item_t *>(item);if(value.type==loop_item_type_t::local_control)lastLocalToken=value.localToken;
   queue.items.push_back(*static_cast<const loop_item_t *>(item));return 1;
 }
 inline int xQueueSendToFront(QueueHandle_t q,const void *item,unsigned wait) {
-  assert(!wait);auto &queue=*static_cast<FakeRtosQueue *>(q);
+  assert(!wait);if(beforeQueueSend)beforeQueueSend();auto &queue=*static_cast<FakeRtosQueue *>(q);
   if(queue.items.size()==queue.capacity)return 0;
   const auto &value=*static_cast<const loop_item_t *>(item);if(value.type==loop_item_type_t::local_control)lastLocalToken=value.localToken;
   queue.items.push_front(*static_cast<const loop_item_t *>(item));return 1;

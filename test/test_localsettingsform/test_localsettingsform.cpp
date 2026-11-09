@@ -811,7 +811,7 @@ static void every_saved_restart_refusal_preserves_typed_reason_and_no_retry_draf
   for(const auto reason:{RestartReason::none,RestartReason::settingsUncertain,RestartReason::modelFailed,
       RestartReason::modelUncertain,RestartReason::queuedOperations,RestartReason::pending,RestartReason::stale,
       RestartReason::cancelled,RestartReason::exhausted,RestartReason::clock,RestartReason::invalidRequest,
-      RestartReason::notReady,RestartReason::persistenceBusy,RestartReason::counterUncertain,RestartReason(255)}) {
+      RestartReason::notReady,RestartReason::persistenceBusy,RestartReason::counterUncertain,RestartReason::activeMovement,RestartReason::unknownGroup,RestartReason(255)}) {
     Memory mem;Fake backend;Form form(backend,mem);
     form.openSection(settings_section_t::general,0);
     turnTo(form,1);form.activate(1);form.turn(1,1);chooseNumericApply(form);turnTo(form,3);
