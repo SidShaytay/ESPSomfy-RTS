@@ -25,7 +25,7 @@ struct SomfyRemote:RemoteSettings {
  void setRemoteAddress(uint32_t);uint32_t getRemoteAddress();somfy_commands transformCommand(somfy_commands);
  bool sendSensorCommand(int8_t,int8_t,uint8_t);bool sendCommand(somfy_commands);bool sendCommand(somfy_commands,uint8_t,uint8_t=0);
  send_result_t sendCommandAfter(somfy_commands,uint8_t,uint8_t,uint16_t,bool=false,bool=false);
- bool isLastCommand(somfy_commands);bool repeatFrame(uint8_t);uint16_t peekNextRollingCode();void commitRollingCode(uint16_t);uint16_t setRollingCode(uint16_t);
+ bool isLastCommand(somfy_commands);bool repeatFrame(uint8_t);bool peekNextRollingCode(uint16_t &code);void commitRollingCode(uint16_t);uint16_t setRollingCode(uint16_t);
 };
 struct SomfyLinkedRemote:SomfyRemote{SomfyLinkedRemote();};
 struct SomfyShade:SomfyRemote,ShadeSettings,MotorLink,ShadeEvents {
