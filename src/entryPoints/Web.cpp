@@ -94,6 +94,7 @@ void Web::loop() {
   delay(1);
 }
 bool Web::tokenAccepted(AsyncWebServerRequest *request, const char *given) {
+  if(!settings.Security.loadTrusted())return false;
   if(settings.Security.type == security_types::None) return true;
   if(!given || !request->client()) return false;
   char token[API_TOKEN_SIZE];
@@ -174,6 +175,10 @@ static void serializeGroupRef(SomfyGroup *group, JsonFormatter &json) {
 // -- Async handler implementations --
 void Web::handleLogin(AsyncWebServerRequest *request, JsonVariant &json) {
   if(request->method() == HTTP_OPTIONS) { request->send(200); return; }
+  if(!settings.Security.loadTrusted()) {
+    request->send(503, _encoding_json, "{\"success\":false,\"msg\":\"Security settings unavailable; authentication refused.\"}");
+    return;
+  }
   char token[API_TOKEN_SIZE];
   memset(&token, 0x00, sizeof(token));
   this->createAPIToken(request->client()->remoteIP(), token);

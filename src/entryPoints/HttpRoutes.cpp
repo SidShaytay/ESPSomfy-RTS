@@ -43,6 +43,7 @@ bool uploadAllowed(AsyncWebServerRequest *request, size_t index) {
 // below the route, and /backup/a.js then passed the token check as a web asset.
 void registerHttpRoutes(AsyncWebServer &server) {
   server.on(AsyncURIMatcher::exact("/loginContext"), HTTP_GET, [](AsyncWebServerRequest *request) {
+    if(!settings.Security.loadTrusted()) { request->send(503, "application/json", "{\"success\":false,\"msg\":\"Security settings unavailable.\"}");return; }
     AsyncJsonResponse *response = new AsyncJsonResponse();
     JsonObject root = response->getRoot().to<JsonObject>();
     root["type"] = static_cast<uint8_t>(settings.Security.type);
