@@ -31,7 +31,7 @@ class Runtime {
     if(systemChild==SystemChild::wifi)action(wifiScanForm);
     else if(systemChild==SystemChild::diagnostics)action(diagnosticsForm);
   }
-  static void wipeSystemProjection(EntityAdmin::FormView &view) {
+  static void wipePrivateProjection(EntityAdmin::FormView &view) {
     static_assert(std::is_trivially_copyable<EntityAdmin::FormView>::value,
                   "Only plain projected fields may be byte-erased");
     static_assert(sizeof(EntityAdmin::FormView)<=352,"Bound private projection erasure");
@@ -39,13 +39,15 @@ class Runtime {
     for(size_t i=0;i<sizeof(view);++i)bytes[i]=0;
     view.protectedFrame=true;
   }
+  void discardPrivateProjection(){
+    // Retained current/presented projections can outlive a blocked SPI frame.
+    // Erase both after private data teardown; accept only a fresh full frame.
+    wipePrivateProjection(frameAdministration);wipePrivateProjection(presentedAdministration);
+    frameAdministrationEpoch=presentedAdministrationEpoch=0;presentedAdministrationValid=false;
+  }
   void discardSystemChild(){
     wifiScanForm.discard();diagnosticsForm.discard();systemChild=SystemChild::none;
-    // Retained current/presented projections can outlive a blocked SPI frame.
-    // Erase both (including padding) after observer teardown, then require a
-    // newly completed sanitized frame before accepting another activation.
-    wipeSystemProjection(frameAdministration);wipeSystemProjection(presentedAdministration);
-    frameAdministrationEpoch=presentedAdministrationEpoch=0;presentedAdministrationValid=false;
+    discardPrivateProjection();
   }
   bool childClosed()const {
     return systemChild==SystemChild::wifi?wifiScanForm.closed():systemChild==SystemChild::diagnostics?diagnosticsForm.closed():false;

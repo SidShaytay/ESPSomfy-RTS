@@ -57,6 +57,7 @@ static unsigned learnedAttempts=0,learnedLinks=0,learnedWrites=0,learnedRetries=
 static std::map<uint32_t,uint16_t> learnedCodes;
 static uint32_t learnedModelAddress=0;
 static CounterDomainState learnedInjected=CounterDomainState::saved;
+static void (*afterLearnApply)()=nullptr;
 static ModelCommitState entitySaveState=ModelCommitState::saved,entityCommitState=ModelCommitState::saved;
 // A fake filesystem projection, not a real persistence claim. Failed writes
 // retain its prior contents; uncertain verification makes the projection unknown.
@@ -119,6 +120,7 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
         somfy.transceiver.quarantine=CounterQuarantine::filePending;somfy.transceiver.blockedIdentity=address;}
     }
     assert(gitUpdate.releaseExternal(owner));
+    if(applied && afterLearnApply){auto callback=afterLearnApply;afterLearnApply=nullptr;callback();}
     edit_result_t result;result.applied=applied;result.ok=applied && entitySaveState==ModelCommitState::saved;
     result.id=applied?shade->id:0;result.persistence={entitySaveState,ModelCommitStage::write};
     result.hasCounterResult=true;result.counterState=state;return result;
@@ -810,7 +812,7 @@ int main(int argc,char **argv){
   // Learn is explicit observation -> protected review -> one bounded FIFO
   // marker -> checked shared-domain outcome. No receive event links itself.
   advancedShade.proto=radio_proto::RTS;advancedShade.bitLength=56;++somfy.configurationRevision;
-  const auto rfBeforeLearn=submitted.size();const auto savesBeforeLearn=settingsSaves;
+  const auto rfBeforeLearn=submitted.size();const auto savesBeforeLearn=settingsSaves;unsigned olderLearnRequests=0;
   auto openLearnActual=[&](){
     openAdvanced(1);rotate(1);idle();rotate(1);idle();click();idle();
     assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[1].label,"Begin observation") && !receiveHub().active());
@@ -827,7 +829,10 @@ int main(int argc,char **argv){
   auto reviewedLearn=RuntimeTestAccess::administration(settingsUi);assert(reviewedLearn.mode==EntityAdmin::Mode::learnReview && reviewedLearn.selected==0);
   assert(strstr(reviewedLearn.rows[2].value,"RTV 80-bit Sensor") && strstr(reviewedLearn.rows[2].label,"Code 0"));
   saveFrame(preview,"runtime-learn-sensor-review");click();idle();assert(!learnedAttempts);click();idle();
-  busBusy=true;rotate(1);click();assert(!learnedAttempts);busBusy=false;idle();click();idle();
+  busBusy=true;rotate(1);click();assert(!learnedAttempts);busBusy=false;idle();
+  afterLearnApply=[](){busBusy=true;};click();
+  assert(!RuntimeTestAccess::systemContains(settingsUi,"15597634")); // Applied result cannot retain the old air frame behind blocked SPI.
+  busBusy=false;idle();
   assert(learnedAttempts==1 && learnedLinks==1 && learnedWrites==1 && learnedModelAddress==0xee0042);
   assert(advancedShade.proto==radio_proto::RTS && advancedShade.bitLength==56 && advancedShade.lastRollingCode==123);
   assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Remote linked") && !receiveHub().active());
@@ -845,8 +850,19 @@ int main(int argc,char **argv){
   beginLearnActual();heardLearn(0xee0044,43);click();idle();rotate(1);idle();
   loop_item_t heldLearn;heldLearn.request.type=shade_request_type_t::unpair;heldLearn.request.id=4;somfy.transceiver.suspended=true;assert(loopQueue.submit(heldLearn));
   click();assert(loopQueue.pending()==2 && learnedAttempts==2);busBusy=true;back();
-  assert(!receiveHub().active() && Settings::runtimeMemory().used()==0);busBusy=false;somfy.transceiver.suspended=false;idle();
-  assert(learnedAttempts==2 && learnedWrites==2 && submitted.size()==rfBeforeLearn+1);closeAdministration();
+  assert(!receiveHub().active() && Settings::runtimeMemory().used()==0);
+  assert(!RuntimeTestAccess::systemContains(settingsUi,"15597636"));
+  busBusy=false;somfy.transceiver.suspended=false;idle();++olderLearnRequests;
+  assert(learnedAttempts==2 && learnedWrites==2 && submitted.size()==rfBeforeLearn+olderLearnRequests);closeAdministration();
+  beginLearnActual();heardLearn(0xee0047,46);click();idle();rotate(1);idle();
+  somfy.transceiver.suspended=true;assert(loopQueue.submit(heldLearn));click();busBusy=true;tick(false,5000);
+  assert(learnedAttempts==2 && !receiveHub().active() && Settings::runtimeMemory().used()==0);
+  assert(!RuntimeTestAccess::systemContains(settingsUi,"15597639"));
+  busBusy=false;somfy.transceiver.suspended=false;idle();++olderLearnRequests;back();idle();closeAdministration();
+  beginLearnActual();heardLearn(0xee0048,47);savedPixels=RuntimeTestAccess::losePixels(settingsUi);
+  assert(!settingsUi.tick(testNow,status,false,send,light));assert(!receiveHub().active() && Settings::runtimeMemory().used()==0);
+  assert(!RuntimeTestAccess::systemContains(settingsUi,"15597640"));
+  RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();
   // A retained counter newer than the selected observation is refused by the
   // shared checked domain; the LCD does not replace selection with that code.
   beginLearnActual();heardLearn(0xee0045,10);click();idle();learnedCodes[0xee0045]=11;rotate(1);idle();click();idle();
@@ -854,10 +870,10 @@ int main(int argc,char **argv){
   click();idle();back();idle();closeAdministration();
   // An uncertain attempted NVS write has one Close action and no retry/reset.
   beginLearnActual();heardLearn(0xee0046,45);click();idle();learnedInjected=CounterDomainState::nvsUncertain;rotate(1);idle();click();idle();
-  auto uncertainLearn=RuntimeTestAccess::administration(settingsUi);assert(!strcmp(uncertainLearn.title,"Counter storage uncertain") && uncertainLearn.rowCount==1);
+  auto uncertainLearn=RuntimeTestAccess::administration(settingsUi);assert(!strcmp(uncertainLearn.title,"Counter uncertain") && uncertainLearn.rowCount==1);
   assert(learnedAttempts==4 && learnedWrites==3 && learnedLinks==2 && !receiveHub().active());saveFrame(preview,"runtime-learn-counter-uncertain");
   click();idle();closeAdministration();assert(learnedRetries==1 && Settings::runtimeMemory().used()==0 && settingsAllocations.empty());
-  assert(settingsSaves==savesBeforeLearn && submitted.size()==rfBeforeLearn+1);
+  assert(settingsSaves==savesBeforeLearn && submitted.size()==rfBeforeLearn+olderLearnRequests);
   // Fixture reset only; production recovery never clears unknown NVS state.
   somfy.transceiver.quarantine=CounterQuarantine::none;somfy.transceiver.blockedIdentity=0;
   somfy.transceiver.ready=true;
