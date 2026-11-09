@@ -1,3 +1,4 @@
+#include "GpioPinClaims.h"
 #include "ModelLoadTrust.h"
 #include "SettingsLoadState.h"
 #include <assert.h>
@@ -75,7 +76,7 @@ static std::set<uint8_t> touched;
 static std::vector<uint8_t> configured;
 static int levels[49] = {};
 int gpio_set_level(gpio_num_t pin, uint32_t value) { levels[pin] = value; return 0; }
-void pinMode(uint8_t pin, uint8_t mode) { assert(GPIO_IS_VALID_OUTPUT_GPIO(pin));assert(mode==OUTPUT);configured.push_back(pin);touched.insert(pin); }
+void pinMode(uint8_t pin, uint8_t mode) { assert(GPIO_IS_VALID_OUTPUT_GPIO(pin));assert(mode==OUTPUT);assert(LivePinClaims::contains(retainedGpioPinClaims(),pin));configured.push_back(pin);touched.insert(pin); }
 void digitalWrite(uint8_t pin, uint8_t value) { assert(GPIO_IS_VALID_OUTPUT_GPIO(pin));writes++; touched.insert(pin);levels[pin] = value; }
 int digitalRead(uint8_t pin) { return levels[pin]; }
 static unsigned long clockNow = 100;
@@ -249,5 +250,8 @@ int main() {
   configured.clear();somfy.configureGPIOs();assert(configured.empty());
   second.gpioUp=255;configured.clear();somfy.configureGPIOs();assert(configured.size()==3);
   assert(configured[0]==17 && configured[1]==40 && configured[2]==42);
+  const auto oldClaims=retainedGpioPinClaims();loaded.proto=radio_proto::RTS;loaded.id=255;second.id=255;
+  configured.clear();somfy.configureGPIOs();assert(configured.empty() && retainedGpioPinClaims()==oldClaims);
+  assert(LivePinClaims::contains(oldClaims,17));
   puts("Reserved shade GPIO checks passed");
 }

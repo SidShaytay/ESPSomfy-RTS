@@ -16,7 +16,7 @@ uint64_t modelGpioClaims() {
   uint64_t claims=0;
   for(auto &shade:somfy.shades)if(shade.getShadeId()!=255)
     claims|=ShadeGpioPolicy::pinClaims(shade.proto,shade.gpioUp,shade.gpioDown,shade.gpioMy);
-  return claims;
+  return claims|retainedGpioPinClaims();
 }
 }
 uint64_t retainedEthernetPinClaims(){return net.retainedPinClaims();}

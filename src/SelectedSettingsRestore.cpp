@@ -62,7 +62,7 @@ void SelectedSettingsRestore::clear(){
   prepared=false;
 }
 bool SelectedSettingsRestore::prepare(const ConfigSettings &current,const transceiver_config_t &radio,
-    const restore_options_t &opts,const config_header_t &header,ConfigReader &reader,bool sameBoard,uint64_t retainedRadio,uint64_t retainedEthernet) {
+    const restore_options_t &opts,const config_header_t &header,ConfigReader &reader,bool sameBoard,uint64_t retainedRadio,uint64_t retainedEthernet,uint64_t retainedGpio) {
   static_assert(sizeof(Draft)<=maximumDraftBytes,"Keep one private restore settings draft bounded");
   clear();outcome={};
   if(opts.settings)outcome.requestedNamespaces|=namespaceBit(SettingsNamespace::cfg)|namespaceBit(SettingsNamespace::ntp);
@@ -159,7 +159,9 @@ bool SelectedSettingsRestore::prepare(const ConfigSettings &current,const transc
     const auto context=radioPinContext(next,retainedEthernet);
     if(!context.qualified || !draft->radio.loadStatus.usable() || !validSettings(draft->radio))
       return fail(RestoreSettingsState::unavailable,"hardware pin owners");
-    if((draft->radio.pinClaims()|retainedRadio)&context.ethernetClaims)
+    retainedGpio|=retainedGpioPinClaims();
+    if(((draft->radio.pinClaims()|retainedRadio)&(context.ethernetClaims|retainedGpio)) ||
+       (newEthernet && (context.ethernetClaims&retainedGpio)))
       return fail(RestoreSettingsState::refused,"hardware pin overlap");
   }
   outcome.state=RestoreSettingsState::prepared;prepared=true;return true;

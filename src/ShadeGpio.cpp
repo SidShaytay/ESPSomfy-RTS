@@ -2,6 +2,7 @@
 #include "Somfy.h"
 extern SomfyShadeController somfy;
 #include "ShadeGpioPolicy.h"
+#include "GpioPinClaims.h"
 
 static const char *TAG = "Somfy";
 
@@ -23,6 +24,7 @@ void SomfyShade::configureGPIOs() {
   if(unsafeGPIOs(*this))return;
   const uint8_t mask=ShadeGpioPolicy::physicalMask(this->proto);
   const uint8_t pins[]={this->gpioUp,this->gpioDown,this->gpioMy};
+  retainGpioPinClaims(ShadeGpioPolicy::pinClaims(this->proto,this->gpioUp,this->gpioDown,this->gpioMy));
   for(uint8_t i=0;i<3;i++)if((mask & (1u<<i)) && pins[i]!=255)pinMode(pins[i],OUTPUT);
 }
 

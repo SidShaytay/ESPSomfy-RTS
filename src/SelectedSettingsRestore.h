@@ -29,7 +29,7 @@ public:
   // reader begins at the settings/net/radio tail of the immutable snapshot.
   // Checked decoding is scoped here; ordinary legacy read mode is restored.
   bool prepare(const ConfigSettings &,const transceiver_config_t &,const restore_options_t &,
-      const config_header_t &,ConfigReader &,bool sameBoard,uint64_t retainedRadio,uint64_t retainedEthernet);
+      const config_header_t &,ConfigReader &,bool sameBoard,uint64_t retainedRadio,uint64_t retainedEthernet,uint64_t retainedGpio);
   int8_t validateGPIOs(radio_proto,uint8_t up,uint8_t down,uint8_t my,
       const ConfigSettings &,const transceiver_config_t &,
       const pin_users_t &otherPins,const pin_users_t &invalidOutputs,

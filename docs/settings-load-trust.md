@@ -93,11 +93,17 @@ After complete writes and RAM adoption, existing hooks update hostname/time and
 defer MQTT reconnect to the ordinary loop; settings notifications request no
 restart. Namespace applied masks are published only after these hooks return.
 The restore resource consumer still requires independent joint qualification.
-Two eight-byte synchronized ledgers retain radio and Ethernet pad claims for
-this boot. They add claims before hardware initialization attempts and never
+Three eight-byte synchronized ledgers retain radio, Ethernet and configured
+GPIO output pad claims for this boot. They add claims before hardware initialization attempts and never
 release them because RAM, enabled state or the init marker changed. Projected
 GPIO checks include those retained claims; reusing an old hardware pad requires
-a reboot and a second explicit edit. Ethernet includes the pinned SDK's fixed
+a reboot and a second explicit edit. GPIO claims are recorded before actual
+output initialization; removing a model record or changing its protocol does
+not free that actuator's old pad for radio or Ethernet bus use. GPIO validation
+does not compare an output against its own historical claim. Selected restore
+captures the old GPIO claims before model overwrite and rejects a new bus
+conflict before any NVS or model mutation; low-level bus admission also checks
+the fresh boot ledger. Ethernet includes the pinned SDK's fixed
 RMII data/clock pads as well as configured pins. Native pin lists are synthetic,
 not physical qualification. New radio/Ethernet activation also checks current
 model GPIO ownership before writes or SDK calls. A disabled cold radio never
