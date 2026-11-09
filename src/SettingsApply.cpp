@@ -53,6 +53,8 @@ const char *settingsSaveFailureDescription(settings_save_state_t state) {
     "Settings were not saved; running settings unchanged.";
 }
 const char *settingsApplyFailureDescription(const settings_apply_result_t &result) {
+  if(result.persistence.liveApplied)
+    return "Radio settings applied; initialization status is uncertain. Reopen Radio before retrying; restart remains blocked.";
   switch(result.refusal) {
     case settings_apply_refusal_t::invalidPin: return "PIN must contain exactly four bytes; nothing was saved.";
     case settings_apply_refusal_t::usernameRequired: return "Password security requires a username; nothing was saved.";

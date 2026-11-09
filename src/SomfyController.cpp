@@ -1,5 +1,6 @@
 #include "ModelLoadSnapshot.h"
 #include "SettingsDurability.h"
+#include "RadioSettingsAdmission.h"
 #include "LilygoBuild.h"
 #include "esp_log.h"
 #include <WiFi.h>
@@ -179,6 +180,7 @@ void loop() {
   // Times the whole pass for the memory event, including any time the loop task was
   // pre-empted, since that delays the loop too.
   ElapsedTimer pass;
+  serviceRadioSettingsCleanup();
   manualUploadLoop();
   if(restartLoop()) return;
   // Each step only logs when it holds up the loop for LOOP_SLOW_MS or more.

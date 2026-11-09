@@ -24,6 +24,7 @@ const char *notice(Settings::Notice value) {
   case Settings::Notice::expired: return "Edit expired - draft discarded";
   case Settings::Notice::noMemory: return "No draft memory - changes discarded";
   case Settings::Notice::readOnly: return "Fixed by this board or connection";
+  case Settings::Notice::appliedUncertain: return "Radio applied; readiness uncertain. Reopen Radio.";
   case Settings::Notice::unavailable: return "Settings unavailable - storage needs review";
   case Settings::Notice::none: return "";
   }

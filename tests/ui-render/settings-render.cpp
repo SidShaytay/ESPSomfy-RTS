@@ -68,6 +68,11 @@ int main(int argc,char **argv) {
   warningLines(canvas,notice(unavailable.notice),warningFirst,warningSecond);
   assert(std::string(warningFirst)+" "+warningSecond=="Settings unavailable - storage needs review");
   canvas.paintSettings(unavailable);save(std::string(argv[1])+"/settings-unavailable.ppm",pixels);assert(unavailable.protectedFrame);
+  Settings::FormView applied;applied.notice=Settings::Notice::appliedUncertain;
+  warningLines(canvas,notice(applied.notice),warningFirst,warningSecond);
+  assert(std::string(warningFirst)+" "+warningSecond=="Radio applied; readiness uncertain. Reopen Radio.");
+  canvas.paintSettings(applied);save(std::string(argv[1])+"/settings-radio-applied-uncertain.ppm",pixels);
+
   assert(view.protectedFrame);
   view.notice=Settings::Notice::none;view.mode=Settings::Mode::confirm;view.rowCount=2;
   strcpy(view.hint,"Changes authentication; may close sessions.");

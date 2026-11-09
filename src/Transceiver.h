@@ -13,6 +13,7 @@
 #include "SettingsLoadState.h"
 #include "CounterEdit.h"
 #include "RadioUpdateActivity.h"
+#include "GitUpdateOwner.h"
 
 // The CC1101 radio: receive decoding, the radio task that transmits radio
 // jobs, the frequency scan and the radio config.
@@ -54,7 +55,7 @@ struct transceiver_config_t {
     settings_save_result_t savePreservingInit();
     bool loadReadOnly();
     void applyChipDefaults();
-    void apply();
+    settings_save_result_t apply();
     void applyBoardPins();
 };
 class Transceiver {
@@ -91,6 +92,9 @@ class Transceiver {
     // Persists a prepared config before swapping/applying it. Failed or partial
     // persistence leaves the live config and hardware unchanged.
     settings_save_result_t setConfig(const transceiver_config_t &cfg);
+    // Already-owned restore/configuration path: exact radio and owner capability.
+    settings_save_result_t setConfigWhilePaused(const transceiver_config_t &cfg,
+        const RadioInstallToken &,const GitUpdateOwnerToken &);
     bool loadReadOnly();
     bool begin();
     void loop();

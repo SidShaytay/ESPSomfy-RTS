@@ -5,8 +5,11 @@
 // a failed/partial result may leave durable values for the next retry/reboot.
 enum class settings_save_state_t : uint8_t { saved, failed, partial };
 struct settings_save_result_t {
-  settings_save_state_t state = settings_save_state_t::saved;
-  const char *failedKey = nullptr; // schema key only; never a stored value
+  settings_save_state_t state;
+  bool liveApplied; // A later radio-marker failure cannot claim RAM stayed unchanged.
+  const char *failedKey; // schema key only; never a stored value
+  constexpr settings_save_result_t(settings_save_state_t value=settings_save_state_t::saved,
+      const char *key=nullptr,bool applied=false):state(value),liveApplied(applied),failedKey(key) {}
   bool saved() const { return state == settings_save_state_t::saved; }
 };
 

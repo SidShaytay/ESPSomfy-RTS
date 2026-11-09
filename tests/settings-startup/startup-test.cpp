@@ -3,6 +3,9 @@
 #include "RadioInitMarker.h"
 #include "SettingsTypedValidation.h"
 #include "SettingsDurability.h"
+#include "SettingsRevisions.h"
+#include "ProtoSettings.h"
+#include "GitUpdate.h"
 #include <nvs.h>
 #include <assert.h>
 #include <string.h>
@@ -32,6 +35,15 @@ struct {template<class...Args>void printf(const char *,Args...){}}Serial;
 #define ESP_LOGE(...) ((void)0)
 static constexpr unsigned portMAX_DELAY=0;
 struct RadioLock {bool locked=true;RadioLock(unsigned,bool){}};
+static GitUpdateOwnerToken radioOwner;
+static RadioInstallToken radioPause{17};
+static SettingsRevisions settingsRevisions;
+static constexpr uint8_t INPUT=0;
+static void pinMode(uint8_t,uint8_t){++hardware;}
+bool Transceiver::installPauseHeld(const RadioInstallToken &token)const{return token.generation==17;}
+settings_save_result_t saveRadioConfiguration(Transceiver &radio,const transceiver_config_t &next){
+ return radio.setConfigWhilePaused(next,radioPause,radioOwner);
+}
 static unsigned rxmode=0;static bool scanEmitPending=false;uint8_t radioBitLength=56;
 static void warnBootPin(const char *,uint8_t){}
 static bool checkBoardRadio(float){hardwareCall();return boardReadback;}
@@ -89,6 +101,25 @@ int main(int argc,char **argv){assert(argc==2);const std::string mode=argv[1];
   puts("Actual setup order stages all namespaces before time/migration effects and never replays them");return 0;
  }
  auto &radio=somfy.transceiver.config;radio.enabled=true;
+ if(mode=="liveFirst" || mode=="liveLast" || mode=="liveOpen" || mode=="stalePause" || mode=="foreignOwner") {
+  assert(somfy.transceiver.loadReadOnly());radio.enabled=true;
+  assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::configuration,radioOwner));
+  counters();const auto revision=settingsRevisions.get(settings_section_t::radio);
+  // The full namespace has 15 fields, followed by the before/after marker.
+  if(mode=="liveFirst")FakeNvs::failSet=16;
+  if(mode=="liveLast")FakeNvs::failSet=17;
+  if(mode=="liveOpen")FakeNvs::failOpen=2;
+  if(mode=="stalePause")radioPause.generation=18;
+  if(mode=="foreignOwner")++radioOwner.generation;
+  JsonDocument request;request["frequency"]=433.5;
+  const auto result=runtimeSaveRadio(request.as<JsonObject>());
+  const bool stale=mode=="stalePause" || mode=="foreignOwner";
+  assert(!result.saved());
+  if(stale)assert(!result.liveApplied && !FakeNvs::sets && !hardware && settingsRevisions.get(settings_section_t::radio)==revision);
+  else assert(result.liveApplied && result.state==settings_save_state_t::partial && radio.frequency==433.5f && !enabledReceive && !radio.radioInit && !somfy.transceiver.available() && settingsRevisions.get(settings_section_t::radio)==revision+1 && !settingsDurability().status().restartAllowed());
+  puts("Actual full namespace save/marker failure reports applied partial and advances radio history; stale capabilities never write");return 0;
+ }
+
  if(mode=="unknown"){radio.apply();assert(!hardware && !FakeNvs::opens && !somfy.transceiver.available());return 0;}
  if(mode=="markerFalse")seedFlag("radioInit",0);
  if(mode=="readFailed")FakeNvs::failOpen=1;
