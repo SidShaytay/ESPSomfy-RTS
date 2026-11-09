@@ -45,6 +45,7 @@ const char *restartBlockText(RestartReason reason) {
   case RestartReason::persistenceBusy: return "Storage/update I/O active. Request Restart later.";
   case RestartReason::counterUncertain: return "Counter storage uncertain. Recovery required.";
   case RestartReason::activeMovement: return "Movement/pulse active. Wait before Restart.";
+  case RestartReason::unknownGroup: return "Group movement untracked. Review before Restart.";
   case RestartReason::none: break;
   }
   return "Restart refused. Check System status.";
