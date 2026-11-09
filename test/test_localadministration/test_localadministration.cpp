@@ -11,6 +11,13 @@ struct Memory : ArduinoJson::Allocator {
   void *reallocate(void *p,size_t n) override {return realloc(p,n);}
 };
 struct State : EntityAdmin::Backend,Advanced::Backend,CatalogueSource {
+  ReceiveHub learningFrames;
+  ReceiveHub&receivedFrames()override{return learningFrames;}
+  LearnQueued queueLearn(LearnPending&,uint64_t)override{return {};}
+  bool cancelLearn(uint64_t,LearnPending&)override{return false;}
+  Admission checkLearnContext(Advanced::Target,const Advanced::Context&,Authorization,uint64_t)override{return Admission::stale;}
+  Advanced::LearnApplyResult linkLearn(Advanced::Target,const Advanced::Context&,Authorization,uint64_t,const LearnSelection&,LearnPending&,ArduinoJson::Allocator&)override{return {{},Admission::stale};}
+  Advanced::LearnFileResult retryLearnFile(Advanced::Target,const Advanced::Context&,Authorization,uint64_t,LearnPending&)override{return {{},Admission::stale};}
   Authorization auth{true,1,1};uint64_t generation=1;
   CatalogueEntry rooms[16]={{4,0,0,"Office",0,1},{12,0,1,"Office",0,1}};
   CatalogueEntry devices[32]={{4,0,0,"Office",104,1},{27,0,1,"Office",127,1}};

@@ -50,6 +50,14 @@ RestartResult requestRestart(uint32_t) {++systemRestarts;if(systemRestartResult.
 static unsigned settingsSaves=0;
 static RestartReason settingsRestartCause=RestartReason::none;
 static unsigned entityEdits=0,entityCommits=0;
+// Synthetic checked-domain boundary: storage below is an in-memory projection,
+// never NVS, RF or a real model file. Production counter-domain I/O is exercised
+// independently by test-explicit-counter; these journeys test UI orchestration.
+static unsigned learnedAttempts=0,learnedLinks=0,learnedWrites=0,learnedRetries=0;
+static std::map<uint32_t,uint16_t> learnedCodes;
+static uint32_t learnedModelAddress=0;
+static CounterDomainState learnedInjected=CounterDomainState::saved;
+static void (*afterLearnApply)()=nullptr;
 static ModelCommitState entitySaveState=ModelCommitState::saved,entityCommitState=ModelCommitState::saved;
 // A fake filesystem projection, not a real persistence claim. Failed writes
 // retain its prior contents; uncertain verification makes the projection unknown.
@@ -89,6 +97,34 @@ static void snapshotFakeOrderFile() {
   fileKnown=true;
 }
 edit_result_t applyModelEdit(model_edit_t &edit) {
+  if(edit.type==model_edit_type_t::link_remote) {
+    assert(!gitUpdate.busy());GitUpdateOwnerToken owner;
+    assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::counter,owner));
+    ++learnedAttempts;auto object=edit.doc.as<JsonObject>();assert(object.size()==3 && object["proto"].isNull() && object["bitLength"].isNull());
+    const uint32_t address=object["remoteAddress"];const uint16_t code=object["rollingCode"];
+    auto *shade=somfy.getShadeById(object["shadeId"].as<uint8_t>());assert(shade);
+    CounterDomainState state=learnedInjected;
+    if(somfy.transceiver.quarantine!=CounterQuarantine::none)state=CounterDomainState::quarantined;
+    else if(learnedCodes.count(address) && code<learnedCodes[address])state=CounterDomainState::stale;
+    decltype(&shade->linkedRemotes[0]) slot=nullptr;
+    for(auto &remote:shade->linkedRemotes)if(remote.address==address){slot=&remote;break;}
+    if(!slot)for(auto &remote:shade->linkedRemotes)if(!remote.address){slot=&remote;break;}
+    if(!slot)state=CounterDomainState::full;
+    const bool applied=state==CounterDomainState::saved;
+    if(state==CounterDomainState::nvsUncertain){++learnedWrites;somfy.transceiver.quarantine=CounterQuarantine::nvsUnknown;somfy.transceiver.blockedIdentity=address;}
+    if(applied){
+      ++learnedLinks;++learnedWrites;++entityEdits;learnedCodes[address]=code;slot->address=address;slot->lastRollingCode=code;
+      ++shade->configurationRevision;++somfy.configurationRevision;
+      if(entitySaveState==ModelCommitState::saved){snapshotFakeOrderFile();learnedModelAddress=address;}
+      else {state=entitySaveState==ModelCommitState::uncertain?CounterDomainState::modelUncertain:CounterDomainState::modelFailed;
+        somfy.transceiver.quarantine=CounterQuarantine::filePending;somfy.transceiver.blockedIdentity=address;}
+    }
+    assert(gitUpdate.releaseExternal(owner));
+    if(applied && afterLearnApply){auto callback=afterLearnApply;afterLearnApply=nullptr;callback();}
+    edit_result_t result;result.applied=applied;result.ok=applied && entitySaveState==ModelCommitState::saved;
+    result.id=applied?shade->id:0;result.persistence={entitySaveState,ModelCommitStage::write};
+    result.hasCounterResult=true;result.counterState=state;return result;
+  }
   if(edit.type==model_edit_type_t::set_paired || edit.type==model_edit_type_t::unlink_remote || edit.type==model_edit_type_t::unlink_repeater || edit.type==model_edit_type_t::unlink_from_group) {
     assert(gitUpdate.busy());auto object=edit.doc.as<JsonObject>();uint8_t id=0;
     if(edit.type==model_edit_type_t::set_paired){id=object["shadeId"];auto *shade=somfy.getShadeById(id);assert(shade);shade->paired=object["paired"].as<bool>();}
@@ -184,7 +220,20 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
   edit_result_t result;result.applied=true;result.ok=entitySaveState==ModelCommitState::saved;
   result.id=id;result.persistence={entitySaveState,ModelCommitStage::none};return result;
 }
-ModelCommitReport applyModelCommit(const proto_reply_to_t &,ModelCommitMode) {
+ModelCommitReport applyModelCommit(const proto_reply_to_t &,ModelCommitMode mode) {
+  if(mode==ModelCommitMode::counterFileRecovery){
+    if(somfy.transceiver.quarantine==CounterQuarantine::nvsUnknown){ModelCommitReport refused;refused.refusal=RestartReason::counterUncertain;return refused;}
+    GitUpdateOwnerToken owner;
+    if(somfy.transceiver.quarantine==CounterQuarantine::filePending){assert(!gitUpdate.busy());assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::counter,owner));}
+    else assert(gitUpdate.busy());
+    ++learnedRetries;++entityCommits;
+    if(entityCommitState==ModelCommitState::saved){snapshotFakeOrderFile();
+      for(auto &remote:somfy.getShadeById(4)->linkedRemotes)if(remote.address)learnedModelAddress=remote.address;
+      somfy.transceiver.quarantine=CounterQuarantine::none;somfy.transceiver.blockedIdentity=0;
+    }else if(entityCommitState==ModelCommitState::uncertain)fileKnown=false;
+    if(owner.generation)assert(gitUpdate.releaseExternal(owner));
+    return {{entityCommitState,ModelCommitStage::write}};
+  }
   ++entityCommits;
   if(entityCommitState==ModelCommitState::saved)snapshotFakeOrderFile();
   else if(entityCommitState==ModelCommitState::uncertain)fileKnown=false;
@@ -759,6 +808,74 @@ int main(int argc,char **argv){
   openAdvanced(1);testNow+=21000;authTestNow=testNow;settingsUi.tick(testNow,status,false,send,light);
   assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status && Settings::runtimeMemory().used()==0 && settingsAllocations.empty());
   assert(entityEdits==noMoreEdits && submitted.size()==rfBeforeAdvanced && !gitUpdate.busy() && advancedShade.lastRollingCode==123);
+  click();idle();assert(lastQuery.screen==Screen::status); // Wake without a navigation action.
+  // Learn is explicit observation -> protected review -> one bounded FIFO
+  // marker -> checked shared-domain outcome. No receive event links itself.
+  advancedShade.proto=radio_proto::RTS;advancedShade.bitLength=56;++somfy.configurationRevision;
+  const auto rfBeforeLearn=submitted.size();const auto savesBeforeLearn=settingsSaves;unsigned olderLearnRequests=0;
+  auto openLearnActual=[&](){
+    openAdvanced(1);rotate(1);idle();rotate(1);idle();click();idle();
+    assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[1].label,"Begin observation") && !receiveHub().active());
+  };
+  auto beginLearnActual=[&](){openLearnActual();rotate(1);idle();click();idle();assert(receiveHub().active());};
+  auto heardLearn=[&](uint32_t address,uint16_t code,uint8_t protocol=0,uint8_t bits=56,somfy_commands command=somfy_commands::Up){
+    ReceiveObservation observation;observation.observedAt=authTestNow;observation.address=address;observation.rollingCode=code;observation.protocol=protocol;observation.bits=bits;
+    observation.command=uint8_t(command);observation.rssi=-44;observation.flags=ReceiveObservation::validFlag;
+    assert(receiveHub().publish(observation));idle();
+  };
+  openLearnActual();click();idle();assert(!receiveHub().active());click();idle();
+  busBusy=true;rotate(1);click();assert(!receiveHub().active());busBusy=false;idle();click();idle();assert(receiveHub().active());
+  heardLearn(0xee0042,0,2,80,somfy_commands::Sensor);assert(!learnedAttempts);click();idle();
+  auto reviewedLearn=RuntimeTestAccess::administration(settingsUi);assert(reviewedLearn.mode==EntityAdmin::Mode::learnReview && reviewedLearn.selected==0);
+  assert(strstr(reviewedLearn.rows[2].value,"RTV 80-bit Sensor") && strstr(reviewedLearn.rows[2].label,"Code 0"));
+  saveFrame(preview,"runtime-learn-sensor-review");click();idle();assert(!learnedAttempts);click();idle();
+  busBusy=true;rotate(1);click();assert(!learnedAttempts);busBusy=false;idle();
+  afterLearnApply=[](){busBusy=true;};click();
+  assert(!RuntimeTestAccess::systemContains(settingsUi,"15597634")); // Applied result cannot retain the old air frame behind blocked SPI.
+  busBusy=false;idle();
+  assert(learnedAttempts==1 && learnedLinks==1 && learnedWrites==1 && learnedModelAddress==0xee0042);
+  assert(advancedShade.proto==radio_proto::RTS && advancedShade.bitLength==56 && advancedShade.lastRollingCode==123);
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Remote linked") && !receiveHub().active());
+  assert(submitted.size()==rfBeforeLearn && settingsSaves==savesBeforeLearn && captureProtected);saveFrame(preview,"runtime-learn-linked");
+  click();idle();closeAdministration();assert(Settings::runtimeMemory().used()==0);
+  // Applied file failure must offer only a current-file retry, never linking
+  // or counter persistence again. Its default action remains Close.
+  entitySaveState=ModelCommitState::failed;beginLearnActual();heardLearn(0xee0043,42);click();idle();rotate(1);idle();click();idle();
+  auto failedLearn=RuntimeTestAccess::administration(settingsUi);assert(failedLearn.selected==1 && strstr(failedLearn.title,"file not saved"));
+  assert(learnedLinks==2 && learnedWrites==2 && learnedModelAddress==0xee0042 && !receiveHub().active());saveFrame(preview,"runtime-learn-file-failed");
+  busBusy=true;rotate(-1);click();assert(!learnedRetries);busBusy=false;idle();entityCommitState=ModelCommitState::saved;click();idle();
+  assert(learnedRetries==1 && learnedLinks==2 && learnedWrites==2 && learnedModelAddress==0xee0043);click();idle();closeAdministration();entitySaveState=ModelCommitState::saved;
+  // A held older command is synthetic queue backpressure, not a Learn action.
+  // Back retires the exact marker before its private Session is freed.
+  beginLearnActual();heardLearn(0xee0044,43);click();idle();rotate(1);idle();
+  loop_item_t heldLearn;heldLearn.request.type=shade_request_type_t::unpair;heldLearn.request.id=4;somfy.transceiver.suspended=true;assert(loopQueue.submit(heldLearn));
+  click();assert(loopQueue.pending()==2 && learnedAttempts==2);busBusy=true;back();
+  assert(!receiveHub().active() && Settings::runtimeMemory().used()==0);
+  assert(!RuntimeTestAccess::systemContains(settingsUi,"15597636"));
+  busBusy=false;somfy.transceiver.suspended=false;idle();++olderLearnRequests;
+  assert(learnedAttempts==2 && learnedWrites==2 && submitted.size()==rfBeforeLearn+olderLearnRequests);closeAdministration();
+  beginLearnActual();heardLearn(0xee0047,46);click();idle();rotate(1);idle();
+  somfy.transceiver.suspended=true;assert(loopQueue.submit(heldLearn));click();busBusy=true;tick(false,5000);
+  assert(learnedAttempts==2 && !receiveHub().active() && Settings::runtimeMemory().used()==0);
+  assert(!RuntimeTestAccess::systemContains(settingsUi,"15597639"));
+  busBusy=false;somfy.transceiver.suspended=false;idle();++olderLearnRequests;back();idle();closeAdministration();
+  beginLearnActual();heardLearn(0xee0048,47);savedPixels=RuntimeTestAccess::losePixels(settingsUi);
+  assert(!settingsUi.tick(testNow,status,false,send,light));assert(!receiveHub().active() && Settings::runtimeMemory().used()==0);
+  assert(!RuntimeTestAccess::systemContains(settingsUi,"15597640"));
+  RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();
+  // A retained counter newer than the selected observation is refused by the
+  // shared checked domain; the LCD does not replace selection with that code.
+  beginLearnActual();heardLearn(0xee0045,10);click();idle();learnedCodes[0xee0045]=11;rotate(1);idle();click();idle();
+  assert(learnedAttempts==3 && learnedWrites==2 && learnedLinks==2 && strstr(RuntimeTestAccess::administration(settingsUi).hint,"newer"));
+  click();idle();back();idle();closeAdministration();
+  // An uncertain attempted NVS write has one Close action and no retry/reset.
+  beginLearnActual();heardLearn(0xee0046,45);click();idle();learnedInjected=CounterDomainState::nvsUncertain;rotate(1);idle();click();idle();
+  auto uncertainLearn=RuntimeTestAccess::administration(settingsUi);assert(!strcmp(uncertainLearn.title,"Counter uncertain") && uncertainLearn.rowCount==1);
+  assert(learnedAttempts==4 && learnedWrites==3 && learnedLinks==2 && !receiveHub().active());saveFrame(preview,"runtime-learn-counter-uncertain");
+  click();idle();closeAdministration();assert(learnedRetries==1 && Settings::runtimeMemory().used()==0 && settingsAllocations.empty());
+  assert(settingsSaves==savesBeforeLearn && submitted.size()==rfBeforeLearn+olderLearnRequests);
+  // Fixture reset only; production recovery never clears unknown NVS state.
+  somfy.transceiver.quarantine=CounterQuarantine::none;somfy.transceiver.blockedIdentity=0;
   somfy.transceiver.ready=true;
   free(allocated);allocated=nullptr;hasPsram=false;
   Runtime missing;missing.begin();assert(missing.failure()==GraphicsFailure::missing && !missing.tick(testNow,status,false,send,light));
