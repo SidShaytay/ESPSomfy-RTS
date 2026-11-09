@@ -49,15 +49,17 @@ struct ShadeConfigFile {
   }
 };
 #define millis runtimeTestMillis
+static unsigned restartOutcomes=0;
+void noteModelCommit(ModelCommitResult) {++restartOutcomes;}
 #include "../../src/ModelCommitRuntime.cpp"
 #undef millis
 void setUp() {
   now = 100;
-  resets = commits = 0;
+  resets = commits = restartOutcomes = 0;
   outcome = {};
   somfy = SomfyShadeController{};
 }
-void tearDown() {}
+void tearDown() {TEST_ASSERT_EQUAL(commits,restartOutcomes);}
 static void
 failed_and_uncertain_commits_remain_dirty_and_throttle_attempt_time() {
   SomfyShadeController model;

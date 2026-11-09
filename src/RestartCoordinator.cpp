@@ -72,8 +72,12 @@ void RestartCoordinator::modelCommitted(ModelCommitResult result) {
   if(modelExhausted) published.refusal=RestartReason::exhausted;
   if(policy.snapshot().pending()) policy.cancel(result.state==ModelCommitState::uncertain ? RestartReason::modelUncertain : RestartReason::modelFailed);
 }
-bool RestartCoordinator::acquireUpdate(RestartObservation observation,StorageLease &token) {
+bool RestartCoordinator::updatePrecheck(RestartObservation observation) const {
   const auto o=current(observation);
-  if(policy.snapshot().pending() || o.refusal!=RestartReason::none || o.operationsPending || !o.settingsEpoch || !o.modelEpoch || !o.modelConfigurationRevision || !o.operationEpoch) return false;
+  return !policy.snapshot().pending() && !storage.busy() && o.refusal==RestartReason::none &&
+      !o.operationsPending && o.settingsEpoch && o.modelEpoch && o.modelConfigurationRevision && o.operationEpoch;
+}
+bool RestartCoordinator::acquireUpdate(RestartObservation observation,StorageLease &token) {
+  if(!updatePrecheck(observation))return false;
   return storage.acquire(StorageUse::exclusiveUpdate,token);
 }

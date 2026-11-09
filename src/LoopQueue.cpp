@@ -13,14 +13,13 @@
 #include "LocalControlQueue.h"
 #endif
 #include "ModelCommitService.h"
-#include "LegacyRestartSource.h"
+#include "SafeRestart.h"
 #include <esp_timer.h>
 
 static const char *TAG = "LoopQueue";
 
 extern SomfyShadeController somfy;
 extern ShadeRequests shadeRequests;
-extern rebootDelay_t rebootDelay;
 
 static restore_options_t restoreOptions(uint8_t parts) {
   restore_options_t opts;
@@ -46,6 +45,7 @@ bool LoopQueue::submit(const loop_item_t &item, bool first) {
   // the radio.
   QueueHandle_t q = static_cast<QueueHandle_t>(this->queue);
   const bool accepted=(first ? xQueueSendToFront(q, &item, 0) : xQueueSend(q, &item, 0)) == pdTRUE;
+  if(accepted && loopItemMutates(item))noteRestartOperationAccepted();
   producers.fetch_sub(1);
   if(!accepted) {
     ESP_LOGE(TAG, "Loop queue full, dropping item");
@@ -111,8 +111,9 @@ void LoopQueue::drain() {
         LittleFS.remove("/shades.tmp");gitUpdate.transferResource(owner,false);
         const auto time=uint64_t(esp_timer_get_time())/1000;
         if(restored && gitUpdate.transferContinuing(owner,time) && gitUpdate.holdTransferRestart(owner)) {
-          const auto published=publishExternalLegacyRestart(rebootDelay,millis()+1000,owner.generation,uint8_t(owner.kind));
-          if(published.admitted) {gitUpdate.finishTransfer(owner,time,true);break;}
+          const auto published=gitUpdate.finishTransfer(owner,time,true)
+              ? requestOwnedRestart(owner,1000) : RestartResult{false,RestartReason::stale};
+          if(published.admitted)break;
           ESP_LOGW(TAG,"Restore applied; restart not admitted");
         } else ESP_LOGW(TAG,"Restore refused, failed or expired; no restart scheduled");
         if(gitUpdate.closeTransfer(owner)) gitUpdate.releaseExternal(owner);

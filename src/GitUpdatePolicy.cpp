@@ -27,14 +27,16 @@ static bool version(const char *text, uint32_t (&parts)[3]) {
   }
   return *text == 0;
 }
-CheckResult check(const Manifest &m, const char *installedApp) {
+CheckResult check(const Manifest &m) {
   uint32_t parts[3];
-  if(m.schema != 2) return CheckResult::schema;
+  if(m.schema != 3) return CheckResult::schema;
   if(m.board != BOARD || m.layout != LAYOUT || m.features != GitUpdateProfile::features ||
       m.compatibleBoards != std::vector<std::string>{BOARD, GitUpdateProfile::plusBoard} ||
       m.flashBytes != FLASH_BYTES || m.psramBytes != PSRAM_BYTES) return CheckResult::hardware;
-  if(m.appCompat.size() != 71 || m.appCompat.compare(0,7,"sha256:") != 0 ||
-      !hex(m.appCompat.substr(7),64) || !installedApp || m.appCompat != installedApp) return CheckResult::assets;
+  // Each firmware carries its own immutable web bytes. A new release may have
+  // a different web digest; it must bind that digest in its own image marker.
+  if(m.assetsMode != GitUpdateProfile::assetsMode || m.appCompat.size() != 71 || m.appCompat.compare(0,7,"sha256:") != 0 ||
+      !hex(m.appCompat.substr(7),64)) return CheckResult::assets;
   if(m.asset != FIRMWARE_ASSET) return CheckResult::artifact;
   if(m.size < 1024 || m.size > APP_BYTES) return CheckResult::range;
   if(!hex(m.sha256,64) || !hex(m.sourceSha,40) || !hex(m.bootloaderSha,64)) return CheckResult::digest;
@@ -47,7 +49,7 @@ const char *reason(CheckResult result) {
     case CheckResult::compatible: return nullptr;
     case CheckResult::schema: return "Unsupported update manifest schema";
     case CheckResult::hardware: return "Release hardware, features or layout differs";
-    case CheckResult::assets: return "Release needs different verified web assets";
+    case CheckResult::assets: return "Release requires bundled web assets with a valid exact digest";
     case CheckResult::artifact: return "Release firmware asset is not the shared profile";
     case CheckResult::range: return "Release firmware size exceeds supported slot";
     case CheckResult::digest: return "Release digest or source revision invalid";
@@ -55,7 +57,7 @@ const char *reason(CheckResult result) {
   }
   return "Unknown update policy result";
 }
-const char *validate(const Manifest &m, const char *installedApp) { return reason(check(m,installedApp)); }
+const char *validate(const Manifest &m) { return reason(check(m)); }
 bool stableVersion(const char *text) { uint32_t parts[3];return version(text,parts); }
 bool newer(const char *available, const char *installed) {
   uint32_t a[3], b[3];
@@ -76,10 +78,10 @@ bool allowedUrl(const char *url) {
   return authority == "api.github.com" || authority == "github.com" || authority == "release-assets.githubusercontent.com";
 }
 std::string identity(const Manifest &m) {
-  return std::string("ESPSOMFY_UPDATE_ID:2|")+m.board+"|"+m.layout+"|"+m.sourceSha+"|"+m.version+"|"+m.appCompat;
+  return std::string("ESPSOMFY_UPDATE_ID:3|")+m.board+"|"+m.layout+"|"+m.sourceSha+"|"+m.version+"|"+m.assetsMode+"|"+m.appCompat;
 }
 bool hasIdentity(const uint8_t *data, size_t size, const Manifest &m) {
-  if(check(m,m.appCompat.c_str()) != CheckResult::compatible || !data || size > APP_BYTES) return false;
+  if(check(m) != CheckResult::compatible || !data || size > APP_BYTES) return false;
   const std::string expected=identity(m);
   if(size <= expected.size()) return false;
   const char prefix[]="ESPSOMFY_UPDATE_ID:";

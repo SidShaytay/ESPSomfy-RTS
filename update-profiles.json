@@ -1,5 +1,5 @@
 {
-  "schema": 2,
+  "schema": 3,
   "profiles": {
     "lilygo-t-embed-cc1101": {
       "board": "lilygo-t-embed-cc1101",
@@ -8,7 +8,7 @@
         "lilygo-t-embed-cc1101-plus"
       ],
       "layout": "default_8MB",
-      "features": 7,
+      "features": 15,
       "flash_bytes": 16777216,
       "psram_bytes": 8388608,
       "app_bytes": 3342336,
@@ -19,7 +19,8 @@
       "nvs_address": 36864,
       "nvs_bytes": 20480,
       "bootloader_address": 0,
-      "chip_id": 9
+      "chip_id": 9,
+      "assets_mode": "bundled"
     }
   }
 }

@@ -13,7 +13,7 @@ struct AsyncWebServerRequest {
   ~AsyncWebServerRequest() { free(_tempObject); }
   bool allowed = true,hasRestoreOptions=false;
   std::string restoreOptions;
-  int status = 0;
+  int status = 0;unsigned responses=0;
   std::string body;
   std::map<std::string, bool> attributes;
   std::function<void()> disconnected;
@@ -24,7 +24,7 @@ struct AsyncWebServerRequest {
   }
   void onDisconnect(std::function<void()> callback) { disconnected = callback; }
   void send(int code, const char *, const char *json) {
-    status = code;
+    ++responses;status = code;
     body = json;
   }
 };

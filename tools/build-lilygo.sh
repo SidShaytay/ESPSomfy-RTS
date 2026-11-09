@@ -33,8 +33,7 @@ build_dir="${PLATFORMIO_BUILD_DIR:-$source_dir/.pio/build}"
 export PLATFORMIO_BUILD_DIR="$build_dir"
 # The explicit target list is build-only. No upload/erase/monitor targets.
 "$pio" run --project-dir "$source_dir" -e "$env" -j "${ESPSOMFY_BUILD_JOBS:-4}" 2>&1 | tee "$out/build.log"
-"$pio" run --project-dir "$source_dir" -e "$env" -t buildfs 2>&1 | tee "$out/filesystem.log"
-for image in firmware.bin firmware.elf bootloader.bin partitions.bin littlefs.bin update-source.json; do
+for image in firmware.bin firmware.elf bootloader.bin partitions.bin update-source.json; do
   cp "$build_dir/$env/$image" "$staging/$image"
 done
 # pioarduino includes OTA initialization in its factory image rather than

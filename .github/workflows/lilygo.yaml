@@ -40,6 +40,13 @@ jobs:
           CXX=g++ bash tools/test-update-memory.sh
       - name: Build and validate shared CC1101 and Plus artifacts
         run: bash tools/build-lilygo.sh
+      - name: Offline restart and transfer service tests
+        env:
+          ARDUINOJSON_INCLUDE: .pio/libdeps/lilygo-t-embed-cc1101/ArduinoJson/src
+        run: |
+          CXX=g++ bash tools/test-safe-restart.sh
+          CXX=g++ bash tools/test-application-upload.sh
+          CXX=g++ bash tools/test-group-restart.sh
       - name: Offline worker and real SDK link checks
         env:
           ARDUINOJSON_INCLUDE: .pio/libdeps/lilygo-t-embed-cc1101/ArduinoJson/src
@@ -53,5 +60,4 @@ jobs:
           path: |
             build/lilygo-t-embed-cc1101/artifacts/
             build/lilygo-t-embed-cc1101/build.log
-            build/lilygo-t-embed-cc1101/filesystem.log
           retention-days: 5

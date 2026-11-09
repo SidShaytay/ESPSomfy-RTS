@@ -15,7 +15,7 @@ static const char *TAG = "Network";
 
 extern ConfigSettings settings;
 extern MqttConnection mqtt;
-extern rebootDelay_t rebootDelay;
+
 extern ESPNetwork net;
 extern SomfyShadeController somfy;
 extern LoopStats loopStats;

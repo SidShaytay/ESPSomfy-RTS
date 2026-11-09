@@ -134,6 +134,11 @@ bool GitUpdateClass::acquireRestart(GitUpdateOwnerToken &result,uint64_t now,con
   } else if(!acquire(Owner::restart)) return false;
   result={ownerGeneration,GitUpdateExternalOwner::restart};return true;
 }
+bool GitUpdateClass::releaseRestartSource(const GitUpdateOwnerToken &token,uint64_t now) {
+  Guard guard;
+  if(!owns(token) || !manualTransfer.cancelRestart(token,now)) return false;
+  owner=Owner::none;return true;
+}
 bool GitUpdateClass::finishTransfer(const GitUpdateOwnerToken &token,uint64_t now,bool progress) {
   Guard guard;return owns(token) && manualTransfer.finish(token,now,progress);
 }
@@ -337,7 +342,7 @@ bool manifestFrom(JsonDocument &json,GitUpdatePolicy::Manifest &m) {
     std::string name;if(!text(board,63,name)) return false;m.compatibleBoards.push_back(name);
   }
   return text(json["board"],63,m.board) && text(json["layout"],63,m.layout) &&
-    text(json["app_compat"],71,m.appCompat) && text(json["version"],47,m.version) &&
+    text(json["assets_mode"],7,m.assetsMode) && text(json["app_compat"],71,m.appCompat) && text(json["version"],47,m.version) &&
     text(json["source_sha"],40,m.sourceSha) && text(json["asset"],95,m.asset) &&
     text(json["sha256"],64,m.sha256) && text(json["channel"],16,m.channel) && text(json["bootloader_sha256"],64,m.bootloaderSha);
 }
@@ -420,7 +425,7 @@ bool metadata(bool prepare,const GitUpdateCandidate &expected) {
   const auto manifestError=deserializeJson(json,body.data,received,DeserializationOption::NestingLimit(3));
   if(manifestError) { fail(manifestError==DeserializationError::NoMemory ? GitUpdateReason::memory : GitUpdateReason::manifest);return false; }
   if(!manifestFrom(json,m)) { fail(GitUpdateReason::manifest);return false; }
-  if(validate(m,ESPSOMFY_APP_COMPAT) || m.bootloaderSha!=gitUpdateBootloaderDigest()) { fail(GitUpdateReason::compatibility);return false; }
+  if(validate(m) || m.bootloaderSha!=gitUpdateBootloaderDigest()) { fail(GitUpdateReason::compatibility);return false; }
   if(m.version!=tag || m.size!=fwSize || m.sha256!=fwDigest) { fail(GitUpdateReason::digest);return false; }
   GitUpdateCandidate found;
   found.size=m.size;

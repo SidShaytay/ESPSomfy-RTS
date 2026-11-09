@@ -92,6 +92,9 @@ class AssetTests(unittest.TestCase):
         second = {p.relative_to(project / 'data').as_posix(): p.read_bytes() for p in (project / 'data').rglob('*') if p.is_file()}
         self.assertEqual(first, second)
         self.assertIn(assets.FILENAME, first)
+        html=gzip.decompress(first['index.html.gz'])
+        self.assertEqual(html.count(b'<meta name="espsomfy-web-mode" content="bundled">'),1)
+        self.assertNotIn(b'content="filesystem"',html)
         # The deterministic path preserves the tested existing concatenation,
         # including BOM removal/newlines; it invents no regex minification.
         for name, parts in {'index.js':['js/schema.js','js/model.js','js/client.js','js/views.js','js/pins.js','index.js'],
@@ -99,5 +102,25 @@ class AssetTests(unittest.TestCase):
             expected=''.join((project/'data-src'/part).read_text(encoding='utf-8-sig')+'\n' for part in parts).encode()
             self.assertEqual(gzip.decompress(first[name+'.gz']),expected)
         self.assertEqual(assets.verify_manifest(project / 'data'), 'sha256:' + hashlib.sha256(first[assets.FILENAME]).hexdigest())
+
+    def test_generic_html_retains_filesystem_mode_and_missing_canonical_marker_fails(self):
+        project=Path(self.temp.name)/'mode-project';root=Path(__file__).resolve().parent.parent
+        shutil.copytree(root/'data-src',project/'data-src')
+        class Env:
+            mode='esp32dev'
+            def get(self,key):return self.mode if key=='PIOENV' else str(project)
+            def subst(self,_):return str(project)
+        env=Env();namespace={'env':env,'Import':lambda _:None}
+        with patch('shutil.which',return_value=None):runpy.run_path(str(root/'minify.py'),init_globals=namespace)
+        html=gzip.decompress((project/'data/index.html.gz').read_bytes())
+        self.assertIn(b'<meta name="espsomfy-web-mode" content="filesystem">',html)
+        self.assertNotIn(b'content="bundled"',html)
+        original=(project/'data-src/index.html').read_text()
+        marker='<meta name="espsomfy-web-mode" content="filesystem">'
+        env.mode='lilygo-t-embed-cc1101'
+        for replacement in ('',marker+marker):
+            (project/'data-src/index.html').write_text(original.replace(marker,replacement))
+            with self.assertRaises(ValueError):runpy.run_path(str(root/'minify.py'),init_globals=namespace)
+            self.assertFalse((project/'data/update-assets.txt').exists())
 
 if __name__ == '__main__': unittest.main()

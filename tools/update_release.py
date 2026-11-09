@@ -62,7 +62,7 @@ def release_manifest(package, source, version, environment=BOARD):
     marker = expected_identity['marker'].encode('ascii') + b'\0'
     if firmware.count(marker) != 1:
         raise ValueError('firmware does not contain exactly one matching compiled build identity')
-    markers = re.findall(rb'ESPSOMFY_UPDATE_ID:2\|[a-z0-9-]+\|[A-Za-z0-9_]+\|[0-9a-f]{40}\|[A-Za-z0-9.-]+\|sha256:[0-9a-f]{64}\x00', firmware)
+    markers = re.findall(rb'ESPSOMFY_UPDATE_ID:3\|[a-z0-9-]+\|[A-Za-z0-9_]+\|[0-9a-f]{40}\|[A-Za-z0-9.-]+\|bundled\|sha256:[0-9a-f]{64}\x00', firmware)
     if firmware.count(b'ESPSOMFY_UPDATE_ID:') != 1 or markers != [marker]:
         raise ValueError('firmware contains conflicting update identities')
     bootloader = (package / 'bootloader.bin').read_bytes()
@@ -73,7 +73,9 @@ def release_manifest(package, source, version, environment=BOARD):
         raise ValueError('firmware compiled bootloader identity differs from actual package bootloader')
     if len(firmware) > profile['app_bytes']:
         raise ValueError('firmware exceeds exact-profile OTA slot')
-    return {'schema': 2, 'board': profile['board'], 'layout': profile['layout'],
+    if manifest['web']['compatibility'] != app_compat or manifest['web']['mode'] != 'bundled':
+        raise ValueError('firmware bundle differs from release compatibility')
+    return {'schema': 3, 'assets_mode': 'bundled', 'board': profile['board'], 'layout': profile['layout'],
             'compatible_boards': profile['compatible_boards'], 'features': profile['features'],
             'flash_bytes': profile['flash_bytes'], 'psram_bytes': profile['psram_bytes'],
             'bootloader_sha256': build.digest(bootloader),

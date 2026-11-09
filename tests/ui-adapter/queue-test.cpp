@@ -45,7 +45,7 @@ static Command command(const View &v,Action action) {
 static DispatchResult result() {DispatchResult r;assert(takeLocalControlResult(r));return r;}
 static View reset() {
   securityOverride=false;advanceOnSend=0;refuseAt=0;modelEditHook=nullptr;duringSend=nullptr;
-  setLocalControlsFrozen(true);somfy.transceiver.room=somfy.transceiver.ready=true;somfy.transceiver.suspended=false;rebootDelay.reboot=false;
+  setLocalControlsFrozen(true);somfy.transceiver.room=somfy.transceiver.ready=true;somfy.transceiver.suspended=false;pendingRestart=false;
   loopQueue.drain();DispatchResult ignored;while(takeLocalControlResult(ignored)) {}
   setLocalControlsFrozen(false);authTestNow+=1000000;authorization.configure(AuthMode::none,"","");
   sent.clear();loopReads=0;++somfy.configurationRevision;
@@ -97,7 +97,7 @@ static void age_clock_context_and_freeze_guards() {
     if(changed==0)++somfy.shades[13].configurationRevision;
     if(changed==1)++somfy.restoreRevision;
     if(changed==2)++somfy.transceiver.configurationRevision;
-    if(changed==3)rebootDelay.reboot=true;
+    if(changed==3)pendingRestart=true;
     loopQueue.drain();assert(sent.empty());assert(result()==(changed==3?DispatchResult::refused:DispatchResult::stale));
   }
   view=reset();somfy.transceiver.room=false;loop_item_t edit;edit.type=loop_item_type_t::model_edit;
@@ -214,11 +214,29 @@ static void restart_seal_preserves_every_accepted_item_and_refuses_late_submissi
   loopQueue.reopenAfterRefusedRestart();
   assert(loopQueue.submit(read));loopQueue.drain();assert(loopReads==3);
 }
+static void accepted_mutation_history_follows_actual_queue_result() {
+  reset();auto notes=restartMutationNotes;
+  loop_item_t read;read.type=loop_item_type_t::proto_read;
+  assert(loopQueue.submit(read));loopQueue.drain();assert(restartMutationNotes==notes);
+  loop_item_t device;device.type=loop_item_type_t::proto_device;
+  for(auto op:{proto_type_t::getSettings,proto_type_t::reboot}) {
+    device.op=uint8_t(op);assert(loopQueue.submit(device));loopQueue.drain();assert(restartMutationNotes==notes);
+  }
+  for(auto op:{proto_type_t::saveSettings,proto_type_t::scanWifi,proto_type_t::beginFrequencyScan,proto_type_t::endFrequencyScan}) {
+    device.op=uint8_t(op);assert(loopQueue.submit(device));loopQueue.drain();assert(restartMutationNotes==++notes);
+  }
+  loop_item_t write;write.type=loop_item_type_t::model_commit;
+  assert(loopQueue.submit(write));loopQueue.drain();assert(restartMutationNotes==++notes);
+  for(unsigned n=0;n<LOOP_QUEUE_SIZE;++n)assert(loopQueue.submit(read));
+  assert(!loopQueue.submit(write));assert(restartMutationNotes==notes);loopQueue.drain();
+  assert(loopQueue.sealForRestart());assert(!loopQueue.submit(write));assert(restartMutationNotes==notes);
+  loopQueue.reopenAfterRefusedRestart();
+}
 int main() {
   static_assert(sizeof(loop_item_t)<=80,"Queue markers must not copy target contexts into 32 slots");
   queueAllocationOK=false;loopQueue.begin();auto noQueue=reset();
   assert(dispatch(command(noQueue,Action::up))==DispatchResult::busy && !localControlPending() && sent.empty());
-  queueAllocationOK=true;loopQueue.begin();restart_seal_preserves_every_accepted_item_and_refuses_late_submission();deferred_fifo_backpressure_and_cancel();age_clock_context_and_freeze_guards();
+  queueAllocationOK=true;loopQueue.begin();accepted_mutation_history_follows_actual_queue_result();restart_seal_preserves_every_accepted_item_and_refuses_late_submission();deferred_fifo_backpressure_and_cancel();age_clock_context_and_freeze_guards();
   invalid_or_active_replacement_sources_cannot_authorize_old_intents();
   stop_supersedes_only_same_authorized_context_at_fifo_tail();
   pending_stop_observes_idle_behind_a_held_head_and_never_gains_motion();

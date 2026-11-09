@@ -1,4 +1,4 @@
-#include "LegacyRestartSource.h"
+#include "SafeRestart.h"
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
@@ -23,9 +23,8 @@ static char g_content[MQTT_MAX_RESPONSE];
 extern ConfigSettings settings;
 extern SomfyShadeController somfy;
 extern ESPNetwork net;
-extern rebootDelay_t rebootDelay;
-extern LoopQueue loopQueue;
 
+extern LoopQueue loopQueue;
 
 bool MqttConnection::begin() {
   this->suspended = false;
@@ -42,7 +41,7 @@ void MqttConnection::reset() {
   this->connect();
 }
 bool MqttConnection::loop() {
-  if(settings.MQTT.enabled && !snapshotLegacyRestart(rebootDelay).reboot && !this->suspended && !mqttClient.connected()) {
+  if(settings.MQTT.enabled && !restartPending() && !this->suspended && !mqttClient.connected()) {
     resetTaskWdt();
     if(!this->connected() && net.connected()) this->connect();
   }

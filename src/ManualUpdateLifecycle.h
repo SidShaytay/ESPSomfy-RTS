@@ -91,6 +91,9 @@ public:
     if(!restartReady(expected,now)) return false;
     token={};phase=Phase::idle;inFlight=everOpened=expired=false;lastProgress=highWater=0;return true;
   }
+  bool cancelRestart(const GitUpdateOwnerToken &expected,uint64_t now) {
+    return handoffRestart(expected,now); // Same exact ready-source predicates, without acquiring a restart owner.
+  }
   // Disconnect retires only a request-owned receive, never a transferred file
   // or an already completed OTA awaiting restart. Those still expire below.
   bool retire(const GitUpdateOwnerToken &expected) {

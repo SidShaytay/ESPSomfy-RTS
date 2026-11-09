@@ -14,6 +14,10 @@ while depth:
     depth+=(text[end]=='{')-(text[end]=='}');end+=1
 Path(sys.argv[2]).write_text(text[start:end]+'\n')
 PYCODE
-"${CXX:-c++}" -std=c++17 -O2 -I"$scratch" -I"$json" -pthread -I"$repo/tests/application-upload" -I"$repo/tests/ui-adapter" -I"$repo/test/stubs" -I"$repo/src" \
-  "$repo/tests/application-upload/application-upload-test.cpp" "$repo/src/GitUpdate.cpp" "$repo/src/ShadeRequests.cpp" "$repo/src/ShadeMotion.cpp" -o "$scratch/application-upload"
+for variant in generic bundled; do
+flags=()
+[[ "$variant" != bundled ]] || flags=(-DESPSOMFY_BUNDLED_WEB=1)
+"${CXX:-c++}" "${flags[@]}" -std=c++17 -O2 -I"$scratch" -I"$json" -pthread -I"$repo/tests/application-upload" -I"$repo/tests/ui-adapter" -I"$repo/test/stubs" -I"$repo/src" \
+  "$repo/tests/application-upload/application-upload-test.cpp" "$repo/src/GitUpdate.cpp" "$repo/src/ShadeRequests.cpp" "$repo/src/ShadeMotion.cpp" "$repo/src/RestartCoordinator.cpp" "$repo/src/RestartPolicy.cpp" "$repo/src/SettingsDurability.cpp" "$repo/src/SomfyFrame.cpp" -o "$scratch/application-upload"
 "$scratch/application-upload"
+done
