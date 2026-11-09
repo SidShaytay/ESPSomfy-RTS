@@ -1,6 +1,7 @@
 #include "LocalAdministration.h"
 #include <stdio.h>
 #include <string.h>
+#include <type_traits>
 namespace LocalUi {
 using EntityAdmin::Kind;
 using EntityAdmin::Mode;
@@ -13,6 +14,18 @@ constexpr const char *addLabels[] = {"Add room","Add device","Add group"};
 constexpr uint8_t capacities[] = {SOMFY_MAX_ROOMS,SOMFY_MAX_SHADES,SOMFY_MAX_GROUPS};
 constexpr uint8_t moreType=sizeof(kinds)/sizeof(*kinds);
 constexpr uint8_t typeCount=moreType+1;
+}
+bool Administration::takePrivateProjectionDiscard() {
+  if(!advanced.takePrivateProjectionDiscard())return false;
+  const auto notice=frame.notice;
+  static_assert(std::is_trivially_copyable<EntityAdmin::FormView>::value,"Plain projected fields only");
+  auto *bytes=reinterpret_cast<volatile unsigned char *>(&frame);
+  for(size_t i=0;i<sizeof(frame);++i)bytes[i]=0;
+  frame.protectedFrame=true;frame.notice=notice;
+  // Never read the erased Session. Rebuild only from the active current page;
+  // a closed administration retains its sanitized completion notice instead.
+  if(active)render();
+  return true;
 }
 void Administration::close(AdminNotice notice) {
   form.discard();ordering.discard();advanced.discard();frame={};frame.notice=notice;admitted={};

@@ -30,10 +30,15 @@ shade_request_result_t counterRequestResult(const CounterDomainResult &result) {
   }
 }
 edit_result_t counterLinkResult(uint8_t shadeId,const CounterDomainResult &result) {
-  if(result.applied)return edit_result_t::completed(shadeId,result.file);
-  if(result.state==CounterDomainState::missing)return edit_result_t::missing(counterDomainDescription(result.state));
-  auto out=edit_result_t::error(counterDomainDescription(result.state));
-  if(result.state==CounterDomainState::busy || result.state==CounterDomainState::quarantined)out.failure=edit_failure_t::busy;
-  if(result.state==CounterDomainState::nvsFailed || result.state==CounterDomainState::nvsUncertain || result.state==CounterDomainState::saved)out.failure=edit_failure_t::internal;
+  edit_result_t out;
+  if(result.applied)out=edit_result_t::completed(shadeId,result.file);
+  else if(result.state==CounterDomainState::missing)out=edit_result_t::missing(counterDomainDescription(result.state));
+  else {
+    out=edit_result_t::error(counterDomainDescription(result.state));
+    if(result.state==CounterDomainState::busy || result.state==CounterDomainState::quarantined)out.failure=edit_failure_t::busy;
+    if(result.state==CounterDomainState::nvsFailed || result.state==CounterDomainState::nvsUncertain || result.state==CounterDomainState::saved)out.failure=edit_failure_t::internal;
+  }
+  out.hasCounterResult=true;
+  out.counterState=result.state;
   return out;
 }
