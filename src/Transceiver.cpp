@@ -14,6 +14,10 @@
 #include "outputs/ProtoSocket.h"
 #include "ProtoSync.h"
 #include "BitLength.h"
+#ifdef ESPSOMFY_LOCAL_UI
+#include "LocalReceive.h"
+#include <esp_timer.h>
+#endif
 
 static const char *TAG = "Somfy";
 
@@ -380,6 +384,12 @@ bool Transceiver::receive(somfy_rx_t *rx) {
     return false;
 }
 void Transceiver::emitFrame(somfy_frame_t *frame, somfy_rx_t *rx) {
+#ifdef ESPSOMFY_LOCAL_UI
+  // This callback has a raw RX record. Never manufacture a learn candidate
+  // from a future debug/TX-only emitFrame call or a websocket subscription.
+  if(frame && rx)LocalUi::publishDecodedReceive(LocalUi::receiveHub(),*frame,*rx,
+      uint64_t(esp_timer_get_time())/1000,rxmode==3);
+#endif
   // The largest event: every pulse as up to 10 digits and a comma, plus the
   // other fields and framing.
   static_assert(MAX_TIMINGS * 11 + 512 <= PROTO_MAX_FRAME, "a frame event can outgrow the socket's frame buffer");
