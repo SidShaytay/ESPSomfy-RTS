@@ -25,6 +25,13 @@ struct RuntimeTestAccess {
   static void settingsRestartReason(Runtime &ui,RestartReason reason) {const_cast<Settings::FormView &>(ui.settingsForm.view()).restartReason=reason;}
   static const EntityAdmin::FormView &administration(const Runtime &ui) {return ui.administration.view();}
   static EntityAdmin::FormView system(const Runtime &ui) {EntityAdmin::FormView out;ui.renderSystem(out);return out;}
+  static bool systemContains(const Runtime&ui,const char*needle) {
+    for(const auto*view:{&ui.frameAdministration,&ui.presentedAdministration}) {
+      if(strstr(view->title,needle)||strstr(view->hint,needle))return true;
+      for(const auto&row:view->rows)if(strstr(row.label,needle)||strstr(row.value,needle))return true;
+    }
+    return false;
+  }
   static bool noPresentation(const Runtime &ui) {
     return !ui.hasPresented && !ui.presentedSettingsValid && !ui.stopPresentedToken && !ui.validBands;
   }
@@ -650,8 +657,12 @@ int main(int argc,char **argv){
   assert(receiveHub().publish(diagnosticFrame,{diagnosticPulses,3,false}));idle();click();idle();
   assert(!receiveHub().active() && !strcmp(RuntimeTestAccess::system(settingsUi).title,"Received frame"));
   assert(submitted.size()==beforeWifiRF && settingsSaves==beforeWifiSaves && captureProtected);
-  saveFrame(preview,"runtime-receive-diagnostics");back();idle();back();idle();
-  assert(Settings::runtimeMemory().used()==0 && !receiveHub().active());back();idle();
+  saveFrame(preview,"runtime-receive-diagnostics");back();idle();
+  assert(RuntimeTestAccess::systemContains(settingsUi,"123456"));
+  busBusy=true;back();
+  assert(Settings::runtimeMemory().used()==0 && !receiveHub().active());
+  assert(!RuntimeTestAccess::systemContains(settingsUi,"123456"));
+  busBusy=false;idle();back();idle();
   for(unsigned i=0;i<homeRows;i++){rotate(-1);idle();}for(unsigned i=0;i<systemHomeIndex;i++){rotate(1);idle();}
   click();idle();click();idle(); // default Restart confirmation
 
