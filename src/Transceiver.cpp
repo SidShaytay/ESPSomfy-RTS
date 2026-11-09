@@ -961,3 +961,31 @@ void Transceiver::endTransmit() {
       this->enableReceive();
     }
 }
+
+// Loop-owned explicit counter lifecycle; locks only the scheduler/policy state.
+CounterEditAdmission Transceiver::reserveCounterEdit(uint32_t address,bool idle,uint16_t relatedGroups,bool restart) {
+  TxQueueLock lock;
+  // The raw repeater buffer is loop-owned and may not yet be in the scheduler.
+  bool pending=tx_queue.length!=0 || this->sched.suspended() || this->sched.hasPendingFor(address) || this->sched.hasRepeaterWork();
+  for(unsigned i=0;i<SOMFY_MAX_GROUPS;++i)if(relatedGroups&(uint16_t(1)<<i))
+    pending=pending || this->sched.hasPendingFor(somfy.groups[i].getRemoteAddress());
+  return this->counterEdits.reserve(address,idle,pending,restart);
+}
+void Transceiver::finishCounterEdit(CounterEditResult result,ModelCommitResult model) {
+  TxQueueLock lock;this->counterEdits.finish(result,model);
+}
+CounterEditAdmission Transceiver::reserveCounterFileRecovery(bool restart) {
+  TxQueueLock lock;return this->counterEdits.reserveFileRecovery(restart);
+}
+void Transceiver::finishCounterFileRecovery(ModelCommitResult model) {
+  TxQueueLock lock;this->counterEdits.finishFileRecovery(model);
+}
+uint32_t Transceiver::counterFileRecoveryAddress() {
+  TxQueueLock lock;return this->counterEdits.fileRecoveryAddress();
+}
+CounterQuarantine Transceiver::counterQuarantine() {
+  TxQueueLock lock;return this->counterEdits.quarantine();
+}
+bool Transceiver::counterBlocksIdentity(uint32_t address) {
+  TxQueueLock lock;return this->counterEdits.blocks(address);
+}
