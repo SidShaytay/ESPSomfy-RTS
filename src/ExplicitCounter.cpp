@@ -59,6 +59,27 @@ Affected affected(uint32_t address,SomfyShade *newLink=nullptr) {
   }
   return out;
 }
+static_assert(PrimaryCounterReview::aliasSlots==SOMFY_MAX_SHADES*(1+SOMFY_MAX_LINKED_REMOTES)+SOMFY_MAX_GROUPS,
+              "Every physical primary/linked/group counter must be represented");
+template<class Visit> void visitAliases(uint32_t address,Visit visit) {
+  unsigned slot=0;
+  for(auto &shade:somfy.shades) {
+    const bool configured=shade.getShadeId()!=255;
+    visit(slot++,configured && shade.getRemoteAddress()==address,shade.lastRollingCode);
+    for(auto &remote:shade.linkedRemotes)
+      visit(slot++,configured && remote.getRemoteAddress()==address,remote.lastRollingCode);
+  }
+  for(auto &group:somfy.groups)
+    visit(slot++,group.getGroupId()!=255 && group.getRemoteAddress()==address,group.lastRollingCode);
+}
+bool reviewedAliasesMatch(SomfyShade &shade,const PrimaryCounterReview &expected) {
+  if(!expected.address || shade.getShadeId()!=expected.shadeId || shade.getRemoteAddress()!=expected.address || shade.lastRollingCode!=expected.primary)return false;
+  bool same=true;
+  visitAliases(expected.address,[&](unsigned slot,bool matches,uint16_t code) {
+    if(matches!=expected.includes(slot) || (matches && code!=expected.codes[slot]))same=false;
+  });
+  return same;
+}
 uint16_t aliasHighwater(uint32_t address) {
   uint16_t high=0;
   auto include=[&](SomfyRemote &remote) {
@@ -92,7 +113,7 @@ bool allShadesIdleForCounter() {
     if(shade.getShadeId()!=255 && !shade.idleForAdministration())return false;
   return true;
 }
-CounterDomainResult correct(SomfyShade &shade,uint32_t address,uint16_t code,SomfyLinkedRemote *slot) {
+CounterDomainResult correct(SomfyShade &shade,uint32_t address,uint16_t code,SomfyLinkedRemote *slot,const PrimaryCounterReview *expected=nullptr,CounterCorrectionWitness *witness=nullptr) {
   if(!somfy.modelLoad.usable())return {CounterDomainState::busy};
   if(!address || address>0xffffff)return {};
   // A correction changes model history; preserve already accepted intents
@@ -103,6 +124,21 @@ CounterDomainResult correct(SomfyShade &shade,uint32_t address,uint16_t code,Som
   if(loopQueue.pending() || !allShadesIdleForCounter())return {CounterDomainState::busy};
   const auto admitted=somfy.transceiver.reserveCounterEdit(address,context.idle,context.groups,restartPending());
   if(admitted!=CounterEditAdmission::admitted)return {admission(admitted)};
+  if(expected) {
+    StoredCounter stored;
+    // The identity is reserved before any NVS read; no writable namespace is
+    // opened if the exact review changed or cannot be read. Recheck aliases
+    // after the read as well, before the first counter write.
+    CounterDomainState refused=CounterDomainState::saved;
+    if(!reviewedAliasesMatch(shade,*expected))refused=CounterDomainState::stale;
+    else if(!readExplicitCounter(address,stored))refused=CounterDomainState::nvsFailed;
+    else if(!stored.same(expected->stored) || !reviewedAliasesMatch(shade,*expected))refused=CounterDomainState::stale;
+    if(refused==CounterDomainState::saved && (!witness || !witness->current()))refused=CounterDomainState::stale;
+    if(refused!=CounterDomainState::saved) {
+      somfy.transceiver.finishCounterEdit({CounterEditState::failed},{});
+      return {refused};
+    }
+  }
   const auto persisted=slot ? persistObservedCounter(address,code,aliasHighwater(address)) : persistExplicitCounter(address,code);
   if(!persisted.saved()) {
     somfy.transceiver.finishCounterEdit(persisted,{});
@@ -124,6 +160,34 @@ CounterDomainResult correctExplicitCounter(uint8_t shadeId,uint16_t code) {
   if(!shadeId || shadeId>SOMFY_MAX_SHADES)return {CounterDomainState::missing};
   auto *shade=somfy.getShadeById(shadeId);
   return shade ? correct(*shade,shade->getRemoteAddress(),code,nullptr) : CounterDomainResult{CounterDomainState::missing};
+}
+CounterDomainState reviewPrimaryCounter(uint8_t shadeId,PrimaryCounterReview &out) {
+  out={};
+  if(!somfy.modelLoad.usable())return CounterDomainState::busy;
+  if(!shadeId || shadeId>SOMFY_MAX_SHADES)return CounterDomainState::missing;
+  auto *shade=somfy.getShadeById(shadeId);if(!shade)return CounterDomainState::missing;
+  const uint32_t address=shade->getRemoteAddress();
+  if(!address || address>0xffffff)return CounterDomainState::invalid;
+  if(somfy.transceiver.counterQuarantine()!=CounterQuarantine::none)return CounterDomainState::quarantined;
+  Owner owner;if(!owner)return CounterDomainState::busy;
+  out.address=address;out.primary=shade->lastRollingCode;out.shadeId=shadeId;
+  visitAliases(address,[&](unsigned slot,bool matches,uint16_t code) {
+    if(matches) {out.matching[slot/8]|=uint8_t(1u<<(slot%8));out.codes[slot]=code;}
+  });
+  if(!readExplicitCounter(address,out.stored)) {out={};return CounterDomainState::nvsFailed;}
+  if(!reviewedAliasesMatch(*shade,out)) {out={};return CounterDomainState::stale;}
+  return CounterDomainState::saved;
+}
+bool primaryCounterReviewCurrent(uint8_t shadeId,const PrimaryCounterReview &expected) {
+  if(!somfy.modelLoad.usable() || !shadeId || shadeId>SOMFY_MAX_SHADES || somfy.transceiver.counterQuarantine()!=CounterQuarantine::none)return false;
+  auto *shade=somfy.getShadeById(shadeId);
+  return shade && reviewedAliasesMatch(*shade,expected);
+}
+CounterDomainResult correctReviewedPrimaryCounter(uint8_t shadeId,uint16_t code,const PrimaryCounterReview &expected,CounterCorrectionWitness &witness) {
+  if(!somfy.modelLoad.usable())return {CounterDomainState::busy};
+  if(!shadeId || shadeId>SOMFY_MAX_SHADES)return {CounterDomainState::missing};
+  auto *shade=somfy.getShadeById(shadeId);
+  return shade ? correct(*shade,shade->getRemoteAddress(),code,nullptr,&expected,&witness) : CounterDomainResult{CounterDomainState::missing};
 }
 CounterDomainResult linkExplicitRemote(uint8_t shadeId,uint32_t address,uint16_t code) {
   if(!somfy.modelLoad.usable())return {CounterDomainState::busy};

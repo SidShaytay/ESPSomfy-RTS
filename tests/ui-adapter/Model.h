@@ -37,7 +37,7 @@ struct SomfyShade : ShadeSettings,RemoteSettings {
 struct SomfyGroup : RemoteSettings {
   uint8_t id=255,roomId=0; int8_t sortOrder=0,direction=0;somfy_frame_t lastFrame;
   char name[21]="Group"; uint8_t linkedShades[32]={};
-  radio_proto proto=radio_proto::RTS; uint32_t address=500;
+  radio_proto proto=radio_proto::RTS; uint32_t address=500;uint16_t lastRollingCode=0;
   uint64_t configurationRevision=1;
   uint8_t getGroupId() const{return id;} uint32_t getRemoteAddress() const{return address;}
   bool sendCommand(somfy_commands,uint8_t,uint8_t){return true;}

@@ -38,6 +38,10 @@ LocalUi::DispatchResult LocalUi::dispatch(const Command &cmd) {
   loopQueue.drain();DispatchResult completed;assert(takeLocalControlResult(completed));return completed;
 }
 #include "../../src/SomfyShadeOps.cpp"
+// This control-adapter fixture never exposes the reviewed LCD correction;
+// its complete real domain/witness path is tested by test-explicit-counter.
+CounterDomainResult correctReviewedPrimaryCounter(uint8_t,uint16_t,const PrimaryCounterReview &,CounterCorrectionWitness &) {assert(false);return {};}
+#include "../../src/CounterRuntime.cpp"
 using namespace LocalUi;
 static SomfyShade &device(uint8_t slot,uint8_t id,uint32_t address){
   auto &s=somfy.shades[slot];s.id=id;s.address=address;s.shadeType=shade_types::shutter;s.bitLength=56;
@@ -89,7 +93,7 @@ int main(){
   const auto beforeCorrection=command(view,Action::stop);
   ops.setPositions(7,one.value.currentPos,-1); // explicit no-op correction still invalidates
   assert(dispatch(beforeCorrection)==DispatchResult::stale);
-  open(view,{EntityKind::device,7});auto beforeCode=command(view,Action::up);ops.setRollingCode(7,100);
+  open(view,{EntityKind::device,7});auto beforeCode=command(view,Action::up);ops.setRollingCode(7,100);assert(loopModelEvents==1);
   assert(dispatch(beforeCode)==DispatchResult::stale);
   open(view,{EntityKind::device,7});auto beforeFavourite=command(view,Action::up);ops.setMyPosition(7,30,20);
   assert(dispatch(beforeFavourite)==DispatchResult::stale);
