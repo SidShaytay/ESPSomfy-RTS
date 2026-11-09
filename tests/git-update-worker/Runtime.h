@@ -126,7 +126,6 @@ struct File {
 };
 struct FakeLittleFS { File open(const char *,const char *) { return {}; } };
 inline FakeLittleFS LittleFS;
-struct rebootDelay_t { bool reboot=false;uint32_t rebootTime=0; };
 inline bool gitUpdateMemoryReady() { return Fake::memoryReady; }
 inline GitUpdateMemoryStats gitUpdateMemoryStats() { return {1,2,0,0,3,0}; }
 inline const char *gitUpdateIdentity() { return "test-running-identity"; }

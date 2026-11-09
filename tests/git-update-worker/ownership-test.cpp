@@ -39,8 +39,40 @@ static void configurationLease() {
   assert(gitUpdate.releaseExternal(competing));
   assert(!gitUpdate.busy());
 }
+static void cancelledRestartSource() {
+  GitUpdateOwnerToken source;
+  assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,source));
+  assert(gitUpdate.beginTransfer(source,ManualUpdateKind::firmware,1));
+  assert(!gitUpdate.releaseRestartSource(source,1));
+  assert(gitUpdate.claimTransfer(source,1));assert(gitUpdate.transferResource(source,true));
+  assert(!gitUpdate.releaseRestartSource(source,1));
+  assert(gitUpdate.transferResource(source,false));assert(gitUpdate.holdTransferRestart(source));
+  assert(!gitUpdate.releaseRestartSource(source,1)); // Still owns an I/O claim.
+  assert(gitUpdate.finishTransfer(source,1,true));
+  auto wrong=source;wrong.kind=GitUpdateExternalOwner::restore;
+  assert(!gitUpdate.releaseRestartSource(wrong,1));wrong=source;++wrong.generation;
+  assert(!gitUpdate.releaseRestartSource(wrong,1));assert(gitUpdate.ownsExternal(source));
+  assert(gitUpdate.releaseRestartSource(source,1));assert(!gitUpdate.busy());
+  GitUpdateOwnerToken next;assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,next));
+  assert(!gitUpdate.releaseRestartSource(source,1));assert(gitUpdate.ownsExternal(next));
+  assert(gitUpdate.releaseExternal(next));
+  assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,source));
+  assert(gitUpdate.beginTransfer(source,ManualUpdateKind::firmware,1));assert(gitUpdate.claimTransfer(source,1));
+  assert(gitUpdate.transferResource(source,true));assert(gitUpdate.transferResource(source,false));
+  assert(gitUpdate.holdTransferRestart(source));assert(gitUpdate.finishTransfer(source,1,true));
+  assert(!gitUpdate.releaseRestartSource(source,30001));assert(gitUpdate.ownsExternal(source));
+  const auto cleanup=gitUpdate.claimTransferCleanup(30001);assert(cleanup.token.generation==source.generation);
+  assert(gitUpdate.closeTransfer(source));assert(gitUpdate.releaseExternal(source));
+  assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,source));
+  assert(gitUpdate.beginTransfer(source,ManualUpdateKind::firmware,1));assert(gitUpdate.claimTransfer(source,1));
+  assert(gitUpdate.transferResource(source,true));assert(gitUpdate.transferResource(source,false));
+  assert(gitUpdate.holdTransferRestart(source));assert(gitUpdate.finishTransfer(source,1,true));
+  assert(gitUpdate.acquireRestart(next,1,source));assert(!gitUpdate.releaseRestartSource(source,1));
+  assert(gitUpdate.ownsExternal(next));assert(gitUpdate.releaseExternal(next));
+}
 int main() {
   configurationLease();
+  cancelledRestartSource();
   auto before=gitUpdate.snapshot();
   assert(!before.busy && !before.canInstall);
   GitUpdateOwnerToken first,second;

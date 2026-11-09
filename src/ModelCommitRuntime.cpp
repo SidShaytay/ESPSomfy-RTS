@@ -1,4 +1,5 @@
 #include "ConfigFile.h"
+#include "SafeRestart.h"
 #include "Somfy.h"
 #include "TaskWdt.h"
 #include "esp_log.h"
@@ -9,6 +10,7 @@ ModelCommitResult SomfyShadeController::commit() {
   resetTaskWdt();
   this->lastModelCommit = ShadeConfigFile::commitModel(this);
   this->isDirty = !this->lastModelCommit.saved();
+  noteModelCommit(this->lastModelCommit);
   // Throttle failed attempts as well as successful writes; never hot-loop IO.
   this->lastCommit = millis();
   if (!this->lastModelCommit.saved())

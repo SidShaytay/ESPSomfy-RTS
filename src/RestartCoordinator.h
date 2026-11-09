@@ -38,5 +38,7 @@ public:
   void modelCommitted(ModelCommitResult result);
   // Loop only after fresh manual admission and existing GitUpdate owner gate.
   // No routing or Update.begin is enabled by this resource capability.
+  // Pure conservative check only; never grants an I/O capability or owner.
+  bool updatePrecheck(RestartObservation observation) const;
   bool acquireUpdate(RestartObservation observation,StorageLease &token);
 };

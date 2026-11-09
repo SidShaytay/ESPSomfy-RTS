@@ -11,7 +11,7 @@
 #include "Somfy.h"
 #include "MqttConnection.h"
 #include "LoopQueue.h"
-#include "LegacyRestartGuard.h"
+#include "SafeRestart.h"
 #include "entryPoints/ManualUploadSession.h"
 #include "ShadeRequests.h"
 #include "SomfyShadeOps.h"
@@ -43,7 +43,7 @@ static bool otaPending = false;
 ConfigSettings settings;
 Web webServer;
 ESPNetwork net;
-rebootDelay_t rebootDelay;
+
 SomfyShadeController somfy;
 MqttConnection mqtt;
 SomfyShadeOps shadeOps;
@@ -171,7 +171,7 @@ void loop() {
   // pre-empted, since that delays the loop too.
   ElapsedTimer pass;
   manualUploadLoop();
-  if(legacyRestartLoop()) return;
+  if(restartLoop()) return;
   // Each step only logs when it holds up the loop for LOOP_SLOW_MS or more.
   ElapsedTimer timing;
   net.loop();
@@ -195,7 +195,7 @@ void loop() {
     logIfSlow(TAG, "Loop sockets", timing.lap(), LOOP_SLOW_MS);
     esp_task_wdt_reset();
   }
-  if(legacyRestartLoop()) return;
+  if(restartLoop()) return;
   if(otaPending && otaProven(net.connected(), millis(), OTA_PROVEN_MS)) {
     otaPending = false;
     if(esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) ESP_LOGI(TAG, "Updated firmware confirmed, rollback cancelled");

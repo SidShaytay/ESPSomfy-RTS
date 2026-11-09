@@ -5,6 +5,7 @@
 #include "ShadeRequests.h"
 #include "GitUpdateOwner.h"
 #include "ProtoFrame.h"
+#include "ProtoSchema.h"
 
 // The one queue through which other tasks hand work to loop(), which alone
 // changes the shade model (docs/adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md).
@@ -52,6 +53,15 @@ struct loop_item_t {
 };
 static_assert(sizeof(loop_item_t)<=80,"Keep model contexts out of the 32 queue markers");
 
+// Accepted writes/RF invalidate an older restart even if drained before the next
+// observation. Read-only polling still receives its reply and does not change
+// that history. Unknown future operations conservatively count as mutations.
+inline bool loopItemMutates(const loop_item_t &item) {
+  if(item.type==loop_item_type_t::proto_read) return false;
+  if(item.type==loop_item_type_t::proto_device)
+    return item.op!=uint8_t(proto_type_t::getSettings) && item.op!=uint8_t(proto_type_t::reboot);
+  return true;
+}
 // Whether the item sends anything on air.
 inline bool loopItemUsesRadio(const loop_item_t &item) {
   if(item.type == loop_item_type_t::local_control) return item.localToken && item.localRadio;
