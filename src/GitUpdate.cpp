@@ -184,6 +184,7 @@ void GitUpdateClass::status(JsonObject out) const {
   out["progress"]=s.progress;out["cancellable"]=s.cancellable;
   char generation[21];snprintf(generation,sizeof(generation),"%llu",static_cast<unsigned long long>(s.candidate.generation));
   out["candidateGeneration"]=generation;
+  snprintf(generation,sizeof(generation),"%llu",static_cast<unsigned long long>(s.operation));out["operationGeneration"]=generation;
   out["sourceSha"]=s.candidate.sourceSha;out["imageSha256"]=s.candidate.imageSha;
   out["manifestSha256"]=s.candidate.manifestSha;
   out["minInternalFree"]=s.minInternalFree;out["minLargestInternalBlock"]=s.minLargestInternal;
@@ -553,12 +554,14 @@ void worker(void *) {
     { Guard guard;if(ownerGeneration==lease && (owner==Owner::check || owner==Owner::prepare)) owner=Owner::none; }
   }
 }
-GitUpdateRequest queue(bool prepare,const GitUpdateCandidate &expected) {
+GitUpdateRequest queue(bool prepare,const GitUpdateCandidate &expected,uint64_t *operation=nullptr) {
   Guard guard;
   if(owner!=Owner::none) return GitUpdateRequest::busy;
   if(!workerTask.load()) return GitUpdateRequest::unavailable;
   if(prepare && (!view.compatible || !view.canPrepare || !expected.generation || !matches(view.candidate,expected))) return GitUpdateRequest::invalidCandidate;
+  if(candidateGeneration==UINT64_MAX){terminalLocked(GitUpdateReason::freshness);return GitUpdateRequest::unavailable;}
   if(!acquire(prepare ? Owner::prepare : Owner::check)) return GitUpdateRequest::unavailable;
+  view.operation=++candidateGeneration;if(operation)*operation=view.operation;
   operationExpected=expected;runningLease=ownerGeneration;
   cancelled.store(false);admissionPending=prepare ? 2 : 1;
   view.phase=GitUpdatePhase::queued;view.reason=GitUpdateReason::none;view.cancellable=true;view.progress=0;
@@ -589,10 +592,10 @@ void GitUpdateClass::begin(GitUpdateReadAdmission (*admit)(),GitUpdateInstallHoo
   candidateGeneration=seed;workerTask.store(created);view.phase=GitUpdatePhase::idle;view.reason=GitUpdateReason::none;
 }
 void GitUpdateClass::loop() {
-  uint8_t command;uint64_t lease,install;bool active,uncertain;
-  { Guard guard;command=admissionPending;lease=runningLease;install=installLease;active=installWorkerActive;uncertain=installUncertain || installFinal;if(!active)admissionPending=0; }
+  uint8_t command;uint64_t lease,install,operation;bool active,uncertain;
+  { Guard guard;command=admissionPending;lease=runningLease;install=installLease;operation=view.operation;active=installWorkerActive;uncertain=installUncertain || installFinal;if(!active)admissionPending=0; }
   if(install){
-    if(!installHooks.current(operationExpected.generation))cancelled=true;
+    if(!installHooks.current(operation))cancelled=true;
     bool cleanup,written;GitUpdateOwnerToken source;RadioInstallToken radio;
     {Guard guard;cleanup=installCleanup || stopped();written=installWritten;source=installSource;radio=installRadio;}
     if(active || uncertain)return; // Cancellation signals the worker; it cannot resume controls.
@@ -602,12 +605,12 @@ void GitUpdateClass::loop() {
       return;
     }
     if(command==3){
-      if(!installHooks.current(operationExpected.generation)){cancelled=true;return;}
+      if(!installHooks.current(operation)){cancelled=true;return;}
       const auto now=transferNow();GitUpdateOwnerToken prepared;
       {Guard guard;prepared={installLease,GitUpdateExternalOwner::manual};owner=Owner::manual;installSource=prepared;
         if(!manualTransfer.begin(prepared,ManualUpdateKind::firmware,now)||!manualTransfer.claim(prepared,now)){installCleanup=true;return;}}
       const auto result=installHooks.prepare(prepared);
-      const bool current=installHooks.current(operationExpected.generation);
+      const bool current=installHooks.current(operation);
       {Guard guard;installRadio=result.radio;if(!result.ready || !current || stopped()){installCleanup=true;terminalLocked(stopped() ? stoppedReason() : GitUpdateReason::admission);return;}view.phase=GitUpdatePhase::writing;installWorkerActive=true;}
       if(xTaskNotify(workerTask.load(),4,eSetValueWithOverwrite)!=pdPASS){Guard guard;installWorkerActive=false;installCleanup=true;terminalLocked(GitUpdateReason::admission);}
       return;
@@ -643,17 +646,19 @@ GitUpdateRequest GitUpdateClass::requestInstall(const GitUpdateCandidate &expect
   if(owner!=Owner::none)return GitUpdateRequest::busy;
   if(!workerTask.load() || !installHooks.current || !installHooks.prepare || !installHooks.cleanup || !installHooks.written)return GitUpdateRequest::unavailable;
   if(!view.compatible || !view.canPrepare || !matches(expected,view.candidate))return GitUpdateRequest::invalidCandidate;
+  if(candidateGeneration==UINT64_MAX){terminalLocked(GitUpdateReason::freshness);return GitUpdateRequest::unavailable;}
   if(!acquire(Owner::install))return GitUpdateRequest::unavailable;
   installLease=runningLease=ownerGeneration;operationExpected=expected;cancelled=false;admissionPending=1;operationStart=millis();
-  operation=expected.generation;view.phase=GitUpdatePhase::queued;view.reason=GitUpdateReason::none;view.progress=0;view.cancellable=true;
+  operation=view.operation=++candidateGeneration;view.phase=GitUpdatePhase::queued;view.reason=GitUpdateReason::none;view.progress=0;view.cancellable=true;
   return GitUpdateRequest::accepted;
 }
 GitUpdateRequest GitUpdateClass::requestCheck() { return queue(false,{}); }
+GitUpdateRequest GitUpdateClass::requestCheck(uint64_t &operation){return queue(false,{},&operation);}
 bool GitUpdateClass::activateInstall(uint64_t operation) {
   uint32_t address,size;uint8_t subtype;
   {
     Guard guard;
-    if(!operation || operation!=operationExpected.generation || !installLease || !installWritten || installWorkerActive ||
+    if(!operation || operation!=view.operation || !installLease || !installWritten || installWorkerActive ||
        installUncertain || installFinal || owner!=Owner::restart || installLease==UINT64_MAX || ownerGeneration!=installLease+1)return false;
     installFinal=true;address=installTargetAddress;size=installTargetSize;subtype=installTargetSubtype;
   }
@@ -673,13 +678,15 @@ bool GitUpdateClass::activateInstall(uint64_t operation) {
 }
 void GitUpdateClass::finishInstallRestart(uint64_t operation,bool mayClean) {
   Guard guard;
-  if(!installLease || !operation || operation!=operationExpected.generation || installWorkerActive)return;
+  if(!installLease || !operation || operation!=view.operation || installWorkerActive)return;
   if(mayClean && !installFinal && owner==Owner::manual && ownerGeneration==installLease){installCleanup=true;terminalLocked(GitUpdateReason::admission);}
   else {installFinal=true;installUncertain=true;terminalLocked(GitUpdateReason::activationFailed);}
 }
 GitUpdateRequest GitUpdateClass::requestPrepare(const GitUpdateCandidate &expected) { return queue(true,expected); }
-bool GitUpdateClass::requestCancel() {
+bool GitUpdateClass::requestCancel(){return requestCancel(0);}
+bool GitUpdateClass::requestCancel(uint64_t expectedOperation) {
   Guard guard;
+  if(expectedOperation && expectedOperation!=view.operation)return false;
   if((owner!=Owner::check && owner!=Owner::prepare && !installLease) || !view.cancellable) return false;
   cancelled.store(true);return true;
 }
@@ -688,9 +695,11 @@ bool GitUpdateClass::requestCancel() {
 void GitUpdateClass::begin(GitUpdateReadAdmission (*)(),GitUpdateInstallHooks) {}
 void GitUpdateClass::loop() {}
 GitUpdateRequest GitUpdateClass::requestCheck() { Guard guard;return owner==Owner::none ? GitUpdateRequest::unavailable : GitUpdateRequest::busy; }
+GitUpdateRequest GitUpdateClass::requestCheck(uint64_t &){return requestCheck();}
 GitUpdateRequest GitUpdateClass::requestPrepare(const GitUpdateCandidate &) { return requestCheck(); }
 GitUpdateRequest GitUpdateClass::requestInstall(const GitUpdateCandidate &,uint64_t &) { return requestCheck(); }
 bool GitUpdateClass::activateInstall(uint64_t){return false;}
 void GitUpdateClass::finishInstallRestart(uint64_t,bool){}
 bool GitUpdateClass::requestCancel() { return false; }
+bool GitUpdateClass::requestCancel(uint64_t){return false;}
 #endif

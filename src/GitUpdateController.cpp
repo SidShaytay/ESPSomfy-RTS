@@ -69,6 +69,10 @@ bool cleanup(const GitUpdateOwnerToken &owner,const RadioInstallToken &radio) {
   source={};return true;
 }
 bool activate(uint64_t operation){return current(operation) && gitUpdate.activateInstall(operation);}
+void capture(uint64_t operation,uint32_t session,uint32_t security) {
+  source={};source.operation=operation;source.session=session;source.security=security;
+  source.modelRevision=somfy.configurationRevision;source.settingsEpoch=settingsDurability().status().epoch;
+}
 void failed(uint64_t operation,RestartReason,bool mayClean) {
   if(operation!=source.operation)return;
   gitUpdate.finishInstallRestart(operation,mayClean);
@@ -83,11 +87,18 @@ void written(const GitUpdateOwnerToken &owner,const RadioInstallToken &radio) {
 }
 void beginGitUpdateController(){gitUpdate.begin(GitUpdateControllerDetail::admit,{GitUpdateControllerDetail::current,
     GitUpdateControllerDetail::prepare,GitUpdateControllerDetail::cleanup,GitUpdateControllerDetail::written});}
-void loopGitUpdateController(){gitUpdate.loop();}
+void loopGitUpdateController(){
+  using namespace GitUpdateControllerDetail;
+  const auto status=gitUpdate.snapshot();
+  if(source.operation && status.busy && status.operation==source.operation && !current(source.operation))gitUpdate.requestCancel(source.operation);
+  gitUpdate.loop();
+}
 bool gitUpdateControllerPaused(){return GitUpdateControllerDetail::source.queueHeld || GitUpdateControllerDetail::source.radio.generation;}
-GitUpdateRequest requestLocalGitUpdateCheck(uint32_t session,uint32_t security) {
+GitUpdateRequest requestLocalGitUpdateCheck(uint32_t session,uint32_t security,uint64_t &operation) {
   if(!GitUpdateControllerDetail::authorized(session,security))return GitUpdateRequest::unavailable;
-  return gitUpdate.requestCheck();
+  const auto result=gitUpdate.requestCheck(operation);
+  if(result==GitUpdateRequest::accepted)GitUpdateControllerDetail::capture(operation,session,security);
+  return result;
 }
 GitUpdateRequest requestLocalGitUpdateInstall(const GitUpdateCandidate &candidate,uint32_t session,uint32_t security,uint64_t &operation) {
   using namespace GitUpdateControllerDetail;
@@ -95,19 +106,20 @@ GitUpdateRequest requestLocalGitUpdateInstall(const GitUpdateCandidate &candidat
   if(source.queueHeld || source.radio.generation || source.cleanupFault)return GitUpdateRequest::busy;
   const auto result=gitUpdate.requestInstall(candidate,operation);
   if(result==GitUpdateRequest::accepted) {
-    source={};source.operation=operation;source.session=session;source.security=security;
-    source.modelRevision=somfy.configurationRevision;source.settingsEpoch=settingsDurability().status().epoch;
+    capture(operation,session,security);
   }
   return result;
 }
-bool cancelLocalGitUpdate(uint32_t session,uint32_t security) {
-  return GitUpdateControllerDetail::authorized(session,security) && gitUpdate.requestCancel();
+bool cancelLocalGitUpdate(uint32_t session,uint32_t security,uint64_t operation) {
+  const auto &source=GitUpdateControllerDetail::source;
+  // Reducing an exact previously authorized operation remains safe on expiry.
+  return operation && source.operation==operation && source.session==session && source.security==security && gitUpdate.requestCancel(operation);
 }
 #else
 void beginGitUpdateController(){}
 void loopGitUpdateController(){}
 bool gitUpdateControllerPaused(){return false;}
-GitUpdateRequest requestLocalGitUpdateCheck(uint32_t,uint32_t){return GitUpdateRequest::unavailable;}
+GitUpdateRequest requestLocalGitUpdateCheck(uint32_t,uint32_t,uint64_t &){return GitUpdateRequest::unavailable;}
 GitUpdateRequest requestLocalGitUpdateInstall(const GitUpdateCandidate &,uint32_t,uint32_t,uint64_t &){return GitUpdateRequest::unavailable;}
-bool cancelLocalGitUpdate(uint32_t,uint32_t){return false;}
+bool cancelLocalGitUpdate(uint32_t,uint32_t,uint64_t){return false;}
 #endif

@@ -27,6 +27,7 @@ struct GitUpdateSnapshot {
   // Metadata-only prepared state never claims installation is available.
   bool canInstall=false;
   uint8_t progress=0;
+  uint64_t operation=0;
   char installed[48]={};
   GitUpdateCandidate candidate;
   size_t minInternalFree=0,minLargestInternal=0,maxPsramUsed=0,workerStackMinimum=0;
@@ -56,12 +57,14 @@ public:
   void begin(GitUpdateReadAdmission (*admit)()=nullptr,GitUpdateInstallHooks hooks={});
   void loop();
   GitUpdateRequest requestCheck();
+  GitUpdateRequest requestCheck(uint64_t &operation);
   GitUpdateRequest requestPrepare(const GitUpdateCandidate &expected);
   GitUpdateRequest requestInstall(const GitUpdateCandidate &,uint64_t &operation);
   // Loop only, after SafeRestart's final take and exact source handoff.
   bool activateInstall(uint64_t operation);
   void finishInstallRestart(uint64_t operation,bool mayClean);
   bool requestCancel();
+  bool requestCancel(uint64_t expectedOperation);
   bool acquireExternal(GitUpdateExternalOwner kind,GitUpdateOwnerToken &token);
   bool releaseExternal(const GitUpdateOwnerToken &token);
   bool ownsExternal(const GitUpdateOwnerToken &token) const;

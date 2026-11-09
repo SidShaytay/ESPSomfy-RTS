@@ -10,6 +10,15 @@ Cancellation retains ownership until transport cleanup, document/buffer destruct
 
 A candidate binds source SHA, stable version, image size and SHA256, manifest SHA256, and generation. Generation starts from a bounded, nonzero 63-bit random boot nonce and increments without wrapping. It supplies opaque freshness, not authentication; no NVS writes are needed. An all-zero seed makes the service unavailable. JSON encodes generations as decimal strings so browsers preserve all bits. Refresh and external ownership invalidate old confirmation. Prepare first requires the exact cached candidate, then refetches authenticated latest metadata and manifest: an identity change produces `changed` and a new generation. Failure/cancellation clears the candidate. A later installer must independently retain this binding through final admission.
 
+Each accepted check, preparation and installation also receives a distinct
+boot-local operation generation from the same monotonic sequence. It differs
+from the confirmed candidate and private storage-owner token.
+`operationGeneration` is serialized as a decimal string. LCD cancellation binds
+the exact operation and its original session/security grant; a closed or stale
+screen cannot cancel a newer operation. Expiry stops owned reversible work
+without extending the session. Exhausted freshness refuses before network or
+flash work and never wraps or substitutes a fixed identifier.
+
 ## Fixed trust and bounded transport
 
 Only the shared CC1101 / Plus profile is supported. An untagged/development installed identity is unavailable. Before network I/O, the worker checks wall time against the compiled source commit epoch, actual flash/PSRAM, exact partition inventory and running/next OTA state, installed bootloader digest, and installed immutable bundled web assets. Missing prerequisites produce typed unavailable/error reasons; they do not authorize bootstrap or inspection of a controller.
