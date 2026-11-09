@@ -4,6 +4,7 @@
 #include "LocalUiCapture.h"
 #include "LocalUiAuthorizationAdapter.h"
 #include "LocalEntityRuntime.h"
+#include "LocalAdvancedRuntime.h"
 #include "BoardProfile.h"
 #include <esp_heap_caps.h>
 #include <esp_timer.h>
@@ -93,7 +94,7 @@ bool sameMeaning(const View &a,const View &b,uint64_t page,uint64_t framePage,ui
 void *allocate(size_t size){return heap_caps_malloc(size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);}
 uint16_t transfer[screenWidth*bandHeight];
 }
-Runtime::Runtime():administration(EntityAdmin::runtimeBackend(),runtimeCatalogue(),Settings::runtimeMemory()) {}
+Runtime::Runtime():administration(EntityAdmin::runtimeBackend(),runtimeCatalogue(),Settings::runtimeMemory(),Advanced::runtimeBackend()) {}
 void Runtime::begin() {
   setCaptureProtected(true);controller.setPreferences(loadPreferences());
   pinMode(BoardProfile::backButton,INPUT_PULLUP);

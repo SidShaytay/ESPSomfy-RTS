@@ -12,6 +12,7 @@
 #include "DeviceOps.h"
 #include "LoopQueue.h"
 #include "LocalEntityRuntime.h"
+#include "LocalAdvancedRuntime.h"
 #include "SomfyEditor.h"
 #include "ModelCommitService.h"
 namespace LocalUi {
@@ -47,7 +48,7 @@ static ModelCommitState entitySaveState=ModelCommitState::saved,entityCommitStat
 static LocalUi::EntityAdmin::OrderIds fileOrder[3]{};
 static int8_t fileRanks[3][32]{};
 static uint8_t fileCounts[3]{};
-static bool fileKnown=false;
+static bool fileKnown=false,filePairedMarker=false;
 static uint64_t settingsRevision=1;
 uint64_t deviceSettingsRevision(settings_section_t section) {return uint8_t(section)<5?settingsRevision:0;}
 bool readDeviceSettings(settings_section_t section,SettingsSnapshotSink &sink) {
@@ -76,9 +77,20 @@ static void snapshotFakeOrderFile() {
     assert(LocalUi::EntityAdmin::runtimeBackend().readOrder(LocalUi::EntityAdmin::Kind(type),fileOrder[type],slots,fileCounts[type],normalize));
     for(uint8_t i=0;i<fileCounts[type];i++)fileRanks[type][i]=type==0?somfy.rooms[slots[i]].sortOrder:type==1?somfy.shades[slots[i]].sortOrder:somfy.groups[slots[i]].sortOrder;
   }
+  const auto *marker=somfy.getShadeById(4);filePairedMarker=marker && marker->paired;
   fileKnown=true;
 }
 edit_result_t applyModelEdit(model_edit_t &edit) {
+  if(edit.type==model_edit_type_t::set_paired || edit.type==model_edit_type_t::unlink_remote || edit.type==model_edit_type_t::unlink_repeater || edit.type==model_edit_type_t::unlink_from_group) {
+    assert(gitUpdate.busy());auto object=edit.doc.as<JsonObject>();uint8_t id=0;
+    if(edit.type==model_edit_type_t::set_paired){id=object["shadeId"];auto *shade=somfy.getShadeById(id);assert(shade);shade->paired=object["paired"].as<bool>();}
+    else if(edit.type==model_edit_type_t::unlink_remote){id=object["shadeId"];auto *shade=somfy.getShadeById(id);assert(shade);for(auto &remote:shade->linkedRemotes)if(remote.address==object["remoteAddress"].as<uint32_t>())remote.address=0;}
+    else if(edit.type==model_edit_type_t::unlink_repeater){const auto address=object["remoteAddress"].as<uint32_t>();for(auto &remote:somfy.repeaters)if(remote==address)remote=0;}
+    else {id=object["groupId"];auto *group=somfy.getGroupById(id);assert(group);for(auto &member:group->linkedShades)if(member==object["shadeId"].as<uint8_t>())member=0;}
+    ++entityEdits;++somfy.configurationRevision;
+    if(entitySaveState==ModelCommitState::saved)snapshotFakeOrderFile();else if(entitySaveState==ModelCommitState::uncertain)fileKnown=false;
+    edit_result_t result;result.applied=true;result.ok=entitySaveState==ModelCommitState::saved;result.id=id;result.persistence={entitySaveState,ModelCommitStage::write};return result;
+  }
   if(edit.type==model_edit_type_t::room_order || edit.type==model_edit_type_t::shade_order || edit.type==model_edit_type_t::group_order) {
     assert(edit.doc.is<JsonArray>());uint8_t rank=0;
     for(auto value:edit.doc.as<JsonArray>()) {
@@ -171,6 +183,7 @@ ModelCommitReport applyModelCommit(const proto_reply_to_t &,ModelCommitMode) {
   return {{entityCommitState,ModelCommitStage::write}};
 }
 #include "../../src/LocalEntityRuntime.cpp"
+#include "../../src/LocalAdvancedRuntime.cpp"
 static LocalUi::Authorization authorization;
 static LocalUi::View lastQuery;
 static std::vector<shade_request_t> submitted;
@@ -585,9 +598,72 @@ int main(int argc,char **argv){
   savedPixels=RuntimeTestAccess::losePixels(settingsUi);
   assert(!settingsUi.tick(testNow,status,false,send,light));assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status && RuntimeTestAccess::noPresentation(settingsUi));
   RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();assert(systemRestarts==1);
+  // Advanced metadata: actual encoder -> Controller -> Runtime -> lazy Form
+  // -> production backend -> real configuration lease. No RF endpoint is used.
+  for(auto &shade:somfy.shades)shade={};for(auto &group:somfy.groups)group={};
+  auto &advancedShade=somfy.shades[25];advancedShade.id=4;advancedShade.address=1004;
+  advancedShade.paired=false;advancedShade.idle=true;advancedShade.lastRollingCode=123;strcpy(advancedShade.name,"Office device");
+  advancedShade.linkedRemotes[6].address=2748;advancedShade.linkedRemotes[6].lastRollingCode=55;
+  auto &advancedGroup=somfy.groups[12];advancedGroup.id=4;advancedGroup.address=504;
+  advancedGroup.linkedShades[0]=4;advancedGroup.linkedShades[31]=88;strcpy(advancedGroup.name,"Office group");
+  somfy.repeaters[6]=3567;somfy.transceiver.quiescent=true;++somfy.configurationRevision;
+  snapshotFakeOrderFile();assert(!filePairedMarker);const auto rfBeforeAdvanced=submitted.size();
+  auto openAdvanced=[&](unsigned type) {
+    openAdministration(type);for(unsigned i=0;i<2;i++){rotate(1);idle();}
+    busBusy=true;rotate(1);click();assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,type==1?"Devices":"Groups"));
+    busBusy=false;idle();click();idle();
+    assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,type==1?"Advanced devices":"Advanced groups"));
+    click();idle();assert(RuntimeTestAccess::administration(settingsUi).id==4 && Settings::runtimeMemory().used()>0);
+  };
+  const auto metadataBefore=entityEdits,metadataCommitsBefore=entityCommits;
+  openAdvanced(1);assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].label,"Paired marker"));
+  // Menu already seen, confirmation + selected Apply remain unseen while SPI
+  // is blocked. Neither unseen activation can become a metadata mutation.
+  busBusy=true;click();rotate(1);click();assert(entityEdits==metadataBefore && !advancedShade.paired && captureProtected);
+  busBusy=false;idle();entitySaveState=ModelCommitState::failed;click();idle();
+  assert(entityEdits==metadataBefore+1 && advancedShade.paired && !filePairedMarker);
+  assert(RuntimeTestAccess::administration(settingsUi).mode==EntityAdmin::Mode::result && Settings::runtimeMemory().used()>0);
+  saveFrame(preview,"runtime-advanced-file-failed");
+  busBusy=true;rotate(-1);click();assert(entityCommits==metadataCommitsBefore);
+  busBusy=false;idle();entityCommitState=ModelCommitState::saved;click();idle();
+  assert(entityEdits==metadataBefore+1 && entityCommits==metadataCommitsBefore+1 && filePairedMarker && Settings::runtimeMemory().used()==0);
+  click();idle();assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Devices") && RuntimeTestAccess::administration(settingsUi).id==4);closeAdministration();
+  entitySaveState=ModelCommitState::saved;
+  openAdvanced(1);rotate(1);idle();click();idle();assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].value,"Code 55"));
+  click();idle();assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[1].label,"Remove #2748"));
+  const auto remoteBefore=entityEdits;click();idle();assert(entityEdits==remoteBefore && advancedShade.linkedRemotes[6].address==2748); // default Cancel
+  click();idle();rotate(1);idle();click();idle();assert(!advancedShade.linkedRemotes[6].address && advancedShade.lastRollingCode==123);
+  click();idle();closeAdministration();
+  openAdvanced(2);assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].value,"View only"));
+  const auto memberBefore=entityEdits;click();idle();assert(entityEdits==memberBefore);rotate(1);idle();click();idle();
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[1].label,"Remove #88"));saveFrame(preview,"runtime-advanced-missing-member-confirm");
+  rotate(1);idle();click();idle();assert(!advancedGroup.linkedShades[31] && advancedGroup.linkedShades[0]==4 && entityEdits==memberBefore+1);
+  click();idle();closeAdministration();
+  openAdministration(3);assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"More"));click();idle();
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Repeaters"));click();idle();rotate(1);idle();
+  const auto repeaterBefore=entityEdits;somfy.transceiver.quiescent=false;click();idle();
+  assert(entityEdits==repeaterBefore && somfy.repeaters[6]==3567 && RuntimeTestAccess::administration(settingsUi).mode==EntityAdmin::Mode::validation);
+  saveFrame(preview,"runtime-advanced-radio-busy");somfy.transceiver.quiescent=true;
+  click();idle();assert(RuntimeTestAccess::administration(settingsUi).selected==0);rotate(1);idle();click();idle();
+  assert(!somfy.repeaters[6] && entityEdits==repeaterBefore+1);click();idle();assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"More"));closeAdministration();
+  openAdvanced(1);const auto quarantineEdits=entityEdits;somfy.transceiver.blockedIdentity=1004;
+  click();idle();rotate(1);idle();click();idle();
+  assert(RuntimeTestAccess::administration(settingsUi).mode==EntityAdmin::Mode::validation && entityEdits==quarantineEdits && advancedShade.paired);
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).hint,"Counter recovery is required for this identity."));
+  saveFrame(preview,"runtime-advanced-counter-blocked");rotate(1);idle();click();idle();
+  assert(somfy.transceiver.blockedIdentity==1004 && entityEdits==quarantineEdits);closeAdministration();
+  somfy.transceiver.blockedIdentity=0; // Fixture recovery, never a metadata effect.
+  // Graphics loss and sleep discard the lazily allocated object, including
+  // exact contexts. Reopening captures a fresh session with no latent action.
+  openAdvanced(1);const auto noMoreEdits=entityEdits;savedPixels=RuntimeTestAccess::losePixels(settingsUi);
+  assert(!settingsUi.tick(testNow,status,false,send,light) && RuntimeTestAccess::noPresentation(settingsUi));
+  assert(Settings::runtimeMemory().used()==0 && settingsAllocations.empty());RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();
+  openAdvanced(1);testNow+=21000;authTestNow=testNow;settingsUi.tick(testNow,status,false,send,light);
+  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status && Settings::runtimeMemory().used()==0 && settingsAllocations.empty());
+  assert(entityEdits==noMoreEdits && submitted.size()==rfBeforeAdvanced && !gitUpdate.busy() && advancedShade.lastRollingCode==123);
   somfy.transceiver.ready=true;
   free(allocated);allocated=nullptr;hasPsram=false;
   Runtime missing;missing.begin();assert(missing.failure()==GraphicsFailure::missing && !missing.tick(testNow,status,false,send,light));
   hasPsram=true;allocateOK=false;Runtime failed;failed.begin();assert(failed.failure()==GraphicsFailure::allocation && !failed.tick(testNow,status,false,send,light));
-  puts("Production runtime/adapter: dynamic navigation, presented target/STOP, context change, unlock, capture transitions, 30 s lease, standalone settings/room/device/group/reorder admin, presentation/wipe and fallback passed.");
+  puts("Production runtime/adapter: dynamic navigation, presented target/STOP, context change, unlock, capture transitions, 30 s lease, standalone settings/room/device/group/reorder/Advanced metadata admin, presentation/wipe and fallback passed.");
 }
