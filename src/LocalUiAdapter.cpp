@@ -1,3 +1,4 @@
+#include "LegacyRestartSource.h"
 #ifdef ESPSOMFY_LOCAL_UI
 #include "LocalUiAdapter.h"
 #include "LocalUiAuthorizationAdapter.h"
@@ -194,7 +195,7 @@ DispatchResult validateControl(Target &target,uint32_t &moving) {
   if(now<pendingControl.admittedAt || now<pendingControl.observedAt ||
      now-pendingControl.admittedAt>=controlQueueMaxAgeMs) return DispatchResult::expired;
   pendingControl.observedAt=now;
-  if(controlsFrozen || rebootDelay.reboot) return DispatchResult::refused;
+  if(controlsFrozen || snapshotLegacyRestart(rebootDelay).reboot) return DispatchResult::refused;
   TargetContext current;
   if(!readTarget(pendingControl.command.ref,target,current,moving) || !current.same(pendingControl.guard))
     return DispatchResult::stale;
@@ -300,7 +301,7 @@ Model snapshotModel(bool running,const View &view) {
   focusedMoving=moving; m.target.token=hasFocus?focusedToken:0;
   observeLease(view,security);
   m.target.stopLease=leasedMoving!=0 && m.target.valid;
-  m.ready=!controlsFrozen && !rebootDelay.reboot && (!rf(m.target.descriptor.proto) ||
+  m.ready=!controlsFrozen && !snapshotLegacyRestart(rebootDelay).reboot && (!rf(m.target.descriptor.proto) ||
     (somfy.transceiver.available() && !somfy.transceiver.txSuspended()));
   return m;
 }
@@ -318,7 +319,7 @@ DispatchResult dispatch(const Command &cmd) {
   (void)cmd; return DispatchResult::refused;
 #else
   refreshLocalControl();resultReady=false; // new explicit input supersedes an old completion
-  if(controlsFrozen || rebootDelay.reboot) return DispatchResult::refused;
+  if(controlsFrozen || snapshotLegacyRestart(rebootDelay).reboot) return DispatchResult::refused;
   if(!hasFocus || !cmd.ref.valid() || cmd.ref!=focusedContext.ref || !cmd.token || cmd.token!=focusedToken ||
      presentedRef!=cmd.ref || presentedToken!=cmd.token) return DispatchResult::stale;
   Target target; TargetContext current; uint32_t moving=0;
