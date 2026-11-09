@@ -1,6 +1,7 @@
 #ifndef LOOP_QUEUE_H
 #define LOOP_QUEUE_H
 #include <stdint.h>
+#include <atomic>
 #include "ShadeRequests.h"
 #include "GitUpdateOwner.h"
 #include "ProtoFrame.h"
@@ -81,7 +82,13 @@ class LoopQueue {
     uint32_t pending() const;
     // Runs the waiting items in order.  Only from loop().
     void drain();
+    // Loop-only final shutdown barrier. Never discards accepted items or waits
+    // for a producer. A refused shutdown must explicitly reopen admission.
+    bool sealForRestart();
+    void reopenAfterRefusedRestart();
   private:
     void *queue = nullptr;
+    std::atomic<bool> restartSealed{false};
+    std::atomic<uint32_t> producers{0};
 };
 #endif

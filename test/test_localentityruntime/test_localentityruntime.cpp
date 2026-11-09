@@ -35,11 +35,13 @@ struct Shade : RemoteSettings, ShadeSettings {
   uint8_t id = 7;
   uint8_t getShadeId() { return id; }
   int8_t gpioError = 0;
-  bool idle = true;
+  bool idle = true, pendingBehaviour = false, pendingDuringValidation = false;
   bool expireDuringValidation = false, restartDuringValidation = false;
   uint32_t gpioRelease = 0;
   bool isIdle() { return idle; }
+  bool idleForAdministration() { return idle && !pendingBehaviour && !gpioRelease; }
   int8_t validateGPIOs(radio_proto, uint8_t, uint8_t, uint8_t) {
+    if(pendingDuringValidation)pendingBehaviour=true;
     if (expireDuringValidation)
       ++LocalUi::security.generation;
     if (restartDuringValidation)
@@ -467,6 +469,29 @@ static void mutation_requires_idle_members_but_file_retry_does_not() {
     somfy.shade.gpioRelease = 0;
   }
 }
+static void pending_behaviour_refuses_mutation_before_and_after_preflight() {
+  auto &backend=runtimeBackend();
+  for(const auto kind:{Kind::shade,Kind::group}) {
+    uint8_t id;TEST_ASSERT_TRUE(backend.prepare(kind,kind==Kind::shade?7:9,id));
+    Memory memory;JsonDocument draft(&memory);
+    draft[kind==Kind::shade?"shadeId":"groupId"]=id;draft["name"]="Held";
+    expectedAllocator=&memory;
+    somfy.shade.pendingBehaviour=true;
+    const auto type=kind==Kind::shade?model_edit_type_t::save_shade:model_edit_type_t::save_group;
+    expectedType=type;
+    TEST_ASSERT_EQUAL(Admission::busy,backend.apply(type,draft,{true,1,1},1).admission);
+    TEST_ASSERT_EQUAL(0,applies);TEST_ASSERT_EQUAL_STRING("Held",draft["name"].as<const char *>());
+    TEST_ASSERT_EQUAL(Admission::accepted,backend.retryFileCommit({true,1,1},1).admission);
+    somfy.shade.pendingBehaviour=false;
+  }
+  uint8_t id;TEST_ASSERT_TRUE(backend.prepare(Kind::shade,7,id));
+  Memory memory;JsonDocument draft(&memory);draft["shadeId"]=7;draft["name"]="Late held";
+  expectedAllocator=&memory;expectedType=model_edit_type_t::save_shade;
+  somfy.shade.pendingDuringValidation=true;
+  TEST_ASSERT_EQUAL(Admission::busy,backend.apply(model_edit_type_t::save_shade,draft,{true,1,1},1).admission);
+  TEST_ASSERT_TRUE(somfy.shade.pendingBehaviour);TEST_ASSERT_EQUAL(0,applies);
+  TEST_ASSERT_EQUAL_STRING("Late held",draft["name"].as<const char *>());
+}
 static void correctable_tilt_gpio_errors_and_final_expiry_preserve_draft() {
   auto &b = runtimeBackend();
   uint8_t id;
@@ -727,6 +752,7 @@ order_capture_handles_every_physical_slot_without_availability_filter() {
 }
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(pending_behaviour_refuses_mutation_before_and_after_preflight);
   RUN_TEST(
       order_capture_handles_every_physical_slot_without_availability_filter);
   RUN_TEST(order_rechecks_full_permutation_and_authority_after_allocation);

@@ -15,7 +15,7 @@ struct SomfyShade : ShadeSettings,RemoteSettings {
   struct Remote { uint32_t address=0; uint32_t getRemoteAddress() const{return address;} } linkedRemotes[7];
   struct State { float currentPos=35,currentTiltPos=20,myPos=-1,myTiltPos=-1; int8_t tiltDirection=0; } value;
   uint8_t getShadeId() const{return id;} uint32_t getRemoteAddress() const{return address;}
-  const State &state() const{return value;} bool isIdle() const{return idle;}
+  const State &state() const{return value;} bool isIdle() const{return idle;} bool idleForAdministration() const{return idle && !gpioRelease;}
   bool isInGroup();
   bool isToggle(){return isToggleShade(shadeType);}
   somfy_commands transformCommand(somfy_commands cmd){return flipCommands?flipCommand(cmd):cmd;}
