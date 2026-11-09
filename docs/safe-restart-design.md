@@ -22,6 +22,13 @@ Any pending queue blocks initial admission. Once admitted, ordinary reads and du
 
 ## Final shutdown and storage
 
+The loop-only `requestCheckedRestart()` adds a source-specific, read-only check
+at admission and final persistence. Its final check knows whether this intent
+holds both final seals. Automatic boot recovery uses it to recheck pending OTA
+state, a valid previous image and RX/partial-frame readiness after saving. The
+callback runs outside both runtime and updater locks. The same coordinator and
+owner still perform the restart; a rejected source never bypasses them.
+
 The same non-expiring `GitUpdateClass` owner remains held across the delay, final model save and shutdown. `StorageLeaseGate` supplies subordinate I/O exclusion; it is not another updater owner, authorization system or installer. Each coordinator I/O phase reserves a generation-bound lease and keeps it until its own completion/cleanup.
 
 Before shutdown, the service checks settings/counter uncertainty, queue/radio work, unresolved shade behaviour, GPIO pulses and untracked group movement. It seals the actual queue against in-flight producers and the radio against accepted TX/outcomes, writes the current model through checked persistence, and rechecks readiness and all histories. It never clears motion, sends STOP, flushes accepted work or replays edits/counters/RF. Refusal reopens acquired seals and releases the exact owner/lease. No later successful automatic save revives that intent. Successful final admission retains both seals and owner through `net.end()` and `ESP.restart()`.

@@ -2,6 +2,7 @@
 #include <string.h>
 #include "Arduino.h"
 #include "StatusDisplay.h"
+BootRecoveryNotice gitUpdateRecoveryNotice(){return BootRecoveryNotice::none;}
 #define SOMFY_H
 #define ESPNetwork_h
 #define webserver_h

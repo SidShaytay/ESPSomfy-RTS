@@ -10,8 +10,9 @@ static constexpr unsigned long OTA_PROVEN_MS=60000;
 static constexpr int ESP_OK=0,MALLOC_CAP_INTERNAL=1,MALLOC_CAP_8BIT=2;
 static size_t freeBytes=32768;
 static GitUpdateBootHealth otaHealth;
+void gitUpdateRecoveryLoop(bool,uint64_t){}
 struct {uint32_t duration=1000;uint32_t us()const{return duration;}}pass;
-struct {bool online=true;bool connected()const{return online;}}net;
+struct {bool online=true,softAPOpened=false;bool connected()const{return online;}}net;
 struct {
   bool isDirty=false;
   struct {bool trusted=true;bool usable()const{return trusted;}}modelLoad;
@@ -33,7 +34,11 @@ static size_t heap_caps_get_free_size(int){return freeBytes;}
 static bool modelFilesystemMounted(){return filesystem;}
 static bool gitUpdateMemoryReady(){return allocator;}
 static bool gitUpdateControllerPaused(){return paused;}
-namespace StatusPanel {static bool healthy(){return graphics;}}
+static bool waitingRestart=false,detectedMovement=false,stopAvailable=false;
+namespace StatusPanel {static bool healthy(){return graphics;}static void loop(){if(detectedMovement)stopAvailable=!waitingRestart;}}
+static bool restartLoop(){if(detectedMovement)waitingRestart=false;return false;}
+static void loopGitUpdateController(){}
+struct {void loop(){}}webServer,protoSocket;
 static bool bundledWebRoutesReady(){return routes;}
 static int esp_ota_mark_app_valid_cancel_rollback(){++confirmations;return confirmationFails?-1:ESP_OK;}
 static bool gitUpdateMemoryBegin(){assert(startupStep++==0);return allocator;}
@@ -62,6 +67,9 @@ int main(int argc,char **argv){
   if(mode=="loop"){
     paused=true;modelPass();assert(!modelLoops && !drains && !changes);
     paused=false;modelPass();assert(modelLoops==1 && drains==1 && changes==1);return 0;
+  }
+  if(mode=="stopAfterMovement"){
+    detectedMovement=waitingRestart=true;presentationPass();assert(stopAvailable && !waitingRestart);return 0;
   }
   if(mode=="rollbackClock"){
     clockMs=1000;health();clockMs=999;health();assert(otaHealth.rollbackRequired() && !confirmations);health();assert(otaHealth.rollbackRequired());return 0;

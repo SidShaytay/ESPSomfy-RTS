@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
-struct GitUpdateBootStatus {bool pending=false,rollbackRequired=false;};
+#include "GitUpdateRecovery.h"
+struct GitUpdateBootStatus {bool pending=false,rollbackRequired=false;BootRecoveryNotice recovery=BootRecoveryNotice::none;};
 GitUpdateBootStatus gitUpdateBootStatus();
 // Loop-owned health policy only. rollbackRequired is an intent, never permission
 // to bypass the controller's movement, persistence or final restart checks.

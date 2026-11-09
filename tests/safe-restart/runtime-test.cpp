@@ -36,7 +36,8 @@ struct SomfyShadeController {
   bool isDirty=false;
   struct {
     struct {SettingsLoadStatus loadStatus{SettingsLoadState::loaded};}config;
-    bool uncertain=false,work=false,sealed=false,sealRefused=false;
+    bool uncertain=false,work=false,sealed=false,sealRefused=false,rx=false;
+    bool updateActivity(RadioUpdateActivity &out)const{out.observed=out.ready=true;out.schedulerIdle=!work;out.txSealed=sealed;out.receivedFrames=rx?1:0;return true;}
     bool counterEditUncertain() const{return uncertain;}
     bool restartQuiescent() const{return !work;}
     bool installPauseHeld(const RadioInstallToken &token)const{return token.generation==7 && sealed && !work;}
@@ -52,6 +53,9 @@ struct SomfyShadeController {
 static unsigned shutdowns=0;
 static unsigned selections=0,installFailures=0;
 static bool installCurrent=true,selectionOkay=true,cleanupPermitted=false;
+static unsigned sourceChecks=0;
+static bool checkedSource=true;
+static bool sourceCheck(bool sealed){assert(!SafeRestartDetail::criticalDepth);++sourceChecks;if(sealed)assert(queueSealed && somfy.transceiver.sealed);return checkedSource;}
 static bool currentInstall(uint64_t operation){assert(!SafeRestartDetail::criticalDepth);return operation==17 && installCurrent;}
 static bool selectInstall(uint64_t operation){
   assert(!SafeRestartDetail::criticalDepth && operation==17 && queueSealed && somfy.transceiver.sealed);
@@ -72,6 +76,19 @@ static int64_t readClock(){assert(!SafeRestartDetail::criticalDepth);++clockRead
 #define esp_timer_get_time readClock
 #include "../../src/SafeRestart.cpp"
 #undef esp_timer_get_time
+#ifdef BOOT_RECOVERY_HOST_TEST
+#include "GitUpdateRecovery.h"
+static bool sdkRollbackPossible=true,bootloaderTrusted=true;
+enum esp_ota_img_states_t {ESP_OTA_IMG_PENDING_VERIFY=1,ESP_OTA_IMG_VALID=2};
+static esp_ota_img_states_t bootImageState=ESP_OTA_IMG_PENDING_VERIFY;
+static const void *esp_ota_get_running_partition(){return &bootImageState;}
+static int esp_ota_get_state_partition(const void *,esp_ota_img_states_t *out){assert(!SafeRestartDetail::criticalDepth);*out=bootImageState;return 0;}
+static bool esp_ota_check_rollback_is_possible(){assert(!SafeRestartDetail::criticalDepth);return sdkRollbackPossible;}
+static bool gitUpdateBootloaderMatches(){return bootloaderTrusted;}
+constexpr int ESP_OK=0;
+namespace LocalUi {bool localControlPending(){return false;}}
+#include "../../src/GitUpdateRecovery.cpp"
+#endif
 static void tick(uint64_t now) {stubEspTimerMicros=int64_t(now*1000);}
 static GitUpdateOwnerToken completedUpload(bool keepClaim=false) {
   GitUpdateOwnerToken source;assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,source));
@@ -92,6 +109,46 @@ int main(int argc,char **argv) {
   assert(argc==2);const std::string mode=argv[1];tick(100);
   assert(submitRestart()==RestartSubmission::refused);assert(!restartPending());assert(!clockReads);
   assert(!restartLoop());
+#ifdef BOOT_RECOVERY_HOST_TEST
+  if(mode.compare(0,8,"recovery")==0){
+    tick(180000);
+    if(mode=="recoveryMovement"){somfy.shades[0].id=7;somfy.shades[0].idle=false;}
+    if(mode=="recoveryRX")somfy.transceiver.rx=true;
+    if(mode=="recoveryWork")queued=1;
+    if(mode=="recoveryValid" || mode=="recoveryNewMovement" || mode=="recoveryLateRX")queued=1;
+    if(mode=="recoveryUnavailable")sdkRollbackPossible=false;
+    if(mode=="recoveryStorage")settingsDurability().markUncertain(1);
+    restartLoop();gitUpdateRecoveryLoop(true,180000);
+    if(mode=="recoveryUnavailable"){assert(gitUpdateRecoveryNotice()==BootRecoveryNotice::attention && !restartPending() && !commits);return 0;}
+    if(mode=="recoveryMovement")assert(gitUpdateRecoveryNotice()==BootRecoveryNotice::movement);
+    if(mode=="recoveryRX" || mode=="recoveryWork")assert(gitUpdateRecoveryNotice()==BootRecoveryNotice::work);
+    if(mode=="recoveryStorage")assert(gitUpdateRecoveryNotice()==BootRecoveryNotice::storage);
+    assert(!shutdowns);
+    somfy.shades[0].idle=true;somfy.transceiver.rx=false;queued=0;
+    settingsDurability().fullSave(SettingsNamespace::cfg,{settings_save_state_t::saved});
+    tick(180001);restartLoop();gitUpdateRecoveryLoop(true,180001);
+    assert(gitUpdateRecoveryNotice()==BootRecoveryNotice::scheduled && restartPending());
+    if(mode=="recoveryNewMovement"){
+      somfy.shades[0].id=7;somfy.shades[0].idle=false;tick(180050);restartLoop();gitUpdateRecoveryLoop(true,180050);
+      assert(!shutdowns && !restartPending() && gitUpdateRecoveryNotice()==BootRecoveryNotice::movement);
+      somfy.shades[0].idle=true;tick(190000);restartLoop();gitUpdateRecoveryLoop(true,190000);tick(193000);
+    }else{
+      tick(183000);assert(!restartLoop() && !shutdowns);tick(183001);
+    }
+    if(mode=="recoveryLateRX")duringCommit=[]{somfy.transceiver.rx=true;};
+    const bool restarted=restartLoop();
+    if(mode=="recoveryLateRX")assert(!restarted && !shutdowns && somfy.transceiver.rx && !gitUpdate.busy());
+    else assert(restarted && shutdowns==1);
+    return 0;
+  }
+#endif
+  if(mode=="checkedSource" || mode=="checkedSourceLost"){
+    assert(requestCheckedRestart(sourceCheck,500).admitted && sourceChecks>=2);
+    if(mode=="checkedSourceLost")duringCommit=[]{checkedSource=false;};
+    tick(600);const bool restarted=restartLoop();
+    assert(restarted==(mode=="checkedSource"));assert(shutdowns==(mode=="checkedSource"?1u:0u));
+    if(!restarted)assert(!queueSealed && !somfy.transceiver.sealed && !gitUpdate.busy());return 0;
+  }
   if(mode.compare(0,7,"install")==0){
     auto source=completedUpload(mode=="installClaimed");queueSealed=true;somfy.transceiver.sealed=true;
     InstallRestartSource retained{RadioInstallToken{7},17,currentInstall,selectInstall,failedInstall};
