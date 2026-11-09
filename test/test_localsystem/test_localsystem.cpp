@@ -16,7 +16,7 @@ void setUp(){} void tearDown(){}
 static void navigation_and_cancel_never_restart() {
   State state;System::Form form(state);EntityAdmin::FormView view;
   TEST_ASSERT_TRUE(form.open(1));form.render(view);
-  TEST_ASSERT_EQUAL_STRING("System",view.title);TEST_ASSERT_EQUAL(3,view.total);
+  TEST_ASSERT_EQUAL_STRING("System",view.title);TEST_ASSERT_EQUAL(4,view.total);
   form.activate(2);form.render(view);TEST_ASSERT_EQUAL_STRING("Cancel",view.rows[0].label);
   form.activate(3);TEST_ASSERT_EQUAL(0,state.restarts); // default Cancel
   form.turn(1,4);form.activate(5);form.render(view);
@@ -88,4 +88,11 @@ static void child_input_refreshes_inactivity_but_completion_does_not() {
  TEST_ASSERT_TRUE(f.wantsWifiScan());f.childActivity(119999);f.tick(120001);TEST_ASSERT_FALSE(f.closed());
  f.tick(240000);TEST_ASSERT_TRUE(f.closed());TEST_ASSERT_EQUAL(0,state.restarts);
 }
-int main(int,char**) {UNITY_BEGIN();RUN_TEST(child_input_refreshes_inactivity_but_completion_does_not);RUN_TEST(unreadable_security_never_suggests_credentials_were_reset);RUN_TEST(unreadable_model_requires_verified_restore_guidance);RUN_TEST(immediate_cancel_and_invalid_binding_never_claim_scheduled);RUN_TEST(superseded_generation_never_borrows_another_result);RUN_TEST(navigation_and_cancel_never_restart);RUN_TEST(explicit_restart_is_once_and_tracks_its_result);RUN_TEST(auth_change_expiry_and_backward_clock_discard_confirmation);RUN_TEST(refusal_does_not_claim_saved_or_replay);return UNITY_END();}
+static void diagnostics_is_explicit_and_returns_to_its_system_row() {
+ State b;System::Form f(b);EntityAdmin::FormView view;f.open(0);
+ for(unsigned i=0;i<3;++i)f.turn(1,1);
+ f.render(view);TEST_ASSERT_EQUAL(4,view.total);TEST_ASSERT_EQUAL_STRING("Receive diagnostics",view.rows[0].label);
+ f.activate(2);TEST_ASSERT_TRUE(f.wantsDiagnostics());TEST_ASSERT_EQUAL(0,b.restarts);
+ f.finishChild();f.render(view);TEST_ASSERT_EQUAL(3,view.selected);TEST_ASSERT_FALSE(f.wantsDiagnostics());
+}
+int main(int,char**) {UNITY_BEGIN();RUN_TEST(diagnostics_is_explicit_and_returns_to_its_system_row);RUN_TEST(child_input_refreshes_inactivity_but_completion_does_not);RUN_TEST(unreadable_security_never_suggests_credentials_were_reset);RUN_TEST(unreadable_model_requires_verified_restore_guidance);RUN_TEST(immediate_cancel_and_invalid_binding_never_claim_scheduled);RUN_TEST(superseded_generation_never_borrows_another_result);RUN_TEST(navigation_and_cancel_never_restart);RUN_TEST(explicit_restart_is_once_and_tracks_its_result);RUN_TEST(auth_change_expiry_and_backward_clock_discard_confirmation);RUN_TEST(refusal_does_not_claim_saved_or_replay);return UNITY_END();}
