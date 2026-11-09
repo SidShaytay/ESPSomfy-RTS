@@ -150,10 +150,14 @@ bool queueManualRestore(AsyncWebServerRequest *request,uint8_t parts) {
   loop_item_t item;item.type=loop_item_type_t::restore_shades;
   item.restoreParts=parts;item.externalOwner=state->owner;
   if(!gitUpdate.transferContinuing(state->owner,now())) {
+    refuseUnpublishedRestore(state->owner,RestoreRefusal::ownership);
     request->send(409,_encoding_json,"{\"status\":\"ERROR\",\"desc\":\"Backup ownership expired; nothing was queued.\"}");return false;
   }
   state->modelQueued=queueLoopItem(request,item);
-  if(!state->modelQueued && gitUpdate.claimTransfer(state->owner,now(),true)) discardManualRestore(request);
+  if(!state->modelQueued){
+    refuseUnpublishedRestore(state->owner,RestoreRefusal::busy);
+    if(gitUpdate.claimTransfer(state->owner,now(),true))discardManualRestore(request);
+  }
   return state->modelQueued;
 }
 void receiveManualRestore(AsyncWebServerRequest *request,size_t index,uint8_t *data,size_t len,bool final) {

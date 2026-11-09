@@ -17,4 +17,4 @@ Path(sys.argv[2]).write_text('\n'.join(out)+'\n')
 PY
 "${CXX:-c++}" -std=c++17 -O2 -pthread -I"$scratch" -I"$repo/tests/restore-execution" -I"$json" -I"$repo/tests/ui-adapter" -I"$repo/test/stubs" -I"$repo/src" \
  "$repo/tests/restore-execution/runtime-test.cpp" "$repo/src/SomfyFrame.cpp" -o "$scratch/restore"
-for case in random complete pending radio moving partial expired busy unavailable stale contradict missingModel missingSettings remove;do "$scratch/restore" "$case";done
+for case in random complete pending radio moving partial expired busy unavailable stale contradict missingModel missingSettings extraNamespace remove;do "$scratch/restore" "$case";done

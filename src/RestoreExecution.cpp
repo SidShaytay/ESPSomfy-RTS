@@ -107,6 +107,13 @@ bool noteRestoreQueued(const GitUpdateOwnerToken &source){
   const auto nonce=view.bootSession;view={};view.bootSession=nonce;view.generation=source.generation;
   view.phase=RestoreExecutionPhase::queued;view.fault=RestoreExecutionFault::none;return true;
 }
+void refuseUnpublishedRestore(const GitUpdateOwnerToken &source,RestoreRefusal reason){
+  if(source.kind!=GitUpdateExternalOwner::restore)return;
+  RestoreExecutionDetail::Guard guard;auto &view=RestoreExecutionDetail::view;
+  if(view.generation!=source.generation||view.phase!=RestoreExecutionPhase::queued)return;
+  view.phase=RestoreExecutionPhase::refused;view.fault=RestoreExecutionFault::ownership;
+  view.apply.refusal=reason;view.restartBlocked=true;
+}
 namespace RestoreExecutionDetail {
 void run(const GitUpdateOwnerToken &source,uint8_t parts){
   if(pending.source.generation || source.kind!=GitUpdateExternalOwner::restore || !restoreExecutionReady())return;
@@ -138,7 +145,10 @@ void run(const GitUpdateOwnerToken &source,uint8_t parts){
   if(parts&RESTORE_NETWORK)required|=settingsNamespaceBit(SettingsNamespace::cfg)|settingsNamespaceBit(SettingsNamespace::ip);
   if(parts&RESTORE_MQTT)required|=settingsNamespaceBit(SettingsNamespace::mqtt);
   if(parts&RESTORE_TRANSCEIVER)required|=settingsNamespaceBit(SettingsNamespace::radio);
-  const uint8_t permitted=required|((parts&RESTORE_NETWORK)?settingsNamespaceBit(SettingsNamespace::ethernet):0);
+#if HAS_ETHERNET
+  if(parts&RESTORE_NETWORK)required|=settingsNamespaceBit(SettingsNamespace::ethernet);
+#endif
+  const uint8_t permitted=required;
   const bool settingsVerified=apply.settings.saved() &&
     (apply.settings.requestedNamespaces&required)==required && !(apply.settings.requestedNamespaces&uint8_t(~permitted));
   if(apply.complete && (apply.refusal!=RestoreRefusal::none || !modelVerified || !settingsVerified)){
