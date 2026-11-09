@@ -301,33 +301,40 @@ static std::atomic<bool> scanEmitPending{false};
 // the radio doesn't stay unable to transmit.
 #define SCAN_MAX_MS 300000
 void Transceiver::beginFrequencyScan() {
-  // The scan retunes the radio so nothing may transmit until it ends.  This
-  // also aborts a transmission in flight so the lock below is never held long.
-  if(this->available()) this->suspendTx(TX_SUSPEND_SCAN);
-  RadioLock lock(portMAX_DELAY, true);
-  if(this->available() && rxmode != 3) {
+  // Refuse accepted work; observation must never flush/preempt a command.
+  if(!radioUpdateResourcesReady())return;
+  RadioLock lock(0);if(!lock.locked)return;
+  TxQueueLock queue(0);if(!queue.locked)return;
+  {
+    RxTaskLock receiveLock;
+    const auto activity=this->updateActivityLocked();
+    if(!this->config.enabled || !this->available() || !activity.canPause() ||
+       !this->sched.sealForRestart())return;
     scanResumeReceive = rxmode == 1;
     scanStopRequested = false;
-    this->disableReceive();
-    rxmode = 3;
-    scanStart = millis();
-    pinMode(this->config.RXPin, INPUT);
-    interruptPin = digitalPinToInterrupt(this->config.RXPin);
-    ELECHOUSE_cc1101.setRxBW(this->config.rxBandwidth);              // Set the Receive Bandwidth in kHz. Value from 58.03 to 812.50. Default is 812.50 kHz.
-    ELECHOUSE_cc1101.SetRx();
-    markFreq = currFreq = 433.0f;
-    markRSSI = -100;
-    ELECHOUSE_cc1101.setMHZ(currFreq);
-    ESP_LOGD(TAG, "Begin frequency scan on Pin #%d", this->config.RXPin);
-    attachInterrupt(interruptPin, handleReceive, CHANGE);
-    scanEmitPending = true;
+    rxPausedForInstall = true;
+    this->_administrationPaused = true;
   }
+  this->disableReceive();
+  rxmode = 3;
+  scanStart = millis();
+  pinMode(this->config.RXPin, INPUT);
+  interruptPin = digitalPinToInterrupt(this->config.RXPin);
+  ELECHOUSE_cc1101.setRxBW(this->config.rxBandwidth);              // Set the Receive Bandwidth in kHz. Value from 58.03 to 812.50. Default is 812.50 kHz.
+  ELECHOUSE_cc1101.SetRx();
+  markFreq = currFreq = 433.0f;
+  markRSSI = -100;
+  ELECHOUSE_cc1101.setMHZ(currFreq);
+  ESP_LOGD(TAG, "Begin frequency scan on Pin #%d", this->config.RXPin);
+  attachInterrupt(interruptPin, handleReceive, CHANGE);
+  { RxTaskLock receiveLock;rxPausedForInstall = false; }
+  scanEmitPending = true;
 }
 void Transceiver::processFrequencyScan(bool received) {
   if(scanStopRequested.load()) return;
   RadioLock lock(0);
   if(!lock.locked || scanStopRequested.load()) return;
-  if(this->available() && rxmode == 3) {
+  if(this->_available.load() && rxmode == 3) {
     if(received) {
       currRSSI = ELECHOUSE_cc1101.getRssi();
       if((long)(markFreq * 100) == (long)(currFreq * 100)) {
@@ -357,14 +364,23 @@ void Transceiver::endFrequencyScan() {
   if(rxmode != 3) return;
   scanStopRequested = true;
   RadioLock lock(0);
-  if(!lock.locked) return;
+  if(!lock.locked || rxmode != 3) return;
+  TxQueueLock queue(0);if(!queue.locked)return;
   if(rxmode == 3) {
+    { RxTaskLock receiveLock;rxPausedForInstall = true; }
     rxmode = 0;
     if(interruptPin > 0) detachInterrupt(interruptPin); 
     interruptPin = 0;
+    // Initial admission proved these buffers empty. Everything received since
+    // belongs to this observation and must not become a normal command later.
+    { RxTaskLock receiveLock;
+      rx_queue.init();somfy_rx.clear();
+      noiseDetected=false;noiseStart=0;noiseCount=0;
+      rxPausedForInstall=false;
+    }
     // Observation changes only tuning/RX state. Ending it must not persist,
     // run full radio initialization or retry its persistence markers.
-    if(this->available() && this->config.enabled) {
+    if(this->_available.load() && this->config.enabled) {
       ELECHOUSE_cc1101.setMHZ(this->config.frequency);
       ELECHOUSE_cc1101.setRxBW(this->config.rxBandwidth);
       if(scanResumeReceive) this->enableReceive();
@@ -375,7 +391,8 @@ void Transceiver::endFrequencyScan() {
     scanEmitPending = true;
   }
   // Restoration has completed before transmission is allowed again.
-  this->resumeTx(TX_SUSPEND_SCAN);
+  this->sched.reopenAfterRefusedRestart();
+  this->_administrationPaused = false;
 }
 void Transceiver::emitFrequencyScan() {
   if(protoSocket.subscribed(proto_feed_t::frequencyScan)) {
