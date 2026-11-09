@@ -98,7 +98,7 @@ void Canvas::paintEntity(const EntityAdmin::FormView &view) {
   using EntityAdmin::Mode;
   using EntityAdmin::Notice;
   fillScreen(background);
-  const bool numbered = (view.mode == Mode::fields || view.mode == Mode::wifiList) && view.total > 3;
+  const bool numbered = (view.mode == Mode::fields || view.mode == Mode::stackedRows) && view.total > 3;
   text(12, 24, view.title[0] ? view.title : "Entity administration", true,
        accent, numbered ? 230 : 296);
   if (numbered) {
@@ -115,7 +115,7 @@ void Canvas::paintEntity(const EntityAdmin::FormView &view) {
     text(12, 161, "Press or Back: return", false, muted, 296);
     return;
   }
-  if (view.mode == Mode::wifiList) {
+  if (view.mode == Mode::stackedRows) {
     for(uint8_t i=0;i<view.rowCount && i<3;i++) {
       const int top=36+i*29;
       if(view.rows[i].selected)fillRoundRect(8,top,304,28,4,selection);

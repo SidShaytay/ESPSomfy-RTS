@@ -233,7 +233,7 @@ void Form::render(FormView &out) const {
     hint = "Scan unavailable or failed. No automatic retry.";
   } else if (s.page == Session::Page::list ||
              s.page == Session::Page::selected) {
-    out.mode = Mode::wifiList;
+    out.mode = Mode::stackedRows;
     out.total = s.count + 1;
     out.offset = s.cursor / 3 * 3;
     for (uint8_t i = out.offset; i < out.total && out.rowCount < 3; ++i) {

@@ -195,6 +195,20 @@ int main(int argc, char **argv) {
     }
     previousMetadata=pixels;
   }
+  {
+    EntityAdmin::FormView diagnostics;diagnostics.mode=EntityAdmin::Mode::stackedRows;
+    strcpy(diagnostics.title,"Pulse timings");diagnostics.total=151;diagnostics.rowCount=3;
+    strcpy(diagnostics.rows[0].label,"1-2 (microseconds)");
+    strcpy(diagnostics.rows[0].value,"4294967295 4294967295");
+    strcpy(diagnostics.rows[1].label,"#18446744073709551614");
+    strcpy(diagnostics.rows[1].value,"FFFFFFFF code 65535 Invalid");
+    strcpy(diagnostics.hint,"Copied raw timings. Back: frame. No transmit action.");
+    save(canvas,pixels.data(),diagnostics,argv[1],"entity-diagnostic-pulses");
+    for(const char *text:{diagnostics.rows[0].value,diagnostics.rows[1].label,diagnostics.rows[1].value}) {
+      canvas.getTextBounds(text,0,0,&wx,&wy,&ww,&wh);assert(ww<=284);
+    }
+    canvas.paintEntity(view); // Restore WiFi frame for its existing final-glyph check.
+  }
   const auto visibleSSID=pixels;view.rows[2].value[31]='X';canvas.paintEntity(view);
   bool tailVisible=false;for(unsigned y=35;y<72;y++)for(unsigned x=12;x<308;x++)tailVisible|=pixels[y*320+x]!=visibleSSID[y*320+x];assert(tailVisible);
   for(const char*warning:{"May interrupt WiFi. Results only; no connection or Save.","Waiting up to 30s. An accepted shared scan may finish.","First 16 results. Others/hidden SSIDs: enter manually.","Hidden SSID: enter its name manually in settings.","Draft only. Review password and Save separately."}) {
