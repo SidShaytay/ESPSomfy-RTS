@@ -31,6 +31,7 @@ struct Shade : RemoteSettings, ShadeSettings {
   radio_proto proto = radio_proto::RTS;
   char name[21] = "Shade";
   bool light = true;
+  int8_t sortOrder = 127;
   uint8_t id = 7;
   uint8_t getShadeId() { return id; }
   int8_t gpioError = 0;
@@ -55,6 +56,7 @@ struct Group : RemoteSettings {
   radio_proto proto = radio_proto::RTS;
   char name[21] = "Group";
   uint8_t linkedShades[32] = {7};
+  int8_t sortOrder = 5;
   uint8_t id = 9;
   uint8_t getGroupId() { return id; }
   uint32_t address = 200;
@@ -69,9 +71,10 @@ struct SomfyShadeController {
       uint8_t type = 80;
     } config;
   } transceiver;
-  Room room;
-  Shade shades[2];
-  Group groups[2];
+  Room rooms[SOMFY_MAX_ROOMS];
+  Room &room = rooms[0];
+  Shade shades[SOMFY_MAX_SHADES];
+  Group groups[SOMFY_MAX_GROUPS];
   Shade &shade = shades[0];
   Group &group = groups[0];
   Shade *getShadeById(uint8_t id) {
@@ -105,6 +108,15 @@ static model_edit_type_t expectedType = model_edit_type_t::save_room;
 edit_result_t applyModelEdit(model_edit_t &edit) {
   ++applies;
   TEST_ASSERT_EQUAL_PTR(expectedAllocator, edit.doc.allocator());
+  if (expectedType == model_edit_type_t::shade_order) {
+    TEST_ASSERT_TRUE(edit.doc.is<JsonArray>());
+    TEST_ASSERT_EQUAL(7, edit.doc[0].as<uint8_t>());
+    TEST_ASSERT_EQUAL(1, edit.doc.size());
+    ++somfy.configurationRevision;
+    somfy.shade.sortOrder = 0;
+    return edit_result_t::completed(
+        0, {ModelCommitState::failed, ModelCommitStage::write});
+  }
   if (expectedType == model_edit_type_t::add_group)
     return edit_result_t::completed(
         10, {ModelCommitState::saved, ModelCommitStage::none});
@@ -187,12 +199,21 @@ void setUp() {
   rebootDelay = {};
   somfy.configurationRevision = 1;
   somfy.restoreRevision = 1;
+  for (auto &room : somfy.rooms) {
+    room = {};
+    room.roomId = 0;
+  }
+  for (auto &shade : somfy.shades) {
+    shade = {};
+    shade.id = 255;
+  }
+  for (auto &group : somfy.groups) {
+    group = {};
+    group.id = 255;
+  }
+  somfy.room = {};
   somfy.shade = {};
   somfy.group = {};
-  somfy.shades[1] = {};
-  somfy.shades[1].id = 255;
-  somfy.groups[1] = {};
-  somfy.groups[1].id = 255;
   somfy.transceiver.configurationRevision = 1;
   somfy.maxRoomOrder = somfy.maxShadeOrder = somfy.maxGroupOrder = 5;
   expectedName = "New room";
@@ -571,8 +592,148 @@ static void authoritative_restart_mirror_is_checked_again_after_preflight() {
     TEST_ASSERT_EQUAL_STRING("Pending", doc["name"].as<const char *>());
   }
 }
+static void order_capture_caches_slots_and_preserves_noncompact_sort_values() {
+  auto &b = runtimeBackend();
+  OrderIds ids{}, slots{};
+  uint8_t count = 0;
+  bool normalize = false;
+  TEST_ASSERT_TRUE(b.readOrder(Kind::shade, ids, slots, count, normalize));
+  TEST_ASSERT_EQUAL(1, count);
+  TEST_ASSERT_EQUAL(7, ids[0]);
+  TEST_ASSERT_EQUAL(0, slots[0]);
+  TEST_ASSERT_TRUE(normalize);
+  Value label;
+  TEST_ASSERT_TRUE(b.readOrderLabel(Kind::shade, slots[0], 7, label));
+  TEST_ASSERT_EQUAL_STRING("Shade", label.text);
+  TEST_ASSERT_FALSE(b.readOrderLabel(Kind::group, slots[0], 7, label));
+  somfy.shade.sortOrder = 0;
+  TEST_ASSERT_TRUE(b.readOrder(Kind::shade, ids, slots, count, normalize));
+  TEST_ASSERT_FALSE(normalize);
+}
+static void
+order_permutation_validation_and_file_only_retry_use_real_services() {
+  auto &b = runtimeBackend();
+  Memory memory;
+  expectedAllocator = &memory;
+  expectedType = model_edit_type_t::shade_order;
+  uint8_t ignored = 0;
+  TEST_ASSERT_FALSE(b.prepare(Kind::room, 5, ignored));
+  const uint8_t duplicate[] = {7, 7}, missing[] = {9}, good[] = {7};
+  for (const auto *ids : {duplicate, missing}) {
+    const auto result = b.applyOrder(Kind::shade, ids, ids == duplicate ? 2 : 1,
+                                     memory, {true, 1, 1}, 1);
+    TEST_ASSERT_EQUAL(Admission::invalid, result.admission);
+    TEST_ASSERT_EQUAL(0, applies);
+  }
+  const auto result =
+      b.applyOrder(Kind::shade, good, 1, memory, {true, 1, 1}, 1);
+  TEST_ASSERT_TRUE(result.edit.applied);
+  TEST_ASSERT_FALSE(result.edit.durable());
+  TEST_ASSERT_EQUAL(1, applies);
+  TEST_ASSERT_EQUAL(0, somfy.shade.sortOrder);
+  TEST_ASSERT_EQUAL(0, memory.active);
+  TEST_ASSERT_EQUAL(Admission::accepted,
+                    b.retryOrderFile({true, 1, 1}, 2).admission);
+  TEST_ASSERT_EQUAL(1, commits);
+  TEST_ASSERT_EQUAL(1, applies);
+}
+static void order_rechecks_full_permutation_and_authority_after_allocation() {
+  for (unsigned scenario = 0; scenario < 4; scenario++) {
+    struct During : Memory {
+      unsigned scenario;
+      bool changed = false;
+      explicit During(unsigned value) : scenario(value) {}
+      void *allocate(size_t n) override {
+        if (!changed) {
+          changed = true;
+          if (scenario == 0)
+            somfy.shade.id = 8;
+          if (scenario == 1)
+            ++LocalUi::security.generation;
+          if (scenario == 2)
+            pendingCount = 1;
+          if (scenario == 3)
+            rebootDelay.reboot = true;
+        }
+        return Memory::allocate(n);
+      }
+    } memory(scenario);
+    somfy.shade.id = 7;
+    LocalUi::security.generation = 1;
+    pendingCount = 0;
+    rebootDelay = {};
+    expectedAllocator = &memory;
+    expectedType = model_edit_type_t::shade_order;
+    const uint8_t ids[] = {7};
+    const auto result = runtimeBackend().applyOrder(Kind::shade, ids, 1, memory,
+                                                    {true, 1, 1}, 1);
+    TEST_ASSERT_TRUE(memory.changed);
+    TEST_ASSERT_EQUAL(scenario == 0   ? Admission::invalid
+                      : scenario == 1 ? Admission::stale
+                                      : Admission::busy,
+                      result.admission);
+    TEST_ASSERT_EQUAL(0, applies);
+    TEST_ASSERT_EQUAL(1, somfy.configurationRevision);
+    TEST_ASSERT_EQUAL(0, memory.active);
+  }
+}
+static void
+order_allocation_failure_and_duplicate_model_ids_fail_without_mutation() {
+  struct Denied : ArduinoJson::Allocator {
+    void *allocate(size_t) override { return nullptr; }
+    void deallocate(void *) override {}
+    void *reallocate(void *, size_t) override { return nullptr; }
+  } memory;
+  const uint8_t ids[] = {7};
+  auto &b = runtimeBackend();
+  TEST_ASSERT_EQUAL(
+      Admission::noMemory,
+      b.applyOrder(Kind::shade, ids, 1, memory, {true, 1, 1}, 1).admission);
+  somfy.shades[1].id = 7;
+  OrderIds live{}, slots{};
+  uint8_t count = 0;
+  bool normalize = false;
+  TEST_ASSERT_FALSE(b.readOrder(Kind::shade, live, slots, count, normalize));
+  TEST_ASSERT_EQUAL(0, count);
+  TEST_ASSERT_EQUAL(0, applies);
+  TEST_ASSERT_EQUAL(1, somfy.configurationRevision);
+}
+static void
+order_capture_handles_every_physical_slot_without_availability_filter() {
+  for (uint8_t slot = 0; slot < 32; slot++) {
+    somfy.shades[slot].id = 32 - slot;
+    somfy.shades[slot].sortOrder = slot;
+    somfy.shades[slot].idle = false; // Sort-only is independent of movement.
+  }
+  OrderIds ids{}, slots{};
+  uint8_t count = 0;
+  bool normalize = true;
+  TEST_ASSERT_TRUE(
+      runtimeBackend().readOrder(Kind::shade, ids, slots, count, normalize));
+  TEST_ASSERT_EQUAL(32, count);
+  TEST_ASSERT_FALSE(normalize);
+  for (uint8_t i = 0; i < 32; i++) {
+    TEST_ASSERT_EQUAL(32 - i, ids[i]);
+    TEST_ASSERT_EQUAL(i, slots[i]);
+  }
+  Memory memory;
+  const uint8_t bogus[33] = {};
+  TEST_ASSERT_EQUAL(Admission::invalid, runtimeBackend()
+                                            .applyOrder(Kind::shade, bogus, 33,
+                                                        memory, {true, 1, 1}, 1)
+                                            .admission);
+  TEST_ASSERT_EQUAL(0, applies);
+  TEST_ASSERT_EQUAL(0, memory.active);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(
+      order_capture_handles_every_physical_slot_without_availability_filter);
+  RUN_TEST(order_rechecks_full_permutation_and_authority_after_allocation);
+  RUN_TEST(
+      order_allocation_failure_and_duplicate_model_ids_fail_without_mutation);
+  RUN_TEST(order_capture_caches_slots_and_preserves_noncompact_sort_values);
+  RUN_TEST(order_permutation_validation_and_file_only_retry_use_real_services);
   RUN_TEST(authoritative_restart_mirror_is_checked_again_after_preflight);
   RUN_TEST(hidden_new_sort_order_cannot_wrap_on_device_or_group_add);
   RUN_TEST(applied_delete_failure_adopts_tombstone_for_file_only_retry);
