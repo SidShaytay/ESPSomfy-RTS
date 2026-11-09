@@ -36,8 +36,27 @@ compiles the complete actual `Transceiver::emitFrame` body and actual JSON write
 observers receive when the web feed is disabled, and existing web serialization
 continues when enabled. It provides no RF, GPIO, NVS or motor endpoint.
 
-The next cache/UI increment will require explicit candidate selection and review.
-Receiving a frame alone must never link it. Received counters must pass both cache
+The candidate cache keeps at most eight metadata records for a 30-second total
+observation window. Records are keyed by address, protocol and bit length; there
+is no eviction that could move a displayed selection to another sender. A full
+list reports overflow. Selection freezes the exact registration, record revision,
+address, format and code. A duplicate can refresh its heard time without changing
+the reviewed payload or extending the session deadline. A higher code requires
+explicit reselection and review. Lower codes, including possible wrap, require a
+new observation session; the cache never infers rollover.
+
+High-water codes are address-wide, matching the counter storage identity. A
+changed format for the selected address invalidates review even if the list has
+no free slot. Only valid, non-scan 56/80-bit RTS/RTW/RTV received frames with a
+nonzero 24-bit address are eligible; valid Sensor frames with code zero are not
+silently excluded. Invalid and scan observations still reach diagnostics.
+Clock reversal, exhausted/lost subscription, malformed event ordering, timeout
+and cancellation detach and erase the cache. Auth and target-history changes
+must invoke that cancellation from the owning protected UI before any linking
+screen becomes reachable.
+
+This checkpoint still has no Learn UI or link consumer. Receiving a frame alone
+must never link it. Received counters must pass both cache
 freshness checks and the shared checked NVS/live-alias no-rollback service. Normal
 configured receive/repeater behavior continues while an LCD observer is active;
 observing does not make the whole controller radio-silent.
