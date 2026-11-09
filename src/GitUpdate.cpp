@@ -217,7 +217,7 @@ constexpr size_t API_LIMIT=65536,MANIFEST_LIMIT=4096,JSON_BUDGET=192u*1024;
 constexpr size_t INTERNAL_FREE=48u*1024,INTERNAL_LARGEST=16u*1024;
 std::atomic<TaskHandle_t> workerTask{nullptr};
 std::atomic<bool> cancelled{false};
-uint32_t operationStart=0;
+std::atomic<uint32_t> operationStart{0};
 bool startingWorker=false;
 uint8_t admissionPending=0;
 uint64_t runningLease=0,candidateGeneration=0;
@@ -457,12 +457,29 @@ std::unique_ptr<Buffer> installImage;
 GitUpdatePolicy::Manifest installManifest;
 GitUpdateOwnerToken installSource;
 RadioInstallToken installRadio;
-bool installCleanup=false,installWritten=false;
+bool installCleanup=false,installWritten=false,installWorkerActive=false,installUncertain=false;
 uint64_t transferNow(){const auto t=esp_timer_get_time();return t<0?UINT64_MAX:uint64_t(t)/1000;}
 void discardInstallation() {
+  GitUpdateOwnerToken source;RadioInstallToken radio;
+  {
+    Guard guard;
+    if(!installLease || installWorkerActive || installUncertain)return;
+    source=installSource;radio=installRadio;
+    if(manualTransfer.active(source)) {
+      const auto now=transferNow();
+      if(!manualTransfer.cancelRestart(source,now)) {
+        manualTransfer.retire(source);manualTransfer.finish(source,now,false);
+        const auto cleanup=manualTransfer.cleanup(now);
+        if(cleanup.token.generation!=source.generation || !manualTransfer.resource(source,false) || !manualTransfer.close(source))return;
+      }
+    }
+    view.cancellable=false;
+  }
+  // The worker has finished all SDK I/O and the lifecycle has closed before
+  // loop-owned resources can resume. A busy cleanup keeps the same owner.
+  if(source.generation && !installHooks.cleanup(source,radio)){Guard guard;view.phase=GitUpdatePhase::cleanupPending;return;}
   installImage.reset();installManifest={}; // No allocation/free under the lock.
   Guard guard;
-  if(installSource.generation){manualTransfer.finish(installSource,transferNow(),false);manualTransfer.retire(installSource);manualTransfer.close(installSource);}
   if(ownerGeneration==runningLease && (owner==Owner::install || owner==Owner::manual))owner=Owner::none;
   installSource={};installRadio={};installLease=0;installCleanup=false;installWritten=false;
 }
@@ -473,7 +490,8 @@ void stageInstallation(const GitUpdateCandidate &expected) {
   if(!installImage || !installImage->data){fail(GitUpdateReason::memory);return;}
   size_t received=0;
   const std::string url=std::string("https://github.com/")+GitUpdatePolicy::REPOSITORY+"/releases/download/"+expected.version+"/"+GitUpdatePolicy::FIRMWARE_ASSET;
-  if(!download(url,*installImage,received) || received!=expected.size)return;
+  if(!download(url,*installImage,received))return;
+  if(received!=expected.size){fail(GitUpdateReason::body);return;}
   {Guard guard;view.phase=GitUpdatePhase::verifying;}
   GitUpdateImage::Identity identity;
   if(GitUpdateImage::verify(installImage->data,received,gitUpdateBootloaderIdentity(),&installManifest,identity,{stopped,cooperate})!=GitUpdateImage::Result::verified){fail(GitUpdateReason::invalidImage);return;}
@@ -482,7 +500,7 @@ void stageInstallation(const GitUpdateCandidate &expected) {
 void writeInstallation() {
   const auto *target=esp_ota_get_next_update_partition(nullptr);
   esp_ota_handle_t handle=0;
-  if(!target || !installImage || stopped() || esp_ota_begin(target,installImage->capacity,&handle)!=ESP_OK){fail(GitUpdateReason::writeFailed);return;}
+  if(!target || !installImage || stopped() || esp_ota_begin(target,installImage->capacity,&handle)!=ESP_OK){fail(GitUpdateReason::writeFailed);Guard guard;installCleanup=true;return;}
   {Guard guard;manualTransfer.resource(installSource,true);}
   std::unique_ptr<uint8_t,decltype(&heap_caps_free)> chunk(static_cast<uint8_t*>(heap_caps_malloc(4096,MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)),heap_caps_free);
   bool okay=bool(chunk);
@@ -494,12 +512,18 @@ void writeInstallation() {
     offset+=count;cooperate();const auto now=transferNow();
     {Guard guard;okay=manualTransfer.finish(installSource,now,true)&&manualTransfer.claim(installSource,now);view.progress=uint8_t(offset*100/installImage->capacity);}
   }
-  if(!okay){esp_ota_abort(handle);fail(GitUpdateReason::writeFailed);}
-  else okay=esp_ota_end(handle)==ESP_OK;
+  if(stopped())okay=false;
+  bool closed=true;
+  if(!okay){closed=esp_ota_abort(handle)==ESP_OK;fail(GitUpdateReason::writeFailed);}
+  else okay=esp_ota_end(handle)==ESP_OK; // The SDK consumes the handle even on error.
   const auto now=transferNow();
-  {Guard guard;manualTransfer.resource(installSource,false);
-    if(okay && manualTransfer.holdRestart(installSource) && manualTransfer.finish(installSource,now,true)){installWritten=true;view.phase=GitUpdatePhase::written;admissionPending=4;}
-    else {installCleanup=true;view.phase=GitUpdatePhase::error;view.reason=GitUpdateReason::writeFailed;}
+  {Guard guard;
+    if(!closed){installUncertain=true;view.phase=GitUpdatePhase::error;view.reason=GitUpdateReason::writeFailed;view.cancellable=false;return;}
+    // An expired progress claim is reclaimed by discardInstallation. I/O is
+    // already closed; no controller cleanup may run before that reclamation.
+    manualTransfer.resource(installSource,false);
+    if(okay && !stopped() && manualTransfer.continuing(installSource,now) && manualTransfer.holdRestart(installSource) && manualTransfer.finish(installSource,now,true) && manualTransfer.restartHeld(installSource,now)){installWritten=true;view.phase=GitUpdatePhase::written;view.cancellable=false;admissionPending=4;}
+    else {installCleanup=true;terminalLocked(stopped() ? stoppedReason() : GitUpdateReason::writeFailed);}
   }
   // No boot selection or restart occurs on the worker.
 }
@@ -511,12 +535,11 @@ void worker(void *) {
       Guard guard;lease=runningLease;expected=operationExpected;
       if(!lease || ownerGeneration!=lease || (owner!=Owner::check && owner!=Owner::prepare && owner!=Owner::install && !(owner==Owner::manual && installLease==lease))) continue;
     }
-    if(command==5){discardInstallation();continue;}
-    if(command==3){operationStart=millis();stageInstallation(expected);
-      bool ready;{Guard guard;ready=admissionPending==3;}
-      if(!ready){discardInstallation();}continue;
+    if(command==3){stageInstallation(expected);
+      {Guard guard;installWorkerActive=false;if(admissionPending!=3)installCleanup=true;}
+      continue;
     }
-    if(command==4){writeInstallation();continue;}
+    if(command==4){writeInstallation();Guard guard;installWorkerActive=false;continue;}
     operationStart=millis();
     if(environment()) metadata(command==2,expected);
     measure();
@@ -561,13 +584,16 @@ void GitUpdateClass::begin(GitUpdateReadAdmission (*admit)(),GitUpdateInstallHoo
   candidateGeneration=seed;workerTask.store(created);view.phase=GitUpdatePhase::idle;view.reason=GitUpdateReason::none;
 }
 void GitUpdateClass::loop() {
-  uint8_t command;uint64_t lease;
-  { Guard guard;command=admissionPending;lease=runningLease;admissionPending=0; }
-  if(installLease){
+  uint8_t command;uint64_t lease,install;bool active,uncertain;
+  { Guard guard;command=admissionPending;lease=runningLease;install=installLease;active=installWorkerActive;uncertain=installUncertain;if(!active)admissionPending=0; }
+  if(install){
+    if(!installHooks.current(operationExpected.generation))cancelled=true;
     bool cleanup,written;GitUpdateOwnerToken source;RadioInstallToken radio;
-    {Guard guard;cleanup=installCleanup || cancelled.load();written=installWritten;source=installSource;radio=installRadio;}
+    {Guard guard;cleanup=installCleanup || stopped();written=installWritten;source=installSource;radio=installRadio;}
+    if(active || uncertain)return; // Cancellation signals the worker; it cannot resume controls.
     if(cleanup){
-      if(!source.generation || installHooks.cleanup(source,radio)){xTaskNotify(workerTask.load(),5,eSetValueWithOverwrite);}
+      if(stopped()){Guard guard;terminalLocked(stoppedReason());}
+      discardInstallation();
       return;
     }
     if(command==3){
@@ -576,8 +602,10 @@ void GitUpdateClass::loop() {
       {Guard guard;prepared={installLease,GitUpdateExternalOwner::manual};owner=Owner::manual;installSource=prepared;
         if(!manualTransfer.begin(prepared,ManualUpdateKind::firmware,now)||!manualTransfer.claim(prepared,now)){installCleanup=true;return;}}
       const auto result=installHooks.prepare(prepared);
-      {Guard guard;installRadio=result.radio;if(!result.ready){installCleanup=true;view.phase=GitUpdatePhase::error;view.reason=GitUpdateReason::admission;return;}view.phase=GitUpdatePhase::writing;}
-      xTaskNotify(workerTask.load(),4,eSetValueWithOverwrite);return;
+      const bool current=installHooks.current(operationExpected.generation);
+      {Guard guard;installRadio=result.radio;if(!result.ready || !current || stopped()){installCleanup=true;terminalLocked(stopped() ? stoppedReason() : GitUpdateReason::admission);return;}view.phase=GitUpdatePhase::writing;installWorkerActive=true;}
+      if(xTaskNotify(workerTask.load(),4,eSetValueWithOverwrite)!=pdPASS){Guard guard;installWorkerActive=false;installCleanup=true;terminalLocked(GitUpdateReason::admission);}
+      return;
     }
     if(command==4 && written){installHooks.written(source,radio);return;}
     if(command==0)return;
@@ -588,10 +616,12 @@ void GitUpdateClass::loop() {
     Guard guard;
     if(ownerGeneration!=lease || (owner!=Owner::check && owner!=Owner::prepare && owner!=Owner::install)) return;
     if(!admitted || cancelled.load()) {
-      terminalLocked(cancelled.load() ? GitUpdateReason::cancelled : GitUpdateReason::admission);owner=Owner::none;return;
+      terminalLocked(cancelled.load() ? GitUpdateReason::cancelled : GitUpdateReason::admission);
+      if(owner==Owner::install)installCleanup=true;else owner=Owner::none;
+      return;
     }
     view.phase=owner==Owner::install ? GitUpdatePhase::downloading : command==2 ? GitUpdatePhase::preparing : GitUpdatePhase::checking;
-    if(owner==Owner::install)command=3;
+    if(owner==Owner::install){command=3;installWorkerActive=true;}
   }
   // FreeRTOS notification may wake another core; never hold our status mux
   // across scheduler/SDK operations.
@@ -600,6 +630,7 @@ void GitUpdateClass::loop() {
     if(ownerGeneration==lease && (owner==Owner::check || owner==Owner::prepare)) {
       terminalLocked(GitUpdateReason::admission);owner=Owner::none;
     }
+    if(ownerGeneration==lease && owner==Owner::install){installWorkerActive=false;installCleanup=true;terminalLocked(GitUpdateReason::admission);}
   }
 }
 GitUpdateRequest GitUpdateClass::requestInstall(const GitUpdateCandidate &expected,uint64_t &operation) {
@@ -608,8 +639,8 @@ GitUpdateRequest GitUpdateClass::requestInstall(const GitUpdateCandidate &expect
   if(!workerTask.load() || !installHooks.current || !installHooks.prepare || !installHooks.cleanup || !installHooks.written)return GitUpdateRequest::unavailable;
   if(!view.compatible || !view.canPrepare || !matches(expected,view.candidate))return GitUpdateRequest::invalidCandidate;
   if(!acquire(Owner::install))return GitUpdateRequest::unavailable;
-  installLease=runningLease=ownerGeneration;operationExpected=expected;cancelled=false;admissionPending=1;
-  operation=expected.generation;view.phase=GitUpdatePhase::queued;view.cancellable=true;
+  installLease=runningLease=ownerGeneration;operationExpected=expected;cancelled=false;admissionPending=1;operationStart=millis();
+  operation=expected.generation;view.phase=GitUpdatePhase::queued;view.reason=GitUpdateReason::none;view.progress=0;view.cancellable=true;
   return GitUpdateRequest::accepted;
 }
 GitUpdateRequest GitUpdateClass::requestCheck() { return queue(false,{}); }
