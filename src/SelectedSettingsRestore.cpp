@@ -19,7 +19,7 @@ void *allocateDraft(size_t bytes) {
 #endif
 }
 void releaseDraft(void *memory,size_t){free(memory);}
-uint8_t bit(SettingsNamespace space){return settingsNamespaceBit(space);}
+uint8_t namespaceBit(SettingsNamespace space){return settingsNamespaceBit(space);}
 template<size_t D,size_t S> bool text(char (&target)[D],const char (&source)[S]) {
   const auto *end=static_cast<const char *>(memchr(source,0,S));
   if(!end || size_t(end-source)>=D)return false;
@@ -36,7 +36,18 @@ struct SelectedSettingsRestore::Draft {
   ConfigSettings settings;
   transceiver_config_t radio;
   restore_options_t options;
-  Draft(const ConfigSettings &current,const transceiver_config_t &rf,const restore_options_t &opts):settings(current),radio(rf),options(opts){}
+  Draft(const ConfigSettings &current,const transceiver_config_t &rf,const restore_options_t &opts):radio(rf),options(opts) {
+    // Copy only fields the selected restore may persist or use as pin claims.
+    // Boot metadata, WiFi and security credentials never enter this draft.
+    settings.loadStatus=current.loadStatus;memcpy(settings.hostname,current.hostname,sizeof(settings.hostname));
+    settings.ssdpBroadcast=current.ssdpBroadcast;settings.checkForUpdate=current.checkForUpdate;settings.connType=current.connType;
+    if(opts.settings)settings.NTP=current.NTP;
+    if(opts.network)settings.IP=current.IP;
+    if(opts.mqtt)settings.MQTT=current.MQTT;
+#if HAS_ETHERNET
+    settings.Ethernet=current.Ethernet;
+#endif
+  }
 };
 SelectedSettingsRestore::SelectedSettingsRestore():SelectedSettingsRestore(allocateDraft,releaseDraft){}
 SelectedSettingsRestore::SelectedSettingsRestore(void *(*allocate)(size_t),void (*release)(void *,size_t)):allocateBytes(allocate),releaseBytes(release) {
@@ -53,14 +64,14 @@ bool SelectedSettingsRestore::prepare(const ConfigSettings &current,const transc
     const restore_options_t &opts,const config_header_t &header,ConfigReader &reader,bool sameBoard) {
   static_assert(sizeof(Draft)<=maximumDraftBytes,"Keep one private restore settings draft bounded");
   clear();outcome={};
-  if(opts.settings)outcome.requestedNamespaces|=bit(SettingsNamespace::cfg)|bit(SettingsNamespace::ntp);
-  if(opts.network)outcome.requestedNamespaces|=bit(SettingsNamespace::cfg)|bit(SettingsNamespace::ip)
+  if(opts.settings)outcome.requestedNamespaces|=namespaceBit(SettingsNamespace::cfg)|namespaceBit(SettingsNamespace::ntp);
+  if(opts.network)outcome.requestedNamespaces|=namespaceBit(SettingsNamespace::cfg)|namespaceBit(SettingsNamespace::ip)
 #if HAS_ETHERNET
-    |bit(SettingsNamespace::ethernet)
+    |namespaceBit(SettingsNamespace::ethernet)
 #endif
     ;
-  if(opts.mqtt)outcome.requestedNamespaces|=bit(SettingsNamespace::mqtt);
-  if(opts.transceiver)outcome.requestedNamespaces|=bit(SettingsNamespace::radio);
+  if(opts.mqtt)outcome.requestedNamespaces|=namespaceBit(SettingsNamespace::mqtt);
+  if(opts.transceiver)outcome.requestedNamespaces|=namespaceBit(SettingsNamespace::radio);
   auto fail=[&](RestoreSettingsState state,const char *key){outcome.state=state;outcome.persistence={settings_save_state_t::failed,key};clear();return false;};
   if(!outcome.requestedNamespaces){prepared=true;return true;}
   if((opts.settings && !header.settingsRecordSize) || ((opts.network||opts.mqtt) && !header.netRecordSize) ||
@@ -158,9 +169,9 @@ RestoreSettingsResult SelectedSettingsRestore::apply(ConfigSettings &current,Tra
     outcome.persistence=result;outcome.state=result.state==settings_save_state_t::partial?RestoreSettingsState::partial:RestoreSettingsState::failed;
   };
   auto persist=[&](SettingsNamespace space,auto &value){
-    if(!(outcome.requestedNamespaces&bit(space)))return true;
+    if(!(outcome.requestedNamespaces&namespaceBit(space)))return true;
     const auto result=value.save();if(!result.saved()){failure(result);return false;}
-    outcome.verifiedNamespaces|=bit(space);return true;
+    outcome.verifiedNamespaces|=namespaceBit(space);return true;
   };
   auto &next=draft->settings;
   if(!persist(SettingsNamespace::cfg,next) || !persist(SettingsNamespace::ntp,next.NTP) ||
@@ -171,11 +182,11 @@ RestoreSettingsResult SelectedSettingsRestore::apply(ConfigSettings &current,Tra
       )return finish();
   if(draft->options.transceiver) {
     const auto result=radio.setConfigWhilePaused(draft->radio,pause,owner);
-    if(result.liveApplied){outcome.verifiedNamespaces|=bit(SettingsNamespace::radio);outcome.appliedNamespaces|=bit(SettingsNamespace::radio);}
+    if(result.liveApplied){outcome.verifiedNamespaces|=namespaceBit(SettingsNamespace::radio);outcome.appliedNamespaces|=namespaceBit(SettingsNamespace::radio);}
     if(!result.saved()){failure(result);return finish();}
-    outcome.verifiedNamespaces|=bit(SettingsNamespace::radio);outcome.persistence=result;
+    outcome.verifiedNamespaces|=namespaceBit(SettingsNamespace::radio);outcome.persistence=result;
   }
-  if(outcome.requestedNamespaces&bit(SettingsNamespace::cfg)) {
+  if(outcome.requestedNamespaces&namespaceBit(SettingsNamespace::cfg)) {
     text(current.hostname,next.hostname);current.ssdpBroadcast=next.ssdpBroadcast;current.checkForUpdate=next.checkForUpdate;
     current.connType=next.connType;current.loadStatus=next.loadStatus;
   }
