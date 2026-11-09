@@ -82,6 +82,11 @@ void Canvas::shutter(int x, int y, int open, uint16_t color) {
   for(int yy = 4; yy < 28 * (100 - open) / 100; yy += 4)
     drawFastHLine(x + 4, y + yy, 20, color);
 }
+void Canvas::paintRecovery(BootRecoveryNotice notice) {
+  if(notice==BootRecoveryNotice::none)return;
+  fillRect(0,151,screenWidth,19,bg);
+  text(12,166,bootRecoveryText(notice),false,amber,296);
+}
 void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot &s) {
   fillScreen(bg);
   char label[48];

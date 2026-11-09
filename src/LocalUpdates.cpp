@@ -140,7 +140,7 @@ void Form::render(FormView &out)const{
     strcpy(out.rows[1].label,checkable(value,boot)?"Check GitHub release":"Back: System");
     strcpy(out.rows[2].label,value.canInstall?"Review latest release":"Latest release");
     snprintf(out.rows[2].value,sizeof(out.rows[2].value),"%s",value.candidate.version);
-    if(boot.pending){title=boot.rollbackRequired?"Rollback needs attention":"Verifying new firmware";hint=boot.rollbackRequired?"Boot health failed. Recovery action requires review.":"Waiting for continuous healthy operation.";}
+    if(boot.pending){title=boot.rollbackRequired?"Automatic rollback":"Verifying new firmware";hint=boot.rollbackRequired?bootRecoveryText(boot.recovery):"Waiting for continuous healthy operation.";}
     else if(notice==Notice::changed)hint="Release changed. Check and review it again.";
   }
   for(uint8_t i=0;i<out.rowCount;++i)out.rows[i].selected=i==out.selected;

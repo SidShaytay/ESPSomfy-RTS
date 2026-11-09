@@ -60,6 +60,11 @@ void format(const Snapshot &s, Page &p) {
   snprintf(p.lines[6], sizeof(p.lines[6]), "Radio: %s", radio);
   snprintf(p.lines[7], sizeof(p.lines[7]), "RF: %.2f MHz", s.frequency);
   snprintf(p.lines[8], sizeof(p.lines[8]), "%.26s", s.build);
+  if(s.recovery!=BootRecoveryNotice::none) {
+    const char *message=s.recovery==BootRecoveryNotice::movement?"Rollback: wait for idle":
+        s.recovery==BootRecoveryNotice::work?"Rollback: waiting":s.recovery==BootRecoveryNotice::storage?"Rollback: wait for save":bootRecoveryText(s.recovery);
+    snprintf(p.lines[8],sizeof(p.lines[8]),"%s",message);
+  }
 }
 void Session::tick(uint32_t now, const Snapshot &s, bool pressed) {
   if(failed) return;

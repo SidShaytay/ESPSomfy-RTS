@@ -4,8 +4,7 @@
 `SidShaytay/ESPSomfy-RTS` without a computer. The shared CC1101 / Plus image
 includes the controller, LCD and web interface together.
 
-This workflow is under review. Development builds show updates unavailable;
-managed rollback controls are still being completed.
+This workflow is under review. Development builds show GitHub updates unavailable.
 
 1. Unlock with the controller's configured PIN or password, if enabled.
 2. Choose **Check GitHub release**. Opening the screen starts no download.
@@ -25,8 +24,10 @@ inactivity timeout.
 
 After restart, **Verifying new firmware** means that continuous boot-health
 checks are still running. Confirmation needs 60 healthy seconds. A failure at
-the 180-second deadline displays **Rollback needs attention**; the current
-development implementation records that failure without an immediate reboot.
+the 180-second deadline starts automatic rollback waiting. Brief footer messages
+explain whether it is waiting for shutters, work or a saved state. Once ready,
+**Rollback scheduled** precedes a checked restart by three seconds. New movement
+postpones it again. An unavailable previous image shows **Rollback needs attention**.
 
 **Controls paused** or **Update needs recovery** means cleanup or activation
 could not be verified. Leaving the screen does not release those locks or start

@@ -171,6 +171,7 @@ void loop(bool running) {
   const auto initialized=panel.initialize(millis());
   if(initialized==Result::failed) {panel.brightness(0);LocalUi::capturePoll(nullptr,true,0,0);return;}
   if(initialized==Result::pending)return;
+  s.recovery=gitUpdateRecoveryNotice(); // Decision changes need not wait for the one-second telemetry sample.
   s.graphicsFailure=uint8_t(ui.failure());
   if(!ui.tick(millis(),s,digitalRead(wake)==LOW,sendBand,light))
 #endif
