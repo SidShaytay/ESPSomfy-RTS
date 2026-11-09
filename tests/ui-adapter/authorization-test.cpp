@@ -9,12 +9,16 @@ uint64_t securityHistory=1;
 uint64_t securityConfigurationRevision() { return securityHistory; }
 enum class security_types : uint8_t { None, PinEntry, Password };
 struct ConfigSettings {
-  struct { security_types type=security_types::PinEntry;
+  struct { bool trusted=true;bool loadTrusted()const{return trusted;} security_types type=security_types::PinEntry;
            char username[33]="", password[33]="", pin[5]="aB!9"; } Security;
 } settings;
 #include "../../src/LocalUiAuthorizationAdapter.cpp"
 int main() {
   using namespace LocalUi;
+  settings.Security.trusted=false;
+  assert(!pollAuthorization().allowed && pollAuthorization().mode==AuthMode::unavailable);
+  Credentials denied;strcpy(denied.secret,"aB!9");assert(unlockAuthorization(denied)!=AuthResult::unlocked);
+  settings.Security.trusted=true;
   assert(!pollAuthorization().allowed); // first secured boot fails closed
   Credentials given;
   strcpy(given.secret,"aB!9");
@@ -59,6 +63,9 @@ int main() {
   strcpy(given.secret,"new!"); assert(unlockAuthorization(given)==AuthResult::unlocked);
   lockAuthorization(); assert(!pollAuthorization().allowed && !pollAuthorization().stopGrace && !pollAuthorization().expiredSessionGeneration);
   settings.Security.type=security_types::None;
+  settings.Security.trusted=false;
+  assert(!pollAuthorization().allowed && pollAuthorization().mode==AuthMode::unavailable);
+  settings.Security.trusted=true;
   assert(pollAuthorization().allowed);
   settings.Security.type=security_types::Password;
   strcpy(settings.Security.username,"user"); strcpy(settings.Security.password,"pass");

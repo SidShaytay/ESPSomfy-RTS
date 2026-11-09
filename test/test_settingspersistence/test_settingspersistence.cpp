@@ -63,7 +63,8 @@ static void test_every_save_checks_each_set_commit_and_readback() {
   inject_every_operation(ConfigSettings{});
   inject_every_operation(NTPSettings{});
   inject_every_operation(IPSettings{});
-  inject_every_operation(SecuritySettings{});
+  SecuritySettings loaded;loaded.loadState=SecurityLoadState::knownEmpty; // Qualified boot fixture.
+  inject_every_operation(loaded);
   inject_every_operation(WifiSettings{});
   inject_every_operation(MQTTSettings{});
   inject_every_operation(transceiver_config_t{});
@@ -72,13 +73,13 @@ static void test_every_save_checks_each_set_commit_and_readback() {
 #endif
 }
 static void test_failed_write_retains_existing_namespace_keys() {
-  SecuritySettings original;
+  SecuritySettings original;original.loadState=SecurityLoadState::knownEmpty; // Qualified boot fixture.
   strcpy(original.password,"old password");
   strcpy(original.pin,"1234");
   TEST_ASSERT_TRUE(original.save().saved());
   auto originalPassword=FakeNvs::values.at("SEC/password").bytes;
   FakeNvs::failSet=FakeNvs::sets+1;
-  SecuritySettings replacement;
+  SecuritySettings replacement;replacement.loadState=SecurityLoadState::knownEmpty; // Qualified boot fixture.
   strcpy(replacement.password,"new password");
   TEST_ASSERT_FALSE(replacement.save().saved());
   TEST_ASSERT_TRUE(originalPassword==FakeNvs::values.at("SEC/password").bytes);
@@ -106,7 +107,7 @@ static void test_existing_key_types_are_preserved() {
   int16_t stored;
   memcpy(&stored,FakeNvs::values.at("MQTT/port").bytes.data(),sizeof(stored));
   TEST_ASSERT_EQUAL_UINT16(65535,static_cast<uint16_t>(stored));
-  SecuritySettings security;
+  SecuritySettings security;security.loadState=SecurityLoadState::knownEmpty; // Qualified boot fixture.
   TEST_ASSERT_TRUE(security.save().saved());
   TEST_ASSERT_EQUAL(FakeNvs::Type::i8,FakeNvs::values.at("SEC/type").type);
   transceiver_config_t radio;

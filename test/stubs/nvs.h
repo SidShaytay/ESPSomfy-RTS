@@ -14,11 +14,13 @@ struct Value { Type type; std::vector<uint8_t> bytes; };
 inline std::map<std::string,Value> values;
 inline std::map<nvs_handle_t,std::string> handles;
 inline int opens, sets, commits, reads, closes, erases;
+inline esp_err_t openError=ESP_FAIL;
+inline int lastOpenMode=-1;
 inline int failOpen, failSet, failCommit, failRead, corruptRead;
 inline void reset() {
   values.clear(); handles.clear();
   opens=sets=commits=reads=closes=erases=0;
-  failOpen=failSet=failCommit=failRead=corruptRead=0;
+  failOpen=failSet=failCommit=failRead=corruptRead=0;openError=ESP_FAIL;lastOpenMode=-1;
 }
 inline esp_err_t set(nvs_handle_t h,const char *key,Type type,const void *data,size_t size) {
   if(++sets == failSet || !handles.count(h)) return ESP_FAIL;
@@ -41,8 +43,9 @@ inline esp_err_t get(nvs_handle_t h,const char *key,Type type,void *data,size_t 
   return ESP_OK;
 }
 }
-inline esp_err_t nvs_open(const char *space,int,nvs_handle_t *h) {
-  if(++FakeNvs::opens==FakeNvs::failOpen) return ESP_FAIL;
+inline esp_err_t nvs_open(const char *space,int mode,nvs_handle_t *h) {
+  FakeNvs::lastOpenMode=mode;
+  if(++FakeNvs::opens==FakeNvs::failOpen) return FakeNvs::openError;
   *h=FakeNvs::opens;
   FakeNvs::handles[*h]=space;
   return ESP_OK;
