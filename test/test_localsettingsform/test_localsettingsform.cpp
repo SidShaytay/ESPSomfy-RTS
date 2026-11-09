@@ -858,8 +858,19 @@ static void scanned_ssid_stages_only_after_exact_authority_and_network_revision(
   memory.fail=true;
   TEST_ASSERT_FALSE(form.openNetworkSSID("other",7,backend.auth,backend.revision(settings_section_t::network)));TEST_ASSERT_EQUAL(0,backend.saves);
 }
+static void current_scanned_ssid_is_clean_and_save_is_unchanged() {
+  Memory memory;Fake backend;Form form(backend,memory);
+  TEST_ASSERT_TRUE(form.openNetworkSSID("wifi",1,backend.auth,backend.revision(settings_section_t::network)));
+  TEST_ASSERT_FALSE(form.view().dirty);TEST_ASSERT_FALSE(form.view().rows[1].dirty);
+  TEST_ASSERT_EQUAL(0,memory.allocations);
+  const auto save=settingsFieldCount(settings_section_t::network,false);
+  for(uint64_t now=2;form.view().selected<save;++now)form.turn(1,now);
+  form.activate(40);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(Notice::unchanged,form.view().notice);
+  TEST_ASSERT_EQUAL(0,backend.saves);TEST_ASSERT_EQUAL(0,memory.active);TEST_ASSERT_EQUAL(0,memory.allocations);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(current_scanned_ssid_is_clean_and_save_is_unchanged);
   RUN_TEST(scanned_ssid_stages_only_after_exact_authority_and_network_revision);
   RUN_TEST(every_saved_restart_refusal_preserves_typed_reason_and_no_retry_draft);
   RUN_TEST(failed_or_ordinary_save_does_not_publish_a_restart_refusal);

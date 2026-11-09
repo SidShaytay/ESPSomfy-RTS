@@ -313,10 +313,22 @@ bool Form::openNetworkSSID(const char *ssid, uint64_t now,
   if (admitted.generation != expected.generation ||
       admitted.configurationGeneration != expected.configurationGeneration ||
       admittedRevision != revision) { close(Notice::changed); return false; }
-  for (uint8_t i=0;i<count();++i)
-    if (settingsFieldAt(section,i,backend.hasEthernet())->field==proto_field_t::ssid)
-      selected=i;
+  const settings_field_t *ssidField=nullptr;
+  for (uint8_t i=0;i<count();++i) {
+    const auto *field=settingsFieldAt(section,i,backend.hasEthernet());
+    if (field->field==proto_field_t::ssid) {selected=i;ssidField=field;}
+  }
+  if (!ssidField) {close(Notice::changed);return false;}
+  bool changed=false;
   if (ssid) {
+    settings_value_t original;
+    const bool valid=readValue(*ssidField,original) && original.kind=='s' &&
+        memchr(original.text,0,sizeof(original.text));
+    changed=valid && strcmp(original.text,ssid)!=0;
+    wipe(&original,sizeof(original));
+    if (!valid) {close(Notice::changed);return false;}
+  }
+  if (changed) {
     changes[protoField(proto_field_t::ssid).key]=ssid;
     changes[protoField(proto_field_t::section).key]=settingsSectionName(section);
     JsonDocument expanded(&allocator); proto_error_buffer_t why={};
