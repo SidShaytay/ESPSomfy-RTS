@@ -40,6 +40,8 @@ const char *notice(EntityAdmin::Notice n) {
     return "Edit refused - changes not applied";
   case Notice::busy:
     return "Busy - wait and try again";
+  case Notice::capacity:
+    return "No free slots. Delete an entry.";
   }
   return "Entity unavailable";
 }

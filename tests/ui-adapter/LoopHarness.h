@@ -11,12 +11,14 @@
 #define SOMFY_EDITOR_H
 #define PROTO_SOCKET_H
 #define DEVICE_OPS_H
-#define utils_h
 #include "LoopQueue.h"
 #ifdef LOCAL_QUEUE_FAKE_RESTORE_OPTIONS
 struct restore_options_t {bool settings=false,shades=false,network=false,transceiver=false,repeaters=false,mqtt=false;};
 #endif
+#ifndef utils_h
+#define utils_h
 struct rebootDelay_t {bool reboot=false;int rebootTime=0;bool closed=false;};
+#endif
 inline rebootDelay_t rebootDelay;
 struct ShadeConfigFile {static bool restore(SomfyShadeController *,const char *,restore_options_t &) {return false;}};
 inline void (*modelEditHook)()=nullptr;

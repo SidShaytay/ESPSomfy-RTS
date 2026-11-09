@@ -12,7 +12,7 @@ class Administration {
   EntityAdmin::Authorization admitted;
   enum class Page : uint8_t { types, entries, entity } page=Page::types;
   uint64_t revision=0,observedAt=0;
-  uint8_t cursor=0,anchor=0,returnId=0;
+  uint8_t cursor=0,anchor=0,returnId=0,typeCursor=0;
   bool active=false;
   bool guard(uint64_t now);
   bool entry(uint8_t ordinal,CatalogueEntry &out);
