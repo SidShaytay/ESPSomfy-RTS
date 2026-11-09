@@ -1,4 +1,5 @@
 #include "RestoreExecution.h"
+#include "RestoreCompletion.h"
 #include "ConfigFile.h"
 #include "GitUpdate.h"
 #include "LoopQueue.h"
@@ -166,7 +167,7 @@ void run(const GitUpdateOwnerToken &source,uint8_t parts){
   if(apply.complete && (apply.refusal!=RestoreRefusal::none || !modelVerified || !settingsVerified)){
     apply.complete=false;apply.refusal=modelVerified?RestoreRefusal::settings:RestoreRefusal::modelStorage;
   }
-  setOutcome(apply);unwind();
+  setOutcome(apply);if(apply.modelApplied)completeRestoreModel(apply);unwind();
 }
 }
 void runOwnedRestore(const GitUpdateOwnerToken &source,uint8_t parts){RestoreExecutionDetail::run(source,parts);}

@@ -122,6 +122,7 @@ bool submitModelCommit(const proto_reply_to_t &, ModelCommitMode mode,const GitU
   restarts.push_back(mode == ModelCommitMode::applicationRecoveryAndRestart);
   return admitted;
 }
+void completeRestoreModel(const RestoreApplyResult &result){assert(result.modelApplied);}
 uint32_t restoreTestRandom(){return 42;}
 #include "../../src/RestoreExecution.cpp"
 #include "../../src/entryPoints/ManualUploadSession.cpp"

@@ -48,6 +48,8 @@ struct ShadeConfigFile {static RestoreApplyResult restore(SomfyShadeController *
  ++applies;assert(gitUpdate.transferRestoreClaimed(owner,uint64_t(stubEspTimerMicros)/1000));assert(somfy.transceiver.installPauseHeld(radio));
  loop_item_t stop;stop.type=loop_item_type_t::shade_request;assert(!loopQueue.submit(stop));if(duringApply)duringApply();return applyResult;
 }};
+static unsigned notifications=0;
+void completeRestoreModel(const RestoreApplyResult &result){assert(result.modelApplied);++notifications;}
 static unsigned restartCalls=0;static GitUpdateOwnerToken reservation;
 RestartResult requestOwnedRestart(const GitUpdateOwnerToken &source,uint32_t){++restartCalls;assert(!somfy.transceiver.paused);assertQueueOpen();assert(gitUpdate.acquireRestart(reservation,uint64_t(stubEspTimerMicros)/1000,source));return {true,RestartReason::none};}
 #include "../../src/GitUpdate.cpp"
@@ -74,6 +76,7 @@ int main(int argc,char **argv){assert(argc==2);const std::string mode=argv[1];ra
  if(mode=="partial"){applyResult.complete=false;applyResult.refusal=RestoreRefusal::counterStorage;applyResult.counterWriteAttempted=true;applyResult.modelApplied=false;}
  if(mode=="expired")duringApply=[] {clock(40000);};
  runOwnedRestore(owner,RESTORE_SHADES|RESTORE_REPEATERS|((mode=="missingSettings"||mode=="extraNamespace")?RESTORE_SETTINGS:0)|(mode=="extraNamespace"?RESTORE_NETWORK:0));
+ assert(notifications==unsigned(applies&&applyResult.modelApplied));
  if(mode=="remove"){
   assert(restoreExecutionStatus().phase==RestoreExecutionPhase::cleanupFault&&!restartCalls&&gitUpdate.ownsExternal(owner)&&!somfy.transceiver.paused);
   assert(!gitUpdate.claimTransferCleanup(40000).token.generation);const auto calls=LittleFS.removes;serviceRestoreCleanup();assert(LittleFS.removes==calls);return 0;

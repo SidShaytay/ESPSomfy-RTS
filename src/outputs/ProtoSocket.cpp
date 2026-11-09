@@ -443,6 +443,11 @@ bool ProtoSocket::hasClients() const {
     if(s.clientId.load()) return true;
   return false;
 }
+void ProtoSocket::resyncAll() {
+  if(!onLoopTask())return;
+  for(proto_slot_t &slot:slots)
+    if(slot.clientId.load())slot.wants.fetch_or(WANTS_SYNC_AGAIN);
+}
 bool ProtoSocket::sending() const { return onLoopTask() && this->hasClients(); }
 
 /*********************************************************************

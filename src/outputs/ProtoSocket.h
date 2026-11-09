@@ -27,6 +27,8 @@ class ProtoSocket {
     // without a word, so clients wouldn't know they had gone.
     void end();
     bool hasClients() const;
+    // loop() only: restart each live client through the existing full sync.
+    void resyncAll();
     // The reply to a command op once loop() has run its shade request.
     void replyRequest(const proto_reply_to_t &to, const shade_request_t &req, shade_request_result_t result);
     // The reply to an edit op once loop() has applied it.
