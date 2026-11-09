@@ -32,7 +32,7 @@ struct Transceiver {
 static somfy_tx_queue_t tx_queue;
 static std::mutex txLock;
 struct TxQueueLock {std::lock_guard<std::mutex> held;TxQueueLock():held(txLock){}};
-SomfyShadeController::SomfyShadeController() : startingAddress(100) {}
+SomfyShadeController::SomfyShadeController() : startingAddress(100) {modelLoad.bootResult(ModelLoadStatus::loaded);}
 SomfyShadeController somfy;
 static bool pendingRestart=false;
 bool restartPending(){return pendingRestart;}
@@ -97,6 +97,10 @@ static void aliases() {
 }
 int main(int argc,char **argv) {
   loopQueue.begin();
+  if(argc>1 && !strcmp(argv[1],"badLoad")) {
+    reset();somfy.modelLoad.fail();assert(!correctExplicitCounter(7,100).saved());assert(!linkExplicitRemote(7,999,100).saved());assert(!recoverExplicitCounterFile().saved());
+    assert(!FakeNvs::opens && !forbidden);return 0;
+  }
   if(argc>1 && !strcmp(argv[1],"completedGroup")) {
     for(bool up:{false,true}) {
       reset();auto &group=somfy.groups[15];group.setGroupId(16);group.setRemoteAddress(address);

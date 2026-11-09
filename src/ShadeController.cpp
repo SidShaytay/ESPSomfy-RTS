@@ -54,14 +54,12 @@ bool SomfyShadeController::begin() {
   // Load up all the configuration data.
   //ShadeConfigFile::getAppVersion(this->appVersion);
   ESP_LOGI(TAG, "App Version:%u.%u.%u", settings.appVersion.major, settings.appVersion.minor, settings.appVersion.build);
-  if(ShadeConfigFile::exists()) {
-    ESP_LOGI(TAG, "shades.cfg exists so we are using that");
-    ShadeConfigFile::load(this);
-  }
-  else {
-    ESP_LOGI(TAG, "Starting clean");
-  }
+  this->modelLoad.bootResult(ShadeConfigFile::loadBoot(this));
   this->transceiver.begin();
+  if(!this->modelLoad.usable()) {
+    ESP_LOGE(TAG,"Model unavailable; preserving canonical file and disabling model outputs");
+    return false;
+  }
   this->configureGPIOs();
 
   // Set the radio type for shades that have yet to be specified.
@@ -81,6 +79,7 @@ bool SomfyShadeController::begin() {
 void SomfyShadeController::writeBackup() {
   resetTaskWdt(); // Make sure we don't reset inadvertently.
   this->backupData = "";
+  if(!modelLoad.usable())return;
   this->backupData.reserve(16384);
   ShadeConfigFile file;
   file.beginRAM(&this->backupData);
@@ -110,6 +109,7 @@ void SomfyRoom::clear() {
   strcpy(this->name, "");
 }
 void SomfyShadeController::processFrame(somfy_frame_t &frame, bool internal, const SomfyRemote *skip) {
+  if(!modelLoad.usable())return;
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     if(&this->shades[i] == skip) continue;
     if(this->shades[i].getShadeId() != 255) this->shades[i].processFrame(frame, internal);
@@ -137,6 +137,7 @@ void SomfyShadeController::processTxEvent(const somfy_tx_event_t &evt) {
     if(this->shades[i].getShadeId() != 255) this->shades[i].processTxEvent(evt);
 }
 void SomfyShadeController::processWaitingFrame() {
+  if(!modelLoad.usable())return;
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++)
     if(this->shades[i].getShadeId() != 255) this->shades[i].processWaitingFrame();
 }
@@ -180,6 +181,7 @@ bool SomfyShadeController::linkRepeater(uint32_t address) {
   return true;
 }
 uint32_t SomfyShadeController::sendFrame(somfy_frame_t &frame, uint8_t repeat, uint16_t delayMs, bool priority) {
+  if(!modelLoad.usable())return 0;
   somfy_tx_job_t job;
   encodeTxJob(job, frame, repeat);
   job.firstRepeat = 1;
@@ -237,6 +239,7 @@ ModelCommitResult SomfyShadeController::deleteGroup(uint8_t groupId) {
   return this->commit();
 }
 void SomfyShadeController::loop() { 
+  if(!modelLoad.usable())return;
   this->transceiver.loop(); 
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     if(this->shades[i].getShadeId() != 255) {

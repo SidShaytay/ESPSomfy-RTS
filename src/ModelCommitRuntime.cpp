@@ -8,7 +8,7 @@ extern SomfyShadeController somfy;
 
 ModelCommitResult SomfyShadeController::commit() {
   resetTaskWdt();
-  this->lastModelCommit = ShadeConfigFile::commitModel(this);
+  this->lastModelCommit = this->modelLoad.mayCommit() ? ShadeConfigFile::commitModel(this) : ModelCommitResult{ModelCommitState::failed,ModelCommitStage::untrusted};
   this->isDirty = !this->lastModelCommit.saved();
   noteModelCommit(this->lastModelCommit);
   // Throttle failed attempts as well as successful writes; never hot-loop IO.

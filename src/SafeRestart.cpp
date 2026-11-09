@@ -55,6 +55,7 @@ RestartObservation observation() {
   else if(!stored.restartAllowed())out.refusal=RestartReason::settingsUncertain;
   else if(somfy.transceiver.counterEditUncertain())out.refusal=RestartReason::counterUncertain;
   else if(!somfy.transceiver.restartQuiescent())out.refusal=RestartReason::queuedOperations;
+  if(out.refusal==RestartReason::none && !somfy.modelLoad.usable())out.refusal=RestartReason::modelUnavailable;
   for(auto &shade:somfy.shades)
     if(out.refusal==RestartReason::none && shade.getShadeId()!=255 && !shade.idleForAdministration())
       out.refusal=RestartReason::activeMovement;
@@ -167,6 +168,12 @@ bool restartTransferBlocked() {
   SafeRestartDetail::Guard guard;
   return !SafeRestartDetail::initialized || !SafeRestartDetail::coordinator.updatePrecheck(SafeRestartDetail::cached) ||
       SafeRestartDetail::coordinator.requiresModelRecovery();
+}
+bool restartRestoreStagingBlocked() {
+  SafeRestartDetail::Guard guard;
+  auto current=SafeRestartDetail::cached;
+  if(current.refusal==RestartReason::modelUnavailable)current.refusal=RestartReason::none;
+  return !SafeRestartDetail::initialized || !SafeRestartDetail::coordinator.updatePrecheck(current);
 }
 bool restartPending(){SafeRestartDetail::Guard guard;return SafeRestartDetail::coordinator.snapshot().pending();}
 RestartSnapshot restartStatus(){SafeRestartDetail::Guard guard;return SafeRestartDetail::coordinator.snapshot();}

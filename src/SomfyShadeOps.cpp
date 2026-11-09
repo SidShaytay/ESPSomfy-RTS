@@ -6,6 +6,7 @@ extern SomfyShadeController somfy;
 
 // ShadeRequests only calls these for a shade or group it has just found.
 bool SomfyShadeOps::findShade(uint8_t shadeId, shade_info_t &info) {
+  if(!somfy.modelLoad.usable())return false;
   SomfyShade *shade = somfy.getShadeById(shadeId);
   if(!shade) return false;
   info.flipPosition = shade->flipPosition;
@@ -20,6 +21,7 @@ bool SomfyShadeOps::findShade(uint8_t shadeId, shade_info_t &info) {
   return true;
 }
 bool SomfyShadeOps::findGroup(uint8_t groupId, uint8_t &repeats) {
+  if(!somfy.modelLoad.usable())return false;
   SomfyGroup *group = somfy.getGroupById(groupId);
   if(!group) return false;
   repeats = group->repeats;

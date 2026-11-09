@@ -1,3 +1,4 @@
+#include "ModelLoadTrust.h"
 #ifndef SOMFY_H
 #define SOMFY_H
 #include <Preferences.h>
@@ -243,6 +244,7 @@ class SomfyShadeController {
     uint32_t lastCommit = 0;
   public:
     bool isDirty = false;
+    ModelLoadTrust modelLoad;
     ModelCommitResult lastModelCommit;
     // Loop-owned configuration history. Reusing an ID/address after an edit
     // must invalidate older client intentions; ordinary motion does not.

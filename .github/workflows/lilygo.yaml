@@ -46,6 +46,7 @@ jobs:
           ARDUINOJSON_INCLUDE: .pio/libdeps/lilygo-t-embed-cc1101/ArduinoJson/src
         run: |
           CXX=g++ bash tools/test-safe-restart.sh
+          CXX=g++ bash tools/test-model-load.sh
           CXX=g++ bash tools/test-application-upload.sh
           CXX=g++ bash tools/test-group-restart.sh
       - name: Offline worker and real SDK link checks

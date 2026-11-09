@@ -817,6 +817,7 @@ void Transceiver::loop() {
   }
 }
 uint32_t Transceiver::submitTx(somfy_tx_job_t &job, bool priority, uint16_t delayMs) {
+  if(!somfy.modelLoad.usable())return 0;
   if(!supportedBitLength(job.tx.bit_length)) {
     ESP_LOGE(TAG, "Dropping unsupported %u-bit transmission", job.tx.bit_length);
     return 0;
