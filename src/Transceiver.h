@@ -11,6 +11,7 @@
 #include "BoardProfile.h"
 #include "SettingsSaveResult.h"
 #include "CounterEdit.h"
+#include "RadioUpdateActivity.h"
 
 // The CC1101 radio: receive decoding, the radio task that transmits radio
 // jobs, the frequency scan and the radio config.
@@ -66,6 +67,9 @@ class Transceiver {
     // Only touched under the TX queue lock.
     RadioScheduler sched;
     CounterEditSafety counterEdits;
+    uint64_t installGeneration=0;
+    bool installActive=false,installResumeReceive=false;
+    RadioUpdateActivity updateActivityLocked() const;
     void startTxTask();
     bool transmitJob(somfy_tx_job_t &job);
     // Sends a job taken off the queue and leaves a frame beat after it.
@@ -100,6 +104,13 @@ class Transceiver {
     bool counterEditUncertain();
     // Loop only: includes raw repeater frames and radio-task scheduler work.
     bool restartQuiescent();
+    // Loop-only updater pause. Output remains unchanged when locks are busy;
+    // callers provide an empty token and retain it through resume/adoption.
+    bool updateActivity(RadioUpdateActivity &) const;
+    bool pauseForInstall(RadioInstallToken &);
+    RadioInstallResume resumeAfterInstall(const RadioInstallToken &);
+    bool installPauseHeld(const RadioInstallToken &) const;
+
     bool sealForRestart();
     void reopenAfterRefusedRestart();
     CounterEditAdmission reserveCounterEdit(uint32_t address,bool idle,uint16_t relatedGroups,bool restart);
