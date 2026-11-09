@@ -3,6 +3,7 @@
 #endif
 #include "GitUpdate.h"
 #include "GitUpdatePolicy.h"
+#include "GitUpdateImage.h"
 #include "ManualUpdateLifecycle.h"
 #include <atomic>
 #include <cstdio>
@@ -24,11 +25,13 @@ struct Guard { Guard() { portENTER_CRITICAL(&serviceLock); } ~Guard() { portEXIT
 std::mutex serviceLock;
 struct Guard { std::lock_guard<std::mutex> lock; Guard():lock(serviceLock) {} };
 #endif
-enum class Owner : uint8_t { none,check,prepare,manual,restore,counter,restart,configuration };
+enum class Owner : uint8_t { none,check,prepare,manual,restore,counter,restart,configuration,install };
 Owner owner=Owner::none;
 uint64_t ownerGeneration=0;
 GitUpdateSnapshot view;
 ManualUpdateLifecycle manualTransfer;
+GitUpdateInstallHooks installHooks;
+uint64_t installLease=0;
 #if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
 bool matches(const GitUpdateCandidate &a,const GitUpdateCandidate &b) {
   return a.generation==b.generation && a.size==b.size &&
@@ -44,7 +47,7 @@ bool acquire(Owner kind) {
 }
 }
 const char *gitUpdatePhase(GitUpdatePhase phase) {
-  static const char *const names[]={"unavailable","idle","queued","checking","available","current","preparing","prepared","changed","cancelled","error"};
+  static const char *const names[]={"unavailable","idle","queued","checking","available","current","preparing","prepared","changed","cancelled","error","downloading","verifying","writing","written","cleanupPending"};
   const size_t index=static_cast<size_t>(phase);
   return index<sizeof(names)/sizeof(*names) ? names[index] : "unavailable";
 }
@@ -54,7 +57,7 @@ const char *gitUpdateReason(GitUpdateReason reason) {
     "Installed bootloader is not attested","Installed web assets are not attested","Verified HTTPS connection failed","Invalid download headers",
     "Refused HTTPS redirect","No compatible published stable release","Download incomplete or exceeds bound","Invalid release metadata",
     "Release repository differs","Invalid update manifest","Authenticated digest differs","Release compatibility differs",
-    "Release is not newer","Request cancelled","Operation exceeded time limit","Release changed; confirm the new candidate","Candidate is no longer current","Persisted settings are uncertain; complete recovery before restart","TLS certificate validity window refused","Updater freshness is unavailable"};
+    "Release is not newer","Request cancelled","Operation exceeded time limit","Release changed; confirm the new candidate","Candidate is no longer current","Persisted settings are uncertain; complete recovery before restart","TLS certificate validity window refused","Updater freshness is unavailable","Staged firmware verification failed","Inactive firmware write failed"};
   const size_t index=static_cast<size_t>(reason);
   return index<sizeof(text)/sizeof(*text) ? text[index] : "Updater unavailable";
 }
@@ -146,7 +149,7 @@ bool GitUpdateClass::retireTransfer(const GitUpdateOwnerToken &token) {
   Guard guard;return owns(token) && manualTransfer.retire(token);
 }
 ManualUpdateCleanup GitUpdateClass::claimTransferCleanup(uint64_t now) {
-  Guard guard;const auto work=manualTransfer.cleanup(now);
+  Guard guard;if(installLease)return {};const auto work=manualTransfer.cleanup(now);
   return owns(work.token) ? work : ManualUpdateCleanup{};
 }
 bool GitUpdateClass::closeTransfer(const GitUpdateOwnerToken &token) {
@@ -158,6 +161,7 @@ GitUpdateSnapshot GitUpdateClass::snapshot() const {
   auto copy=view;copy.busy=owner!=Owner::none;
 #ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101
   copy.supported=true;
+  copy.canInstall=!copy.busy && copy.compatible && copy.canPrepare && installHooks.current && installHooks.prepare && installHooks.cleanup && installHooks.written;
 #else
   copy.reason=GitUpdateReason::unsupported;
 #endif
@@ -165,7 +169,6 @@ GitUpdateSnapshot GitUpdateClass::snapshot() const {
   snprintf(copy.installed,sizeof(copy.installed),"%s",ESPSOMFY_RELEASE_TAG);
 #endif
   copy.canPrepare=copy.canPrepare && !copy.busy;
-  copy.canInstall=false;
   return copy;
 }
 void GitUpdateClass::status(JsonObject out) const {
@@ -174,7 +177,7 @@ void GitUpdateClass::status(JsonObject out) const {
   out["error"]=gitUpdateReason(s.reason);out["busy"]=s.busy;
   out["installed"]=s.installed;out["available"]=s.candidate.version;
   out["source"]=GitUpdatePolicy::REPOSITORY;
-  out["compatible"]=s.compatible;out["canInstall"]=false;out["canPrepare"]=s.canPrepare;
+  out["compatible"]=s.compatible;out["canInstall"]=s.canInstall;out["canPrepare"]=s.canPrepare;
   out["progress"]=s.progress;out["cancellable"]=s.cancellable;
   char generation[21];snprintf(generation,sizeof(generation),"%llu",static_cast<unsigned long long>(s.candidate.generation));
   out["candidateGeneration"]=generation;
@@ -198,6 +201,7 @@ void GitUpdateClass::status(JsonObject out) const {
 #include <esp_heap_caps.h>
 #include <esp_psram.h>
 #include <esp_random.h>
+#include <esp_timer.h>
 #include <freertos/task.h>
 #include <mbedtls/sha256.h>
 #endif
@@ -383,7 +387,7 @@ bool environment() {
   if(stopped()) { fail(GitUpdateReason::cancelled);return false; }
   return true;
 }
-bool metadata(bool prepare,const GitUpdateCandidate &expected) {
+bool metadata(bool prepare,const GitUpdateCandidate &expected,GitUpdatePolicy::Manifest *verified=nullptr) {
   using namespace GitUpdatePolicy;
   LocalUi::JsonAllocator allocator(JSON_BUDGET,jsonAcquire,jsonRelease);
   Buffer api(API_LIMIT);if(!api.data) { fail(GitUpdateReason::memory);return false; }
@@ -427,6 +431,7 @@ bool metadata(bool prepare,const GitUpdateCandidate &expected) {
   if(!manifestFrom(json,m)) { fail(GitUpdateReason::manifest);return false; }
   if(validate(m) || m.bootloaderSha!=gitUpdateBootloaderDigest()) { fail(GitUpdateReason::compatibility);return false; }
   if(m.version!=tag || m.size!=fwSize || m.sha256!=fwDigest) { fail(GitUpdateReason::digest);return false; }
+  if(verified)*verified=m; // Copy bounded metadata outside the service lock.
   GitUpdateCandidate found;
   found.size=m.size;
   snprintf(found.version,sizeof(found.version),"%s",m.version.c_str());
@@ -448,14 +453,70 @@ bool metadata(bool prepare,const GitUpdateCandidate &expected) {
   view.cancellable=false;view.progress=100;
   return true;
 }
+std::unique_ptr<Buffer> installImage;
+GitUpdatePolicy::Manifest installManifest;
+GitUpdateOwnerToken installSource;
+RadioInstallToken installRadio;
+bool installCleanup=false,installWritten=false;
+uint64_t transferNow(){const auto t=esp_timer_get_time();return t<0?UINT64_MAX:uint64_t(t)/1000;}
+void discardInstallation() {
+  installImage.reset();installManifest={}; // No allocation/free under the lock.
+  Guard guard;
+  if(installSource.generation){manualTransfer.finish(installSource,transferNow(),false);manualTransfer.retire(installSource);manualTransfer.close(installSource);}
+  if(ownerGeneration==runningLease && (owner==Owner::install || owner==Owner::manual))owner=Owner::none;
+  installSource={};installRadio={};installLease=0;installCleanup=false;installWritten=false;
+}
+void stageInstallation(const GitUpdateCandidate &expected) {
+  if(!environment() || !metadata(true,expected,&installManifest))return;
+  {Guard guard;if(!matches(view.candidate,expected)){return;}view.phase=GitUpdatePhase::downloading;view.cancellable=true;view.progress=0;}
+  installImage.reset(new(std::nothrow)Buffer(expected.size));
+  if(!installImage || !installImage->data){fail(GitUpdateReason::memory);return;}
+  size_t received=0;
+  const std::string url=std::string("https://github.com/")+GitUpdatePolicy::REPOSITORY+"/releases/download/"+expected.version+"/"+GitUpdatePolicy::FIRMWARE_ASSET;
+  if(!download(url,*installImage,received) || received!=expected.size)return;
+  {Guard guard;view.phase=GitUpdatePhase::verifying;}
+  GitUpdateImage::Identity identity;
+  if(GitUpdateImage::verify(installImage->data,received,gitUpdateBootloaderIdentity(),&installManifest,identity,{stopped,cooperate})!=GitUpdateImage::Result::verified){fail(GitUpdateReason::invalidImage);return;}
+  {Guard guard;admissionPending=3;}
+}
+void writeInstallation() {
+  const auto *target=esp_ota_get_next_update_partition(nullptr);
+  esp_ota_handle_t handle=0;
+  if(!target || !installImage || stopped() || esp_ota_begin(target,installImage->capacity,&handle)!=ESP_OK){fail(GitUpdateReason::writeFailed);return;}
+  {Guard guard;manualTransfer.resource(installSource,true);}
+  std::unique_ptr<uint8_t,decltype(&heap_caps_free)> chunk(static_cast<uint8_t*>(heap_caps_malloc(4096,MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)),heap_caps_free);
+  bool okay=bool(chunk);
+  for(size_t offset=0;okay && offset<installImage->capacity;){
+    if(stopped()){okay=false;break;}
+    const auto count=std::min(size_t(4096),installImage->capacity-offset);
+    memcpy(chunk.get(),installImage->data+offset,count);
+    if(esp_ota_write(handle,chunk.get(),count)!=ESP_OK){okay=false;break;}
+    offset+=count;cooperate();const auto now=transferNow();
+    {Guard guard;okay=manualTransfer.finish(installSource,now,true)&&manualTransfer.claim(installSource,now);view.progress=uint8_t(offset*100/installImage->capacity);}
+  }
+  if(!okay){esp_ota_abort(handle);fail(GitUpdateReason::writeFailed);}
+  else okay=esp_ota_end(handle)==ESP_OK;
+  const auto now=transferNow();
+  {Guard guard;manualTransfer.resource(installSource,false);
+    if(okay && manualTransfer.holdRestart(installSource) && manualTransfer.finish(installSource,now,true)){installWritten=true;view.phase=GitUpdatePhase::written;admissionPending=4;}
+    else {installCleanup=true;view.phase=GitUpdatePhase::error;view.reason=GitUpdateReason::writeFailed;}
+  }
+  // No boot selection or restart occurs on the worker.
+}
 void worker(void *) {
   for(;;) {
     uint32_t command=0;xTaskNotifyWait(0,UINT32_MAX,&command,portMAX_DELAY);
     uint64_t lease;GitUpdateCandidate expected;
     {
       Guard guard;lease=runningLease;expected=operationExpected;
-      if(!lease || ownerGeneration!=lease || (owner!=Owner::check && owner!=Owner::prepare)) continue;
+      if(!lease || ownerGeneration!=lease || (owner!=Owner::check && owner!=Owner::prepare && owner!=Owner::install && !(owner==Owner::manual && installLease==lease))) continue;
     }
+    if(command==5){discardInstallation();continue;}
+    if(command==3){operationStart=millis();stageInstallation(expected);
+      bool ready;{Guard guard;ready=admissionPending==3;}
+      if(!ready){discardInstallation();}continue;
+    }
+    if(command==4){writeInstallation();continue;}
     operationStart=millis();
     if(environment()) metadata(command==2,expected);
     measure();
@@ -477,7 +538,7 @@ GitUpdateRequest queue(bool prepare,const GitUpdateCandidate &expected) {
   return GitUpdateRequest::accepted;
 }
 }
-void GitUpdateClass::begin(GitUpdateReadAdmission (*admit)()) {
+void GitUpdateClass::begin(GitUpdateReadAdmission (*admit)(),GitUpdateInstallHooks hooks) {
   if(workerTask.load()) return;
   {
     Guard guard;view.supported=true;
@@ -485,7 +546,7 @@ void GitUpdateClass::begin(GitUpdateReadAdmission (*admit)()) {
     if(!GitUpdatePolicy::stableVersion(ESPSOMFY_RELEASE_TAG)) { view.reason=GitUpdateReason::development;return; }
     if(!gitUpdateMemoryReady()) { view.reason=GitUpdateReason::memory;return; }
     if(!admit) { view.reason=GitUpdateReason::admission;return; }
-    admitCallback=admit;startingWorker=true;
+    admitCallback=admit;installHooks=hooks;startingWorker=true;
   }
   // Boot-local opaque freshness, not an authentication secret. Never fall
   // back to a fixed epoch when the bounded seed attempts produce zero.
@@ -502,15 +563,35 @@ void GitUpdateClass::begin(GitUpdateReadAdmission (*admit)()) {
 void GitUpdateClass::loop() {
   uint8_t command;uint64_t lease;
   { Guard guard;command=admissionPending;lease=runningLease;admissionPending=0; }
+  if(installLease){
+    bool cleanup,written;GitUpdateOwnerToken source;RadioInstallToken radio;
+    {Guard guard;cleanup=installCleanup || cancelled.load();written=installWritten;source=installSource;radio=installRadio;}
+    if(cleanup){
+      if(!source.generation || installHooks.cleanup(source,radio)){xTaskNotify(workerTask.load(),5,eSetValueWithOverwrite);}
+      return;
+    }
+    if(command==3){
+      if(!installHooks.current(operationExpected.generation)){cancelled=true;return;}
+      const auto now=transferNow();GitUpdateOwnerToken prepared;
+      {Guard guard;prepared={installLease,GitUpdateExternalOwner::manual};owner=Owner::manual;installSource=prepared;
+        if(!manualTransfer.begin(prepared,ManualUpdateKind::firmware,now)||!manualTransfer.claim(prepared,now)){installCleanup=true;return;}}
+      const auto result=installHooks.prepare(prepared);
+      {Guard guard;installRadio=result.radio;if(!result.ready){installCleanup=true;view.phase=GitUpdatePhase::error;view.reason=GitUpdateReason::admission;return;}view.phase=GitUpdatePhase::writing;}
+      xTaskNotify(workerTask.load(),4,eSetValueWithOverwrite);return;
+    }
+    if(command==4 && written){installHooks.written(source,radio);return;}
+    if(command==0)return;
+  }
   if(!command) return;
   const bool admitted=!cancelled.load() && admitCallback && admitCallback().allowed;
   {
     Guard guard;
-    if(ownerGeneration!=lease || (owner!=Owner::check && owner!=Owner::prepare)) return;
+    if(ownerGeneration!=lease || (owner!=Owner::check && owner!=Owner::prepare && owner!=Owner::install)) return;
     if(!admitted || cancelled.load()) {
       terminalLocked(cancelled.load() ? GitUpdateReason::cancelled : GitUpdateReason::admission);owner=Owner::none;return;
     }
-    view.phase=command==2 ? GitUpdatePhase::preparing : GitUpdatePhase::checking;
+    view.phase=owner==Owner::install ? GitUpdatePhase::downloading : command==2 ? GitUpdatePhase::preparing : GitUpdatePhase::checking;
+    if(owner==Owner::install)command=3;
   }
   // FreeRTOS notification may wake another core; never hold our status mux
   // across scheduler/SDK operations.
@@ -521,18 +602,29 @@ void GitUpdateClass::loop() {
     }
   }
 }
+GitUpdateRequest GitUpdateClass::requestInstall(const GitUpdateCandidate &expected,uint64_t &operation) {
+  Guard guard;
+  if(owner!=Owner::none)return GitUpdateRequest::busy;
+  if(!workerTask.load() || !installHooks.current || !installHooks.prepare || !installHooks.cleanup || !installHooks.written)return GitUpdateRequest::unavailable;
+  if(!view.compatible || !view.canPrepare || !matches(expected,view.candidate))return GitUpdateRequest::invalidCandidate;
+  if(!acquire(Owner::install))return GitUpdateRequest::unavailable;
+  installLease=runningLease=ownerGeneration;operationExpected=expected;cancelled=false;admissionPending=1;
+  operation=expected.generation;view.phase=GitUpdatePhase::queued;view.cancellable=true;
+  return GitUpdateRequest::accepted;
+}
 GitUpdateRequest GitUpdateClass::requestCheck() { return queue(false,{}); }
 GitUpdateRequest GitUpdateClass::requestPrepare(const GitUpdateCandidate &expected) { return queue(true,expected); }
 bool GitUpdateClass::requestCancel() {
   Guard guard;
-  if((owner!=Owner::check && owner!=Owner::prepare) || !view.cancellable) return false;
+  if((owner!=Owner::check && owner!=Owner::prepare && !installLease) || !view.cancellable) return false;
   cancelled.store(true);return true;
 }
 
 #else
-void GitUpdateClass::begin(GitUpdateReadAdmission (*)()) {}
+void GitUpdateClass::begin(GitUpdateReadAdmission (*)(),GitUpdateInstallHooks) {}
 void GitUpdateClass::loop() {}
 GitUpdateRequest GitUpdateClass::requestCheck() { Guard guard;return owner==Owner::none ? GitUpdateRequest::unavailable : GitUpdateRequest::busy; }
 GitUpdateRequest GitUpdateClass::requestPrepare(const GitUpdateCandidate &) { return requestCheck(); }
+GitUpdateRequest GitUpdateClass::requestInstall(const GitUpdateCandidate &,uint64_t &) { return requestCheck(); }
 bool GitUpdateClass::requestCancel() { return false; }
 #endif

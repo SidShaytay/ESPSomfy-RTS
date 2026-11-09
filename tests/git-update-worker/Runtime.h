@@ -83,6 +83,7 @@ inline std::vector<std::string> urls;
 extern "C" time_t __wrap_time(time_t *out) { if(out) *out=Fake::wallClock;return Fake::wallClock; }
 inline uint32_t esp_random() { assert(Fake::criticalDepth==0);++Fake::randomCalls;return Fake::randomWord; }
 inline uint32_t millis() { return Fake::now; }
+inline int64_t esp_timer_get_time(){return int64_t(Fake::now)*1000;}
 inline void *heap_caps_malloc(size_t bytes,int caps) {
   assert(Fake::criticalDepth==0);
   assert(caps==(MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
