@@ -8,6 +8,7 @@ enum class CounterLoadStage : uint8_t { none, memory, capacity, address, state, 
 struct CounterLoadResult {
   CounterLoadState state=CounterLoadState::collecting;
   CounterLoadStage stage=CounterLoadStage::none;
+  bool writeAttempted=false;
   bool ready()const{return state==CounterLoadState::ready;}
 };
 struct CounterLoadControl {

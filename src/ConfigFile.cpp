@@ -12,10 +12,14 @@
 #include "ModelPersistence.h"
 #include "ModelRecords.h"
 #include "TaskWdt.h"
+#include "ModelIdleForAdministration.h"
+#include "LoopQueue.h"
+#include "SafeRestart.h"
 
 static const char *TAG = "ConfigFile";
 
 extern ConfigSettings settings;
+extern LoopQueue loopQueue;
 
 // The records' strings are read straight into these fields.
 static_assert(CFG_NAME_LEN == sizeof(SomfyShade::name), "shade name size");
@@ -271,6 +275,11 @@ static void applyTransRecord(const trans_record_t &rec, transceiver_config_t &cf
 // No model record, GPIO or NVS read is applied during adoption itself.
 static_assert(CounterLoad::maximumEntries==SOMFY_MAX_SHADES*(SOMFY_MAX_LINKED_REMOTES+1)+SOMFY_MAX_GROUPS,"Complete loaded counter address bound");
 static void cooperateCounterLoad(const void *){resetTaskWdt();delay(0);}
+static bool restoreIdle(SomfyShadeController *model){
+  if(loopQueue.pending() || restartPending() || !modelIdleForAdministration(*model))return false;
+  RadioUpdateActivity activity;
+  return model->transceiver.updateActivity(activity) && activity.quiescent();
+}
 static bool continueRestoreCounterLoad(const void *context){
   return gitUpdate.transferRestoreClaimed(*static_cast<const GitUpdateOwnerToken *>(context),uint64_t(esp_timer_get_time())/1000);
 }
@@ -646,18 +655,21 @@ bool ShadeConfigFile::restoreFile(SomfyShadeController *s, const char *filename,
   if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000) || s->transceiver.counterEditUncertain()) {
     if(opened) this->end();return false;
   }
+  if(!restoreIdle(s)){if(opened)this->end();return false;}
   const bool recovering=!s->modelLoad.usable();
   if(recovering && (!opts.shades || !opts.repeaters)) {
     if(opened)this->end();return false;
   }
   if(opts.shades){
-    s->modelLoad.fail();
-    if(!prepareCounters({&owner,continueRestoreCounterLoad,cooperateCounterLoad})){
+    const bool prepared=prepareCounters({&owner,continueRestoreCounterLoad,cooperateCounterLoad});
+    if(!prepared || !gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000) || !restoreIdle(s)){
+      // A failed read/invalid import never revokes a previously proven model.
+      // Any attempted promotion may have changed durable maxima, including a
+      // verified READY result whose owner expired before live adoption.
+      if(counters.result().writeAttempted)s->modelLoad.fail();
       if(opened)this->end();return false;
     }
-    if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000)){
-      if(opened)this->end();return false;
-    }
+    s->modelLoad.fail(); // Actual live-model adoption starts below.
   }
   invalidateDeviceSettingsRevisions();
   ++s->configurationRevision;

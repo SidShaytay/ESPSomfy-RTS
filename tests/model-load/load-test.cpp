@@ -8,6 +8,9 @@
 #include "CounterLoad.h"
 #include "RollingCode.h"
 #include <nvs.h>
+#include "ShadeBehaviour.h"
+#include "RadioUpdateActivity.h"
+#include "ModelIdleForAdministration.h"
 #include <cassert>
 #include <string>
 #include <unistd.h>
@@ -30,22 +33,37 @@ struct SomfyRemote {
  uint32_t getRemoteAddress(){return address;}char *getRemotePrefId(){return prefKey;}
 };
 struct SomfyLinkedRemote:SomfyRemote{};
+struct NoMotorEffects:MotorLink,ShadeEvents {
+ unsigned sends=0,events=0;
+ send_result_t send(somfy_commands,uint8_t,uint8_t,uint16_t,bool)override{++sends;return {};}
+ void onChanged(uint16_t)override{++events;}void onCommand(somfy_commands,const char *,uint32_t)override{++events;}
+ void onSaveWanted()override{++events;}void onSensorFlags()override{++events;}
+};
 struct SomfyShade:SomfyRemote,shade_record_t {
  using SomfyRemote::lastRollingCode;SomfyLinkedRemote linkedRemotes[SOMFY_MAX_LINKED_REMOTES];
+ ShadeSettings behaviorSettings;RemoteSettings behaviorRemote;somfy_frame_t frame;NoMotorEffects effects;ShadeBehaviour behaviour;uint32_t gpioRelease=0;
+ SomfyShade():behaviour(behaviorSettings,behaviorRemote,frame,effects,effects,shadeId,name){}
+ bool idleForAdministration()const;
  uint8_t getShadeId(){return shadeId;}void setShadeId(uint8_t value){shadeId=value;}
  void clear(){shadeId=255;}void setFlags(uint8_t value){flags=value;}
- void restore(float a,float b,float c,float d){currentPos=a;currentTiltPos=b;myPos=c;myTiltPos=d;}
+ void restore(float a,float b,float c,float d){currentPos=a;currentTiltPos=b;myPos=c;myTiltPos=d;behaviour.restore(a,b,c,d);}
 };
 struct SomfyGroup:SomfyRemote,group_record_t {
- using SomfyRemote::lastRollingCode;
- void setGroupId(uint8_t value){groupId=value;}void clear(){groupId=255;}void compressLinkedShadeIds(){}
+ using SomfyRemote::lastRollingCode;int8_t direction=0;somfy_frame_t lastFrame;
+ uint8_t getGroupId(){return groupId;}void setGroupId(uint8_t value){groupId=value;}void clear(){groupId=255;}void compressLinkedShadeIds(){}
 };
 static shade_record_t shadeRecord(SomfyShade *shade){return *shade;}
 static group_record_t groupRecord(SomfyGroup *group){return *group;}
 
 struct restore_options_t{bool settings=false,shades=false,network=false,transceiver=false,repeaters=false,mqtt=false;};
 struct GitUpdateOwnerToken{};
-struct {bool allowed=true;bool transferRestoreClaimed(const GitUpdateOwnerToken &,uint64_t){return allowed;}}gitUpdate;
+struct {bool allowed=true;int expireAtReads=-1;unsigned afterReads=0;
+ bool transferRestoreClaimed(const GitUpdateOwnerToken &,uint64_t){
+  if(!allowed)return false;
+  if(expireAtReads>=0 && FakeNvs::reads>=expireAtReads)return ++afterReads<2;
+  return true;
+ }
+}gitUpdate;
 int64_t esp_timer_get_time(){return 1000000;}
 static void resetTaskWdt(){}
 static bool retireAfterWrite=false;
@@ -65,13 +83,19 @@ static void applyTransRecord(const trans_record_t &,transceiver_config_t &){++se
 struct SomfyShadeController{
  unsigned adopted=0,repeatersRead=0,commits=0,gpio=0;
  SomfyShade shades[SOMFY_MAX_SHADES];SomfyGroup groups[SOMFY_MAX_GROUPS];
+ SomfyShade *getShadeById(uint8_t id){for(auto &shade:shades)if(id&&id!=255&&shade.getShadeId()==id)return &shade;return nullptr;}
  bool begin();uint32_t repeaters[SOMFY_MAX_REPEATERS]{};
  ModelLoadTrust modelLoad;uint64_t configurationRevision=1,restoreRevision=1;bool saveOK=true;
- struct {unsigned starts=0;transceiver_config_t config;void begin(){++starts;}bool counterEditUncertain(){return false;}void setConfig(const transceiver_config_t &){++settingEffects;}}transceiver;
+ struct {unsigned starts=0;transceiver_config_t config;bool activityKnown=true;
+ RadioUpdateActivity activity=[](){RadioUpdateActivity a;a.observed=true;a.schedulerIdle=true;return a;}();
+ bool updateActivity(RadioUpdateActivity &out)const{if(!activityKnown)return false;out=activity;return true;}
+ void begin(){++starts;}bool counterEditUncertain(){return false;}void setConfig(const transceiver_config_t &){++settingEffects;}}transceiver;
  ModelCommitResult commit(){assert(modelLoad.mayCommit());++commits;return {saveOK?ModelCommitState::saved:ModelCommitState::failed};}
  void configureGPIOs(){assert(modelLoad.usable());++gpio;}
 };
 SomfyShadeController somfy;
+struct {unsigned queued=0;unsigned pending()const{return queued;}}loopQueue;
+static bool restartQueued=false;static bool restartPending(){return restartQueued;}
 struct ConfigFile:ConfigReader {
  DummyFile file;String *_ramBuf=nullptr;bool readOnly=false,_writeFailed=false,_opened=false;
  ModelLoadSnapshot snapshot;ModelLoadStatus snapshotStatus=ModelLoadStatus::unknown;size_t readPosition=0;bool readFailed=false;
@@ -79,8 +103,11 @@ struct ConfigFile:ConfigReader {
  bool begin(const char *,bool=false);void end();bool isOpen(){return _opened;}
  bool readByte(uint8_t &)override;uint32_t position()override;bool seekRead(uint32_t);size_t readSize()const{return snapshot.size();}bool readHeader();
 };
+static bool failCounterAllocation=false;
+static void *allocateCounters(size_t n){return failCounterAllocation?nullptr:modelLoadIo().allocate(n);}
+static void releaseCounters(void *p,size_t n){modelLoadIo().release(p,n);}
 struct ShadeConfigFile:ConfigFile {
- CounterLoad counters;bool prepareCounters(CounterLoadControl control={});void readShade(SomfyShade *);void readGroup(SomfyGroup *);
+ CounterLoad counters{allocateCounters,releaseCounters};bool prepareCounters(CounterLoadControl control={});void readShade(SomfyShade *);void readGroup(SomfyGroup *);
  bool begin(bool=false);bool begin(const char *,bool=false);
  bool restoreFile(SomfyShadeController *,const char *,restore_options_t &,const GitUpdateOwnerToken &);
  bool validate();bool loadFile(SomfyShadeController *,const char *filename="/shades.cfg");
@@ -97,19 +124,22 @@ struct ShadeConfigFile:ConfigFile {
 };
 static void cooperateCounterLoad(const void *);
 static bool continueRestoreCounterLoad(const void *);
+static bool restoreIdle(SomfyShadeController *);
 #include "production-load.inc"
 struct Writer:ConfigWriter {std::string bytes;bool writeBytes(const uint8_t *p,size_t n)override{bytes.append(reinterpret_cast<const char *>(p),n);return true;}};
 static std::string validModel(){Writer w;config_header_t h;h.version=SHADE_HDR_VER;h.length=SHADE_HDR_SIZE;h.shadeRecordSize=SHADE_REC_SIZE;h.groupRecordSize=GROUP_REC_SIZE;h.roomRecordSize=ROOM_REC_SIZE;h.roomRecords=h.shadeRecords=h.groupRecords=0;h.repeaterRecords=1;h.repeaterRecordSize=REPEATER_REC_SIZE;h.settingsRecordSize=h.netRecordSize=h.transRecordSize=0;assert(writeConfigHeader(w,h));uint32_t repeaters[SOMFY_MAX_REPEATERS]{};assert(writeRepeaterRecord(w,repeaters));return w.bytes;}
-static std::string aliasesModel(bool highFirst,uint16_t groupFloor=50,uint8_t version=SHADE_HDR_VER){
+static std::string aliasesModel(bool highFirst,uint16_t groupFloor=50,uint8_t version=SHADE_HDR_VER,uint32_t address=100){
  Writer w;config_header_t h;h.version=version;h.length=SHADE_HDR_SIZE;h.shadeRecordSize=SHADE_REC_SIZE;h.groupRecordSize=GROUP_REC_SIZE;h.roomRecordSize=ROOM_REC_SIZE;
  h.shadeRecords=2;h.groupRecords=1;h.repeaterRecords=1;h.repeaterRecordSize=REPEATER_REC_SIZE;
  assert(writeConfigHeader(w,h));
- for(unsigned i=0;i<2;++i){shade_record_t rec;rec.shadeId=i+1;rec.remoteAddress=100;rec.bitLength=56;rec.lastRollingCode=(i==unsigned(highFirst))?300:20;rec.linkedRemotes[0]=100;rec.linkedRemotes[1]=101;assert(writeShadeRecord(w,rec));}
+ for(unsigned i=0;i<2;++i){shade_record_t rec;rec.shadeId=i+1;rec.remoteAddress=address;rec.bitLength=56;rec.lastRollingCode=(i==unsigned(highFirst))?300:20;rec.linkedRemotes[0]=100;rec.linkedRemotes[1]=101;assert(writeShadeRecord(w,rec));}
  group_record_t group;group.groupId=1;group.remoteAddress=100;group.bitLength=56;group.lastRollingCode=groupFloor;assert(writeGroupRecord(w,group));uint32_t repeaters[SOMFY_MAX_REPEATERS]{};assert(writeRepeaterRecord(w,repeaters));return w.bytes;
 }
 static void stored(uint32_t address,uint16_t value){char key[32];snprintf(key,sizeof(key),"ShadeCodes/_%lu",static_cast<unsigned long>(address));FakeNvs::values[key]={FakeNvs::Type::u16,{uint8_t(value),uint8_t(value>>8)}};}
 static void retireRestore(){gitUpdate.allowed=false;}
-static void write(const std::string &bytes){FILE *f=fopen((LittleFS.root+"/shades.cfg").c_str(),"wb");assert(f);assert(fwrite(bytes.data(),1,bytes.size(),f)==bytes.size());assert(fclose(f)==0);}
+static void writeAt(const char *path,const std::string &bytes){FILE *f=fopen((LittleFS.root+path).c_str(),"wb");assert(f);assert(fwrite(bytes.data(),1,bytes.size(),f)==bytes.size());assert(fclose(f)==0);}
+static void write(const std::string &bytes){writeAt("/shades.cfg",bytes);}
+static std::string readAt(const char *path){FILE *f=fopen((LittleFS.root+path).c_str(),"rb");assert(f);std::string bytes;int c;while((c=fgetc(f))!=EOF)bytes+=char(c);assert(!ferror(f)&&fclose(f)==0);return bytes;}
 int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));LittleFS.root=dir;SomfyShadeController model;
  ShadeConfigFile noUncheckedWrite;assert(!noUncheckedWrite.begin(false)&&LittleFS.writeOpens==0);
  noteModelFilesystemMounted(false);assert(ShadeConfigFile::loadBoot(&model)==ModelLoadStatus::unavailable&&!model.adopted);
@@ -150,5 +180,57 @@ int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));Lit
   assert(FakeNvs::sets==unsigned(afterWrite)&&FakeNvs::commits==0&&FakeNvs::handles.empty());file.end();
  }
  gitUpdate.allowed=true;retireAfterWrite=false;FakeNvs::reset();
+ // Refusing an import before any write/adoption preserves a previously trusted
+ // running model, its identities/history and the canonical file.
+ for(unsigned cause=0;cause<5;++cause){
+  FakeNvs::reset();stored(100,100);stored(101,900);write(valid);writeAt("/shades.tmp",cause==4?valid.substr(0,3):aliasesModel(false,50,SHADE_HDR_VER,cause==1?0x1000000:100));
+  SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);live.shades[0].setShadeId(7);live.shades[0].setRemoteAddress(777);live.shades[0].lastRollingCode=80;
+  gitUpdate.allowed=true;retireAfterWrite=false;if(cause==0)FakeNvs::beforeGet=retireRestore;if(cause==2)FakeNvs::failRead=1;failCounterAllocation=cause==3;
+  ShadeConfigFile file;assert(file.begin("/shades.tmp",true));restore_options_t opts;opts.shades=opts.repeaters=true;
+  assert(!file.restoreFile(&live,"/shades.tmp",opts,{})&&live.modelLoad.usable()&&live.modelLoad.publishable());
+  assert(!live.adopted&&!live.commits&&!live.gpio&&live.configurationRevision==1&&live.restoreRevision==1);
+  assert(live.shades[0].getShadeId()==7&&live.shades[0].getRemoteAddress()==777&&live.shades[0].lastRollingCode==80);
+  assert(!FakeNvs::writeOpens&&!FakeNvs::sets&&FakeNvs::handles.empty()&&readAt("/shades.cfg")==valid);file.end();failCounterAllocation=false;
+ }
+ // Expiry after READY must retain whether verified promotions happened.
+ // Both callers that opened the source and internally opened sources qualify.
+ for(bool promoted:{false,true})for(bool preopened:{false,true}){
+  FakeNvs::reset();stored(100,promoted?100:900);stored(101,900);write(valid);writeAt("/shades.tmp",aliasesModel(false));
+  gitUpdate.allowed=true;gitUpdate.expireAtReads=promoted?4:2;gitUpdate.afterReads=0;
+  SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);live.shades[0].setShadeId(7);live.shades[0].setRemoteAddress(777);live.shades[0].lastRollingCode=80;
+  ShadeConfigFile file;if(preopened)assert(file.begin("/shades.tmp",true));restore_options_t opts;opts.shades=opts.repeaters=true;
+  assert(!file.restoreFile(&live,"/shades.tmp",opts,{})&&live.modelLoad.usable()==!promoted);
+  assert(!live.adopted&&!live.commits&&!live.gpio&&live.shades[0].getRemoteAddress()==777&&live.shades[0].lastRollingCode==80);
+  assert(FakeNvs::sets==unsigned(promoted)&&FakeNvs::commits==unsigned(promoted)&&FakeNvs::handles.empty()&&readAt("/shades.cfg")==valid);
+  if(preopened)assert(file.counters.result().ready()&&file.counters.result().writeAttempted==promoted);
+  file.end();gitUpdate.expireAtReads=-1;gitUpdate.afterReads=0;
+ }
+ // Actual behavior administration query refuses movement, unresolved held
+ // input and GPIO pulses before counter I/O, and preserves accepted STOP work.
+ for(unsigned busy=0;busy<15;++busy){
+  FakeNvs::reset();stored(100,100);stored(101,900);writeAt("/shades.tmp",aliasesModel(false));gitUpdate.allowed=true;
+  SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);live.shades[0].setShadeId(7);live.shades[0].setRemoteAddress(777);
+  if(busy==0)live.shades[0].behaviour.onGroupCommand(somfy_commands::Down,1,0);
+  if(busy==1){live.shades[0].frame.await=100;live.shades[0].frame.processed=false;}
+  if(busy==2)live.shades[0].gpioRelease=100;
+  if(busy==3){live.groups[0].setGroupId(1);live.groups[0].direction=1;live.groups[0].linkedShades[0]=99;}
+  if(busy==4)loopQueue.queued=1;
+  if(busy==5)live.transceiver.activityKnown=false;
+  if(busy==6)live.transceiver.activity.schedulerIdle=false;
+  if(busy==7)live.transceiver.activity.receivingFrame=true;
+  if(busy==8)live.transceiver.activity.receivedFrames=1;
+  if(busy==9)live.transceiver.activity.repeaterFrames=1;
+  if(busy==10)live.transceiver.activity.scanning=true;
+  if(busy==11)live.transceiver.activity.receiverPaused=true;
+  if(busy==12)live.transceiver.activity.counterBusy=true;
+  if(busy==13)live.transceiver.activity.txSealed=true;
+  if(busy==14)live.transceiver.activity.suspended=true;
+  ShadeConfigFile file;assert(file.begin("/shades.tmp",true));restore_options_t opts;opts.shades=opts.repeaters=true;
+  assert(!file.restoreFile(&live,"/shades.tmp",opts,{})&&live.modelLoad.publishable()&&!live.adopted&&!live.gpio&&!live.commits);
+  assert(FakeNvs::opens==0&&live.shades[0].getRemoteAddress()==777&&live.shades[0].effects.sends==0);
+  assert(loopQueue.queued==unsigned(busy==4));loopQueue.queued=0;file.end();
+ }
+ gitUpdate.allowed=true;FakeNvs::reset();unlink((LittleFS.root+"/shades.tmp").c_str());
+
  unlink((LittleFS.root+"/shades.cfg").c_str());rmdir(dir);puts("Actual ConfigFile boot loading: mounted/absent/full load/truncated header/repeater/trailing records pass before adoption");
 }

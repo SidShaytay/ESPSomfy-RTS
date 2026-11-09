@@ -27,7 +27,8 @@ void CounterLoad::clear(){
   entries=nullptr;count=0;outcome={};
 }
 CounterLoadResult CounterLoad::fail(CounterLoadStage stage,bool written){
-  clear();outcome={written?CounterLoadState::uncertain:CounterLoadState::failed,stage};return outcome;
+  written|=outcome.writeAttempted;
+  clear();outcome={written?CounterLoadState::uncertain:CounterLoadState::failed,stage,written};return outcome;
 }
 bool CounterLoad::include(uint32_t address,uint16_t floor){
   if(outcome.state!=CounterLoadState::collecting){if(outcome.ready())fail(CounterLoadStage::state);return false;}
@@ -77,7 +78,7 @@ CounterLoadResult CounterLoad::resolve(CounterLoadControl control){
     for(size_t i=0;i<count;++i){if(!continuing())return outcome;uint16_t actual=0;if(!read(handle.value,entries[i].address,actual)||actual!=entries[i].maximum)return fail(CounterLoadStage::verifyValue,true);}
   }
   if(!continuing())return outcome;
-  outcome={CounterLoadState::ready,CounterLoadStage::none};return outcome;
+  outcome={CounterLoadState::ready,CounterLoadStage::none,written};return outcome;
 }
 bool CounterLoad::lookup(uint32_t address,uint16_t &value)const{
   if(!outcome.ready()||!address)return false;

@@ -13,14 +13,14 @@ void tearDown(){TEST_ASSERT_TRUE(FakeNvs::handles.empty());}
 static void readonly_maxima_and_aliases_without_writes(){
  stored(100,500);stored(101,900);CounterLoad counters(allocate,release);
  TEST_ASSERT_TRUE(counters.include(100,20)&&counters.include(100,400)&&counters.include(101,0));
- TEST_ASSERT_TRUE(counters.resolve().ready());uint16_t value=99;TEST_ASSERT_TRUE(counters.lookup(100,value));TEST_ASSERT_EQUAL(500,value);
+ TEST_ASSERT_TRUE(counters.resolve().ready());TEST_ASSERT_FALSE(counters.result().writeAttempted);uint16_t value=99;TEST_ASSERT_TRUE(counters.lookup(100,value));TEST_ASSERT_EQUAL(500,value);
  TEST_ASSERT_TRUE(counters.lookup(101,value));TEST_ASSERT_EQUAL(900,value);TEST_ASSERT_EQUAL(0,FakeNvs::writeOpens);TEST_ASSERT_EQUAL(0,FakeNvs::sets);TEST_ASSERT_EQUAL(1,FakeNvs::readOnlyOpens);
  counters.clear();TEST_ASSERT_EQUAL(1,frees);
 }
 static void promotions_reopen_verify_final_unique_maximum(){
  stored(100,10);CounterLoad counters(allocate,release);
  TEST_ASSERT_TRUE(counters.include(100,20)&&counters.include(100,300)&&counters.include(101,50));
- TEST_ASSERT_TRUE(counters.resolve().ready());TEST_ASSERT_EQUAL(300,durable(100));TEST_ASSERT_EQUAL(50,durable(101));
+ TEST_ASSERT_TRUE(counters.resolve().ready());TEST_ASSERT_TRUE(counters.result().writeAttempted);TEST_ASSERT_EQUAL(300,durable(100));TEST_ASSERT_EQUAL(50,durable(101));
  uint16_t value=0;TEST_ASSERT_TRUE(counters.lookup(100,value));TEST_ASSERT_EQUAL(300,value);
  TEST_ASSERT_EQUAL(2,FakeNvs::readOnlyOpens);TEST_ASSERT_EQUAL(1,FakeNvs::writeOpens);TEST_ASSERT_EQUAL(2,FakeNvs::sets);TEST_ASSERT_EQUAL(1,FakeNvs::commits);
  const auto reads=FakeNvs::reads;TEST_ASSERT_TRUE(counters.resolve().ready());TEST_ASSERT_EQUAL(reads,FakeNvs::reads);
@@ -40,7 +40,7 @@ static void exact_missing_namespace_and_keys_only(){
 static void failures_after_write_attempt_are_uncertain_and_never_rollback(){
  for(unsigned phase=0;phase<5;++phase){FakeNvs::reset();stored(100,10);CounterLoad counters(allocate,release);TEST_ASSERT_TRUE(counters.include(100,300));
   if(phase==0)FakeNvs::failSet=1;if(phase==1)FakeNvs::failCommit=1;if(phase==2)FakeNvs::failOpen=3;if(phase==3)FakeNvs::failRead=2;if(phase==4)FakeNvs::corruptRead=2;
-  TEST_ASSERT_EQUAL(CounterLoadState::uncertain,counters.resolve().state);TEST_ASSERT_EQUAL(1,FakeNvs::sets);TEST_ASSERT_TRUE(durable(100)>=10);uint16_t unchanged=8;TEST_ASSERT_FALSE(counters.lookup(100,unchanged));TEST_ASSERT_EQUAL(8,unchanged);TEST_ASSERT_FALSE(counters.include(101,10));TEST_ASSERT_EQUAL(CounterLoadState::uncertain,counters.result().state);}
+  TEST_ASSERT_EQUAL(CounterLoadState::uncertain,counters.resolve().state);TEST_ASSERT_TRUE(counters.result().writeAttempted);TEST_ASSERT_EQUAL(1,FakeNvs::sets);TEST_ASSERT_TRUE(durable(100)>=10);uint16_t unchanged=8;TEST_ASSERT_FALSE(counters.lookup(100,unchanged));TEST_ASSERT_EQUAL(8,unchanged);TEST_ASSERT_FALSE(counters.include(101,10));TEST_ASSERT_EQUAL(CounterLoadState::uncertain,counters.result().state);}
 }
 static void memory_capacity_address_and_empty_bounds(){
  CounterLoad empty(allocate,release);TEST_ASSERT_TRUE(empty.resolve().ready());TEST_ASSERT_EQUAL(0,FakeNvs::opens);
@@ -57,7 +57,7 @@ static bool continuing(const void *raw){auto &c=*const_cast<CancelContext *>(sta
 static void cancellation_bounds_every_io_and_never_replays_partial_promotion(){
  for(unsigned stop=1;stop<=8;++stop){FakeNvs::reset();stored(100,10);CounterLoad counters(allocate,release);TEST_ASSERT_TRUE(counters.include(100,300));CancelContext context;context.stopAt=stop;
   const auto result=counters.resolve({&context,continuing,cooperate});TEST_ASSERT_EQUAL(CounterLoadStage::interrupted,result.stage);
-  TEST_ASSERT_EQUAL(stop>=5?CounterLoadState::uncertain:CounterLoadState::failed,result.state);
+  TEST_ASSERT_EQUAL(stop>=5?CounterLoadState::uncertain:CounterLoadState::failed,result.state);TEST_ASSERT_EQUAL(stop>=5,result.writeAttempted);
   TEST_ASSERT_EQUAL(context.calls,context.yields);TEST_ASSERT_EQUAL(context.opens,FakeNvs::opens);TEST_ASSERT_EQUAL(context.reads,FakeNvs::reads);TEST_ASSERT_EQUAL(context.sets,FakeNvs::sets);TEST_ASSERT_EQUAL(context.commits,FakeNvs::commits);
   TEST_ASSERT_TRUE(FakeNvs::handles.empty());uint16_t value=77;TEST_ASSERT_FALSE(counters.lookup(100,value));TEST_ASSERT_EQUAL(77,value);
   TEST_ASSERT_EQUAL(result.stage,counters.resolve().stage);TEST_ASSERT_EQUAL(context.sets,FakeNvs::sets);
