@@ -13,6 +13,7 @@ static bool admits(uint32_t spaces, bool priority) {
 }
 uint32_t RadioScheduler::submit(somfy_tx_job_t &job, bool priority, uint16_t delayMs, uint32_t now) {
   job.ticket = 0;
+  if(restartSealed) return 0;
   if(this->suspendMask) {
     ESP_LOGW(TAG, "Radio TX suspended, dropping transmission");
     return 0;
@@ -56,7 +57,7 @@ bool RadioScheduler::hasRepeaterWork() const {
   return false;
 }
 bool RadioScheduler::hasRoom() const {
-  return !this->suspendMask && admits(TX_JOB_QUEUE_SIZE - this->count, false) && this->outcomesFit();
+  return !restartSealed && !this->suspendMask && admits(TX_JOB_QUEUE_SIZE - this->count, false) && this->outcomesFit();
 }
 bool RadioScheduler::outcomesFit() const {
   // Each job not yet ended reports at most two outcomes: started, then how it

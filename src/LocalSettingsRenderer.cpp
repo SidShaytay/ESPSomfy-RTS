@@ -34,7 +34,7 @@ const char *restartBlockText(RestartReason reason) {
   case RestartReason::settingsUncertain: return "Settings storage uncertain. Review before Restart.";
   case RestartReason::modelFailed: return "Model file save failed. Save model before Restart.";
   case RestartReason::modelUncertain: return "Model file uncertain. Save model before Restart.";
-  case RestartReason::queuedOperations: return "Operations queued. Finish them, then request Restart.";
+  case RestartReason::queuedOperations: return "Operations active. Finish them, then request Restart.";
   case RestartReason::pending: return "Another restart is already pending.";
   case RestartReason::stale: return "State changed. Request Restart again.";
   case RestartReason::cancelled: return "Restart request was cancelled.";
@@ -44,6 +44,8 @@ const char *restartBlockText(RestartReason reason) {
   case RestartReason::notReady: return "Restart service not ready. Try Restart later.";
   case RestartReason::persistenceBusy: return "Storage/update I/O active. Request Restart later.";
   case RestartReason::counterUncertain: return "Counter storage uncertain. Recovery required.";
+  case RestartReason::activeMovement: return "Movement/pulse active. Wait before Restart.";
+  case RestartReason::unknownGroup: return "Group movement untracked. Review before Restart.";
   case RestartReason::none: break;
   }
   return "Restart refused. Check System status.";

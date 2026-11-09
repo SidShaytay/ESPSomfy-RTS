@@ -837,6 +837,15 @@ uint32_t Transceiver::submitTx(somfy_tx_job_t &job, bool priority, uint16_t dela
   if(ticket) xTaskNotifyGive(txTaskHandle);
   return ticket;
 }
+bool Transceiver::sealForRestart() {
+  TxQueueLock lock;return !tx_queue.length && this->sched.sealForRestart();
+}
+void Transceiver::reopenAfterRefusedRestart() {
+  TxQueueLock lock;this->sched.reopenAfterRefusedRestart();
+}
+bool Transceiver::restartQuiescent() {
+  TxQueueLock lock;return !tx_queue.length && !this->sched.hasWork();
+}
 bool Transceiver::counterEditUncertain() {
   TxQueueLock lock;return this->counterEdits.uncertain();
 }
