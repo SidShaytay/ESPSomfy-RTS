@@ -8,13 +8,14 @@ using AdminNotice=EntityAdmin::Notice;
 namespace {
 constexpr Kind kinds[] = {Kind::room,Kind::shade,Kind::group};
 constexpr CatalogueKind catalogues[] = {CatalogueKind::rooms,CatalogueKind::devices,CatalogueKind::groups};
-constexpr const char *titles[] = {"Rooms","Devices","Groups"};
+constexpr const char *titles[] = {"Rooms","Devices","Groups","More"};
 constexpr const char *addLabels[] = {"Add room","Add device","Add group"};
 constexpr uint8_t capacities[] = {SOMFY_MAX_ROOMS,SOMFY_MAX_SHADES,SOMFY_MAX_GROUPS};
-constexpr uint8_t typeCount = sizeof(kinds)/sizeof(*kinds);
+constexpr uint8_t moreType=sizeof(kinds)/sizeof(*kinds);
+constexpr uint8_t typeCount=moreType+1;
 }
 void Administration::close(AdminNotice notice) {
-  form.discard();ordering.discard();frame={};frame.notice=notice;admitted={};
+  form.discard();ordering.discard();advanced.discard();frame={};frame.notice=notice;admitted={};
   revision=observedAt=0;cursor=anchor=returnId=typeCursor=0;active=false;page=Page::types;
 }
 bool Administration::open(uint64_t now) {
@@ -34,17 +35,21 @@ bool Administration::entry(uint8_t ordinal,CatalogueEntry &out) {
 void Administration::render() {
   if(page==Page::entity) {frame=form.view();return;}
   if(page==Page::order) {ordering.render(frame);return;}
+  if(page==Page::advanced) {advanced.render(frame);return;}
   const auto notice=frame.notice;frame={};frame.notice=notice;
-  frame.mode=Mode::fields;frame.kind=kinds[typeCursor];
+  frame.mode=Mode::fields;
   if(page==Page::types) {
     strcpy(frame.title,"Administration");strcpy(frame.hint,"Press: manage   Back: Home");
-    frame.total=frame.rowCount=typeCount;frame.selected=typeCursor;
-    for(uint8_t i=0;i<typeCount;i++) {strcpy(frame.rows[i].label,titles[i]);frame.rows[i].selected=i==typeCursor;}
+    frame.total=typeCount;frame.selected=typeCursor;frame.offset=typeCursor/3*3;
+    for(uint8_t i=frame.offset;i<typeCount && frame.rowCount<3;i++) {auto &row=frame.rows[frame.rowCount++];strcpy(row.label,titles[i]);row.selected=i==typeCursor;}
     return;
   }
+  if(page==Page::more) {strcpy(frame.title,"More");strcpy(frame.hint,"Press: choose   Back: types");frame.total=frame.rowCount=1;strcpy(frame.rows[0].label,"Repeaters");frame.rows[0].selected=true;return;}
+  if(typeCursor>=moreType) {close(AdminNotice::changed);return;}
+  frame.kind=kinds[typeCursor];
   CataloguePage data;
   if(!cataloguePage(catalogue,catalogues[typeCursor],0,allRooms,data)) {close(AdminNotice::changed);return;}
-  frame.total=data.total+2;if(cursor>=frame.total)cursor=0;
+  frame.total=data.total+(typeCursor?3:2);if(cursor>=frame.total)cursor=0;
   frame.selected=cursor;frame.offset=cursor/3*3;
   strcpy(frame.title,titles[typeCursor]);strcpy(frame.hint,"Press: choose   Back: types");
   anchor=0;
@@ -52,6 +57,7 @@ void Administration::render() {
     auto &row=frame.rows[frame.rowCount++];row.selected=i==cursor;
     if(!i) snprintf(row.label,sizeof(row.label),"%s%s",addLabels[typeCursor],data.total>=capacities[typeCursor]?" (full)":"");
     else if(i==data.total+1) strcpy(row.label,"Reorder");
+    else if(typeCursor && i==data.total+2)strcpy(row.label,"Advanced");
     else {
       CatalogueEntry item;if(!entry(i-1,item)) {close(AdminNotice::changed);return;}
       snprintf(row.label,sizeof(row.label),"#%u %s",unsigned(item.id),item.name);
@@ -63,7 +69,7 @@ bool Administration::guard(uint64_t now) {
   if(!active)return false;
   if(now<observedAt) {close(AdminNotice::expired);return false;}
   observedAt=now;
-  if(page==Page::entity || page==Page::order)return true; // Each child owns its captured history/result.
+  if(page==Page::entity || page==Page::order || page==Page::advanced)return true; // Each child owns its captured history/result.
   const auto current=backend.authorization();
   if(!current.allowed) {close(AdminNotice::locked);return false;}
   if(current.generation!=admitted.generation || current.configurationGeneration!=admitted.configurationGeneration) {
@@ -72,12 +78,13 @@ bool Administration::guard(uint64_t now) {
   const auto currentRevision=backend.revision();
   if(!currentRevision) {close(AdminNotice::changed);return false;}
   if(currentRevision!=revision) {
-    const bool reorderSelected=page==Page::entries && cursor && cursor+1==frame.total;
+    const bool reorderSelected=page==Page::entries && cursor && cursor+(typeCursor?2:1)==frame.total;
+    const bool advancedSelected=page==Page::entries && typeCursor && cursor+1==frame.total;
     revision=currentRevision;
-    if(reorderSelected) {
+    if(reorderSelected || advancedSelected) {
       CataloguePage current;
       if(!cataloguePage(catalogue,catalogues[typeCursor],0,allRooms,current)) {close(AdminNotice::changed);return false;}
-      cursor=current.total+1;
+      cursor=current.total+(advancedSelected?2:1);
     } else if(page==Page::entries && anchor) {
       CataloguePage anchored;
       if(!cataloguePage(catalogue,catalogues[typeCursor],0,allRooms,anchored,anchor,true)) {close(AdminNotice::changed);return false;}
@@ -88,14 +95,17 @@ bool Administration::guard(uint64_t now) {
   }
   return true;
 }
-void Administration::resume() {
+bool Administration::renew() {
   const auto current=backend.authorization();
-  if(!current.allowed) {close(AdminNotice::locked);return;}
+  if(!current.allowed) {close(AdminNotice::locked);return false;}
   if(current.generation!=admitted.generation || current.configurationGeneration!=admitted.configurationGeneration) {
-    close(AdminNotice::changed);return;
+    close(AdminNotice::changed);return false;
   }
-  page=Page::entries;revision=backend.revision();cursor=0;
-  if(!revision) {close(AdminNotice::changed);return;}
+  revision=backend.revision();if(!revision){close(AdminNotice::changed);return false;}return true;
+}
+void Administration::resume() {
+  if(!renew())return;
+  page=Page::entries;cursor=0;
   if(returnId) {
     CataloguePage data;
     if(!cataloguePage(catalogue,catalogues[typeCursor],0,allRooms,data,returnId,true)) {close(AdminNotice::changed);return;}
@@ -107,9 +117,19 @@ void Administration::resume() {
 void Administration::finishOrder() {
   if(ordering.closed() && ordering.notice()==AdminNotice::none)resume();else render();
 }
+void Administration::resumeAdvanced() {
+  if(typeCursor==moreType) {if(!renew())return;page=Page::more;cursor=0;frame.notice=AdminNotice::none;render();return;}
+  resume();
+  if(active && !returnId) {CataloguePage data;if(!cataloguePage(catalogue,catalogues[typeCursor],0,allRooms,data)){close(AdminNotice::changed);return;}cursor=data.total+2;render();}
+}
+void Administration::finishAdvanced() {
+  if(advanced.closed() && advanced.notice()==AdminNotice::none)resumeAdvanced();else render();
+}
 void Administration::tick(uint64_t now) {
   if(!active)return;
-  if(page==Page::order) {
+  if(page==Page::advanced) {
+    if(now<observedAt){close(AdminNotice::expired);return;}observedAt=now;advanced.tick(now);finishAdvanced();
+  } else if(page==Page::order) {
     if(now<observedAt) {close(AdminNotice::expired);return;}
     observedAt=now;ordering.tick(now);finishOrder();
   } else if(page==Page::entity) {
@@ -123,6 +143,7 @@ void Administration::tick(uint64_t now) {
 void Administration::turn(int direction,uint64_t now) {
   if(!direction || !guard(now))return;
   backend.activity();
+  if(page==Page::advanced) {advanced.turn(direction,now);finishAdvanced();return;}
   if(page==Page::entity) {form.turn(direction,now);render();return;}
   if(page==Page::order) {ordering.turn(direction,now);finishOrder();return;}
   if(page==Page::types) {
@@ -138,6 +159,11 @@ void Administration::turn(int direction,uint64_t now) {
 void Administration::activate(uint64_t now) {
   if(!guard(now))return;
   backend.activity();
+  if(page==Page::advanced) {
+    if(advanced.closed()){resumeAdvanced();return;}
+    if(frame.id)returnId=frame.id;advanced.activate(now);finishAdvanced();return;
+  }
+  if(page==Page::more) {returnId=0;advanced.open(Advanced::Scope::repeaters,now);page=Page::advanced;render();return;}
   if(page==Page::order) {
     if(ordering.closed()) {close(AdminNotice::none);return;}
     if(frame.id)returnId=frame.id;
@@ -151,8 +177,9 @@ void Administration::activate(uint64_t now) {
     if(form.closed() && form.view().notice==AdminNotice::none)resume();else render();
     return;
   }
-  if(page==Page::types) {page=Page::entries;cursor=anchor=returnId=0;frame.notice=AdminNotice::none;render();return;}
-  if(cursor+1==frame.total) {
+  if(page==Page::types) {page=typeCursor==moreType?Page::more:Page::entries;cursor=anchor=returnId=0;frame.notice=AdminNotice::none;render();return;}
+  if(typeCursor && cursor+1==frame.total) {form.discard();ordering.discard();returnId=0;advanced.open(typeCursor==1?Advanced::Scope::devices:Advanced::Scope::groups,now);page=Page::advanced;render();return;}
+  if(cursor+(typeCursor?2:1)==frame.total) {
     form.discard();returnId=0;ordering.open(kinds[typeCursor],now);page=Page::order;render();return;
   }
   if(!cursor) {
@@ -166,6 +193,7 @@ void Administration::activate(uint64_t now) {
 void Administration::back(uint64_t now) {
   if(!guard(now))return;
   backend.activity();
+  if(page==Page::advanced) {if(advanced.closed()){resumeAdvanced();return;}if(frame.id)returnId=frame.id;advanced.back(now);finishAdvanced();return;}
   if(page==Page::order) {
     if(ordering.closed()) {close(AdminNotice::none);return;}
     if(frame.id)returnId=frame.id;
@@ -176,7 +204,7 @@ void Administration::back(uint64_t now) {
     if(form.view().id)returnId=form.view().id;
     form.back(now);
     if(form.closed() && form.view().notice==AdminNotice::none)resume();else render();
-  } else if(page==Page::entries) {page=Page::types;cursor=anchor=0;frame.notice=AdminNotice::none;render();}
+  } else if(page==Page::entries || page==Page::more) {page=Page::types;cursor=anchor=0;frame.notice=AdminNotice::none;render();}
   else close(AdminNotice::none);
 }
 }
