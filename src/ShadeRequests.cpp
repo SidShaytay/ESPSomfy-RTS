@@ -92,8 +92,7 @@ shade_request_result_t ShadeRequests::run(const shade_request_t &req) {
       return sent(taken);
     }
     case shade_request_type_t::set_rolling_code:
-      this->ops.setRollingCode(req.id, req.rollingCode);
-      return shade_request_result_t::done;
+      return this->ops.setRollingCode(req.id, req.rollingCode);
   }
   return shade_request_result_t::done;
 }

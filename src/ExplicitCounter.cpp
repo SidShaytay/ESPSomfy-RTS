@@ -59,6 +59,17 @@ Affected affected(uint32_t address,SomfyShade *newLink=nullptr) {
   }
   return out;
 }
+uint16_t aliasHighwater(uint32_t address) {
+  uint16_t high=0;
+  auto include=[&](SomfyRemote &remote) {
+    if(remote.getRemoteAddress()==address && remote.lastRollingCode>high)high=remote.lastRollingCode;
+  };
+  for(auto &shade:somfy.shades)if(shade.getShadeId()!=255) {
+    include(shade);for(auto &remote:shade.linkedRemotes)include(remote);
+  }
+  for(auto &group:somfy.groups)if(group.getGroupId()!=255)include(group);
+  return high;
+}
 void adoptAll(uint32_t address,uint16_t code) {
   for(auto &shade:somfy.shades)if(shade.getShadeId()!=255) {
     bool changed=false;
@@ -86,10 +97,10 @@ CounterDomainResult correct(SomfyShade &shade,uint32_t address,uint16_t code,Som
   if(loopQueue.pending())return {CounterDomainState::busy};
   const auto admitted=somfy.transceiver.reserveCounterEdit(address,context.idle,context.groups,restartPending());
   if(admitted!=CounterEditAdmission::admitted)return {admission(admitted)};
-  const auto persisted=persistExplicitCounter(address,code);
+  const auto persisted=slot ? persistObservedCounter(address,code,aliasHighwater(address)) : persistExplicitCounter(address,code);
   if(!persisted.saved()) {
     somfy.transceiver.finishCounterEdit(persisted,{});
-    return {persisted.state==CounterEditState::uncertain ? CounterDomainState::nvsUncertain : CounterDomainState::nvsFailed};
+    return {persisted.state==CounterEditState::stale ? CounterDomainState::stale : persisted.state==CounterEditState::uncertain ? CounterDomainState::nvsUncertain : CounterDomainState::nvsFailed};
   }
   if(slot)slot->setRemoteAddress(address);
   adoptAll(address,code);

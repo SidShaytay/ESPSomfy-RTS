@@ -63,6 +63,7 @@ struct shade_info_t {
 // The seam between ShadeRequests and the shades and groups it acts on.  On the
 // device it is the shade model (SomfyShadeOps); the tests record the calls.
 // Positions are stored ones, so already turned round for a flipped shade.
+enum class shade_request_result_t : uint8_t;
 class ShadeOps {
   public:
     virtual ~ShadeOps() {}
@@ -81,7 +82,7 @@ class ShadeOps {
     // A negative position leaves that one as it is.
     virtual void setPositions(uint8_t shadeId, float pos, float tilt) = 0;
     virtual void setUnpaired(uint8_t shadeId) = 0;
-    virtual void setRollingCode(uint8_t shadeId, uint16_t code) = 0;
+    virtual shade_request_result_t setRollingCode(uint8_t shadeId, uint16_t code) = 0;
     virtual bool sendGroupCommand(uint8_t groupId, somfy_commands cmd, uint8_t repeat, uint8_t stepSize) = 0;
     virtual bool isLastGroupCommand(uint8_t groupId, somfy_commands cmd) = 0;
     virtual bool repeatGroupFrame(uint8_t groupId, uint8_t repeat) = 0;
@@ -94,7 +95,9 @@ enum class shade_request_result_t : uint8_t {
   not_found,      // no shade or group with that id; nothing was done
   radio_refused,  // the radio didn't take a command it sent
   shade_moving,   // a favorite is only set on a shade at rest; nothing was done
-  no_tilt         // only a tilt was given, for a shade without one; nothing was done
+  no_tilt,        // only a tilt was given, for a shade without one; nothing was done
+  counter_busy, counter_blocked, counter_failed, counter_uncertain,
+  counter_file_failed, counter_file_uncertain, counter_stale
 };
 
 // Carries out shade requests, whichever entry point they came from: finds

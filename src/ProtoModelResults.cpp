@@ -18,6 +18,8 @@ void writeModelEditResult(ProtoWriter &w, model_edit_type_t type,
     w.add(proto_field_t::code,
           static_cast<uint8_t>(result.applied    ? proto_error_t::internal
                                : result.notFound ? proto_error_t::notFound
+                               : result.failure==edit_failure_t::busy ? proto_error_t::busy
+                               : result.failure==edit_failure_t::internal ? proto_error_t::internal
                                                  : proto_error_t::badRequest));
     w.add(proto_field_t::desc, result.desc);
     w.add(proto_field_t::validation, result.code);
@@ -32,7 +34,14 @@ void writeModelCommitReport(ProtoWriter &w, ModelCommitReport report) {
   if(report.refusal!=RestartReason::none) {
     if(!result.saved()) {
       w.add(proto_field_t::code,static_cast<uint8_t>(proto_error_t::busy));
-      w.add(proto_field_t::desc,"Upload recovery expired or does not own storage; no file save or restart was performed.");
+      const char *why=report.refusal==RestartReason::counterUncertain
+          ? "Counter storage is uncertain. Commit cannot recover an unknown counter; no new writes were performed."
+          : report.refusal==RestartReason::persistenceBusy
+          ? "Storage or update work is active; no file recovery performed. Retry Commit later."
+          : report.refusal==RestartReason::invalidRequest
+          ? "Invalid commit mode/source; no file save performed."
+          : "Upload recovery expired or does not own storage; no file save or restart was performed.";
+      w.add(proto_field_t::desc,why);
     } else w.add(proto_field_t::desc,restartReason(report.refusal));
   } else if (report.restartDeferred)
     w.add(proto_field_t::desc,

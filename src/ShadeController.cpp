@@ -6,6 +6,7 @@
 #include "ConfigFile.h"
 #include "ModelEditor.h"
 #include "ShadeChanges.h"
+#include "CounterCommandGuard.h"
 #include "outputs/ProtoSocket.h"
 
 static const char *TAG = "Somfy";
@@ -180,6 +181,7 @@ bool SomfyShadeController::linkRepeater(uint32_t address) {
   return true;
 }
 uint32_t SomfyShadeController::sendFrame(somfy_frame_t &frame, uint8_t repeat, uint16_t delayMs, bool priority) {
+  if(!counterCommandAllowed(frame.remoteAddress,frame.cmd))return 0;
   somfy_tx_job_t job;
   encodeTxJob(job, frame, repeat);
   job.firstRepeat = 1;

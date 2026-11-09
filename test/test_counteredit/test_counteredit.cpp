@@ -112,8 +112,32 @@ static void unknown_nvs_cannot_be_cleared_by_file_or_unrelated_completions() {
   TEST_ASSERT_TRUE(safety.blocks(a));
   TEST_ASSERT_EQUAL(CounterQuarantine::nvsUnknown,safety.quarantine());
 }
+static void observed_writer_never_lowers_retained_or_alias_highwater() {
+  FakeNvs::reset();TEST_ASSERT_TRUE(persistExplicitCounter(a,500).saved());
+  const auto sets=FakeNvs::sets,commits=FakeNvs::commits;
+  TEST_ASSERT_EQUAL(CounterEditState::stale,persistObservedCounter(a,499,0).state);
+  TEST_ASSERT_EQUAL(CounterEditState::stale,persistObservedCounter(a,550,600).state);
+  TEST_ASSERT_EQUAL(sets,FakeNvs::sets);TEST_ASSERT_EQUAL(commits,FakeNvs::commits);
+  TEST_ASSERT_TRUE(persistObservedCounter(a,600,600).saved());
+  TEST_ASSERT_TRUE(persistExplicitCounter(a,65535).saved());
+  const auto highSets=FakeNvs::sets;
+  TEST_ASSERT_EQUAL(CounterEditState::stale,persistObservedCounter(a,0,0).state);
+  TEST_ASSERT_EQUAL(highSets,FakeNvs::sets);
+  TEST_ASSERT_TRUE(persistExplicitCounter(a,0).saved()); // Deliberate correction remains explicit.
+}
+static void observed_prewrite_read_error_is_not_absent_or_an_uncertain_write() {
+  FakeNvs::reset();TEST_ASSERT_TRUE(persistObservedCounter(a,0,0).saved()); // Exact NOT_FOUND is absent.
+  const auto sets=FakeNvs::sets;FakeNvs::failRead=FakeNvs::reads+1;
+  TEST_ASSERT_EQUAL(CounterEditState::failed,persistObservedCounter(a,100,0).state);
+  TEST_ASSERT_EQUAL(sets,FakeNvs::sets);
+  FakeNvs::failRead=0;FakeNvs::values["ShadeCodes/_1193046"].type=FakeNvs::Type::text;
+  TEST_ASSERT_EQUAL(CounterEditState::failed,persistObservedCounter(a,100,0).state);
+  TEST_ASSERT_EQUAL(sets,FakeNvs::sets);TEST_ASSERT_TRUE(FakeNvs::handles.empty());
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(observed_writer_never_lowers_retained_or_alias_highwater);
+  RUN_TEST(observed_prewrite_read_error_is_not_absent_or_an_uncertain_write);
   RUN_TEST(verified_nvs_file_failure_requires_only_file_recovery);
   RUN_TEST(unknown_nvs_cannot_be_cleared_by_file_or_unrelated_completions);
   RUN_TEST(verified_writer_checks_set_commit_and_readback);

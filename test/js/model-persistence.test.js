@@ -100,3 +100,19 @@ test('application upload that never started does not offer a model Commit retry'
     context.xhr.responseText = JSON.stringify({ desc: 'Own transfer failed; model save queued.' });context.xhr.status = 500;
     context.xhr.onload();assert.equal(warnings.length, 1);
 });
+
+test('applied counter file failure closes original dialog and retries only explicit COMMIT', async () => {
+    const h = setup(() => Promise.resolve({}));
+    const counter = source.slice(source.indexOf('    setRollingCode(shadeId, rollingCode) {'), source.indexOf('    openSetRollingCode('));
+    h.context.document.getElementById = (id) => id === 'divRollingCode' ? { remove() { h.order.push('closed'); } } : {};
+    h.context.sendOp = (name, fields, cb) => {
+        h.calls.push({ name, fields });
+        cb({ data: { applied: true, durable: false, modelSaveState: 1, desc: 'Counter applied; retry Commit only' } });
+    };
+    vm.runInNewContext('var counterUi = {' + counter + '};', h.context);
+    h.context.counterUi.setRollingCode(7, 100);
+    assert.deepEqual(h.order, ['closed', 'warning']);
+    h.boxes[0].children[0].handlers.click(); await settle();
+    assert.deepEqual(h.calls.map(c => c.name), ['setRollingCode', 'commitModel']);
+    assert.deepEqual(Object.keys(h.calls[1].fields), []);
+});

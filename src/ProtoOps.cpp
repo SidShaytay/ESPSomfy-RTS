@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <strings.h>
 #include "ProtoOps.h"
+#include "CounterResults.h"
 
 // An op reads only the fields that were sent: unlike what the device sends, a
 // left-out field is not its schema default but not given, so a client can
@@ -217,7 +218,11 @@ proto_error_t protoRequestError(shade_request_result_t result) {
     // At rest it would take it: the client may try again.
     case shade_request_result_t::shade_moving: return proto_error_t::busy;
     case shade_request_result_t::no_tilt: return proto_error_t::badRequest;
-    default: return proto_error_t::none;
+    case shade_request_result_t::counter_busy:
+    case shade_request_result_t::counter_blocked:return proto_error_t::busy;
+    case shade_request_result_t::counter_stale:return proto_error_t::badRequest;
+    case shade_request_result_t::done:return proto_error_t::none;
+    default:return proto_error_t::internal;
   }
 }
 const char *protoRequestErrorDesc(const shade_request_t &req, shade_request_result_t result) {
@@ -226,6 +231,28 @@ const char *protoRequestErrorDesc(const shade_request_t &req, shade_request_resu
     case shade_request_result_t::radio_refused: return PROTO_RADIO_REFUSED;
     case shade_request_result_t::shade_moving: return "The shade is moving";
     case shade_request_result_t::no_tilt: return "The shade has no tilt";
-    default: return nullptr;
+    case shade_request_result_t::counter_busy:return counterDomainDescription(CounterDomainState::busy);
+    case shade_request_result_t::counter_blocked:return counterDomainDescription(CounterDomainState::quarantined);
+    case shade_request_result_t::counter_uncertain:return counterDomainDescription(CounterDomainState::nvsUncertain);
+    case shade_request_result_t::counter_file_failed:return counterDomainDescription(CounterDomainState::modelFailed);
+    case shade_request_result_t::counter_file_uncertain:return counterDomainDescription(CounterDomainState::modelUncertain);
+    case shade_request_result_t::counter_stale:return counterDomainDescription(CounterDomainState::stale);
+    case shade_request_result_t::counter_failed:return counterDomainDescription(CounterDomainState::nvsFailed);
+    case shade_request_result_t::done:return nullptr;
+    default:return "Command outcome unavailable; no success was reported.";
+  }
+}
+
+void writeShadeRequestResult(ProtoWriter &writer,const shade_request_t &request,shade_request_result_t result) {
+  const auto error=protoRequestError(result);
+  writer.add(proto_field_t::ok,error==proto_error_t::none);
+  if(request.type==shade_request_type_t::set_rolling_code) {
+    const bool applied=result==shade_request_result_t::done || result==shade_request_result_t::counter_file_failed || result==shade_request_result_t::counter_file_uncertain;
+    writer.add(proto_field_t::applied,applied);writer.add(proto_field_t::durable,result==shade_request_result_t::done);
+    if(applied)writer.add(proto_field_t::modelSaveState,int(result==shade_request_result_t::done ? ModelCommitState::saved : result==shade_request_result_t::counter_file_uncertain ? ModelCommitState::uncertain : ModelCommitState::failed));
+  }
+  if(error!=proto_error_t::none) {
+    writer.add(proto_field_t::code,uint8_t(error));
+    writer.add(proto_field_t::desc,protoRequestErrorDesc(request,result));
   }
 }

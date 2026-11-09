@@ -3444,11 +3444,19 @@ class Somfy {
         }
     }
     setRollingCode(shadeId, rollingCode) {
-        sendOp('setRollingCode', { shadeId: shadeId, lastRollingCode: rollingCode }, (err) => {
-            if (err) ui.serviceError(document.getElementById('divSomfySettings'), err);
-            else {
-                let dlg = document.getElementById('divRollingCode');
+        sendOp('setRollingCode', { shadeId: shadeId, lastRollingCode: rollingCode }, (err, reply) => {
+            const close = () => {
+                const dlg = document.getElementById('divRollingCode');
                 if (dlg) dlg.remove();
+            };
+            if (err) {
+                if (err.data && err.data.applied === true) {
+                    close();
+                    showModelSaveWarning(err.data, true);
+                } else ui.serviceError(document.getElementById('divSomfySettings'), err);
+            } else {
+                close();
+                if (reply && reply.durable === true) showModelSaveWarning(reply);
             }
         }, true);
     }
