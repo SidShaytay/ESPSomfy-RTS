@@ -37,12 +37,30 @@ for SDK I/O and the transfer lifecycle to close. A failed abort retains the
 owner and paused resources, with no automatic retry or restart.
 
 `python3 tests/git-update-install/run.py` exercises the production worker with
-20 entirely offline scenarios: a valid synthetic bundled image, invalid/short image,
+25 entirely offline worker scenarios: a valid synthetic bundled image, invalid/short image,
 cancellation at transfer/begin/write/end, stale authorization, transfer expiry,
 allocation and notification failures, SDK failures, and busy cleanup. The valid
-case compares every written byte and verifies zero boot selections. Startup,
-LCD controls, final SafeRestart handoff and postboot health remain unfinished;
-these tests do not establish a working user-facing installer.
+case compares every written byte and verifies zero early boot selections.
+Activation requires the final restart owner, re-resolves the exact written
+address, size and OTA subtype, then checks the SDK boot-partition readback.
+No activation is repeated, including after the ordinary transfer deadline.
+
+The same command runs 16 coupled controller journeys through the actual worker,
+`GitUpdateController` and SafeRestart. The loop adapter binds the local session,
+security configuration, model revision and settings uncertainty history. It
+refuses moving/pending work, seals producers, obtains the exact radio pause and
+saves the model through the existing checked writer before OTA begins. It keeps
+those resources through writing and final selection. Cancellation/expiry resumes
+only after closed I/O; busy cleanup retains resources and stale cleanup stops
+without retrying a physical operation. The controller requests no RF/motor
+commands and stores no credentials in its source record.
+
+Startup, LCD controls and postboot health remain unfinished. No production
+startup calls this adapter; these tests do not establish a working user-facing
+installer. `beginGitUpdateController()` requires prior global TLS allocator
+initialization. The owning main loop must service network/UI while
+`gitUpdateControllerPaused()` and must defer normal model/queue execution until
+cleanup or final shutdown.
 
 `tools/test-update-worker.sh` compiles production service/policy/certificate code against scripted SDK boundaries and local SHA256. It exercises valid and changed candidates, stale/reboot generations, cancellation/deadlines, ownership races, malformed metadata/digests/redirects, allocation/resource failures and certificate errors. Fakes assert no critical-section SDK calls, leaks, partition writes or model effects. A mutation removing manifest-digest binding fails the changed-manifest regression.
 

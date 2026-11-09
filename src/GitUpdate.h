@@ -6,13 +6,13 @@
 #include <cstdint>
 
 // One shared updater service. Installation callbacks are an unfinished draft:
-// startup/UI wiring and the verified final restart handoff are not implemented.
+// startup/UI wiring and postboot acceptance remain unfinished.
 enum class GitUpdatePhase : uint8_t { unavailable, idle, queued, checking, available, current, preparing, prepared, changed, cancelled, error, downloading, verifying, writing, written, cleanupPending };
 enum class GitUpdateReason : uint8_t {
   none, unsupported, notStarted, development, memory, admission, clock, hardware,
   layout, bootloader, assets, transport, headers, redirect, notPublished, body,
   metadata, repository, manifest, digest, compatibility, noNewerRelease, cancelled,
-  timeout, candidateChanged, invalidCandidate, settingsUncertain, certificateTime, freshness, invalidImage, writeFailed
+  timeout, candidateChanged, invalidCandidate, settingsUncertain, certificateTime, freshness, invalidImage, writeFailed, activationFailed
 };
 enum class GitUpdateRequest : uint8_t { accepted, busy, unavailable, invalidCandidate };
 struct GitUpdateCandidate {
@@ -58,6 +58,9 @@ public:
   GitUpdateRequest requestCheck();
   GitUpdateRequest requestPrepare(const GitUpdateCandidate &expected);
   GitUpdateRequest requestInstall(const GitUpdateCandidate &,uint64_t &operation);
+  // Loop only, after SafeRestart's final take and exact source handoff.
+  bool activateInstall(uint64_t operation);
+  void finishInstallRestart(uint64_t operation,bool mayClean);
   bool requestCancel();
   bool acquireExternal(GitUpdateExternalOwner kind,GitUpdateOwnerToken &token);
   bool releaseExternal(const GitUpdateOwnerToken &token);
