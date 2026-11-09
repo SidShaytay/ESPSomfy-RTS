@@ -133,6 +133,10 @@ int main(int argc,char **argv) {
   GitUpdateOwnerToken external;
   CHECK(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,external));
   CHECK(gitUpdate.requestCheck()==GitUpdateRequest::busy);CHECK(gitUpdate.releaseExternal(external));
+  if(mode=="generationmax"){
+    uint64_t untouched=99;CHECK(gitUpdate.requestCheck(untouched)==GitUpdateRequest::unavailable && untouched==99);
+    CHECK(gitUpdate.snapshot().reason==GitUpdateReason::freshness && !gitUpdate.busy() && Fake::urls.empty());return 0;
+  }
   CHECK(gitUpdate.requestCheck()==GitUpdateRequest::accepted);
   CHECK(Fake::urls.empty() && Fake::attestationCalls==0 && !Fake::queued);
   auto result=run();
