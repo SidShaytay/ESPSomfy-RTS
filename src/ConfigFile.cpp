@@ -725,12 +725,14 @@ RestoreApplyResult ShadeConfigFile::restoreFile(SomfyShadeController *s,const ch
       if(result.counterWriteAttempted)s->modelLoad.fail();
       result.refusal=RestoreRefusal::counterStorage;return result;
     }
-    if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000) || !restoreIdle(s,radio)){
-      if(result.counterWriteAttempted)s->modelLoad.fail();
-      result.refusal=RestoreRefusal::ownership;return result;
-    }
-    s->modelLoad.fail();
   }
+  // Preflight itself consumes time for every selection, including repeater-only
+  // and settings-only restore. No revision or live mutation uses an expired grant.
+  if(!gitUpdate.transferRestoreClaimed(owner,uint64_t(esp_timer_get_time())/1000) || !restoreIdle(s,radio)){
+    if(result.counterWriteAttempted)s->modelLoad.fail();
+    result.refusal=RestoreRefusal::ownership;return result;
+  }
+  if(opts.shades)s->modelLoad.fail();
   invalidateDeviceSettingsRevisions();++s->configurationRevision;++s->restoreRevision;
   if(opts.shades){
     result.modelApplied=true;readModel(s);

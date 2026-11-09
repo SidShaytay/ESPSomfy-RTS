@@ -67,10 +67,12 @@ struct SomfyGroup:SomfyRemote,group_record_t {
 static shade_record_t shadeRecord(SomfyShade *shade){return *shade;}
 static group_record_t groupRecord(SomfyGroup *group){return *group;}
 
+static bool expireAfterValidation=false;static unsigned grantChecks=0,historyChanges=0;
 static bool restoreAllowed=true;static int expireAtReads=-1;static unsigned afterReads=0;
 constexpr GitUpdateOwnerToken RestoreOwner{7,GitUpdateExternalOwner::restore};
 GitUpdateClass gitUpdate;
 bool GitUpdateClass::transferRestoreClaimed(const GitUpdateOwnerToken &owner,uint64_t){
+ if(expireAfterValidation && ++grantChecks==2){restoreAllowed=false;return true;}
  if(!restoreAllowed||owner.generation!=RestoreOwner.generation||owner.kind!=RestoreOwner.kind)return false;
  if(expireAtReads>=0&&FakeNvs::reads>=expireAtReads)return ++afterReads<2;
  return true;
@@ -80,7 +82,7 @@ int64_t esp_timer_get_time(){return 1000000;}
 static void resetTaskWdt(){}
 static bool retireAfterWrite=false;
 static void delay(unsigned long){if(retireAfterWrite && FakeNvs::sets)restoreAllowed=false;}
-void invalidateDeviceSettingsRevisions(){}
+void invalidateDeviceSettingsRevisions(){++historyChanges;}
 static int expectedSetupPin=-1;
 static unsigned settingEffects=0;
 ConfigSettings settings;
@@ -199,6 +201,17 @@ static std::string readAt(const char *path){FILE *f=fopen((LittleFS.root+path).c
 int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));LittleFS.root=dir;qualifySettings(settings);SomfyShadeController model;
  ShadeConfigFile noUncheckedWrite;assert(!noUncheckedWrite.begin(false)&&LittleFS.writeOpens==0);
  noteModelFilesystemMounted(false);assert(ShadeConfigFile::loadBoot(&model)==ModelLoadStatus::unavailable&&!model.adopted);
+ for(bool onlySettings:{false,true}){noteModelFilesystemMounted(true);
+  const char *only=getenv("RESTORE_PREFLIGHT_EXPIRY");if(only && onlySettings!=(std::string(only)=="settings"))continue;
+  FakeNvs::reset();writeAt("/shades.tmp",onlySettings?fullSettingsModel():validModel());restoreAllowed=true;expireAfterValidation=true;grantChecks=0;
+  SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);ShadeConfigFile file;restore_options_t opts;opts.repeaters=!onlySettings;opts.settings=onlySettings;
+  const auto history=historyChanges;const auto config=live.configurationRevision;const auto restore=live.restoreRevision;
+  const auto result=file.restoreFile(&live,"/shades.tmp",opts,RestoreOwner,RadioInstallToken{1});
+  fprintf(stderr,"expiry settings=%u complete=%u repeaters=%u commits=%u history=%u writes=%u reason=%u checks=%u\n",onlySettings,result.complete,live.repeatersRead,live.commits,historyChanges-history,FakeNvs::writeOpens,unsigned(result.refusal),grantChecks);
+  assert(!result.complete&&!result.modelApplied&&!live.repeatersRead&&!live.commits&&!FakeNvs::writeOpens&&historyChanges==history&&live.configurationRevision==config&&live.restoreRevision==restore);
+  expireAfterValidation=false;restoreAllowed=true;grantChecks=0;
+ }
+ if(getenv("RESTORE_PREFLIGHT_EXPIRY"))return 0;
  noteModelFilesystemMounted(true);SomfyShadeController empty;assert(empty.begin()&&empty.modelLoad.usable()&&empty.gpio==1&&!empty.commits);assert(ShadeConfigFile::loadBoot(&model)==ModelLoadStatus::absent&&!model.adopted);
  const auto valid=validModel();write(valid);assert(ShadeConfigFile::loadBoot(&model)==ModelLoadStatus::loaded&&model.adopted==1&&model.repeatersRead==1);
  model.adopted=model.repeatersRead=0;
