@@ -68,6 +68,8 @@ static void test_shade_command_values_are_checked() {
   TEST_ASSERT_EQUAL_STRING("shadeId must be 0-255", parse(proto_type_t::shadeCommand, R"({"s":"3","cm":"Up"})"));
   TEST_ASSERT_EQUAL_STRING("target must be 0-100", parse(proto_type_t::shadeCommand, R"({"s":3,"t":101})"));
   TEST_ASSERT_EQUAL_STRING("Not a command", parse(proto_type_t::shadeCommand, R"({"s":3,"cm":"Upp"})"));
+  // Light has no implemented domain opcode; it must never fall back to MY.
+  TEST_ASSERT_EQUAL_STRING("Not a command", parse(proto_type_t::shadeCommand, R"({"s":3,"cm":"light"})"));
   TEST_ASSERT_EQUAL_STRING("Not a command", parse(proto_type_t::shadeCommand, R"({"s":3,"cm":2})"));
   TEST_ASSERT_EQUAL_STRING("repeat must be 0-127", parse(proto_type_t::shadeCommand, R"({"s":3,"cm":"Up","re":-1})"));
   TEST_ASSERT_EQUAL_STRING("stepSize must be 0-127", parse(proto_type_t::shadeCommand, R"({"s":3,"cm":"Up","z":128})"));
