@@ -1,4 +1,5 @@
 #include "LocalSettingsForm.h"
+#include "BoardProfile.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -149,6 +150,7 @@ bool numericOriginal(const settings_field_t &f, const settings_value_t &v,
                      int64_t &candidate) {
   const int64_t low = fieldBound(f, f.lo), high = fieldBound(f, f.hi);
   if (v.kind == 'n') {
+    if(f.field==proto_field_t::frequency && !BoardProfile::radioFrequencyAllowed(v.number))return false;
     const long double scaled = static_cast<long double>(v.number) * fieldScale(f);
     if (!isfinite(scaled))
       return false;
@@ -562,7 +564,8 @@ void Form::beginField(uint64_t now, FieldStart start) {
   if (f.schema().kind == 'i' || f.schema().kind == 'n') {
     if (start == FieldStart::replaceInvalid) {
       // Seeding is explicit and changes no draft until Apply.
-      candidate = f.choiceCount ? f.choices[0] : (low <= 0 && high >= 0 ? 0 : low);
+      candidate = f.field==proto_field_t::frequency ? 433420 :
+        f.choiceCount ? f.choices[0] : (low <= 0 && high >= 0 ? 0 : low);
     } else if (!numericOriginal(f, v, candidate)) {
       wipe(&v, sizeof(v));
       editor.cancel();

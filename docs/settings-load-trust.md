@@ -30,7 +30,9 @@ software-admitted bands (300–348, 378–464 or 779–928 MHz); the integrated 
 387–464 MHz restriction. Gaps and nonfinite originals remain invalid, without
 clamping or remapping. The driver uses 378 MHz despite a contradictory 387 MHz
 comment; these checks do not establish physical RF qualification outside the
-integrated profile. The existing fallback SoftAP is transport only on bad network
+integrated profile. Unsupported originals are labelled invalid in the LCD form;
+Cancel preserves them. Only explicit Replace seeds 433.420 MHz, with separate
+Apply and Save boundaries and no change to other drafts. The existing fallback SoftAP is transport only on bad network
 reads: no unknown stored connection/SSID/IP/Ethernet values are applied, no NVS
 reset occurs, and security authentication remains unchanged.
 

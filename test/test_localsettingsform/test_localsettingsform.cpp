@@ -1,5 +1,6 @@
 #include "LocalSettingsForm.h"
 #include "SettingsRevisions.h"
+#include "BoardProfile.h"
 #include <float.h>
 #include <math.h>
 #include <stdlib.h>
@@ -758,7 +759,7 @@ static void invalid_replacement_choices_nonfinite_and_readonly_stay_bounded() {
     form.turn(1, 1);
     form.activate(1);
     TEST_ASSERT_EQUAL(Mode::adjust, form.view().mode);
-    TEST_ASSERT_EQUAL_STRING(numeric ? "300.000" : "RTS", form.view().rows[0].value);
+    TEST_ASSERT_EQUAL_STRING(numeric ? "433.420" : "RTS", form.view().rows[0].value);
     TEST_ASSERT_FALSE(form.view().dirty);
     form.tick(30001);
     TEST_ASSERT_TRUE(form.closed());
@@ -870,6 +871,28 @@ static void current_scanned_ssid_is_clean_and_save_is_unchanged() {
   form.activate(40);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(Notice::unchanged,form.view().notice);
   TEST_ASSERT_EQUAL(0,backend.saves);TEST_ASSERT_EQUAL(0,memory.active);TEST_ASSERT_EQUAL(0,memory.allocations);
 }
+static void unsupported_frequency_requires_explicit_valid_replacement_without_losing_other_drafts() {
+ Memory mem;Fake backend;backend.overrideField=proto_field_t::frequency;
+ backend.overrideNumber=BoardProfile::integratedRadio?300.0f:700.0f;
+ const float original=backend.overrideNumber;Form form(backend,mem);
+ form.openSection(settings_section_t::radio,0);
+ turnTo(form,2);form.activate(1);form.turn(1,1);chooseNumericApply(form);
+ turnTo(form,7);TEST_ASSERT_NOT_NULL(strstr(form.view().rows[2].value,"Invalid"));
+ form.activate(1);TEST_ASSERT_EQUAL(Mode::replace,form.view().mode);TEST_ASSERT_EQUAL(0,form.view().selected);
+ form.activate(1);TEST_ASSERT_EQUAL(Mode::fields,form.view().mode);TEST_ASSERT_TRUE(form.view().dirty);
+ TEST_ASSERT_EQUAL_FLOAT(original,backend.overrideNumber);TEST_ASSERT_EQUAL(0,backend.saves);
+ form.activate(1);form.turn(1,1);form.activate(1);
+ TEST_ASSERT_EQUAL(Mode::adjust,form.view().mode);TEST_ASSERT_EQUAL_STRING("433.420",form.view().rows[0].value);
+ form.back(1);TEST_ASSERT_NOT_NULL(strstr(form.view().rows[2].value,"Invalid"));
+ form.activate(1);form.turn(1,1);form.activate(1);chooseNumericApply(form);
+ TEST_ASSERT_EQUAL_FLOAT(original,backend.overrideNumber);TEST_ASSERT_EQUAL(0,backend.saves);
+ turnTo(form,settingsFieldCount(settings_section_t::radio,false)-9);form.activate(1);
+ TEST_ASSERT_EQUAL(Mode::confirm,form.view().mode);TEST_ASSERT_EQUAL(0,form.view().selected);
+ form.turn(1,1);form.activate(1);TEST_ASSERT_EQUAL(1,backend.saves);
+ TEST_ASSERT_FLOAT_WITHIN(0.0001f,433.42f,backend.applied["frequency"].as<float>());
+ TEST_ASSERT_TRUE(backend.applied["enabled"].as<bool>());TEST_ASSERT_EQUAL(2,backend.applied.size());
+ TEST_ASSERT_EQUAL_FLOAT(original,backend.overrideNumber);
+}
 static void unavailable_snapshot_closes_without_default_replace_or_save() {
  Fake state;Memory memory;Form form(state,memory);state.readUnavailable=true;
  TEST_ASSERT_FALSE(form.openSection(settings_section_t::network,1));
@@ -878,7 +901,7 @@ static void unavailable_snapshot_closes_without_default_replace_or_save() {
  form.activate(2);form.turn(1,3);TEST_ASSERT_EQUAL(0,state.saves);
 }
 int main() {
-  UNITY_BEGIN();RUN_TEST(unavailable_snapshot_closes_without_default_replace_or_save);
+  UNITY_BEGIN();RUN_TEST(unsupported_frequency_requires_explicit_valid_replacement_without_losing_other_drafts);RUN_TEST(unavailable_snapshot_closes_without_default_replace_or_save);
   RUN_TEST(current_scanned_ssid_is_clean_and_save_is_unchanged);
   RUN_TEST(scanned_ssid_stages_only_after_exact_authority_and_network_revision);
   RUN_TEST(every_saved_restart_refusal_preserves_typed_reason_and_no_retry_draft);
