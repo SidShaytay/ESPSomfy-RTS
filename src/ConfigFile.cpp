@@ -372,7 +372,12 @@ void ShadeConfigFile::readModel(SomfyShadeController *s) {
   for(uint8_t i = this->header.groupRecords; i < SOMFY_MAX_GROUPS; i++) s->groups[i].clear();
 }
 bool ShadeConfigFile::begin(bool readOnly) { return this->begin("/shades.cfg", readOnly); }
-bool ShadeConfigFile::begin(const char *filename, bool readOnly) { return ConfigFile::begin(filename, readOnly); }
+bool ShadeConfigFile::begin(const char *filename, bool readOnly) {
+  // All disk model writes use the checked stage/verify/replace path. Backup
+  // serialization uses beginRAM and must never truncate the canonical file.
+  if(!readOnly)return false;
+  return ConfigFile::begin(filename,true);
+}
 void ShadeConfigFile::end() { ConfigFile::end(); }
 bool ShadeConfigFile::writeModel(SomfyShadeController *s,
                                  ConfigWriter &writer) {
@@ -437,6 +442,7 @@ ModelCommitResult ShadeConfigFile::commitModel(SomfyShadeController *model) {
 }
 
 bool ShadeConfigFile::save(SomfyShadeController *s) {
+  if(!s->modelLoad.mayCommit())return false;
   this->header.settingsRecordSize = 0;
   this->header.netRecordSize = 0;
   this->header.transRecordSize = 0;

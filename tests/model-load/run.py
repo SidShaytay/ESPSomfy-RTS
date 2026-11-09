@@ -2,11 +2,11 @@ from pathlib import Path
 import subprocess,sys,os,tempfile
 root=Path(__file__).resolve().parents[2]
 source=(root/'src/ConfigFile.cpp').read_text()+'\n'+(root/'src/ShadeController.cpp').read_text()
-names=['ConfigFile::begin','ConfigFile::end','ConfigFile::readByte','ConfigFile::position','ConfigFile::seekRead','ConfigFile::readHeader','ShadeConfigFile::validate','ShadeConfigFile::loadBoot','ShadeConfigFile::loadFile','ShadeConfigFile::restoreFile','SomfyShadeController::begin']
+names=['ConfigFile::begin','ConfigFile::end','ConfigFile::readByte','ConfigFile::position','ConfigFile::seekRead','ConfigFile::readHeader','ShadeConfigFile::validate','ShadeConfigFile::loadBoot','ShadeConfigFile::loadFile','ShadeConfigFile::restoreFile','SomfyShadeController::begin','ShadeConfigFile::begin(bool','ShadeConfigFile::begin(const char *']
 with tempfile.TemporaryDirectory() as scratch:
     bodies=[]
     for name in names:
-        at=source.index(name+'(');start=source.rfind('\n',0,at)+1;brace=source.index('{',at);end=brace+1;depth=1
+        at=source.index(name if '(' in name else name+'(');start=source.rfind('\n',0,at)+1;brace=source.index('{',at);end=brace+1;depth=1
         while depth:
             depth+=(source[end]=='{')-(source[end]=='}');end+=1
         bodies.append(source[start:end])
