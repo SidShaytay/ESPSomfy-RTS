@@ -6,7 +6,9 @@ struct loop_item_t;
 enum class ModelCommitMode : uint8_t {
   save,
   applicationRecovery,
-  applicationRecoveryAndRestart
+  applicationRecoveryAndRestart,
+  // Deliberate browser COMMIT only; generic metadata/file retries stay save.
+  counterFileRecovery
 };
 // Any task: queue only a fresh serialization of the current model. No edit,
 // RF or counter operation is retained for retry. False means not queued.

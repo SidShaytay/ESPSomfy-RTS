@@ -1,3 +1,4 @@
+#include "ModelLoadTrust.h"
 #include "Arduino.h"
 #include "Utils.h"
 #include "GitUpdate.h"
@@ -28,6 +29,7 @@ uint32_t LoopQueue::pending() const {assert(!SafeRestartDetail::criticalDepth);r
 bool LoopQueue::sealForRestart() {if(queued || queueSealRefused)return false;queueSealed=true;return true;}
 void LoopQueue::reopenAfterRefusedRestart() {queueSealed=false;}
 struct SomfyShadeController {
+  ModelLoadTrust modelLoad{ModelLoadStatus::loaded};
   uint64_t configurationRevision=1;
   bool isDirty=false;
   struct {
@@ -62,6 +64,14 @@ static GitUpdateOwnerToken completedUpload(bool keepClaim=false) {
   if(!keepClaim)assert(gitUpdate.finishTransfer(source,100,true));return source;
 }
 int main(int argc,char **argv) {
+  if(argc>1 && std::string(argv[1])=="badLoad") {
+    somfy.modelLoad.fail();somfy.isDirty=true;tick(100);restartLoop();
+    assert(!requestRestart(500).admitted && commits==0);
+    assert(restartTransferBlocked() && !restartRestoreStagingBlocked());
+    assert(restartStatus().reason==RestartReason::modelUnavailable && !shutdowns);
+    return 0;
+  }
+
   assert(argc==2);const std::string mode=argv[1];tick(100);
   assert(submitRestart()==RestartSubmission::refused);assert(!restartPending());assert(!clockReads);
   assert(!restartLoop());

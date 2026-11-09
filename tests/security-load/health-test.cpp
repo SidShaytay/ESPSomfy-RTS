@@ -7,6 +7,7 @@ static bool otaPending=true,routes=true;
 static constexpr unsigned long OTA_PROVEN_MS=60000;
 static constexpr int ESP_OK=0;
 struct { bool online=true;bool connected()const{return online;} } net;
+struct { struct { bool usable()const{return true;} } modelLoad; } somfy;
 struct { struct { bool trusted=false;bool loadTrusted()const{return trusted;} } Security; } settings;
 unsigned long millis(){return uptime;}
 bool bundledWebRoutesReady(){return routes;}

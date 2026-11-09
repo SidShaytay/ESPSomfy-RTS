@@ -59,6 +59,17 @@ Affected affected(uint32_t address,SomfyShade *newLink=nullptr) {
   }
   return out;
 }
+uint16_t aliasHighwater(uint32_t address) {
+  uint16_t high=0;
+  auto include=[&](SomfyRemote &remote) {
+    if(remote.getRemoteAddress()==address && remote.lastRollingCode>high)high=remote.lastRollingCode;
+  };
+  for(auto &shade:somfy.shades)if(shade.getShadeId()!=255) {
+    include(shade);for(auto &remote:shade.linkedRemotes)include(remote);
+  }
+  for(auto &group:somfy.groups)if(group.getGroupId()!=255)include(group);
+  return high;
+}
 void adoptAll(uint32_t address,uint16_t code) {
   for(auto &shade:somfy.shades)if(shade.getShadeId()!=255) {
     bool changed=false;
@@ -76,20 +87,26 @@ void adoptAll(uint32_t address,uint16_t code) {
   }
   ++somfy.configurationRevision;
 }
+bool allShadesIdleForCounter() {
+  for(auto &shade:somfy.shades)
+    if(shade.getShadeId()!=255 && !shade.idleForAdministration())return false;
+  return true;
+}
 CounterDomainResult correct(SomfyShade &shade,uint32_t address,uint16_t code,SomfyLinkedRemote *slot) {
+  if(!somfy.modelLoad.usable())return {CounterDomainState::busy};
   if(!address || address>0xffffff)return {};
   // A correction changes model history; preserve already accepted intents
   // rather than making an unrelated queued STOP stale behind this operation.
-  if(loopQueue.pending())return {CounterDomainState::busy};
+  if(loopQueue.pending() || !allShadesIdleForCounter())return {CounterDomainState::busy};
   Owner owner;if(!owner)return {CounterDomainState::busy};
   const auto context=affected(address,slot ? &shade : nullptr);
-  if(loopQueue.pending())return {CounterDomainState::busy};
+  if(loopQueue.pending() || !allShadesIdleForCounter())return {CounterDomainState::busy};
   const auto admitted=somfy.transceiver.reserveCounterEdit(address,context.idle,context.groups,restartPending());
   if(admitted!=CounterEditAdmission::admitted)return {admission(admitted)};
-  const auto persisted=persistExplicitCounter(address,code);
+  const auto persisted=slot ? persistObservedCounter(address,code,aliasHighwater(address)) : persistExplicitCounter(address,code);
   if(!persisted.saved()) {
     somfy.transceiver.finishCounterEdit(persisted,{});
-    return {persisted.state==CounterEditState::uncertain ? CounterDomainState::nvsUncertain : CounterDomainState::nvsFailed};
+    return {persisted.state==CounterEditState::stale ? CounterDomainState::stale : persisted.state==CounterEditState::uncertain ? CounterDomainState::nvsUncertain : CounterDomainState::nvsFailed};
   }
   if(slot)slot->setRemoteAddress(address);
   adoptAll(address,code);
@@ -103,11 +120,13 @@ void SomfyRemote::adoptExplicitCounter(uint16_t code) {
   this->lastFrame.valid=false;this->lastFrame.await=0;this->lastFrame.processed=true;
 }
 CounterDomainResult correctExplicitCounter(uint8_t shadeId,uint16_t code) {
+  if(!somfy.modelLoad.usable())return {CounterDomainState::busy};
   if(!shadeId || shadeId>SOMFY_MAX_SHADES)return {CounterDomainState::missing};
   auto *shade=somfy.getShadeById(shadeId);
   return shade ? correct(*shade,shade->getRemoteAddress(),code,nullptr) : CounterDomainResult{CounterDomainState::missing};
 }
 CounterDomainResult linkExplicitRemote(uint8_t shadeId,uint32_t address,uint16_t code) {
+  if(!somfy.modelLoad.usable())return {CounterDomainState::busy};
   if(!shadeId || shadeId>SOMFY_MAX_SHADES)return {CounterDomainState::missing};
   auto *shade=somfy.getShadeById(shadeId);if(!shade)return {CounterDomainState::missing};
   if(!address || address>0xffffff)return {};
@@ -119,6 +138,7 @@ CounterDomainResult linkExplicitRemote(uint8_t shadeId,uint32_t address,uint16_t
   return empty ? correct(*shade,address,code,empty) : CounterDomainResult{CounterDomainState::full};
 }
 CounterDomainResult recoverExplicitCounterFile() {
+  if(!somfy.modelLoad.usable())return {CounterDomainState::busy};
   Owner owner;if(!owner)return {CounterDomainState::busy};
   const auto admitted=somfy.transceiver.reserveCounterFileRecovery(restartPending());
   if(admitted!=CounterEditAdmission::admitted)return {admission(admitted)};

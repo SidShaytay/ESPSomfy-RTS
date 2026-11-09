@@ -28,6 +28,7 @@ enum class model_edit_type_t : uint8_t {
 // shade or group it added or changed, 0 when none.  shadeId is the shade a
 // group gained or lost.  code is the validation error of a shade that wasn't
 // saved, 0 otherwise.  notFound: it was refused for an id that doesn't exist.
+enum class edit_failure_t : uint8_t { badRequest, busy, internal };
 struct edit_result_t {
   // ok certifies application plus the model file, not separate NVS writes.
   // Applied persistence failure retains IDs; retry COMMIT, never the edit.
@@ -39,6 +40,7 @@ struct edit_result_t {
   uint8_t shadeId = 0;
   int8_t code = 0;
   const char *desc = "";
+  edit_failure_t failure = edit_failure_t::badRequest;
   bool durable() const { return applied && persistence.saved(); }
   static edit_result_t completed(uint8_t id,ModelCommitResult persistence);
   static edit_result_t error(const char *desc, int8_t code = 0) {

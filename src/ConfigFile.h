@@ -8,6 +8,7 @@
 #include "ConfigRecords.h"
 #include "ModelCommitResult.h"
 #include "GitUpdate.h"
+#include "ModelLoadSnapshot.h"
 
 
 // Opens shades.cfg or a backup and writes or reads its values
@@ -15,6 +16,12 @@
 class ConfigFile : public ConfigReader, public ConfigWriter {
   protected:
     File file;
+    ModelLoadSnapshot snapshot;
+    ModelLoadStatus snapshotStatus=ModelLoadStatus::unknown;
+    size_t readPosition=0;
+    bool readFailed=false;
+    bool seekRead(uint32_t offset);
+    size_t readSize() const { return snapshot.size(); }
     String *_ramBuf = nullptr;
     bool readOnly = false;
     bool begin(const char *filename, bool readOnly = false);
@@ -44,6 +51,7 @@ class ShadeConfigFile : public ConfigFile {
     // Loop-owned checked persistence; does not apply edits or rolling-code NVS.
     static ModelCommitResult commitModel(SomfyShadeController *s);
     static bool exists();
+    static ModelLoadStatus loadBoot(SomfyShadeController *somfy);
     static bool load(SomfyShadeController *somfy, const char *filename = "/shades.cfg");
     static bool restore(SomfyShadeController *somfy, const char *filename, restore_options_t &opts, const GitUpdateOwnerToken &owner = {});
     // Whether the file would pass the checks restore() starts with.  Only
