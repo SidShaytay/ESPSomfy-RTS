@@ -132,6 +132,8 @@ static void cancel_is_default_and_rotation_never_applies() {
   TEST_ASSERT_LESS_OR_EQUAL(2304, peak);
   TEST_ASSERT_EQUAL(0, model.saves);
   TEST_ASSERT_EQUAL(Mode::confirm, view.mode);
+  TEST_ASSERT_EQUAL_STRING("Marker only. Motor pairing is unchanged.",
+                           view.hint);
   TEST_ASSERT_EQUAL(0, view.selected);
   form.activate(13); // default Cancel
   TEST_ASSERT_EQUAL(0, model.saves);
@@ -273,6 +275,33 @@ static void stable_label_identity_is_required() {
     TEST_ASSERT_EQUAL(0, memory.used());
   }
 }
+static void confirmation_names_exact_association_and_configuration_effect() {
+  Model model;
+  JsonAllocator memory(4096, acquire, release);
+  Advanced::Form form(model, memory);
+  for (auto scope : {Scope::devices, Scope::groups, Scope::repeaters}) {
+    form.open(scope, 10);
+    if (scope != Scope::repeaters)
+      form.activate(11);
+    if (scope == Scope::devices) {
+      form.turn(1, 12);
+      form.activate(13);
+    }
+    form.activate(14);
+    FormView view;
+    form.render(view);
+    TEST_ASSERT_EQUAL(Mode::confirm, view.mode);
+    TEST_ASSERT_NOT_NULL(strstr(view.rows[1].label, "1234"));
+    TEST_ASSERT_EQUAL_STRING(
+        scope == Scope::groups ? "Remove all stale links. No physical unpair."
+        : scope == Scope::repeaters ? "Stop future repeats. No physical unpair."
+                                    : "Remove association. No physical unpair.",
+        view.hint);
+    TEST_ASSERT_EQUAL(0, view.selected);
+    form.discard();
+  }
+  TEST_ASSERT_EQUAL(0, model.saves);
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(cancel_is_default_and_rotation_never_applies);
@@ -282,5 +311,6 @@ int main() {
   RUN_TEST(full_paging_repeater_change_and_admission_failure);
   RUN_TEST(file_retry_busy_keeps_commit_only_result);
   RUN_TEST(stable_label_identity_is_required);
+  RUN_TEST(confirmation_names_exact_association_and_configuration_effect);
   return UNITY_END();
 }

@@ -336,11 +336,19 @@ void Form::render(FormView &out) {
     out.mode = Mode::confirm;
     out.total = out.rowCount = 2;
     strcpy(out.rows[0].label, "Cancel");
-    strcpy(out.rows[1].label,
-           s.action.kind == ActionKind::setPaired
-               ? (s.action.paired ? "Mark paired" : "Mark unpaired")
-               : "Remove reference");
-    strcpy(out.hint, "Configuration only. Motor pairing is unchanged.");
+    if (s.action.kind == ActionKind::setPaired) {
+      strcpy(out.rows[1].label,
+             s.action.paired ? "Mark paired" : "Mark unpaired");
+      strcpy(out.hint, "Marker only. Motor pairing is unchanged.");
+    } else {
+      snprintf(out.rows[1].label, sizeof(out.rows[1].label), "Remove #%lu",
+               static_cast<unsigned long>(s.action.key));
+      strcpy(out.hint, s.action.kind == ActionKind::removeMissingMember
+                           ? "Remove all stale links. No physical unpair."
+                       : s.action.kind == ActionKind::unlinkRepeater
+                           ? "Stop future repeats. No physical unpair."
+                           : "Remove association. No physical unpair.");
+    }
   } else if (s.page == Session::Page::result) {
     out.mode = Mode::result;
     out.total = out.rowCount = 2;
