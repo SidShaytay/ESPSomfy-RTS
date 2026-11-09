@@ -30,6 +30,28 @@ Manual upload's cached precheck is conservative and does not certify full image/
 
 ## Offline verification
 
+### Installer handoff draft
+
+`requestInstallRestart()` accepts a completed firmware transfer plus its exact
+retained radio pause and already-sealed producer queue. The operation supplies
+loop-only freshness, activation and failure callbacks. Missing callbacks, a
+stale operation, an unfinished I/O claim or a missing seal refuse before taking
+the intent. Admission and final persistence recheck the transfer, both seals
+and freshness. The existing coordinator still owns the delay, history checks,
+checked model commit and final noncancellable decision.
+
+The original transfer owner stays held until that final decision. Only then
+does it become a non-expiring restart owner and invoke the activation callback,
+outside locks and with both seals retained. An unverified activation result
+reports `activationFailed`, retains owner/seals, and cannot automatically retry,
+reopen controls or reboot. Refusal before activation leaves cleanup to the
+original installer; SafeRestart never reopens a seal it received from it.
+
+This is an inactive internal API. No production caller supplies a slot-selection
+callback yet; startup, controller preparation, LCD integration and boot health
+still need completion. Host tests use a recorded callback rather than an OTA
+write or real reboot.
+
 - `bash tools/test-safe-restart.sh`: actual service/coordinator and shared owner with fake clock/model/shutdown; cancellation and stale source, 64-bit wrap/rollback, separate histories, failed file then recovery, read draining/flood timeout, final queue/radio barriers and no I/O under the runtime lock.
 - `bash tools/test-application-upload.sh`: actual transfer and queue consumers with the actual restart service; claim retirement, expiry, late callbacks, restore FIFO and source handoff.
 - `bash tools/test-group-restart.sh`: actual group dispatcher/member behaviour, including completed group travel and unknown members.

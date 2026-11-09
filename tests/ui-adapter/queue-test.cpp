@@ -228,9 +228,11 @@ static void restart_seal_preserves_every_accepted_item_and_refuses_late_submissi
   beforeQueueSend=nullptr;
   loopQueue.drain();assert(loopReads==2);
   assert(loopQueue.sealForRestart());
+  assert(loopQueue.restartSealHeld());
   assert(!loopQueue.submit(read) && !loopQueue.submit(read,true));
   assert(loopQueue.pending()==0 && !loopQueue.sealForRestart());
   loopQueue.reopenAfterRefusedRestart();
+  assert(!loopQueue.restartSealHeld());
   assert(loopQueue.submit(read));loopQueue.drain();assert(loopReads==3);
 }
 static void accepted_mutation_history_follows_actual_queue_result() {

@@ -28,6 +28,7 @@ static bool queueSealed=false,queueSealRefused=false;
 LoopQueue loopQueue;
 uint32_t LoopQueue::pending() const {assert(!SafeRestartDetail::criticalDepth);return queued;}
 bool LoopQueue::sealForRestart() {if(queued || queueSealRefused)return false;queueSealed=true;return true;}
+bool LoopQueue::restartSealHeld() const {return queueSealed && !queued;}
 void LoopQueue::reopenAfterRefusedRestart() {queueSealed=false;}
 struct SomfyShadeController {
   ModelLoadTrust modelLoad{ModelLoadStatus::loaded};
@@ -38,6 +39,7 @@ struct SomfyShadeController {
     bool uncertain=false,work=false,sealed=false,sealRefused=false;
     bool counterEditUncertain() const{return uncertain;}
     bool restartQuiescent() const{return !work;}
+    bool installPauseHeld(const RadioInstallToken &token)const{return token.generation==7 && sealed && !work;}
     bool sealForRestart(){if(work || sealRefused)return false;sealed=true;return true;}
     void reopenAfterRefusedRestart(){sealed=false;}
   } transceiver;
@@ -48,6 +50,19 @@ struct SomfyShadeController {
 } somfy;
 
 static unsigned shutdowns=0;
+static unsigned selections=0,installFailures=0;
+static bool installCurrent=true,selectionOkay=true,cleanupPermitted=false;
+static bool currentInstall(uint64_t operation){assert(!SafeRestartDetail::criticalDepth);return operation==17 && installCurrent;}
+static bool selectInstall(uint64_t operation){
+  assert(!SafeRestartDetail::criticalDepth && operation==17 && queueSealed && somfy.transceiver.sealed);
+  assert(restartStatus().phase==RestartPhase::restarting && gitUpdate.busy());
+  cancelRestart();assert(restartStatus().phase==RestartPhase::restarting);
+  ++selections;return selectionOkay;
+}
+static void failedInstall(uint64_t operation,RestartReason,bool mayClean){
+  assert(!SafeRestartDetail::criticalDepth && operation==17 && !shutdowns);
+  ++installFailures;cleanupPermitted=mayClean;
+}
 void performLegacyShutdown() {
   ++shutdowns;assert(gitUpdate.busy());assert(commits && queueSealed && somfy.transceiver.sealed);
   GitUpdateOwnerToken other;assert(!gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,other));
@@ -77,6 +92,40 @@ int main(int argc,char **argv) {
   assert(argc==2);const std::string mode=argv[1];tick(100);
   assert(submitRestart()==RestartSubmission::refused);assert(!restartPending());assert(!clockReads);
   assert(!restartLoop());
+  if(mode.compare(0,7,"install")==0){
+    auto source=completedUpload(mode=="installClaimed");queueSealed=true;somfy.transceiver.sealed=true;
+    InstallRestartSource retained{RadioInstallToken{7},17,currentInstall,selectInstall,failedInstall};
+    if(mode=="installWrongRadio")retained.radio.generation=8;
+    if(mode=="installMissingCallback")retained.activate=nullptr;
+    if(mode=="installZeroOperation")retained.operation=0;
+    if(mode=="installMissingQueue")queueSealed=false;
+    if(mode=="installStale")installCurrent=false;
+    if(mode=="installSelectionFailure")selectionOkay=false;
+    const auto result=requestInstallRestart(source,retained,500);
+    if(mode=="installClaimed" || mode=="installWrongRadio" || mode=="installMissingQueue" || mode=="installStale" || mode=="installMissingCallback" || mode=="installZeroOperation"){
+      assert(!result.admitted && !selections && !shutdowns && !installFailures && gitUpdate.ownsExternal(source));return 0;
+    }
+    assert(result.admitted && gitUpdate.ownsExternal(source) && queueSealed && somfy.transceiver.sealed);
+    if(mode=="installCancel")cancelRestart();
+    if(mode=="installSourceFinal")installCurrent=false;
+    if(mode=="installLateSource")duringCommit=[]{installCurrent=false;};
+    if(mode=="installCommitFailure")fileResult={ModelCommitState::failed,ModelCommitStage::write};
+    if(mode=="installSealLost")somfy.transceiver.sealed=false;
+    if(mode=="installQueueLost")queueSealed=false;
+    tick(600);const bool shutdown=restartLoop();
+    if(mode=="installAllowed"){
+      assert(shutdown && shutdowns==1 && selections==1 && !installFailures && !gitUpdate.ownsExternal(source));return 0;
+    }
+    assert(!shutdown && !shutdowns && installFailures==1);
+    if(mode=="installSelectionFailure"){
+      assert(selections==1 && !cleanupPermitted && queueSealed && somfy.transceiver.sealed && gitUpdate.busy());
+      assert(restartStatus().reason==RestartReason::activationFailed);
+      for(unsigned i=0;i<3;++i){tick(700+i);assert(!restartLoop());}
+      assert(selections==1 && !shutdowns && installFailures==1);return 0;
+    }
+    assert(!selections && cleanupPermitted && gitUpdate.ownsExternal(source));
+    if(mode!="installQueueLost")assert(queueSealed);return 0;
+  }
   if(mode=="invalidCache") {
     somfy.configurationRevision=0;assert(!restartLoop());
     const auto reads=clockReads;assert(restartTransferBlocked());assert(clockReads==reads);

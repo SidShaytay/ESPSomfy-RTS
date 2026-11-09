@@ -1,6 +1,7 @@
 #include "Arduino.h"
 #include "SomfyFrame.h"
 #include "SettingsLoadState.h"
+#include "RadioUpdateActivity.h"
 #include "esp_log.h"
 #include <assert.h>
 #include <stdio.h>
@@ -18,6 +19,7 @@ struct Transceiver {
   bool sealed = false;
   bool counterEditUncertain() const { return false; }
   bool restartQuiescent() const { return true; }
+  bool installPauseHeld(const RadioInstallToken &) const { return false; }
   bool sealForRestart() {
     sealed = true;
     return true;
@@ -44,6 +46,7 @@ LoopQueue loopQueue;
 
 uint32_t LoopQueue::pending() const { return 0; }
 bool LoopQueue::sealForRestart() { return true; }
+bool LoopQueue::restartSealHeld() const { return false; }
 void LoopQueue::reopenAfterRefusedRestart() {}
 SomfyShade *SomfyShadeController::getShadeById(uint8_t id) {
   for (auto &s : shades)

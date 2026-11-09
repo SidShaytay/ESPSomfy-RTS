@@ -39,6 +39,8 @@ struct Source {
   bool owned=false,inFlight=false;
   uint64_t admittedAt=0;
   uint32_t delay=0;
+  InstallRestartSource retained;
+  RestartReason finalFailure=RestartReason::none;
 } source;
 RestartObservation cached;
 uint64_t publishedAt=0,operationEpoch=1;
@@ -82,18 +84,24 @@ void publish(uint64_t at,RestartObservation current) {
 bool validSource(const GitUpdateOwnerToken &token) {
   return token.generation && (token.kind==GitUpdateExternalOwner::manual || token.kind==GitUpdateExternalOwner::restore);
 }
-void releaseSource(const Source &old,uint64_t at) {
-  if(old.reservation.generation)gitUpdate.releaseExternal(old.reservation);
+bool retainedReady(const Source &current,uint64_t at) {
+  return current.retained.operation && current.retained.current(current.retained.operation) &&
+      gitUpdate.transferRestartReady(current.expected,at) && loopQueue.restartSealHeld() &&
+      somfy.transceiver.installPauseHeld(current.retained.radio);
+}
+void releaseSource(const Source &old,uint64_t at,RestartReason reason) {
+  if(old.retained.operation)old.retained.failed(old.retained.operation,reason,true);
+  else if(old.reservation.generation)gitUpdate.releaseExternal(old.reservation);
   else if(old.owned)gitUpdate.releaseRestartSource(old.expected,at);
 }
 void cleanup(uint64_t at) {
-  Source old;
+  Source old;RestartReason reason;
   {
     Guard guard;
     if(!source.intent || source.inFlight || coordinator.snapshot().pending())return;
-    old=source;source={};
+    old=source;reason=coordinator.snapshot().reason;source={};
   }
-  releaseSource(old,at);
+  releaseSource(old,at,reason);
 }
 RestartReason modelFailure() {
   return recoveryState==ModelCommitState::uncertain ? RestartReason::modelUncertain : RestartReason::modelFailed;
@@ -114,8 +122,11 @@ RestartResult admit(RestartWork work,Source current) {
   uint64_t at=now();
   RestartReason failure=RestartReason::none;
   GitUpdateOwnerToken owner;
-  if(!gitUpdate.acquireRestart(owner,at,current.owned ? current.expected : GitUpdateOwnerToken{}))
-    failure=current.owned ? RestartReason::stale : RestartReason::persistenceBusy;
+  if(current.retained.operation) {
+    if(retainedReady(current,at))owner=current.expected;
+    else failure=RestartReason::stale;
+  } else if(!gitUpdate.acquireRestart(owner,at,current.owned ? current.expected : GitUpdateOwnerToken{}))
+      failure=current.owned ? RestartReason::stale : RestartReason::persistenceBusy;
   auto fresh=observation();
   if(fresh.refusal==RestartReason::none && loopQueue.pending())fresh.refusal=RestartReason::queuedOperations;
   bool mayWrite=false,recovery=false;
@@ -133,6 +144,7 @@ RestartResult admit(RestartWork work,Source current) {
     if(!result.saved())failure=result.state==ModelCommitState::uncertain ? RestartReason::modelUncertain : RestartReason::modelFailed;
   }
   at=now();fresh=observation();
+  if(current.retained.operation && !retainedReady(current,at))failure=RestartReason::stale;
   RestartResult result;
   {
     Guard guard;publish(at,fresh);
@@ -143,7 +155,7 @@ RestartResult admit(RestartWork work,Source current) {
   }
   cleanup(at);return result;
 }
-RestartResult request(uint32_t delay,const GitUpdateOwnerToken &expected,bool owned) {
+RestartResult request(uint32_t delay,const GitUpdateOwnerToken &expected,bool owned,InstallRestartSource retained={}) {
   {Guard guard;if(source.intent)return {false,RestartReason::pending};}
   auto at=now();cleanup(at);auto fresh=observation();
   if(fresh.refusal==RestartReason::none && loopQueue.pending())fresh.refusal=RestartReason::queuedOperations;
@@ -154,11 +166,11 @@ RestartResult request(uint32_t delay,const GitUpdateOwnerToken &expected,bool ow
     if(source.intent)return {false,RestartReason::pending};
     work=coordinator.begin(delay,at,cached);
     if(work.ready()) {
-      source={work.intent,at,expected,{},owned,true};source.delay=delay;current=source;
+      source={work.intent,at,expected,{},owned,true};source.delay=delay;source.retained=retained;current=source;
     } else refusal={false,work.refusal};
   }
   if(!work.ready()) {
-    if(owned)gitUpdate.releaseRestartSource(expected,at);
+    if(owned && !retained.operation)gitUpdate.releaseRestartSource(expected,at);
     return refusal;
   }
   return admit(work,current);
@@ -166,6 +178,13 @@ RestartResult request(uint32_t delay,const GitUpdateOwnerToken &expected,bool ow
 }
 RestartResult requestRestart(uint32_t delay){return SafeRestartDetail::request(delay,{},false);}
 RestartResult requestOwnedRestart(const GitUpdateOwnerToken &source,uint32_t delay){return SafeRestartDetail::request(delay,source,true);}
+RestartResult requestInstallRestart(const GitUpdateOwnerToken &source,const InstallRestartSource &retained,uint32_t delay) {
+  if(source.kind!=GitUpdateExternalOwner::manual || !source.generation || !retained.radio.generation || !retained.operation ||
+     !retained.current || !retained.activate || !retained.failed)return {false,RestartReason::invalidRequest};
+  SafeRestartDetail::Source check;check.expected=source;check.retained=retained;
+  if(!SafeRestartDetail::retainedReady(check,SafeRestartDetail::now()))return {false,RestartReason::stale};
+  return SafeRestartDetail::request(delay,source,true,retained);
+}
 RestartSubmission submitRestart(uint32_t delay){return SafeRestartDetail::submit(delay,{},false);}
 RestartSubmission submitOwnedRestart(const GitUpdateOwnerToken &source,uint32_t delay){return SafeRestartDetail::submit(delay,source,true);}
 bool restartTransferBlocked() {
@@ -184,7 +203,11 @@ bool restartRestoreStagingBlocked() {
   return !SafeRestartDetail::initialized || !SafeRestartDetail::coordinator.updatePrecheck(current);
 }
 bool restartPending(){SafeRestartDetail::Guard guard;return SafeRestartDetail::coordinator.snapshot().pending();}
-RestartSnapshot restartStatus(){SafeRestartDetail::Guard guard;return SafeRestartDetail::coordinator.snapshot();}
+RestartSnapshot restartStatus(){
+  SafeRestartDetail::Guard guard;auto result=SafeRestartDetail::coordinator.snapshot();
+  if(SafeRestartDetail::source.finalFailure!=RestartReason::none)result.reason=SafeRestartDetail::source.finalFailure;
+  return result;
+}
 void cancelRestart() {
   SafeRestartDetail::Guard guard;
   // Once final take() linearizes, shutdown owns both seals and cannot be cancelled.
@@ -234,10 +257,12 @@ bool restartLoop() {
   bool queueSealed=false,radioSealed=false;
   if(!gitUpdate.ownsExternal(current.reservation))failure=RestartReason::stale;
   fresh=observation();if(failure==RestartReason::none)failure=fresh.refusal;
-  if(failure==RestartReason::none) {
+  if(failure==RestartReason::none && current.retained.operation) {
+    if(!retainedReady(current,at))failure=RestartReason::stale;
+  } else if(failure==RestartReason::none) {
     queueSealed=loopQueue.sealForRestart();if(!queueSealed)failure=RestartReason::queuedOperations;
   }
-  if(failure==RestartReason::none) {
+  if(failure==RestartReason::none && !current.retained.operation) {
     radioSealed=somfy.transceiver.sealForRestart();if(!radioSealed)failure=RestartReason::queuedOperations;
   }
   bool mayWrite=false;
@@ -252,6 +277,7 @@ bool restartLoop() {
   }
   at=now();fresh=observation();
   if(!gitUpdate.ownsExternal(current.reservation))failure=RestartReason::stale;
+  if(current.retained.operation && !retainedReady(current,at))failure=RestartReason::stale;
   bool shutdown=false;
   {
     Guard guard;publish(at,fresh);
@@ -261,7 +287,21 @@ bool restartLoop() {
       else coordinator.cancel(RestartReason::stale);
     }
   }
-  if(shutdown){performLegacyShutdown();return true;}
+  if(shutdown){
+    if(current.retained.operation) {
+      // Only after take() may the completed source become a non-expiring
+      // restart owner and the caller select the verified inactive image.
+      GitUpdateOwnerToken shutdownOwner;
+      const bool acquired=gitUpdate.acquireRestart(shutdownOwner,at,current.expected);
+      const bool selected=acquired && current.retained.activate(current.retained.operation);
+      if(!selected) {
+        {Guard guard;source.reservation=acquired ? shutdownOwner : current.expected;source.finalFailure=RestartReason::activationFailed;}
+        current.retained.failed(current.retained.operation,RestartReason::activationFailed,false);
+        return false; // No reopen, implicit retry or restart after uncertainty.
+      }
+    }
+    performLegacyShutdown();return true;
+  }
   if(radioSealed)somfy.transceiver.reopenAfterRefusedRestart();
   if(queueSealed)loopQueue.reopenAfterRefusedRestart();
   cleanup(at);return false;
