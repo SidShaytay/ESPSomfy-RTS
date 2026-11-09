@@ -392,7 +392,7 @@ int main(int argc,char **argv){
   testPins[4]=testPins[5]=testPins[6]=1;
   StatusDisplay::Snapshot status;status.running=true;status.link=StatusDisplay::Link::connected;
   status.web=StatusDisplay::Web::listening;status.radio=StatusDisplay::Radio::ready;
-  Runtime ui;ui.begin();assert(ui.failure()==GraphicsFailure::none && allocated);
+  Runtime ui;ui.begin();assert(ui.failure()==GraphicsFailure::none && allocated && !ui.healthy());
   Runtime *active=&ui;
   int ab=3;
   auto tick=[&](bool pressed=false,unsigned dt=50){testNow+=dt;authTestNow=testNow;RadioScan::scanSession.poll(testNow);loopQueue.drain();active->tick(testNow,status,pressed,send,light);};
@@ -404,8 +404,8 @@ int main(int argc,char **argv){
   };
   auto click=[&]{tick(true);tick(true);tick(false);tick(false);tick(false,2);};
   auto back=[&]{testPins[6]=0;tick();tick();testPins[6]=1;tick();tick();};
-  busBusy=true;idle(20);assert(bands==0 && captureProtected);
-  busBusy=false;idle();assert(bands==43 && !captureProtected);
+  busBusy=true;idle(20);assert(bands==0 && captureProtected && !ui.healthy());
+  busBusy=false;idle();assert(bands==43 && !captureProtected && ui.healthy());
   const auto unchanged=bands;idle();assert(bands==unchanged);
   // Health is reachable through the actual held Status input, not a test-only page.
   status.health={true,true,true,65536,32768,16384,6u*1024*1024,400,12345};
@@ -1302,7 +1302,7 @@ int main(int argc,char **argv){
   assert(sensorBackend.checkSensorContext(sensorGroup,groupSensorContext,sensorAuth,sensorHistory)==EntityAdmin::Admission::busy);advancedGroup.linkedShades[31]=0;advancedGroup.direction=0;
   assert(submitted.size()==beforeSensorRefusals+1&&!gitUpdate.busy());
   free(allocated);allocated=nullptr;hasPsram=false;
-  Runtime missing;missing.begin();assert(missing.failure()==GraphicsFailure::missing && !missing.tick(testNow,status,false,send,light));
-  hasPsram=true;allocateOK=false;Runtime failed;failed.begin();assert(failed.failure()==GraphicsFailure::allocation && !failed.tick(testNow,status,false,send,light));
+  Runtime missing;missing.begin();assert(missing.failure()==GraphicsFailure::missing && !missing.tick(testNow,status,false,send,light) && !missing.healthy());
+  hasPsram=true;allocateOK=false;Runtime failed;failed.begin();assert(failed.failure()==GraphicsFailure::allocation && !failed.tick(testNow,status,false,send,light) && !failed.healthy());
   puts("Production runtime/adapter: dynamic navigation, presented target/STOP, context change, unlock, capture transitions, 30 s lease, standalone settings/room/device/group/reorder/Advanced metadata admin, presentation/wipe and fallback passed.");
 }

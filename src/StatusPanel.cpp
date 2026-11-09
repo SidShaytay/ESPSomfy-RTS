@@ -63,6 +63,7 @@ class Panel : public Output {
 public:
   uint32_t maxRowUs = 0, maxBusUs = 0, skipped = 0;
   void requireFallbackText(bool required) {requireText=required;}
+  bool healthy() const {return !busFailed && phase==20 && clearY==170;}
   Result initialize(uint32_t now) override {
     if(busFailed) return Result::failed;
     if(phase==20 && clearY==170) return Result::ready;
@@ -192,8 +193,16 @@ void loop(bool running) {
       (unsigned long)panel.maxRowUs, (unsigned long)panel.maxBusUs, (unsigned long)panel.skipped);
   }
 }
+bool healthy() {
+#ifdef ESPSOMFY_LOCAL_UI
+  return panel.healthy() && ui.healthy();
+#else
+  return panel.healthy();
+#endif
+}
 }
 #else
 void StatusPanel::begin() {}
 void StatusPanel::loop(bool) {}
+bool StatusPanel::healthy(){return false;}
 #endif

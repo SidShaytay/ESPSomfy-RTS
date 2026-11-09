@@ -31,6 +31,7 @@ const char *refusal(RestartReason value) {
   case RestartReason::settingsUnavailable:return "Settings need repair. Review affected section.";
   case RestartReason::securityUnavailable:return "Security not loaded. Authentication is unavailable.";
   case RestartReason::unknownGroup:return "Group motion unknown. Review missing or untracked members.";
+  case RestartReason::activationFailed:return "Update activation unverified. Controls paused; recovery required.";
   }
   return "Restart refused. Review device state before trying again.";
 }
