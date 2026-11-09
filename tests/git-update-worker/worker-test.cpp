@@ -1,5 +1,6 @@
 #include "../../src/GitUpdate.cpp"
 #include <iostream>
+int hashFailure=0;unsigned activeHashes=0;
 static unsigned assertions=0,admissions=0;
 #define CHECK(c) do { ++assertions;if(!(c)) { std::cerr<<"FAIL "<<__LINE__<<": " #c "\n";std::exit(1); } } while(0)
 static bool allowed=true;
@@ -192,4 +193,5 @@ int main(int argc,char **argv) {
   CHECK(Fake::urls.size()==urls && Fake::attestationCalls==attest && !snapshot.canInstall);
   CHECK(Fake::activeClients==0 && Fake::activeAllocations==0);
   std::cout<<mode<<": "<<assertions<<" assertions passed\n";
+  return 0;
 }
