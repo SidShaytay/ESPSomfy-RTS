@@ -4310,8 +4310,12 @@ class Firmware {
             html += `<div style="width:100%;color:red;text-align:center;font-weight:bold;"><span style="margin-top:7px;width:100%;background:yellow;padding:3px;display:inline-block;border-radius:5px;background:white;">WARNING<span></div>`;
             html += '<hr/><div style="font-size:14px;margin-bottom:10px;">This browser does not support automatic backups.  It is highly recommended that you back up your configuration using the backup button before proceeding.</div>';
         }
-        else
-            html += '<hr/><div style="font-size:14px;margin-bottom:10px;">A backup file for your configuration will be downloaded to your browser.  If the firmware update process fails please restore this file using the restore button after going through the onboarding process.</div>'
+        else {
+            const guidance = isBundledWeb()
+                ? 'A fresh backup will download before upload. Keep it for recovery. If an update fails, preserve the current configuration and rolling codes and follow the shared-board recovery instructions.'
+                : 'A backup file for your configuration will be downloaded to your browser.  If the firmware update process fails please restore this file using the restore button after going through the onboarding process.';
+            html += '<hr/><div style="font-size:14px;margin-bottom:10px;">' + guidance + '</div>';
+        }
         inst.innerHTML = html;
         document.getElementById('divContainer').appendChild(div);
         if (this.isMobile()) document.getElementById('btnBackupCfg').style.display = 'inline-block';

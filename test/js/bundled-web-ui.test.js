@@ -64,3 +64,14 @@ test('generic or older pages retain separate Application and original firmware n
         assert.equal(h.firmware.firmwareFilenameAllowed('firmware.bin'), false);
     }
 });
+
+test('bundled desktop recovery guidance preserves current configuration and counters', () => {
+    const bundled=fixture('bundled');bundled.firmware.isMobile=()=>false;
+    bundled.firmware.updateFirmware();
+    const text=bundled.get('instructions').innerHTML;
+    assert.doesNotMatch(text,/onboarding|restore this file/i);
+    assert.match(text,/current configuration/i);assert.match(text,/rolling codes/i);
+    const generic=fixture('filesystem');generic.firmware.isMobile=()=>false;
+    generic.firmware.updateFirmware();
+    assert.match(generic.get('instructions').innerHTML,/onboarding/i);
+});
