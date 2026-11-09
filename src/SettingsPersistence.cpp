@@ -100,6 +100,7 @@ settings_save_result_t IPSettings::save() {
   return out.result();
 }
 settings_save_result_t SecuritySettings::save() {
+  if(!loadTrusted())return {settings_save_state_t::failed,"SEC load"};
   SettingsWriter out(SettingsNamespace::security,"SEC");
   out.i8("type", static_cast<uint8_t>(type));
   out.text("username", username);

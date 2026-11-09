@@ -33,7 +33,7 @@ struct SomfyShadeController {
   Shade *getShadeById(uint8_t id){for(auto &shade:shades)if(id && id!=255 && shade.id==id)return &shade;return nullptr;}
   ModelCommitResult commit(){noteModelCommit({ModelCommitState::saved});return {ModelCommitState::saved};}
 } somfy;
-struct ConfigSettings { bool hasOtaSlot=true; } settings;
+struct ConfigSettings { bool hasOtaSlot=true;struct { bool trusted=true;bool loadTrusted()const{return trusted;} } Security; } settings; // Qualified boot fixture.
 #define configsettings_h
 struct Web {
   bool uploadSuccess = false;
@@ -102,7 +102,7 @@ bool submitModelCommit(const proto_reply_to_t &, ModelCommitMode mode,const GitU
 static void reset() {
   cancelRestart();restartLoop();
   manualClockMs+=60000;manualUploadLoop();loopQueue.drain();
-  settings.hasOtaSlot=true;
+  settings.hasOtaSlot=true;settings.Security.trusted=true;
   Update = {};
   somfy = {};
   mqtt = {};
@@ -116,6 +116,13 @@ int main() {
   AsyncWebServer server;
   registerApplicationUploadRoute(server);
   uint8_t byte = 42;loopQueue.begin();
+  reset();
+  settings.Security.trusted=false;restartLoop();
+  AsyncWebServer untrustedFirmware;registerFirmwareUploadRoute(untrustedFirmware);
+  AsyncWebServerRequest untrusted;
+  untrustedFirmware.upload(&untrusted,String("blocked.bin"),0,&byte,1,true);untrustedFirmware.complete(&untrusted);
+  assert(untrusted.status==503 && !Update.begins && !Update.writes && !Update.ends && !Update.aborts);
+  assert(!somfy.transceiver.stops && !mqtt.stops && !gitUpdate.busy() && restarts.empty());
   reset();
 #if defined(ESPSOMFY_BUNDLED_WEB)
   GitUpdateOwnerToken competing;

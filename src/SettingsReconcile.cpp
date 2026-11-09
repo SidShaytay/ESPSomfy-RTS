@@ -18,6 +18,11 @@ uint8_t affectedSections(SettingsNamespace space) {
 settings_reconcile_result_t reconcileRunningSettings(ConfigSettings &current,const transceiver_config_t &radio,SettingsEffects &effects) {
   settings_reconcile_result_t out;
   out.requested=settingsDurability().status().uncertain;
+  if(!current.Security.loadTrusted()) {
+    out.persistence={settings_save_state_t::failed,"SEC load"};
+    out.durability=settingsDurability().status();
+    return out;
+  }
   uint8_t completed=0;
   bool partial=false;
   for(uint8_t n=0;n<8;n++) {
