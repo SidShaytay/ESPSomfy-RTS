@@ -37,6 +37,7 @@ public:
   void back(uint64_t now);
   void discard() {close(EntityAdmin::Notice::none);}
   bool closed() const {return !active;}
+  bool takePrivateProjectionDiscard();
   const EntityAdmin::FormView &view() const {return frame;}
   uint64_t epoch() {return (page==Page::entity || page==Page::order || page==Page::advanced)?backend.revision():revision;}
 };

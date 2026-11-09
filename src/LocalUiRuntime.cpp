@@ -107,7 +107,7 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
     if(!graphicsMissing) {
       graphicsMissing=true;
       settingsForm.discard();settingsActive=false;
-      administration.discard();administrationActive=presentedAdministrationValid=false;
+      administration.discard();(void)administration.takePrivateProjectionDiscard();administrationActive=presentedAdministrationValid=false;
       discardSystemChild();systemForm.discard();systemActive=false;
       controller.discardTransient();
       cancelUnsubmittedLocalControl();
@@ -207,10 +207,13 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
            sameAdministration(administration.view(),presentedAdministration))administration.activate(settingsNow);
       }
     }
+    if(administration.takePrivateProjectionDiscard())discardPrivateProjection();
     if(administration.closed() && administration.view().notice==EntityAdmin::Notice::none)controller.closeForm();
   }
   if(controller.view().screen!=Screen::administration && administrationActive) {
-    administration.discard();administrationActive=presentedAdministrationValid=false;
+    administration.discard();
+    if(administration.takePrivateProjectionDiscard())discardPrivateProjection();
+    administrationActive=presentedAdministrationValid=false;
   }
   if(controller.view().screen==Screen::system) {
     if(!systemActive) {systemForm.open(settingsNow);systemActive=true;presentedAdministrationValid=false;attempted=false;}
@@ -267,7 +270,7 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
     }
   }
   if(controller.view().screen!=Screen::system && systemActive) {
-    discardSystemChild();wipeSystemProjection(systemView);systemForm.discard();systemActive=false;presentedAdministrationValid=false;
+    discardSystemChild();wipePrivateProjection(systemView);systemForm.discard();systemActive=false;presentedAdministrationValid=false;
   }
   if(!controller.brightness() && !wasSleeping) lockAuthorization();
   wasSleeping=!controller.brightness();light(controller.brightness());

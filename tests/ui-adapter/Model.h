@@ -1,4 +1,5 @@
 #include "ModelLoadTrust.h"
+#include "CounterEdit.h"
 #pragma once
 #define SOMFY_H
 #include "ShadeSettings.h"
@@ -53,6 +54,8 @@ struct SomfyShadeController {
     struct Config {uint8_t type=56;} config;
     bool ready=true,suspended=false,room=true,quiescent=true;
     bool restartQuiescent()const{return quiescent;}
+    CounterQuarantine quarantine=CounterQuarantine::none;
+    CounterQuarantine counterQuarantine()const{return quarantine;}
     uint32_t blockedIdentity=0;bool counterBlocksIdentity(uint32_t address)const{return address && address==blockedIdentity;}
     bool available() const{return ready;} bool txSuspended() const{return suspended;} bool txHasRoom() const{return room;}
   } transceiver;
