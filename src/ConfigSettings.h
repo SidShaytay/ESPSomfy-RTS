@@ -2,6 +2,7 @@
 #include <IPAddress.h>
 #include <ArduinoJson.h>
 #include "SettingsSaveResult.h"
+#include "SecurityLoad.h"
 #include "EthPhy.h"
 #ifndef configsettings_h
 #define configsettings_h
@@ -144,6 +145,8 @@ enum class security_types : byte {
 };
 class SecuritySettings: BaseSettings {
   public:
+    SecurityLoadState loadState=SecurityLoadState::unknown;
+    bool loadTrusted() const { return securityLoadTrusted(loadState); }
     security_types type = security_types::None;
     char username[33] = "";
     char password[33] = "";

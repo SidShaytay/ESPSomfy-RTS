@@ -36,6 +36,7 @@ static uint32_t nowMs = 1;
 static unsigned long clockNow() { return nowMs; }
 SomfyShadeController::SomfyShadeController() : startingAddress(100) {modelLoad.bootResult(ModelLoadStatus::loaded);}
 SomfyShadeController somfy;
+ConfigSettings settings; // Qualified security boot; real NVS/auth failures have separate tests.
 LoopQueue loopQueue;
 
 uint32_t LoopQueue::pending() const { return 0; }
@@ -103,6 +104,7 @@ void SomfyShade::emitCommand(somfy_commands, const char *, uint32_t) {}
 #include "production-group-domain.inc"
 #undef millis
 int main(int argc, char **argv) {
+  settings.Security.loadState=SecurityLoadState::knownEmpty;
   assert(argc == 2);
   const std::string mode = argv[1];
   stubEspTimerMicros = 1000;
