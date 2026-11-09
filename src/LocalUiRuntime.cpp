@@ -109,7 +109,6 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
       settingsForm.discard();settingsActive=false;
       administration.discard();administrationActive=presentedAdministrationValid=false;
       discardSystemChild();systemForm.discard();systemActive=false;
-      frameAdministration={};presentedAdministration={};frameAdministrationEpoch=presentedAdministrationEpoch=0;
       controller.discardTransient();
       cancelUnsubmittedLocalControl();
       DispatchResult ignored;takeLocalControlResult(ignored);
