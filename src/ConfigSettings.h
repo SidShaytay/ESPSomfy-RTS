@@ -184,13 +184,23 @@ class MQTTSettings: BaseSettings {
 
     bool fromJSON(JsonObject &obj);
 };
+struct transceiver_config_t;
 class ConfigSettings: BaseSettings {
   public:
     SettingsLoadStatus loadStatus;
     bool legacyMigrationPending=false;
-    bool applyStartup();
-    bool settingsUsable() const;
-    bool networkUsable() const;
+    bool startupApplied=false;
+    bool applyStartup(const transceiver_config_t &radio);
+    bool networkUsable() const {
+      return loadStatus.usable() && WIFI.loadStatus.usable() && IP.loadStatus.usable()
+#if HAS_ETHERNET
+        && Ethernet.loadStatus.usable()
+#endif
+        ;
+    }
+    bool settingsUsable() const {
+      return networkUsable() && NTP.loadStatus.usable() && MQTT.loadStatus.usable() && Security.loadTrusted();
+    }
     static void printAvailHeap();
     char serverId[10] = "";
     char hostname[32] = "ESPSomfyRTS";

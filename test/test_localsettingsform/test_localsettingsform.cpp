@@ -34,6 +34,7 @@ struct Memory : ArduinoJson::Allocator {
 struct Fake : Backend {
   Authorization auth{true, 1, 1};
   SettingsRevisions revisions;
+  bool readUnavailable=false;
   bool changeOnRead = false;
   bool rejectLate = false, busy = false, restartBlocked = false, ethernet = false, fixedPins = true;
   proto_field_t overrideField = proto_field_t::count;
@@ -49,6 +50,7 @@ struct Fake : Backend {
   bool fixedRadioPins() const override { return fixedPins; }
   void activity() override { ++activities; }
   bool read(settings_section_t s, SettingsSnapshotSink &sink) override {
+    if(readUnavailable)return false;
     if(changeOnRead){changeOnRead=false;revisions.completed(s);}
     for (unsigned i = 0; i < settingsFieldCount(s, ethernet); ++i) {
       const auto &m = *settingsFieldAt(s, i, ethernet);
@@ -868,8 +870,15 @@ static void current_scanned_ssid_is_clean_and_save_is_unchanged() {
   form.activate(40);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(Notice::unchanged,form.view().notice);
   TEST_ASSERT_EQUAL(0,backend.saves);TEST_ASSERT_EQUAL(0,memory.active);TEST_ASSERT_EQUAL(0,memory.allocations);
 }
+static void unavailable_snapshot_closes_without_default_replace_or_save() {
+ Fake state;Memory memory;Form form(state,memory);state.readUnavailable=true;
+ TEST_ASSERT_FALSE(form.openSection(settings_section_t::network,1));
+ TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(Notice::unavailable,form.view().notice);
+ TEST_ASSERT_FALSE(form.view().dirty);TEST_ASSERT_TRUE(form.view().protectedFrame);
+ form.activate(2);form.turn(1,3);TEST_ASSERT_EQUAL(0,state.saves);
+}
 int main() {
-  UNITY_BEGIN();
+  UNITY_BEGIN();RUN_TEST(unavailable_snapshot_closes_without_default_replace_or_save);
   RUN_TEST(current_scanned_ssid_is_clean_and_save_is_unchanged);
   RUN_TEST(scanned_ssid_stages_only_after_exact_authority_and_network_revision);
   RUN_TEST(every_saved_restart_refusal_preserves_typed_reason_and_no_retry_draft);

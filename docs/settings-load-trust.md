@@ -21,13 +21,39 @@ required namespace is structurally unavailable. Readable invalid originals are
 still returned for the existing Replace editor. Historical signed NVS MQTT ports
 retain their unsigned runtime bit pattern, including 32768 through 65535.
 
-The first concrete checkpoint stages CFG/WIFI/NTP/IP/MQTT/conditional ETH and
-removes effects from their load methods. Legacy CFG/WIFI values are only staged;
-readers perform no migration writes or cleanup. Startup radio staging, qualified
-runtime gates and delayed migration/time effects are required before this feature
-is complete. Radio Save must additionally consume the shared same-owner
-queue/radio pause admission; a snapshot-only check is insufficient. Selected
-restore outcome integration remains a separate required slice.
+Startup stages CFG/WIFI/NTP/IP/MQTT/conditional ETH and radio, including the
+radio initialization marker, before delayed migration/time effects. All load
+methods are read-only. Legacy migration only runs after complete checked reads,
+and does not replay on repeated startup-finalization calls. Obsolete CC1101 keys
+are retained. Radio frequencies must fit the pinned driver's literal PA/calibration
+software-admitted bands (300–348, 378–464 or 779–928 MHz); the integrated board keeps its
+387–464 MHz restriction. Gaps and nonfinite originals remain invalid, without
+clamping or remapping. The driver uses 378 MHz despite a contradictory 387 MHz
+comment; these checks do not establish physical RF qualification outside the
+integrated profile. The existing fallback SoftAP is transport only on bad network
+reads: no unknown stored connection/SSID/IP/Ethernet values are applied, no NVS
+reset occurs, and security authentication remains unchanged.
+
+Unavailable radio settings still allow synchronization and empty queue resources
+to initialize for authenticated recovery admission. Every board withholds radio
+availability and RX until checked marker writes and hardware initialization
+succeed. Marker-only success never certifies the entire namespace or clears old
+write uncertainty. Pin-ownership settings must be usable before physical GPIO
+admission or output; ordinary RF is unaffected by bad network, clock or MQTT
+loading. The new GPIO failure uses the existing validation-code field.
+
+Restart/upload admission and OTA health consume read trust separately from write
+durability. Health also requires radio initialization when enabled, no uncertain
+settings writes and no dirty uncommitted model. An unavailable snapshot closes
+its LCD form with an explicit unavailable notice, without entering Replace or
+retaining a draft. Only readable invalid originals use the existing Replace flow.
+
+Radio Save still requires the shared same-owner queue/radio pause admission as a
+separate required consumer; a snapshot-only check is insufficient. Selected
+restore outcome integration remains required. Existing backups omit WiFi and
+MQTT credentials, so they cannot qualify unreadable uncovered fields using
+running defaults. New failed-namespace replacement flows remain pending Sid's
+choice and are not implemented here.
 
 Native tests exercise actual loaders/writers/snapshots with fake NVS: complete
 absence, individual read failures, invalid originals, per-field IP repair,

@@ -4,6 +4,7 @@
 #include "Secrets.h"
 #include "SettingsDurability.h"
 #include "SettingsTypedValidation.h"
+#include "SettingsLoad.h"
 #include "Transceiver.h"
 
 namespace {
@@ -157,23 +158,25 @@ static settings_save_result_t saveRadioSettings(const transceiver_config_t &cfg,
 }
 
 settings_save_result_t transceiver_config_t::save() {
+  if(!loadStatus.readable())return {settings_save_state_t::failed,"CC1101 load"};
   applyBoardPins();
-  return saveRadioSettings(*this,true);
+  if(!validSettings(*this))return {settings_save_state_t::failed,"CC1101 invalid"};
+  const auto result=saveRadioSettings(*this,true);
+  if(result.saved()){loadStatus={SettingsLoadState::loaded};startupInitAllowed=true;}
+  return result;
 }
 settings_save_result_t transceiver_config_t::savePreservingInit() {
-  nvs_handle_t handle;
-  if(nvs_open("CC1101",NVS_READONLY,&handle)!=ESP_OK)
-    return {settings_save_state_t::failed,"CC1101"};
-  uint8_t marker=1;
-  const auto read=nvs_get_u8(handle,"radioInit",&marker);
-  nvs_close(handle);
-  // Missing key has always meant true to Preferences::getBool. Other read
-  // failures and malformed stored values cannot silently reset the guard.
-  if((read!=ESP_OK && read!=ESP_ERR_NVS_NOT_FOUND) || marker>1)
-    return {settings_save_state_t::failed,"radioInit"};
-  if(read==ESP_ERR_NVS_NOT_FOUND) marker=1;
+  if(!loadStatus.readable())return {settings_save_state_t::failed,"CC1101 load"};
+  bool marker=true;
+  {
+    SettingsLoadReader reader("CC1101");reader.flag("radioInit",marker);
+    if(!reader.status().usable())return {settings_save_state_t::failed,"radioInit"};
+  }
   applyBoardPins();
-  return saveRadioSettings(*this,marker!=0);
+  if(!validSettings(*this))return {settings_save_state_t::failed,"CC1101 invalid"};
+  const auto result=saveRadioSettings(*this,marker);
+  if(result.saved()){loadStatus={SettingsLoadState::loaded};startupInitAllowed=marker;}
+  return result;
 }
 
 settings_migration_result_t ConfigSettings::saveLegacyMigration() {

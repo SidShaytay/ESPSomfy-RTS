@@ -118,8 +118,19 @@ static void untrusted_security_load_cannot_be_declared_reconciled_even_with_empt
     TEST_ASSERT_FALSE(current.Security.loadTrusted());
   }
 }
+static void bad_nonsecurity_load_is_not_certified_by_an_empty_write_ledger() {
+ for(int field=0;field<3;++field){
+  ConfigSettings current;qualifySettings(current);current.Security.loadState=SecurityLoadState::knownEmpty;
+  transceiver_config_t radio;qualifySettings(radio);Effects effects;
+  if(field==0)current.WIFI.loadStatus.state=SettingsLoadState::failed;
+  if(field==1)current.IP.loadStatus.state=SettingsLoadState::invalid;
+  if(field==2)radio.loadStatus.state=SettingsLoadState::unknown;
+  const auto result=reconcileRunningSettings(current,radio,effects);
+  TEST_ASSERT_FALSE(result.saved());TEST_ASSERT_EQUAL(0,result.reconciled);TEST_ASSERT_EQUAL(0,FakeNvs::opens);TEST_ASSERT_EQUAL(0,effects.calls);
+ }
+}
 int main() {
-  UNITY_BEGIN();RUN_TEST(untrusted_security_load_cannot_be_declared_reconciled_even_with_empty_write_ledger);
+  UNITY_BEGIN();RUN_TEST(bad_nonsecurity_load_is_not_certified_by_an_empty_write_ledger);RUN_TEST(untrusted_security_load_cannot_be_declared_reconciled_even_with_empty_write_ledger);
   RUN_TEST(all_supported_namespaces_rewrite_once_and_complete_each_section_once);
   RUN_TEST(later_partial_failure_remains_partial_even_when_nothing_fully_reconciles);
   RUN_TEST(radio_invalid_or_unreadable_guard_cannot_clear_uncertainty_or_write);

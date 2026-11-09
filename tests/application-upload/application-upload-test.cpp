@@ -3,6 +3,7 @@
 #include "ModelCommitService.h"
 #include "SafeRestart.h"
 #include "SomfyFrame.h"
+#include "SettingsLoadState.h"
 #include "LoopQueue.h"
 #include "Update.h"
 #include "Utils.h"
@@ -16,6 +17,7 @@
 struct SomfyShadeController {
   ModelLoadTrust modelLoad{ModelLoadStatus::loaded};
   struct Radio {
+    struct {SettingsLoadStatus loadStatus{SettingsLoadState::loaded};}config;
     bool uncertain=false;
     bool counterEditUncertain() const{return uncertain;}
     bool sealed=false;
@@ -33,7 +35,7 @@ struct SomfyShadeController {
   Shade *getShadeById(uint8_t id){for(auto &shade:shades)if(id && id!=255 && shade.id==id)return &shade;return nullptr;}
   ModelCommitResult commit(){noteModelCommit({ModelCommitState::saved});return {ModelCommitState::saved};}
 } somfy;
-struct ConfigSettings { bool hasOtaSlot=true;struct { bool trusted=true;bool loadTrusted()const{return trusted;} } Security; } settings; // Qualified boot fixture.
+struct ConfigSettings { bool settingsUsable()const{return Security.loadTrusted();} bool hasOtaSlot=true;struct { bool trusted=true;bool loadTrusted()const{return trusted;} } Security; } settings; // Qualified boot fixture.
 #define configsettings_h
 struct Web {
   bool uploadSuccess = false;

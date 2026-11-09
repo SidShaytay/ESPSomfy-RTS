@@ -4,6 +4,7 @@
 #include "TxBuffer.h"
 #include "CounterEdit.h"
 #include "ShadeTypes.h"
+#include "SettingsLoadState.h"
 #include <cassert>
 #include <mutex>
 #include <vector>
@@ -71,7 +72,7 @@ struct PublishedBool {
  operator bool()const{return value;}PublishedBool &operator=(bool next){value=next;return *this;}
 };
 struct Transceiver {
-  struct {bool enabled=true,noiseDetection=false,radioInit=true;int RXPin=8;void load(){assert(!rxHeld);}void apply(){assert(!rxHeld);}}config;
+  struct {SettingsLoadStatus loadStatus{SettingsLoadState::loaded};bool enabled=true,noiseDetection=false,radioInit=true;int RXPin=8;void apply(){assert(!rxHeld);}}config;
   bool available()const;
   PublishedBool _available{true},_administrationPaused{false};
   RadioScheduler sched;CounterEditSafety counterEdits;
@@ -111,11 +112,19 @@ int main() {
   fresh();assert(somfy.transceiver.begin() && logCalls==1 && !rx_queue.length);
   for(unsigned failure=0;failure<2;++failure) {
     fresh();radioMutex=txQueueMutex=nullptr;radioCreate=failure!=0;txCreate=failure!=1;
-    assert(somfy.transceiver.begin()); // Legacy startup behavior is unchanged.
+    assert(!somfy.transceiver.begin()); // No unsafe startup after resource allocation failure.
     RadioUpdateActivity unknown;unknown.receivedFrames=99;RadioInstallToken noToken;
     assert(!somfy.transceiver.updateActivity(unknown) && unknown.receivedFrames==99);
     assert(!somfy.transceiver.pauseForInstall(noToken) && !noToken.generation && !pins && !detaches && !rxCalls);
   }
+  fresh();rxmode=0;interruptPin=0;
+  somfy.transceiver.config.loadStatus={SettingsLoadState::failed};somfy.transceiver.config.radioInit=false;
+  assert(somfy.transceiver.begin() && !somfy.transceiver.available());
+  RadioUpdateActivity failedLoad;RadioInstallToken repair;
+  assert(somfy.transceiver.updateActivity(failedLoad) && failedLoad.quiescent() && !failedLoad.ready);
+  assert(somfy.transceiver.pauseForRestore(repair));
+  assert(somfy.transceiver.resumeAfterInstall(repair)==RadioInstallResume::resumed && !somfy.transceiver.available());
+  assert(!pins && !attaches && !detaches && !rxCalls);
   fresh();somfy.transceiver.config.noiseDetection=true;noiseStart=clockMs();noiseCount=100;
   Transceiver::handleReceive();assert(noiseDetected);
   fresh();RadioUpdateActivity activity;

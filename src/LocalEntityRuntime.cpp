@@ -240,7 +240,9 @@ class RuntimeBackend final : public Backend {
                            : !doc["gpioMy"].isNull()   ? proto_field_t::gpioMy
                                                        : proto_field_t::proto;
         const char *reason =
-            code == PIN_CONFLICT_RADIO
+            code == PIN_STORAGE_UNAVAILABLE
+                ? "GPIO ownership settings are unavailable"
+            : code == PIN_CONFLICT_RADIO
                 ? "GPIO is reserved by the board or radio"
             : code == PIN_CONFLICT_ETHERNET ? "GPIO is used by Ethernet"
             : code == PIN_CONFLICT_SHADE    ? "GPIO is used by another device"

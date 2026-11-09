@@ -107,13 +107,3 @@ bool EthernetSettings::load() {
   return adopt(*this,draft,reader);
 }
 #endif
-bool ConfigSettings::networkUsable() const {
-  return loadStatus.usable() && WIFI.loadStatus.usable() && IP.loadStatus.usable()
-#if HAS_ETHERNET
-    && Ethernet.loadStatus.usable()
-#endif
-    ;
-}
-bool ConfigSettings::settingsUsable() const {
-  return networkUsable() && NTP.loadStatus.usable() && MQTT.loadStatus.usable() && Security.loadTrusted();
-}

@@ -1,4 +1,5 @@
 #include "ModelLoadTrust.h"
+#include "SettingsLoadState.h"
 #include <assert.h>
 #include <stdio.h>
 #include <initializer_list>
@@ -44,7 +45,7 @@ struct SomfyShadeController {
   ModelLoadTrust modelLoad{ModelLoadStatus::loaded};
   SomfyShade shades[2];
   void configureGPIOs();
-  struct Radio {bool usesPin(uint8_t pin){return BoardProfile::usesPin(pin);}} transceiver;
+  struct Radio {struct {SettingsLoadStatus loadStatus{SettingsLoadState::loaded};}config;bool usesPin(uint8_t pin){return BoardProfile::usesPin(pin);}} transceiver;
 } somfy;
 struct ConfigSettings {} settings;
 const char *modelCommitFailureDescription(ModelCommitState){return "Not exercised";}
@@ -88,6 +89,15 @@ void TestSPI::end() {}
 
 int main() {
   SomfyShade shade;
+  somfy.transceiver.config.loadStatus={SettingsLoadState::failed};
+  assert(shade.validateGPIOs(radio_proto::GP_Relay,17,40,42)==PIN_STORAGE_UNAVAILABLE);
+  assert(shade.validateGPIOs(radio_proto::RTS,17,40,42)==0);
+  shade.configureGPIOs();shade.setGPIOs();
+  // This fixture stubs the base dispatcher; exercise physical output guards here.
+  somfy_frame_t unavailable;unavailable.cmd=somfy_commands::Up;shade.triggerGPIOs(unavailable);
+  assert(configured.empty() && !writes && touched.empty() && !shade.gpioRelease);
+  somfy.transceiver.config.loadStatus={SettingsLoadState::loaded};
+
   shade.setGPIOs();
   assert(writes == 2 && levels[17] == HIGH && levels[40] == LOW);
   somfy_frame_t frame;

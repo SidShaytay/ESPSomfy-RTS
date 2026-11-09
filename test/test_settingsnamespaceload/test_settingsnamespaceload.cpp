@@ -3,8 +3,12 @@
 #include "ConfigSettings.h"
 #include "SettingsRead.h"
 #include "Transceiver.h"
+#include "RadioInitMarker.h"
+#include "SettingsDurability.h"
 #include <string.h>
-void setUp(){FakeNvs::reset();}void tearDown(){TEST_ASSERT_TRUE(FakeNvs::handles.empty());}
+#include <math.h>
+#include "BoardProfile.h"
+void setUp(){FakeNvs::reset();settingsDurability()=SettingsDurability{};}void tearDown(){TEST_ASSERT_TRUE(FakeNvs::handles.empty());}
 static void text(const char *space,const char *key,const char *value){nvs_handle_t h;nvs_open(space,NVS_READWRITE,&h);nvs_set_str(h,key,value);nvs_close(h);}
 static void integer(const char *space,const char *key,int8_t value){nvs_handle_t h;nvs_open(space,NVS_READWRITE,&h);nvs_set_i8(h,key,value);nvs_close(h);}
 static void countedReads(){FakeNvs::opens=FakeNvs::reads=FakeNvs::closes=FakeNvs::sets=FakeNvs::commits=FakeNvs::erases=FakeNvs::readOnlyOpens=FakeNvs::writeOpens=0;}
@@ -65,4 +69,30 @@ static void readable_invalid_ip_snapshot_is_exact_and_unrelated_namespace_save_d
  TEST_ASSERT_TRUE(cfg.MQTT.save().saved());TEST_ASSERT_FALSE(cfg.IP.loadStatus.usable());TEST_ASSERT_EQUAL_STRING("bad-original",cfg.IP.invalidAddress[0]);
  TEST_ASSERT_FALSE(cfg.IP.save().saved());
 }
-int main(int,char**){UNITY_BEGIN();RUN_TEST(unavailable_sections_never_publish_defaults_and_other_sections_remain_usable);RUN_TEST(readable_invalid_ip_snapshot_is_exact_and_unrelated_namespace_save_does_not_repair_it);RUN_TEST(first_boot_all_namespace_loads_are_readonly_and_do_not_apply_or_migrate);RUN_TEST(failed_namespace_reads_never_publish_partial_or_default_fields);RUN_TEST(readable_invalid_connection_is_not_substituted_or_migrated);RUN_TEST(legacy_source_is_staged_without_cleanup_and_failed_read_is_not_migration);RUN_TEST(invalid_ip_originals_remain_visible_and_only_explicit_valid_replacement_clears_them);RUN_TEST(mqtt_signed_port_preserves_unsigned_runtime_domain);return UNITY_END();}
+static void radio_reads_preserve_invalid_values_and_never_clear_init_guard_or_old_keys(){
+ nvs_handle_t h;nvs_open("CC1101",NVS_READWRITE,&h);nvs_set_u8(h,"radioInit",0);float bad=0.0f/0.0f;nvs_set_blob(h,"frequency",&bad,sizeof(bad));nvs_set_u8(h,"internalCCMode",9);nvs_close(h);countedReads();
+ transceiver_config_t radio;TEST_ASSERT_FALSE(radio.loadReadOnly());TEST_ASSERT_TRUE(radio.loadStatus.readable());TEST_ASSERT_FALSE(radio.startupInitAllowed);TEST_ASSERT_FALSE(radio.radioInit);
+ TEST_ASSERT_EQUAL(0,FakeNvs::writeOpens);TEST_ASSERT_EQUAL(0,FakeNvs::erases);TEST_ASSERT_FALSE(radio.save().saved());
+ radio.frequency=433.42f;TEST_ASSERT_TRUE(radio.save().saved());TEST_ASSERT_TRUE(radio.startupInitAllowed);TEST_ASSERT_TRUE(FakeNvs::values.count("CC1101/internalCCMode"));
+}
+static void marker_only_writes_never_certify_namespace_and_failures_are_truthful(){
+ for(int phase=0;phase<4;++phase){FakeNvs::reset();settingsDurability()=SettingsDurability{};
+  if(phase==0)FakeNvs::failOpen=1;if(phase==1)FakeNvs::failSet=1;if(phase==2)FakeNvs::failCommit=1;if(phase==3)FakeNvs::failRead=1;
+  const auto result=writeRadioInitMarker(false);TEST_ASSERT_FALSE(result.saved());
+  TEST_ASSERT_EQUAL(phase==0?settings_save_state_t::failed:settings_save_state_t::partial,result.state);
+  TEST_ASSERT_EQUAL(phase!=0,!settingsDurability().status().restartAllowed());
+ }
+ FakeNvs::reset();settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::radio));
+ TEST_ASSERT_TRUE(writeRadioInitMarker(true).saved());TEST_ASSERT_FALSE(settingsDurability().status().restartAllowed());
+}
+static void unsupported_radio_bands_remain_readable_invalid_and_cannot_be_saved() {
+ for(float frequency:{299.99f,348.01f,360.0f,377.99f,464.01f,700.0f,778.99f,928.01f,NAN,INFINITY,-INFINITY}) {
+  FakeNvs::reset();nvs_handle_t h;nvs_open("CC1101",NVS_READWRITE,&h);nvs_set_blob(h,"frequency",&frequency,sizeof(frequency));nvs_close(h);countedReads();
+  transceiver_config_t radio;TEST_ASSERT_FALSE(radio.loadReadOnly());TEST_ASSERT_TRUE(radio.loadStatus.readable());TEST_ASSERT_FALSE(radio.save().saved());TEST_ASSERT_EQUAL(0,FakeNvs::writeOpens);
+ }
+ for(float frequency:{300.0f,348.0f,378.0f,464.0f,779.0f,928.0f}) {
+  FakeNvs::reset();transceiver_config_t radio;TEST_ASSERT_TRUE(radio.loadReadOnly());radio.frequency=frequency;TEST_ASSERT_TRUE(radio.save().saved());
+ }
+ TEST_ASSERT_FALSE(BoardProfile::radioFrequencyAllowed(NAN));TEST_ASSERT_FALSE(BoardProfile::radioFrequencyAllowed(INFINITY));
+}
+int main(int,char**){UNITY_BEGIN();RUN_TEST(unsupported_radio_bands_remain_readable_invalid_and_cannot_be_saved);RUN_TEST(radio_reads_preserve_invalid_values_and_never_clear_init_guard_or_old_keys);RUN_TEST(marker_only_writes_never_certify_namespace_and_failures_are_truthful);RUN_TEST(unavailable_sections_never_publish_defaults_and_other_sections_remain_usable);RUN_TEST(readable_invalid_ip_snapshot_is_exact_and_unrelated_namespace_save_does_not_repair_it);RUN_TEST(first_boot_all_namespace_loads_are_readonly_and_do_not_apply_or_migrate);RUN_TEST(failed_namespace_reads_never_publish_partial_or_default_fields);RUN_TEST(readable_invalid_connection_is_not_substituted_or_migrated);RUN_TEST(legacy_source_is_staged_without_cleanup_and_failed_read_is_not_migration);RUN_TEST(invalid_ip_originals_remain_visible_and_only_explicit_valid_replacement_clears_them);RUN_TEST(mqtt_signed_port_preserves_unsigned_runtime_domain);return UNITY_END();}

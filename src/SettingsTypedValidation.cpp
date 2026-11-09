@@ -57,7 +57,8 @@ bool validSettings(const EthernetSettings &c) {
 }
 #endif
 bool validSettings(const transceiver_config_t &c) {
-  return number(settings_part_t::radio,proto_field_t::bitLength,c.type) &&
+  return BoardProfile::radioFrequencyAllowed(c.frequency) &&
+    number(settings_part_t::radio,proto_field_t::bitLength,c.type) &&
     number(settings_part_t::radio,proto_field_t::proto,uint8_t(c.proto)) &&
     number(settings_part_t::radio,proto_field_t::TXPin,c.TXPin) &&
     number(settings_part_t::radio,proto_field_t::RXPin,c.RXPin) &&

@@ -4,6 +4,7 @@
 #include "ProtoSettings.h"
 #include "ProtoParse.h"
 #include "EthPhy.h"
+#include "BoardProfile.h"
 
 static const char *const SECTIONS[] = {"general", "network", "mqtt", "security", "radio"};
 const char *settingsSectionName(settings_section_t section) { return SECTIONS[static_cast<uint8_t>(section)]; }
@@ -169,7 +170,11 @@ static const char *checkValue(const settings_field_t &s, const proto_field_info_
   if(f.kind == 'n') {
     // Half a hundredth either way, as 58.03 is a little under it in a float.
     const double hundredths = value.as<double>() * 100;
-    if(hundredths > s.lo - 0.5 && hundredths < s.hi + 0.5) return nullptr;
+    if(hundredths > s.lo - 0.5 && hundredths < s.hi + 0.5) {
+      if(s.field==proto_field_t::frequency && !BoardProfile::radioFrequencyAllowed(value.as<float>()))
+        return "frequency is outside the supported radio bands";
+      return nullptr;
+    }
     snprintf(why, sizeof(why), "%s must be %ld.%02ld-%ld.%02ld", f.name, (long)(s.lo / 100), (long)(s.lo % 100),
       (long)(s.hi / 100), (long)(s.hi % 100));
     return why;

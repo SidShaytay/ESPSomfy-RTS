@@ -513,7 +513,7 @@ void Form::render() {
       settings_value_t v;
       if (!readValue(f, v)) {
         wipe(&v, sizeof(v));
-        close(Notice::changed);
+        close(Notice::unavailable);
         return;
       }
       format(f, v, out.value, sizeof(out.value));
@@ -552,7 +552,7 @@ void Form::beginField(uint64_t now, FieldStart start) {
   }
   settings_value_t v;
   if (!readValue(*editingField, v)) {
-    close(Notice::changed);
+    close(Notice::unavailable);
     return;
   }
   const auto &f = *editingField;

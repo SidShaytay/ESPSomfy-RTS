@@ -9,6 +9,7 @@
 #endif
 #include "Utils.h"
 #include "Secrets.h"
+#include "Transceiver.h"
 #include "esp_chip_info.h"
 #include "esp_ota_ops.h"
 #include "esp_log.h"
@@ -167,6 +168,27 @@ bool ConfigSettings::begin() {
   if(ready)this->print();
   else ESP_LOGW(TAG,"Settings require repair; unavailable values were not applied");
   return ready;
+}
+
+bool ConfigSettings::applyStartup(const transceiver_config_t &radio) {
+  // All namespaces must have completed their read phase before any side effect.
+  if(loadStatus.state==SettingsLoadState::unknown || NTP.loadStatus.state==SettingsLoadState::unknown ||
+     IP.loadStatus.state==SettingsLoadState::unknown || WIFI.loadStatus.state==SettingsLoadState::unknown ||
+     MQTT.loadStatus.state==SettingsLoadState::unknown || Security.loadState==SecurityLoadState::unknown ||
+     radio.loadStatus.state==SettingsLoadState::unknown
+#if HAS_ETHERNET
+     || Ethernet.loadStatus.state==SettingsLoadState::unknown
+#endif
+     )return false;
+  if(startupApplied)return settingsUsable() && radio.loadStatus.usable();
+  startupApplied=true;
+  if(NTP.loadStatus.usable())NTP.apply();
+  if(legacyMigrationPending && loadStatus.usable() && WIFI.loadStatus.usable()) {
+    const auto migrated=saveLegacyMigration();
+    if(!migrated.saved())ESP_LOGW(TAG,"Legacy settings migration not saved; source retained");
+    else legacyMigrationPending=false;
+  }
+  return settingsUsable() && radio.loadStatus.usable();
 }
 
 bool ConfigSettings::getAppVersion() {

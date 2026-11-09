@@ -52,11 +52,10 @@ struct transceiver_config_t {
     settings_save_result_t save();
     // Persistence-only reconciliation: preserve the stored init safety marker.
     settings_save_result_t savePreservingInit();
-    void load();
+    bool loadReadOnly();
+    void applyChipDefaults();
     void apply();
     void applyBoardPins();
-    // Removes a key no longer used from the open CC1101 namespace.
-    void removeNVSKey(Preferences &pref, const char *key);
 };
 class Transceiver {
   private:
@@ -92,6 +91,7 @@ class Transceiver {
     // Persists a prepared config before swapping/applying it. Failed or partial
     // persistence leaves the live config and hardware unchanged.
     settings_save_result_t setConfig(const transceiver_config_t &cfg);
+    bool loadReadOnly();
     bool begin();
     void loop();
     bool end();
