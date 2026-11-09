@@ -145,7 +145,7 @@ void Canvas::paintEntity(const EntityAdmin::FormView &view) {
     char first[48],second[48];lines(*this,view.rows[2].value,first,second);
     text(12,71,first,false,muted,296);text(12,89,second,false,muted,296);
     for(uint8_t i=0;i<2;i++) {
-      const int top=96+i*24;if(view.rows[i].selected)fillRoundRect(8,top,304,22,4,selection);
+      const int top=95+i*20;if(view.rows[i].selected)fillRoundRect(8,top,304,20,4,selection);
       text(14,top+15,view.rows[i].label,false,foreground,284);
     }
     lines(*this,view.hint,first,second);

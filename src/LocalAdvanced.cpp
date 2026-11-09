@@ -470,7 +470,7 @@ void Form::runLearn(uint64_t) {
   }
   learnFault(
       s.counterOutcome == CounterDomainState::stale
-          ? "Stored/live code is newer. Receive and review a fresh frame."
+          ? "Stored/live code newer. Cancel, then Begin observation again."
       : s.counterOutcome == CounterDomainState::nvsFailed
           ? "Counter storage read/open failed. Nothing was linked."
       : s.counterOutcome == CounterDomainState::full
@@ -716,7 +716,7 @@ void Form::render(FormView &out) {
     if (s.page == Session::Page::learnStart) {
       strcpy(out.rows[1].label, "Begin observation");
       strcpy(out.hint,
-             "Future received commands can affect this device. No RF now.");
+             "Future received commands may affect device; Link sends no RF.");
     } else if (s.page == Session::Page::learnReview) {
       out.mode = Mode::learnReview;
       strcpy(out.rows[1].label, "Link received remote");
@@ -782,15 +782,15 @@ void Form::render(FormView &out) {
         strcpy(out.title, "Remote linked");
         strcpy(out.hint,
                s.counterOutcome == CounterDomainState::saved
-                   ? "Counter and model file verified. No RF was sent."
+                   ? "Counter and model file verified. Link sent no RF."
                    : "Link applied; file saved. Review counter outcome.");
       } else if (s.counterOutcome == CounterDomainState::nvsUncertain) {
-        strcpy(out.title, "Counter storage uncertain");
+        strcpy(out.title, "Counter uncertain");
         strcpy(out.hint,
                "Link not applied; stored code unknown. Do not replay/reset.");
       } else if (s.counterOutcome == CounterDomainState::quarantined) {
-        strcpy(out.title, s.linkApplied ? "Applied; recovery blocked"
-                                        : "Counter operation blocked");
+        strcpy(out.title, s.linkApplied ? "Link recovery blocked"
+                                        : "Counter blocked");
         strcpy(
             out.hint,
             s.linkApplied

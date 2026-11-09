@@ -554,7 +554,7 @@ static void uncertain_nvs_has_no_retry_and_observation_or_queue_expiry_wipes() {
       model.learnedQueue.run(model.learnedToken, 20);
       FormView view;
       form.render(view);
-      TEST_ASSERT_EQUAL_STRING("Counter storage uncertain", view.title);
+      TEST_ASSERT_EQUAL_STRING("Counter uncertain", view.title);
       TEST_ASSERT_EQUAL(1, view.rowCount);
       TEST_ASSERT_EQUAL_STRING("Close", view.rows[0].label);
       TEST_ASSERT_EQUAL(1, model.links);
@@ -612,7 +612,7 @@ failed_prewrite_stays_unapplied_and_file_uncertainty_preserves_prior_link() {
       form.activate(22);
       model.learnedQueue.run(model.learnedToken, 23);
       form.render(view);
-      TEST_ASSERT_EQUAL_STRING("Applied; recovery blocked", view.title);
+      TEST_ASSERT_EQUAL_STRING("Link recovery blocked", view.title);
       TEST_ASSERT_EQUAL(1, view.rowCount);
       TEST_ASSERT_NOT_NULL(strstr(view.hint, "Earlier link kept"));
       TEST_ASSERT_EQUAL(1, model.counterWrites);
