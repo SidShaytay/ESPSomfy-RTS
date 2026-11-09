@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include "GpioPinClaims.h"
 class ConfigSettings;
 struct transceiver_config_t;
 // A qualified projected other-bus map, never credentials or a new owner.

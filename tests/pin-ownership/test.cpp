@@ -35,6 +35,8 @@ int main(){
  settings.Ethernet.loadStatus={SettingsLoadState::loaded};
 #endif
  assert(currentRadioPinConfigurationAvailable(rf));
+ const auto oldTx=rf.TXPin;retainGpioPinClaims(LivePinClaims::pinMask(41));rf.TXPin=41;
+ assert(!currentRadioPinConfigurationAvailable(rf));rf.TXPin=oldTx;assert(currentRadioPinConfigurationAvailable(rf));
  auto &shade=somfy.shades[31];shade.id=1;shade.proto=radio_proto::GP_Relay;shade.gpioUp=rf.TXPin;
  assert(!currentRadioPinConfigurationAvailable(rf));shade.gpioUp=255;shade.gpioMy=rf.TXPin;assert(currentRadioPinConfigurationAvailable(rf));
  shade.proto=radio_proto::GP_Remote;assert(!currentRadioPinConfigurationAvailable(rf));shade.gpioMy=255;
@@ -48,10 +50,12 @@ int main(){
  rf.enabled=false;assert(networkPinConfigurationAvailable(settings));
  shade.gpioUp=21;assert(!networkPinConfigurationAvailable(settings));shade.gpioUp=255;
  assert(ethernetActivationPinsAvailable(settings));
+ settings.WIFI.loadStatus=settings.IP.loadStatus={SettingsLoadState::loaded};
+ settings.Ethernet.PWRPin=41;assert(!networkPinConfigurationAvailable(settings));assert(!net.connectWired()&&!driverCalls);
  settings.Ethernet.PWRPin=-1;assert(!LivePinClaims::contains(settings.Ethernet.pinClaims(),255));
  settings.Ethernet.MDCPin=-1;assert(!networkPinConfigurationAvailable(settings));settings.Ethernet.MDCPin=44;
  settings.WIFI.loadStatus=settings.IP.loadStatus={SettingsLoadState::loaded};
- somfy.modelLoad.ok=false;assert(!net.connectWired());assert(!driverCalls&&ESPNetwork::fallbacks==1);
+ somfy.modelLoad.ok=false;assert(!net.connectWired());assert(!driverCalls&&ESPNetwork::fallbacks==2);
  somfy.modelLoad.ok=true;assert(!net.connectWired());assert(driverCalls && !net.ethStarted);const auto claimed=net.retainedPinClaims();assert((claimed&settings.Ethernet.pinClaims())==settings.Ethernet.pinClaims());
  link=true;somfy.modelLoad.ok=false;const auto calls=driverCalls;assert(net.connectWired());assert(driverCalls==calls && net.retainedPinClaims()==claimed);
  settings.connType=conn_types_t::wifi;assert(!ethernetActivationPinsAvailable(settings));
