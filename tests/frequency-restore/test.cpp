@@ -4,6 +4,8 @@
 #include <cstdio>
 #include "Arduino.h"
 #include "RadioUpdateActivity.h"
+static std::atomic<bool> scanActive{false};
+struct {bool sealed=false;bool sealForRestart(){if(sealed)return false;sealed=true;return true;}void reopenAfterRefusedRestart(){sealed=false;}} loopQueue;
 static uint8_t rxmode=1;
 static bool rxPausedForInstall=false;
 static bool radioUpdateResourcesReady(){return true;}
@@ -57,7 +59,7 @@ struct Transceiver {
  void disableReceive(){rxmode=0;}
  void enableReceive(){rxmode=1;++enabled;ELECHOUSE_cc1101.SetRx();}
  static void handleReceive(){}
- void beginFrequencyScan();void endFrequencyScan();
+ bool beginFrequencyScan();void endFrequencyScan();
  void processFrequencyScan(bool=false);void emitFrequencyScan(){}void serviceScanStop();
 };
 #include "scan.inc"

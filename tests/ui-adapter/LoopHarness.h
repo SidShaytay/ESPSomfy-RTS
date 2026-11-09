@@ -12,6 +12,8 @@
 #define PROTO_SOCKET_H
 #define DEVICE_OPS_H
 #include "LoopQueue.h"
+inline bool loopScanActive=false;
+inline bool frequencyScanActive(){return loopScanActive;}
 #include "ModelCommitResult.h"
 #include "GitUpdate.h"
 #include "SafeRestart.h"

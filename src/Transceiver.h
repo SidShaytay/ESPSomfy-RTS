@@ -151,7 +151,8 @@ class Transceiver {
     void beginTransmit();
     void endTransmit();
     void emitFrame(somfy_frame_t *frame, somfy_rx_t *rx = nullptr);
-    void beginFrequencyScan();
+    // Loop-only, nonblocking: true only after scan actually owns paused RF.
+    bool beginFrequencyScan();
     void endFrequencyScan();
     void processFrequencyScan(bool received = false);
     void emitFrequencyScan();

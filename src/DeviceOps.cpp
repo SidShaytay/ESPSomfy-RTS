@@ -177,7 +177,10 @@ void runDeviceOp(const loop_item_t &item) {
         protoSocket.replyRefused(item.replyTo, proto_error_t::radioUnavailable, "The radio is disabled");
         break;
       }
-      somfy.transceiver.beginFrequencyScan();
+      if(!somfy.transceiver.beginFrequencyScan()) {
+        protoSocket.replyRefused(item.replyTo,proto_error_t::busy,"Radio scan admission refused; accepted work was preserved");
+        break;
+      }
       protoSocket.beginReply(item.replyTo);
       protoSocket.endReply(item.replyTo);
       break;
