@@ -40,4 +40,21 @@ static void scalar_type_error_invalid_bool_and_wrong_blob_size_are_unavailable()
   TEST_ASSERT_FALSE(r.status().readable());
  }
 }
-int main(int,char**){UNITY_BEGIN();RUN_TEST(exact_absence_is_not_open_or_read_error);RUN_TEST(typed_values_and_exact_bytes_are_staged_without_any_write);RUN_TEST(every_string_read_failure_and_malformed_string_leave_destination_unchanged);RUN_TEST(scalar_type_error_invalid_bool_and_wrong_blob_size_are_unavailable);return UNITY_END();}
+static void raw_nonfinite_values_are_preserved_and_invalid_status_is_sticky() {
+ for(uint32_t bits:{0x7fc01234u,0x7f800000u,0xff800000u}) {
+  FakeNvs::reset();seed();
+  memcpy(FakeNvs::values["TEST/float"].bytes.data(),&bits,sizeof(bits));
+  SettingsLoadReader r("TEST");float value=0;uint32_t actual=0;
+  TEST_ASSERT_EQUAL(SettingsReadField::present,r.real("float",value));
+  memcpy(&actual,&value,sizeof(actual));TEST_ASSERT_EQUAL_HEX32(bits,actual);
+  TEST_ASSERT_TRUE(r.status().usable()); // Semantic validation belongs to the typed namespace.
+  r.invalid();uint8_t next=0;
+  TEST_ASSERT_EQUAL(SettingsReadField::present,r.u8("unsigned",next));
+  TEST_ASSERT_EQUAL(SettingsLoadState::invalid,r.status().state);
+  TEST_ASSERT_EQUAL(SettingsReadField::absent,r.u8("missing",next));
+  TEST_ASSERT_EQUAL(SettingsLoadState::invalid,r.status().state);
+  TEST_ASSERT_EQUAL(SettingsReadField::failed,r.u8("signed",next));
+  r.invalid();TEST_ASSERT_EQUAL(SettingsLoadState::failed,r.status().state);
+ }
+}
+int main(int,char**){UNITY_BEGIN();RUN_TEST(raw_nonfinite_values_are_preserved_and_invalid_status_is_sticky);RUN_TEST(exact_absence_is_not_open_or_read_error);RUN_TEST(typed_values_and_exact_bytes_are_staged_without_any_write);RUN_TEST(every_string_read_failure_and_malformed_string_leave_destination_unchanged);RUN_TEST(scalar_type_error_invalid_bool_and_wrong_blob_size_are_unavailable);return UNITY_END();}
