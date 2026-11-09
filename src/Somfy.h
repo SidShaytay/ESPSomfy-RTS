@@ -63,6 +63,8 @@ class SomfyRemote : public RemoteSettings {
     uint16_t peekNextRollingCode();
     void commitRollingCode(uint16_t code);
     virtual uint16_t setRollingCode(uint16_t code);
+    // Only the checked explicit domain calls this AFTER verified NVS. No I/O.
+    void adoptExplicitCounter(uint16_t code);
     // The flags byte (somfy_flags_t) as it is saved and sent.
     virtual uint8_t getFlags() { return 0; }
     // The send functions return false only when the radio could not take the
