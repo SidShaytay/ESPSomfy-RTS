@@ -1,4 +1,7 @@
 #include <LittleFS.h>
+#if defined(ESPSOMFY_BUNDLED_WEB)
+#include "BundledWebRoutes.h"
+#endif
 #include <Update.h>
 #include "TaskWdt.h"
 #include "esp_log.h"
@@ -84,7 +87,11 @@ void registerHttpRoutes(AsyncWebServer &server) {
   server.onNotFound([](AsyncWebServerRequest *r) { webServer.handleNotFound(r); });
 
   // serveStatic MUST be registered AFTER all route handlers so it doesn't shadow them
+#if defined(ESPSOMFY_BUNDLED_WEB)
+  if(!registerBundledWebRoutes(server))ESP_LOGE(TAG,"Bundled web handler registration failed");
+#else
   server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html")
     .setFilter([](AsyncWebServerRequest *r) { return isWebAsset(r->url().c_str()); });
+#endif
 
 }

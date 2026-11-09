@@ -24,7 +24,7 @@ TARGET = {'board': 'LILYGO T-Embed CC1101 / Plus',
           'flash_frequency_hz': 80000000, 'rom_header_flash_mode': 'dio',
           'psram_bytes': 0x800000,
           'psram_mode': 'opi', 'usb': 'hardware CDC on boot', 'headless': False,
-          'profile_macro': 'ESPSOMFY_LILYGO_T_EMBED_CC1101'}
+          'profile_macro': 'ESPSOMFY_LILYGO_T_EMBED_CC1101', 'assets_mode': 'bundled'}
 BUILD_SETTINGS = {'board': 'esp32-s3-devkitc1-n16r8', 'build_type': 'release',
                   'board_build.partitions': 'default_8MB.csv',
                   'board_build.flash_mode': 'qio', 'board_build.f_flash': '80000000L',
@@ -34,7 +34,7 @@ REQUIRED_FLAGS = ['-DCORE_DEBUG_LEVEL=2', '-DARDUINO_USB_MODE=1',
                   '-DARDUINO_USB_CDC_ON_BOOT=1',
                   '-DESPSOMFY_LILYGO_T_EMBED_CC1101',
                   '-DESPSOMFY_STATUS_DISPLAY', '-DESPSOMFY_LOCAL_UI',
-                  '-DESPSOMFY_LOCAL_COMMANDS']
+                  '-DESPSOMFY_LOCAL_COMMANDS', '-DESPSOMFY_BUNDLED_WEB']
 RETIRED_BOARD_MACRO = 'ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS'
 DISPLAY_LIBRARIES = ['adafruit/Adafruit GFX Library@1.12.1', 'adafruit/Adafruit BusIO@1.17.4']
 
@@ -113,10 +113,9 @@ PARTITIONS = {
 SEGMENTS = [('bootloader.bin', 0, 0x8000),
             ('partitions.bin', 0x8000, 0x1000),
             ('boot_app0.bin', 0xe000, 0x2000),
-            ('firmware.bin', 0x10000, 0x330000),
-            ('littlefs.bin', 0x670000, 0x180000)]
+            ('firmware.bin', 0x10000, 0x330000)]
 USAGE = {'provisioning': [name for name, _, _ in SEGMENTS],
-         'firmware_update': ['firmware.bin'], 'filesystem_update': ['littlefs.bin'],
+         'firmware_update': ['firmware.bin'], 'filesystem_update': [], 'preserve_filesystem': True,
          'requires_matching_partition_table': True,
          'migration_from_older_layout': 'separate backup, provisioning and restore required; never firmware OTA'}
 
@@ -255,8 +254,6 @@ def artifact_manifest(out):
         data = (out / name).read_bytes()
         if not data or len(data) > limit:
             raise ValueError(f'{name}: image exceeds reserved region or is empty')
-        if name == 'littlefs.bin' and len(data) != limit:
-            raise ValueError('filesystem image must exactly fill its partition')
         if name == 'boot_app0.bin' and (len(data) != limit or digest(data) !=
                 'f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0'):
             raise ValueError('OTA initialization image does not match the pinned SDK')
@@ -266,13 +263,24 @@ def artifact_manifest(out):
             raise ValueError('firmware has less than 8KB OTA headroom')
         segments.append({'file': name, 'offset': offset, 'size': len(data),
                          'sha256': digest(data)})
+    from bundled_web_assets import extract
+    web = extract((out / 'firmware.bin').read_bytes())
     elf = (out / 'firmware.elf').read_bytes()
     if not elf:
         raise ValueError('missing ELF symbols')
     evidence = build_evidence(out)
     environment = evidence['compiler']['env_name']
+    compiled_web = {'FW_VERSION': '"v' + web['version'] + '"',
+                    'ESPSOMFY_APP_COMPAT': '"' + web['compatibility'] + '"'}
+    for name, value in compiled_web.items():
+        found=[entry.partition('=')[2] for entry in evidence['compiler']['defines']
+               if entry.partition('=')[0]==name]
+        if found!=[value]:
+            raise ValueError('compiler '+name+' differs from bundled web bytes/source version')
+    for field in ('cc_flags','cxx_flags'):
+        check_flags(evidence['compiler'].get(field,[]),compiled_web,RETIRED_BOARD_MACRO,'bundled web '+field)
     target = dict(TARGET, compatible_boards=list(TARGET['compatible_boards']))
-    return {'schema': 1, 'baseline': BASELINE.copy(), 'target': target,
+    return {'schema': 2, 'web': dict(web, mode='bundled'), 'baseline': BASELINE.copy(), 'target': target,
             'platform': PLATFORM, 'arduino_core': '3.3.12', 'esp_idf': '5.5.5',
             'pioarduino_core': '6.2.0', 'build_settings': BUILD_SETTINGS.copy(),
             'profile_build_flags': required_flags(environment), 'effective_build': evidence,

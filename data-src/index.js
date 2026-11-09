@@ -6,6 +6,12 @@
 var hst = '192.168.178.20';
 var _rooms = [{ roomId: 0, name: 'Home' }];
 
+// Build-bound product hint. Upload safety remains enforced by the server.
+function isBundledWeb() {
+    const mode = document.querySelector('meta[name="espsomfy-web-mode"]');
+    return mode !== null && mode.getAttribute('content') === 'bundled';
+}
+
 var errors = [
     { code: -10, desc: "GPIO is reserved by the board or radio. Output pins cannot be re-used." },
     { code: -11, desc: "Pin setting in use for Ethernet Adapter.  Output pins cannot be re-used." },
@@ -508,7 +514,8 @@ function showVersionMismatch(v) {
     let div = document.createElement('div');
     div.id = 'divVersionMismatch';
     div.className = 'version-banner';
-    div.innerHTML = `This page speaks protocol ${v.client} but the device speaks ${v.device}.  Update the application files, or reload the page.`;
+    div.textContent = `This page speaks protocol ${v.client} but the device speaks ${v.device}. ` +
+        (isBundledWeb() ? 'Reload the page. The web UI belongs to the installed firmware; use a matching firmware package if the mismatch remains.' : 'Update the application files, or reload the page.');
     document.body.prepend(div);
 }
 // Opens the socket, or opens it again with the token a login gave.
@@ -4121,7 +4128,17 @@ class MQTT {
 var mqtt = new MQTT();
 class Firmware {
     initialized = false;
-    init() { this.initialized = true; }
+    init() {
+        this.initialized = true;
+        const bundled = isBundledWeb();
+        const application = document.getElementById('btnUpdateApplication');
+        if (application) application.style.display = bundled ? 'none' : '';
+        const notice = document.getElementById('bundledWebNotice');
+        if (notice) {
+            notice.textContent = bundled ? 'Firmware updates include the web UI. No separate Application image is needed.' : '';
+            notice.style.display = bundled ? 'block' : 'none';
+        }
+    }
     isMobile() {
         let agt = navigator.userAgent.toLowerCase();
         return /Android|iPhone|iPad|iPod|BlackBerry|BB|PlayBook|IEMobile|Windows Phone|Kindle|Silk|Opera Mini/i.test(navigator.userAgent);
@@ -4264,27 +4281,50 @@ class Firmware {
         div.innerHTML = `Firmware ${rel.fwVersion.name} Installed`;
         div.style.display = '';
     }
+    // Filename filtering is a picker hint, never hardware/digest admission.
+    firmwareFilenameAllowed(filename) {
+        if (typeof filename !== 'string') return false;
+        if (isBundledWeb()) {
+            const name = filename.split(/[\\/]/).pop();
+            return name === 'firmware.bin' || name === 'firmware-lilygo-t-embed-cc1101.bin';
+        }
+        return filename.indexOf('.ino.') !== -1 && filename.endsWith('.bin');
+    }
     updateFirmware() {
         let chip = chipModel();
         // Firmware from before the field leaves it out: undefined, not false.
         if (proto.model.header.hasOtaSlot === false) {
+            if (isBundledWeb()) {
+                ui.infoMessage('This firmware requires the matching A/B partition layout. No upload started. Review the validated package and current backup before a separately planned recovery.');
+                return;
+            }
             ui.infoMessage(`This device has no OTA slot, so its firmware is flashed over USB with SomfyController.onboard.esp32${chip}.bin, from the release's SomfyController.onboard.esp32${chip}.bin.zip. That image holds the web UI and an empty configuration too, so take a backup first and restore it afterwards.`);
             return;
         }
         let div = this.createFileUploader('/updateFirmware');
         let inst = div.querySelector('div[id=divInstText]');
-        let html = `<div style="font-size:14px;margin-bottom:20px;">Select a binary file [SomfyController.ino.esp32${chip}.bin] containing the device firmware then press the Upload File button.</div>`;
+        let html = isBundledWeb()
+            ? '<div style="font-size:14px;margin-bottom:20px;">Select firmware.bin from the validated shared-board package, or firmware-lilygo-t-embed-cc1101.bin from its matching release. This firmware contains the web UI too. Use the shared-board package approved for this device and its current partition layout.</div>'
+            : `<div style="font-size:14px;margin-bottom:20px;">Select a binary file [SomfyController.ino.esp32${chip}.bin] containing the device firmware then press the Upload File button.</div>`;
         if (this.isMobile()) {
             html += `<div style="width:100%;color:red;text-align:center;font-weight:bold;"><span style="margin-top:7px;width:100%;background:yellow;padding:3px;display:inline-block;border-radius:5px;background:white;">WARNING<span></div>`;
             html += '<hr/><div style="font-size:14px;margin-bottom:10px;">This browser does not support automatic backups.  It is highly recommended that you back up your configuration using the backup button before proceeding.</div>';
         }
-        else
-            html += '<hr/><div style="font-size:14px;margin-bottom:10px;">A backup file for your configuration will be downloaded to your browser.  If the firmware update process fails please restore this file using the restore button after going through the onboarding process.</div>'
+        else {
+            const guidance = isBundledWeb()
+                ? 'A fresh backup will download before upload. Keep it for recovery. If an update fails, preserve the current configuration and rolling codes and follow the shared-board recovery instructions.'
+                : 'A backup file for your configuration will be downloaded to your browser.  If the firmware update process fails please restore this file using the restore button after going through the onboarding process.';
+            html += '<hr/><div style="font-size:14px;margin-bottom:10px;">' + guidance + '</div>';
+        }
         inst.innerHTML = html;
         document.getElementById('divContainer').appendChild(div);
         if (this.isMobile()) document.getElementById('btnBackupCfg').style.display = 'inline-block';
     }
     updateApplication() {
+        if (isBundledWeb()) {
+            ui.infoMessage('The web UI is included in firmware updates. Separate Application images are retired for this board.');
+            return;
+        }
         let div = this.createFileUploader('/updateApplication');
         general.reloadApp = true;
         let inst = div.querySelector('div[id=divInstText]');
@@ -4300,6 +4340,10 @@ class Firmware {
         if(this.isMobile()) document.getElementById('btnBackupCfg').style.display = 'inline-block';
     }
     async uploadFile(service, el, data) {
+        if (service === '/updateApplication' && isBundledWeb()) {
+            ui.infoMessage('The web UI is included in firmware updates. No separate Application image was sent.');
+            return;
+        }
         let field = el.querySelector('input[type="file"]');
         let filename = field.value;
         console.log(filename);
@@ -4332,7 +4376,7 @@ class Firmware {
                     ui.errorMessage('You must select a valid firmware binary file to proceed.');
                     return;
                 }
-                else if (filename.indexOf('.ino.') === -1 || !filename.endsWith('.bin')) {
+                else if (!this.firmwareFilenameAllowed(filename)) {
                     ui.errorMessage(el, 'This file is not a valid firmware binary file.');
                     return;
                 }
