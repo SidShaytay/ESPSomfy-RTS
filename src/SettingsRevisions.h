@@ -20,8 +20,10 @@ public:
 };
 static_assert(sizeof(SettingsRevisions)==5*sizeof(uint64_t),"Keep settings history bounded");
 
-// Loop-owned runtime entry points. No credentials or protocol transport types.
+// Writers are loop-owned; synchronized reads may bind asynchronous work.
+// A history value alone is not authentication. No credentials are cached here.
 uint64_t deviceSettingsRevision(settings_section_t section);
 uint64_t securityConfigurationRevision();
 // Restore integration calls this after validation, before mutating live state.
 void invalidateDeviceSettingsRevisions();
+void noteDeviceSettingsCompleted(settings_section_t section);
