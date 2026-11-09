@@ -55,7 +55,7 @@ ManualUploadState *begin(AsyncWebServerRequest *request,ManualUpdateKind kind) {
   if(!gitUpdate.acquireExternal(kind==ManualUpdateKind::restore ? GitUpdateExternalOwner::restore : GitUpdateExternalOwner::manual,state->owner)) { state->failed=true;return state; }
   // Checked AFTER owner acquisition: no counter edit can begin between this
   // observation and SDK begin/shutdown. The owner is held through cleanup.
-  if(somfy.transceiver.counterEditUncertain() || rebootDelay.reboot ||
+  if(somfy.transceiver.counterEditUncertain() || snapshotLegacyRestart(rebootDelay).reboot ||
      !gitUpdate.beginTransfer(state->owner,kind,now())) {
     state->failed=true;gitUpdate.releaseExternal(state->owner);return state;
   }
