@@ -17,8 +17,9 @@ static unsigned decoded=0,logCalls=0;
 static void logOutsideRx(){assert(!rxHeld);++logCalls;}
 using SemaphoreHandle_t=void*;
 static SemaphoreHandle_t radioMutex=nullptr,txQueueMutex=nullptr;
-static void *xSemaphoreCreateRecursiveMutex(){return reinterpret_cast<void*>(1);}
-static void *xSemaphoreCreateMutex(){return reinterpret_cast<void*>(2);}
+static bool radioCreate=true,txCreate=true;
+static void *xSemaphoreCreateRecursiveMutex(){return radioCreate ? reinterpret_cast<void*>(1) : nullptr;}
+static void *xSemaphoreCreateMutex(){return txCreate ? reinterpret_cast<void*>(2) : nullptr;}
 struct RadioLock {
   bool locked;
   explicit RadioLock(unsigned=0):locked(!radioBusy){if(locked){assert(locks.empty());locks.push_back('r');}}
@@ -90,16 +91,23 @@ struct {Transceiver transceiver;} somfy;
 #undef millis
 static void fresh() {
   somfy.transceiver=Transceiver{};somfy_rx.clear();rx_queue=somfy_rx_queue_t{};tx_queue={};
-  radioBusy=txBusy=false;noiseDetected=false;noiseStart=0;noiseCount=0;rxmode=1;interruptPin=8;rxPausedForInstall=false;beforeDetach=nullptr;
+  radioBusy=txBusy=false;radioCreate=txCreate=true;radioMutex=reinterpret_cast<void*>(1);txQueueMutex=reinterpret_cast<void*>(2);noiseDetected=false;noiseStart=0;noiseCount=0;rxmode=1;interruptPin=8;rxPausedForInstall=false;beforeDetach=nullptr;
   pins=attaches=detaches=rxCalls=decoded=logCalls=0;testClock+=10000;
 }
 int main() {
   fresh();assert(somfy.transceiver.begin() && logCalls==1 && !rx_queue.length);
+  for(unsigned failure=0;failure<2;++failure) {
+    fresh();radioMutex=txQueueMutex=nullptr;radioCreate=failure!=0;txCreate=failure!=1;
+    assert(somfy.transceiver.begin()); // Legacy startup behavior is unchanged.
+    RadioUpdateActivity unknown;unknown.receivedFrames=99;RadioInstallToken noToken;
+    assert(!somfy.transceiver.updateActivity(unknown) && unknown.receivedFrames==99);
+    assert(!somfy.transceiver.pauseForInstall(noToken) && !noToken.generation && !pins && !detaches && !rxCalls);
+  }
   fresh();somfy.transceiver.config.noiseDetection=true;noiseStart=clockMs();noiseCount=100;
   Transceiver::handleReceive();assert(noiseDetected);
   fresh();RadioUpdateActivity activity;
   assert(somfy.transceiver.updateActivity(activity)&&activity.canPause());
-  for(unsigned condition=0;condition<15;++condition) {
+  for(unsigned condition=0;condition<17;++condition) {
     fresh();auto &t=somfy.transceiver;somfy_tx_job_t job;job.frame.remoteAddress=123;
     if(condition==0)radioBusy=true;
     if(condition==1)txBusy=true;
@@ -119,6 +127,13 @@ int main() {
       if(condition==13){assert(t.sched.start(taken.ticket,0));t.sched.ended(taken.ticket,true,0);}
     }
     if(condition==14)t.ready=false;
+    if(condition==15)radioMutex=nullptr;
+    if(condition==16)txQueueMutex=nullptr;
+    if(condition>=15) {
+      RadioUpdateActivity unknown;unknown.receivedFrames=99;
+      assert(!t.updateActivity(unknown) && unknown.receivedFrames==99);
+      assert(!t.installPauseHeld({1}));assert(t.resumeAfterInstall({1})==RadioInstallResume::busy);
+    }
     const auto pending=rx_queue.length,sync=somfy_rx.cpt_synchro_hw,bits=somfy_rx.cpt_bits;
     RadioInstallToken token;assert(!t.pauseForInstall(token));assert(!token.generation);
     assert(!pins&&!attaches&&!detaches&&!rxCalls&&!rxPausedForInstall);

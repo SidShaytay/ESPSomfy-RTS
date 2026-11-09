@@ -2,7 +2,7 @@
 
 The updater uses the existing radio and scheduler locks plus one receive-state mux. It does not flush a command, send STOP, change a counter or initialize new hardware to make admission succeed. This checkpoint supplies the actual pause/resume boundary; no installer or startup caller is enabled by it.
 
-`updateActivity(out)` tries the radio and scheduler locks without waiting. A busy observation leaves `out` unchanged. Its ready state respects intentional radio disablement. Scheduler work includes queued/delayed/taken jobs and unobserved outcomes; admission also checks counter work, the raw repeater FIFO, frequency scan, completed RX FIFO and partial-frame decoder state.
+`updateActivity(out)` tries the radio and scheduler locks without waiting. A busy observation leaves `out` unchanged. Both radio and scheduler mutexes must exist before any new update API can grant or confirm pause permission, including an intentionally disabled radio; legacy null-mutex wrappers remain unchanged for other callers. Its ready state respects intentional radio disablement. Scheduler work includes queued/delayed/taken jobs and unobserved outcomes; admission also checks counter work, the raw repeater FIFO, frequency scan, completed RX FIFO and partial-frame decoder state.
 
 `pauseForInstall(token)` requires an empty token and an idle observation under the radio → TX → RX lock order. It seals the empty scheduler without calling the flushing suspend API. It sets receive-paused under the ISR mux before detaching the interrupt, so an ISR already waiting cannot enqueue a frame after the snapshot. The receive FIFO and decoder are not cleared. Partial frames must finish or be rejected by ordinary decoding; the updater does not discard them to force progress.
 
