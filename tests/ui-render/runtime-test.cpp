@@ -1,4 +1,5 @@
 #include "LocalUiRuntime.h"
+#include "SafeRestart.h"
 #include "LocalUiAdapter.h"
 #include "LocalUiCapture.h"
 #include "LocalUiAuthorizationAdapter.h"
@@ -21,6 +22,7 @@ struct RuntimeTestAccess {
   static const Settings::FormView &settings(const Runtime &ui) {return ui.settingsForm.view();}
   static void settingsRestartReason(Runtime &ui,RestartReason reason) {const_cast<Settings::FormView &>(ui.settingsForm.view()).restartReason=reason;}
   static const EntityAdmin::FormView &administration(const Runtime &ui) {return ui.administration.view();}
+  static EntityAdmin::FormView system(const Runtime &ui) {EntityAdmin::FormView out;ui.systemForm.render(out);return out;}
   static bool noPresentation(const Runtime &ui) {
     return !ui.hasPresented && !ui.presentedSettingsValid && !ui.stopPresentedToken && !ui.validBands;
   }
@@ -31,6 +33,11 @@ void *allocated=nullptr;
 bool settingsAllocateOK=true;
 std::map<void *,size_t> settingsAllocations;
 uint64_t authTestNow=0;
+static unsigned systemRestarts=0;
+static RestartResult systemRestartResult{true,RestartReason::none};
+static RestartSnapshot systemRestartStatus;
+RestartSnapshot restartStatus(){return systemRestartStatus;}
+RestartResult requestRestart(uint32_t) {++systemRestarts;if(systemRestartResult.admitted){systemRestartStatus.phase=RestartPhase::admitted;++systemRestartStatus.generation;}return systemRestartResult;}
 static unsigned settingsSaves=0;
 static RestartReason settingsRestartCause=RestartReason::none;
 static unsigned entityEdits=0,entityCommits=0;
@@ -559,6 +566,25 @@ int main(int argc,char **argv){
   assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status);click();idle(); // wake only
   openAdministration(1);for(unsigned i=0;i<32;i++){rotate(1);idle();}click();idle();assert(!RuntimeTestAccess::administration(settingsUi).dirty);back();idle();closeAdministration();
   assert(submitted.size()==rfBeforeOrders && Settings::runtimeMemory().used()==0 && settingsAllocations.empty());
+  // Actual encoder -> protected System: unseen launch/confirm never restart.
+  for(unsigned i=0;i<homeRows;i++){rotate(-1);idle();}
+  for(unsigned i=0;i<systemHomeIndex-1;i++){rotate(1);idle();}
+  busBusy=true;rotate(1);click();assert(lastQuery.screen==Screen::home && !systemRestarts);
+  busBusy=false;idle();busBusy=true;click();assert(lastQuery.screen==Screen::system && captureProtected);
+  click();assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"System"));
+  busBusy=false;idle();click();idle();assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"Restart controller?"));
+  click();idle();assert(!systemRestarts); // Cancel is the default.
+  click();idle();busBusy=true;rotate(1);click();assert(!systemRestarts);
+  busBusy=false;idle();click();idle();assert(systemRestarts==1);
+  assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"Restart scheduled"));saveFrame(preview,"runtime-system-restart");
+  systemRestartStatus.phase=RestartPhase::cancelled;systemRestartStatus.reason=RestartReason::queuedOperations;idle();
+  assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"Restart stopped"));saveFrame(preview,"runtime-system-stopped");
+  back();idle();rotate(1);idle();click();idle();assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"Browser files"));
+  click();idle();saveFrame(preview,"runtime-system-browser-backup");assert(systemRestarts==1);
+  back();idle();back();idle();click();idle(); // return to default Restart confirmation
+  savedPixels=RuntimeTestAccess::losePixels(settingsUi);
+  assert(!settingsUi.tick(testNow,status,false,send,light));assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status && RuntimeTestAccess::noPresentation(settingsUi));
+  RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();assert(systemRestarts==1);
   somfy.transceiver.ready=true;
   free(allocated);allocated=nullptr;hasPsram=false;
   Runtime missing;missing.begin();assert(missing.failure()==GraphicsFailure::missing && !missing.tick(testNow,status,false,send,light));

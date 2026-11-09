@@ -181,7 +181,7 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
     }
     text(12, 164, "Turn: Home   Hold: details", false, muted);
   } else if(v.screen==Screen::home || v.screen==Screen::roomKinds || v.screen==Screen::catalogue || v.screen==Screen::settings) {
-    const char *home[]={"Rooms","Devices","Groups","Settings","Display settings","Status","Administration"};
+    const char *home[]={"Rooms","Devices","Groups","Settings","Display settings","Status","Administration","System"};
     static_assert(sizeof(home)/sizeof(*home)==homeRows,"Every Home entry needs a label");
     const bool list=v.screen==Screen::catalogue;
     const bool roomKinds=v.screen==Screen::roomKinds;
