@@ -64,6 +64,17 @@ static void successful_ota_keeps_same_owner_through_restart_publication() {
   TEST_ASSERT_EQUAL(9,policy.cleanup(30001).token.generation); // Bounded even if restart never runs.
   TEST_ASSERT_TRUE(policy.close(own));
 }
+static void transferred_firmware_outlives_request_and_has_private_worker_claims() {
+  ManualUpdateLifecycle policy;const auto own=token(30);
+  TEST_ASSERT_TRUE(policy.begin(own,ManualUpdateKind::firmware,0));TEST_ASSERT_TRUE(policy.claim(own,1));
+  TEST_ASSERT_TRUE(policy.resource(own,true));TEST_ASSERT_TRUE(policy.queue(own));TEST_ASSERT_TRUE(policy.finish(own,1,true));
+  TEST_ASSERT_FALSE(policy.retire(own));TEST_ASSERT_FALSE(policy.claim(own,2));
+  TEST_ASSERT_TRUE(policy.claim(own,2,true));TEST_ASSERT_TRUE(policy.adoptFirmware(own,2));
+  TEST_ASSERT_FALSE(policy.retire(own));TEST_ASSERT_TRUE(policy.resource(own,false));TEST_ASSERT_TRUE(policy.finish(own,2,true));
+  TEST_ASSERT_FALSE(policy.claim(own,3));TEST_ASSERT_TRUE(policy.claimInstall(own,3));
+  TEST_ASSERT_TRUE(policy.retireInstall(own));TEST_ASSERT_TRUE(policy.finish(own,3,false));
+  TEST_ASSERT_EQUAL(30,policy.cleanup(4).token.generation);TEST_ASSERT_TRUE(policy.close(own));
+}
 static void recovery_is_owned_bounded_and_cannot_revive_expired_io() {
   ManualUpdateLifecycle policy;auto own=token(20);
   TEST_ASSERT_TRUE(policy.begin(own,ManualUpdateKind::application,0));
@@ -77,4 +88,4 @@ static void recovery_is_owned_bounded_and_cannot_revive_expired_io() {
   TEST_ASSERT_FALSE(policy.continuing(own,30000));TEST_ASSERT_TRUE(policy.resource(own,false));
   TEST_ASSERT_FALSE(policy.holdRecovery(own,30000));TEST_ASSERT_TRUE(policy.close(own));
 }
-int main() { UNITY_BEGIN();RUN_TEST(recovery_is_owned_bounded_and_cannot_revive_expired_io);RUN_TEST(successful_ota_keeps_same_owner_through_restart_publication);RUN_TEST(expiry_cannot_abort_an_inflight_operation_or_revive_late_callbacks);RUN_TEST(token_kind_and_queued_restore_ownership_are_exact);RUN_TEST(timeout_boundary_progress_rollback_and_abandoned_restore_are_bounded);return UNITY_END(); }
+int main() { UNITY_BEGIN();RUN_TEST(transferred_firmware_outlives_request_and_has_private_worker_claims);RUN_TEST(recovery_is_owned_bounded_and_cannot_revive_expired_io);RUN_TEST(successful_ota_keeps_same_owner_through_restart_publication);RUN_TEST(expiry_cannot_abort_an_inflight_operation_or_revive_late_callbacks);RUN_TEST(token_kind_and_queued_restore_ownership_are_exact);RUN_TEST(timeout_boundary_progress_rollback_and_abandoned_restore_are_bounded);return UNITY_END(); }

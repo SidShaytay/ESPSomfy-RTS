@@ -21,7 +21,7 @@ flash work and never wraps or substitutes a fixed identifier.
 
 ## Fixed trust and bounded transport
 
-Only the shared CC1101 / Plus profile is supported. An untagged/development installed identity is unavailable. Before network I/O, the worker checks wall time against the compiled source commit epoch, actual flash/PSRAM, exact partition inventory and running/next OTA state, installed bootloader digest, and installed immutable bundled web assets. Missing prerequisites produce typed unavailable/error reasons; they do not authorize bootstrap or inspection of a controller.
+Only the shared CC1101 / Plus profile is supported. An untagged/development installed identity cannot check or install GitHub releases; its shared worker can accept an explicitly selected manual file. Before network I/O, the worker checks wall time against the compiled source commit epoch, actual flash/PSRAM, exact partition inventory and running/next OTA state, installed bootloader digest, and installed immutable bundled web assets. Missing prerequisites produce typed unavailable/error reasons; they do not authorize bootstrap or inspection of a controller.
 
 The repository is fixed to `SidShaytay/ESPSomfy-RTS`. Verified HTTPS requires the SDK CA bundle, hostname verification, and the [updater certificate-date adapter](github-update-certificate.md). Every redirect is checked against the existing strict HTTPS host policy, with at most four URL attempts. Release API and HTML identities must still name the fixed repository. Metadata must describe a published, non-draft, non-prerelease stable release with exactly one canonical image and manifest asset. API SHA256 digests authenticate the manifest bytes before parsing. The schema-3 bundled-assets manifest cross-binds source, tag, firmware identity, shared profile/features, layout, installed bootloader and assets. Unknown fields do not weaken required fields. No raw server content, location, query strings or credentials enter status/error logs.
 
@@ -36,6 +36,35 @@ The mbedTLS allocator hook is global. Canonical startup installs it **before any
 The controller callbacks supply fresh authorization, model admission, quiescence, cleanup and the final SafeRestart handoff. Standalone LCD confirmation is implemented. Managed rollback execution remains unfinished. [Continuous boot health](github-update-boot-health.md) now qualifies confirmation and emits a deadline failure intent. Existing settings durability tracks uncertainty by complete persisted namespace (general/connection share CFG); installer admission uses it. Historical bootloader/assets migration is a separate explicitly authorized stage. There is no live access or provisioning authorization here.
 
 ## Offline evidence and limits
+
+### Staged manual-image backend
+
+`requestManualInstall()` is loop-only and adopts a completed heap-caps PSRAM
+allocation under the same existing manual transfer. The caller must hold its
+queued firmware claim and resource. A refusal leaves both the bytes and
+transfer with the caller; acceptance nulls the caller's pointer and transfers
+cleanup to this service. It rechecks the claim after the source callback, so
+time spent in admission cannot revive an expired transfer.
+
+The loop validates the original browser security revision and captures current
+model/settings histories without storing credentials or an HTTP request. The
+worker validates the complete image before controller preparation or OTA work,
+then uses the same writer, retained seals and final SafeRestart activation as
+the repository path. The lifecycle's installing phase rejects late request
+claims and normal completed-request disconnect, while worker progress and
+reducing cleanup retain their own exact claims.
+
+A manual file is user-selected input, not authenticated GitHub provenance.
+It needs no network or wall clock and can repair the current bundled assets;
+the supplied image must still pass exact hardware/layout, installed bootloader,
+image/hash, identity and its own bundled-asset validation. Compatible development
+files remain supported, including from an installed development build. Status
+identifies this origin as `manual-file`.
+
+The browser receiver still uses its legacy streaming SDK path. Connecting its
+bounded receive/status workflow to this backend remains required before the
+canonical manual-update flow is qualified. This internal backend alone does
+not correct that route or authorize a controller write.
 
 The isolated installer draft reuses this worker and its exclusive owner. With
 loop-owned callbacks supplied, it re-fetches the exact confirmed release,
