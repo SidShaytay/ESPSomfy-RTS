@@ -291,6 +291,17 @@ int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));Lit
   assert(!result.complete&&!result.modelApplied&&!result.counterWriteAttempted&&!FakeNvs::writeOpens&&!live.gpio&&live.modelLoad.publishable());
  }
  if(getenv("RESTORE_RAW_CASE"))return 0;
+ // Groups use their RF channel identity; GPIO protocols have no group transport.
+ for(auto proto:{radio_proto::RTS,radio_proto::RTW,radio_proto::RTV,radio_proto::GP_Relay,radio_proto::GP_Remote}){
+  const char *only=getenv("RESTORE_GROUP_PROTOCOL");if(only&&unsigned(atoi(only))!=unsigned(proto))continue;
+  auto bytes=aliasesModel(false);size_t start=SHADE_HDR_SIZE+2*SHADE_REC_SIZE;for(unsigned i=0;i<4;++i)start=bytes.find(',',start)+1;
+  char value[4];snprintf(value,sizeof(value),"%3u",unsigned(proto));bytes.replace(start,3,value);
+  FakeNvs::reset();stored(100,300);stored(101,900);writeAt("/shades.tmp",bytes);restoreAllowed=true;
+  SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);ShadeConfigFile file;restore_options_t opts;opts.shades=true;
+  const auto result=file.restoreFile(&live,"/shades.tmp",opts,RestoreOwner,RadioInstallToken{1});const bool rf=unsigned(proto)<=unsigned(radio_proto::RTV);
+  assert(result.complete==rf&&result.modelApplied==rf&&!FakeNvs::writeOpens&&live.modelLoad.publishable());
+ }
+ if(getenv("RESTORE_GROUP_PROTOCOL"))return 0;
  // Duplicate stable IDs are ambiguous; duplicate unused slots and RF address aliases remain valid.
  for(unsigned kind=0;kind<3;++kind)for(bool unused:{false,true}){
   const char *only=getenv("RESTORE_DUPLICATE_KIND");if(only&&unsigned(atoi(only))!=kind)continue;
