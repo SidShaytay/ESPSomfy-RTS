@@ -177,12 +177,24 @@ int main(int argc, char **argv) {
   strcpy(view.rows[1].label,"Use SSID in settings draft");strcpy(view.rows[2].label,"AA:BB:CC:DD:EE:FF");
   memset(view.rows[2].value,'W',29);strcpy(view.rows[2].value+29,"END");
   strcpy(view.hint,"Draft only. Review password and Save separately.");
+  strcpy(view.rows[0].value,"Ch255 -32768dBm Unknown");
   save(canvas,pixels.data(),view,argv[1],"entity-wifi-review-wide");
   char firstLine[48],secondLine[48];lines(canvas,view.rows[2].value,firstLine,secondLine);
   assert(std::string(firstLine)+secondLine==view.rows[2].value);
   int16_t wx,wy;uint16_t ww,wh;
   canvas.getTextBounds(firstLine,0,0,&wx,&wy,&ww,&wh);assert(ww<=296);
   canvas.getTextBounds(secondLine,0,0,&wx,&wy,&ww,&wh);assert(ww<=296);
+  std::vector<uint16_t> previousMetadata;unsigned securityIndex=0;
+  for(const char*metadata:{"Ch1 -32dBm Open","Ch14 -96dBm Secured","Ch255 -32768dBm Unknown"}) {
+    canvas.getTextBounds(metadata,0,0,&wx,&wy,&ww,&wh);assert(ww<=296);
+    strcpy(view.rows[0].value,metadata);
+    const auto name="entity-wifi-security-"+std::to_string(securityIndex++);
+    save(canvas,pixels.data(),view,argv[1],name.c_str());
+    if(!previousMetadata.empty()) {
+      bool changed=false;for(unsigned y=84;y<103;y++)for(unsigned x=12;x<308;x++)changed|=pixels[y*320+x]!=previousMetadata[y*320+x];assert(changed);
+    }
+    previousMetadata=pixels;
+  }
   const auto visibleSSID=pixels;view.rows[2].value[31]='X';canvas.paintEntity(view);
   bool tailVisible=false;for(unsigned y=35;y<72;y++)for(unsigned x=12;x<308;x++)tailVisible|=pixels[y*320+x]!=visibleSSID[y*320+x];assert(tailVisible);
   for(const char*warning:{"May interrupt WiFi. Results only; no connection or Save.","Waiting up to 30s. An accepted shared scan may finish.","First 16 results. Others/hidden SSIDs: enter manually.","Hidden SSID: enter its name manually in settings.","Draft only. Review password and Save separately."}) {

@@ -261,6 +261,13 @@ void Form::render(FormView &out) const {
     strcpy(out.rows[1].label,
            s.hidden ? "Enter SSID manually" : "Use SSID in settings draft");
     auto &r = s.rows[s.chosen];
+    // Pinned ESP-IDF wifi_auth_mode_t: Open=0, named secured modes=1..16.
+    // Future/invalid numeric modes are not guessed to be a supported mode.
+    const char *security = !r.authentication        ? "Open"
+                           : r.authentication <= 16 ? "Secured"
+                                                    : "Unknown";
+    snprintf(out.rows[0].value, sizeof(out.rows[0].value), "Ch%u %ddBm %s",
+             unsigned(r.channel), int(r.rssi), security);
     snprintf(out.rows[2].label, sizeof(out.rows[2].label),
              "%02X:%02X:%02X:%02X:%02X:%02X", r.bssid[0], r.bssid[1],
              r.bssid[2], r.bssid[3], r.bssid[4], r.bssid[5]);

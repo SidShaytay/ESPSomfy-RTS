@@ -187,8 +187,37 @@ static void busy_receipt_loss_and_late_completion_never_retain_listener() {
   TEST_ASSERT_TRUE(f.closed());
   TEST_ASSERT_EQUAL(0, memory.used());
 }
+static void review_preserves_channel_rssi_and_honest_security_metadata() {
+  State b;
+  JsonAllocator memory(4096, malloc, free);
+  WifiScan::Form f(b, memory);
+  Reader reader;
+  reader.total = 1;
+  const int16_t strengths[] = {-32, -96, -32768};
+  const uint8_t channels[] = {1, 14, 255}, auth[] = {0, 3, 255};
+  const char *expected[] = {"Ch1 -32dBm Open", "Ch14 -96dBm Secured",
+                            "Ch255 -32768dBm Unknown"};
+  for (unsigned i = 0; i < 3; i++) {
+    const uint64_t now = i * 10;
+    f.open(now);
+    f.turn(1, now + 1);
+    f.activate(now + 2);
+    reader.row.rssi = strengths[i];
+    reader.row.channel = channels[i];
+    reader.row.authentication = auth[i];
+    b.time = now + 3;
+    b.source.finish(b.source.token(), true, reader);
+    f.activate(now + 4);
+    EntityAdmin::FormView view;
+    f.render(view);
+    TEST_ASSERT_EQUAL_STRING(expected[i], view.rows[0].value);
+    TEST_ASSERT_NOT_NULL(strstr(view.rows[2].label, "00:00:00:00:00:00"));
+    f.discard();
+  }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(review_preserves_channel_rssi_and_honest_security_metadata);
   RUN_TEST(busy_receipt_loss_and_late_completion_never_retain_listener);
   RUN_TEST(explicit_start_default_cancel_results_review_only_handoff);
   RUN_TEST(pending_timeout_cancel_and_stale_callback_never_copy_results);

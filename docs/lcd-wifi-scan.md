@@ -8,13 +8,14 @@ results with an already waiting browser.
 
 The LCD copies at most 16 results into bounded wiping PSRAM storage. Results show
 a stable result number and BSSID to distinguish duplicate names. Choose a result
-to review its full SSID and BSSID, then explicitly choose **Use SSID in settings
-draft**. Cancel is selected first here too. The LCD uses its existing safe text
+to review its full SSID and BSSID, channel, RSSI and security marker, then choose **Use SSID in settings
+draft**. Cancel is selected first here too. Open and known secured SDK modes are labelled;
+unsupported authentication mode numbers are shown as Unknown. The LCD uses its existing safe text
 fallback for unsupported glyphs; the original SSID bytes are retained in the
 draft. Hidden SSIDs and results beyond the limit use **Enter SSID manually**.
 
 Selecting a network opens the existing Network settings form with only its SSID
-changed in the draft. Review the WiFi password and other settings, then use that
+changed in the draft; selecting the current SSID leaves the draft unchanged. Review the WiFi password and other settings, then use that
 form's separate Save confirmation. Merely scanning, reviewing or copying the
 SSID does not connect, persist a password, change the current network or restart
 the controller. Back cancels the draft.
