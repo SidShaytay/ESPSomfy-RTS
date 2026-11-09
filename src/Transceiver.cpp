@@ -18,6 +18,8 @@
 #include "LocalReceive.h"
 #include <esp_timer.h>
 #endif
+#include "CounterTxPolicy.h"
+#include "CounterCommandGuard.h"
 
 static const char *TAG = "Somfy";
 
@@ -831,28 +833,12 @@ void Transceiver::loop() {
     // while the radio is busy.  While TX is suspended nothing goes out anyway.
     if(tx_queue.length > 0 && millis() > tx_queue.delay_time && !rxInProgress() &&
       (this->txSuspended() || this->txHasRoom())) {
-      somfy_tx_job_t job;
-      job.repeater = true;
-      tx_queue.peek(&job.tx);
-      {
-        somfy_tx_t &tx = job.tx;
-        char frame_buf[128];
-        int fpos = snprintf(frame_buf, sizeof(frame_buf), "Sending frame %d - %d-BIT [", tx.hwsync, tx.bit_length);
-        for(uint8_t j = 0; j < 10; j++) {
-          fpos += snprintf(frame_buf + fpos, sizeof(frame_buf) - fpos, "%d%s", tx.payload[j], j < 9 ? ", " : "");
-        }
-        snprintf(frame_buf + fpos, sizeof(frame_buf) - fpos, "]");
-        ESP_LOGD(TAG, "%s", frame_buf);
-      }
-      if(this->submitTx(job) || this->txSuspended()) {
-        somfy_tx_t sent;
-        tx_queue.pop(&sent);
-      }
-      tx_queue.delay_time = millis() + TX_QUEUE_DELAY;
+      this->serviceRepeater();
     }
   }
 }
 uint32_t Transceiver::submitTx(somfy_tx_job_t &job, bool priority, uint16_t delayMs) {
+  job.ticket=0;
   if(!supportedBitLength(job.tx.bit_length)) {
     ESP_LOGE(TAG, "Dropping unsupported %u-bit transmission", job.tx.bit_length);
     return 0;
@@ -867,6 +853,7 @@ uint32_t Transceiver::submitTx(somfy_tx_job_t &job, bool priority, uint16_t dela
   uint32_t ticket;
   {
     TxQueueLock lock;
+    if(counterTxBlocked(this->counterEdits.blockedAddress(),job))return 0;
     ticket = this->sched.submit(job, priority, delayMs, millis());
   }
   // The radio task may be idle, or waiting on a delayed job this one is ahead of.
@@ -1075,4 +1062,28 @@ CounterQuarantine Transceiver::counterQuarantine() {
 }
 bool Transceiver::counterBlocksIdentity(uint32_t address) {
   TxQueueLock lock;return this->counterEdits.blocks(address);
+}
+
+// Loop-only raw producer. Retire only a refused head; preserve later frames.
+void Transceiver::serviceRepeater() {
+  somfy_tx_job_t job;
+  job.repeater=true;tx_queue.peek(&job.tx);
+  somfy_tx_t &tx=job.tx;
+  char frame_buf[128];
+  int fpos=snprintf(frame_buf,sizeof(frame_buf),"Sending frame %d - %d-BIT [",tx.hwsync,tx.bit_length);
+  for(uint8_t j=0;j<10;j++)
+    fpos+=snprintf(frame_buf+fpos,sizeof(frame_buf)-fpos,"%d%s",tx.payload[j],j<9?", ":"");
+  snprintf(frame_buf+fpos,sizeof(frame_buf)-fpos,"]");
+  ESP_LOGD(TAG,"%s",frame_buf);
+  somfy_frame_t decoded;
+  const bool blocked=this->blockedCounterAddress()!=0;
+  const bool counterRefused=blocked && (!decodeCounterRepeater(job,decoded) || !counterCommandAllowed(decoded.remoteAddress,decoded.cmd));
+  if(counterRefused || this->submitTx(job) || this->txSuspended()) {
+    somfy_tx_t sent;tx_queue.pop(&sent);
+  }
+  tx_queue.delay_time=millis()+TX_QUEUE_DELAY;
+}
+
+uint32_t Transceiver::blockedCounterAddress() {
+  TxQueueLock lock;return this->counterEdits.blockedAddress();
 }

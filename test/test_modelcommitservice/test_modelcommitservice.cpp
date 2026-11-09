@@ -2,6 +2,8 @@
 #include "LoopQueue.h"
 #include "ModelCommitResult.h"
 #include "ModelCommitService.h"
+#include "ExplicitCounter.h"
+#include "CounterEdit.h"
 #include "ManualUpdateLifecycle.h"
 #include <esp_timer.h>
 #include <Arduino.h>
@@ -20,13 +22,20 @@ static ModelCommitReport report;
 static unsigned commits = 0;
 static ModelCommitResult outcome;
 static std::vector<std::string> events;
+static unsigned recoveries=0;
 struct SomfyShadeController {
+  struct {CounterQuarantine cause=CounterQuarantine::none;CounterQuarantine counterQuarantine(){return cause;}} transceiver;
   ModelCommitResult commit() {
     ++commits;
     events.push_back("commit");
     return outcome;
   }
 } somfy;
+CounterDomainResult recoverExplicitCounterFile() {
+  ++recoveries;const auto file=somfy.commit();
+  if(file.saved())somfy.transceiver.cause=CounterQuarantine::none;
+  return {file.saved()?CounterDomainState::saved:CounterDomainState::modelFailed,false,file};
+}
 static bool pendingRestart=false;
 static uint32_t requestedDelay=0;
 static GitUpdateOwnerToken restartReservation;
@@ -90,7 +99,7 @@ void setUp() {
   queued = {};
   pendingItems.clear();
   report = {};
-  commits = 0;
+  commits = recoveries = 0;somfy.transceiver.cause=CounterQuarantine::none;
   outcome = {};
   events.clear();
   pendingRestart=false;requestedDelay=0;
@@ -111,7 +120,7 @@ static void admission_has_no_model_effect_and_commit_item_cannot_use_radio() {
 static void
 failed_or_uncertain_commit_never_restarts_and_retry_does_not_keep_restart_authority() {
   for(auto state:{ModelCommitState::failed,ModelCommitState::uncertain}) {
-    loop_item_t item;item.restartAfterCommit=true;item.externalOwner=appSource();
+    loop_item_t item;item.op=uint8_t(ModelCommitMode::applicationRecoveryAndRestart);item.restartAfterCommit=true;item.externalOwner=appSource();
     outcome={state,ModelCommitStage::sync};const auto before=commits;
     runModelCommit(item);TEST_ASSERT_FALSE(pendingRestart);TEST_ASSERT_EQUAL(before+1,commits);
     runModelCommit(item);TEST_ASSERT_FALSE(pendingRestart);TEST_ASSERT_EQUAL(before+1,commits);
@@ -122,6 +131,7 @@ failed_or_uncertain_commit_never_restarts_and_retry_does_not_keep_restart_author
 static void
 verified_upload_commit_replies_and_notifies_before_requested_restart() {
   loop_item_t item;
+  item.op=uint8_t(ModelCommitMode::applicationRecoveryAndRestart);
   item.restartAfterCommit = true;
   item.externalOwner=appSource();
   outcome = {ModelCommitState::saved, ModelCommitStage::none};
@@ -216,7 +226,7 @@ static void local_commit_returns_the_notified_file_result_without_restart() {
   TEST_ASSERT_EQUAL(3, commits);
 }
 static void stale_recovery_source_cannot_touch_a_newer_upload() {
-  loop_item_t old;old.externalOwner=appSource();old.restartAfterCommit=true;
+  loop_item_t old;old.op=uint8_t(ModelCommitMode::applicationRecoveryAndRestart);old.externalOwner=appSource();old.restartAfterCommit=true;
   stubEspTimerMicros=30100000;
   const auto cleanup=gitUpdate.claimTransferCleanup(30100);
   TEST_ASSERT_TRUE(gitUpdate.closeTransfer(cleanup.token));TEST_ASSERT_TRUE(gitUpdate.releaseExternal(cleanup.token));
@@ -224,8 +234,28 @@ static void stale_recovery_source_cannot_touch_a_newer_upload() {
   runModelCommit(old);TEST_ASSERT_EQUAL(0,commits);TEST_ASSERT_FALSE(pendingRestart);
   TEST_ASSERT_EQUAL(RestartReason::stale,report.refusal);TEST_ASSERT_TRUE(gitUpdate.ownsExternal(newer));
 }
+static void explicit_counter_file_recovery_mode_never_leaks_into_unrelated_saves() {
+  outcome={ModelCommitState::saved};somfy.transceiver.cause=CounterQuarantine::filePending;
+  TEST_ASSERT_TRUE(applyModelCommit().file.saved());TEST_ASSERT_EQUAL(0,recoveries);
+  TEST_ASSERT_EQUAL(CounterQuarantine::filePending,somfy.transceiver.cause);
+  TEST_ASSERT_TRUE(submitModelCommit({8,7},ModelCommitMode::counterFileRecovery));
+  TEST_ASSERT_EQUAL(uint8_t(ModelCommitMode::counterFileRecovery),queued.op);
+  TEST_ASSERT_FALSE(queued.restartAfterCommit);pendingItems.pop_front();runModelCommit(queued);
+  TEST_ASSERT_EQUAL(1,recoveries);TEST_ASSERT_EQUAL(CounterQuarantine::none,somfy.transceiver.cause);
+  TEST_ASSERT_TRUE(report.file.saved());TEST_ASSERT_FALSE(report.rebooting);
+}
+static void counter_recovery_unknown_and_mode_source_mismatch_never_write() {
+  somfy.transceiver.cause=CounterQuarantine::nvsUnknown;
+  TEST_ASSERT_TRUE(submitModelCommit({},ModelCommitMode::counterFileRecovery));pendingItems.pop_front();runModelCommit(queued);
+  TEST_ASSERT_EQUAL(0,commits);TEST_ASSERT_EQUAL(0,recoveries);TEST_ASSERT_EQUAL(RestartReason::counterUncertain,report.refusal);
+  const auto owner=appSource();loop_item_t forged;forged.op=uint8_t(ModelCommitMode::counterFileRecovery);forged.externalOwner=owner;
+  runModelCommit(forged);TEST_ASSERT_EQUAL(0,commits);TEST_ASSERT_TRUE(gitUpdate.ownsExternal(owner));
+  TEST_ASSERT_FALSE(submitModelCommit({},ModelCommitMode::counterFileRecovery,owner));
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(explicit_counter_file_recovery_mode_never_leaks_into_unrelated_saves);
+  RUN_TEST(counter_recovery_unknown_and_mode_source_mismatch_never_write);
   RUN_TEST(stale_recovery_source_cannot_touch_a_newer_upload);
   RUN_TEST(local_commit_returns_the_notified_file_result_without_restart);
   RUN_TEST(admission_has_no_model_effect_and_commit_item_cannot_use_radio);

@@ -8,8 +8,14 @@
 #include "GitUpdate.h"
 #include "Utils.h"
 #include "RollingCode.h"
+#include "CounterCommandGuard.h"
+#include "CounterTxPolicy.h"
 #include "LoopQueue.h"
+#include "ModelCommitService.h"
+#include "SomfyEditor.h"
+#include "CounterResults.h"
 #include "SafeRestart.h"
+#include "LocalTargetRead.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include <nvs.h>
@@ -20,6 +26,7 @@ static const char *TAG="Counter test";
 // are the actual production methods operating on the actual scheduler.
 struct Transceiver {
   struct {uint8_t type=56;radio_proto proto=radio_proto::RTS;} config;
+  uint64_t configurationRevision=1;
   RadioScheduler sched;CounterEditSafety counterEdits;
   CounterEditAdmission reserveCounterEdit(uint32_t,bool,uint16_t,bool);
   void finishCounterEdit(CounterEditResult,ModelCommitResult);
@@ -27,9 +34,35 @@ struct Transceiver {
   void finishCounterFileRecovery(ModelCommitResult);
   uint32_t counterFileRecoveryAddress();CounterQuarantine counterQuarantine();
   bool counterBlocksIdentity(uint32_t);bool counterEditUncertain();
+  uint32_t blockedCounterAddress();
+  uint32_t submitTx(somfy_tx_job_t &,bool=false,uint16_t=0);
+  void serviceRepeater();bool txSuspended();bool available(){return true;}
 };
 #include "Somfy.h"
+// The extracted unlink helper only constructs this storage boundary; it writes no NVS.
+class Preferences {};
 static somfy_tx_queue_t tx_queue;
+static QueueHandle_t modelQueue=nullptr;
+static QueueHandle_t trackQueueCreate(unsigned capacity,unsigned bytes){modelQueue=xQueueCreate(capacity,bytes);return modelQueue;}
+static bool requireCounterLease=true;
+static unsigned modelReplies=0,modelEvents=0,editReplies=0;
+static edit_result_t lastEdit;
+static ModelCommitReport lastModelReport;
+#define PROTO_SOCKET_H
+struct ModelSocket {
+  void replyEdit(const proto_reply_to_t &,model_edit_type_t,const edit_result_t &result){++editReplies;lastEdit=result;}
+  void room(SomfyRoom &){assert(false);}void order(sort_list_t){assert(false);}void repeaters(){assert(false);}
+  void shadeRemoved(uint8_t){assert(false);}void groupRemoved(uint8_t){assert(false);}void roomRemoved(uint8_t){assert(false);}
+  void replyModelCommit(const proto_reply_to_t &,ModelCommitReport report){++modelReplies;lastModelReport=report;}
+  void modelPersistence(ModelCommitReport,uint32_t){++modelEvents;}
+} protoSocket;
+RestartResult requestRestart(uint32_t){assert(false);return {};}
+RestartResult requestOwnedRestart(const GitUpdateOwnerToken &,uint32_t){assert(false);return {};}
+
+static unsigned notifies=0;
+static void *txTaskHandle=reinterpret_cast<void *>(1);
+static void xTaskNotifyGive(void *){++notifies;}
+static constexpr uint32_t TX_QUEUE_DELAY=100;
 static std::mutex txLock;
 struct TxQueueLock {std::lock_guard<std::mutex> held;TxQueueLock():held(txLock){}};
 SomfyShadeController::SomfyShadeController() : startingAddress(100) {}
@@ -39,7 +72,7 @@ bool restartPending(){return pendingRestart;}
 // Queue/history forwarding is exercised by the actual queue/service harness.
 void noteRestartOperationAccepted(){}
 static unsigned fileWrites=0,forbidden=0,setupFrames=0;
-static bool allowSetupSend=false;
+static bool allowSetupSend=false,setupEcho=false;
 static unsigned long modelNow=1;
 static unsigned long modelClock(){return modelNow;}
 LoopQueue loopQueue;
@@ -47,8 +80,11 @@ static ModelCommitResult fileResult{ModelCommitState::saved};
 static uint16_t diskShade[SOMFY_MAX_SHADES],diskGroup[SOMFY_MAX_GROUPS];
 static uint32_t diskLinks[SOMFY_MAX_SHADES][SOMFY_MAX_LINKED_REMOTES];
 ModelCommitResult SomfyShadeController::commit() {
-  ++fileWrites;assert(gitUpdate.busy() && somfy.transceiver.counterEdits.active());GitUpdateOwnerToken competing;
-  assert(!gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,competing));
+  ++fileWrites;
+  if(requireCounterLease) {
+    assert(gitUpdate.busy() && somfy.transceiver.counterEdits.active());GitUpdateOwnerToken competing;
+    assert(!gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,competing));
+  }
   assert(FakeNvs::sets>=1 && FakeNvs::commits>=1 && FakeNvs::reads>=1);
   if(fileResult.saved()) {
     for(unsigned i=0;i<SOMFY_MAX_SHADES;++i) {
@@ -63,7 +99,7 @@ bool SomfyRemote::isLastCommand(somfy_commands){++forbidden;return false;}
 uint16_t SomfyRemote::setRollingCode(uint16_t){++forbidden;return 0;}
 bool SomfyRemote::sendCommand(somfy_commands){++forbidden;return false;}
 bool SomfyRemote::sendCommand(somfy_commands cmd,uint8_t,uint8_t){
-  if(allowSetupSend){++setupFrames;lastFrame.valid=true;lastFrame.cmd=cmd;return true;}
+  if(allowSetupSend){++setupFrames;lastFrame.valid=true;lastFrame.cmd=cmd;lastFrame.remoteAddress=getRemoteAddress();lastFrame.rollingCode=100;if(setupEcho)somfy.processFrame(lastFrame,true);return true;}
   ++forbidden;return false;
 }
 void SomfyRemote::triggerGPIOs(somfy_frame_t &){++forbidden;}
@@ -75,16 +111,22 @@ send_result_t SomfyShade::send(somfy_commands,uint8_t,uint8_t,uint16_t,bool){++f
 void SomfyShade::onSaveWanted(){somfy.isDirty=true;}
 void SomfyShade::onSensorFlags(){++forbidden;}
 void SomfyShade::emitCommand(somfy_commands,const char*,uint32_t){}
+#define xQueueCreate trackQueueCreate
 #define millis modelClock
 #include "production-counter.inc"
 #undef millis
+#undef xQueueCreate
 #include "../../src/ExplicitCounter.cpp"
+#include "../../src/CounterCommandGuard.cpp"
+#include "../../src/ModelCommitService.cpp"
+#include "production-link-dispatch.inc"
+#include "production-link-fanout.inc"
 static constexpr uint32_t address=12345;
 static void reset() {
-  assert(!gitUpdate.busy() && !forbidden);FakeNvs::reset();pendingRestart=false;fileWrites=forbidden=setupFrames=0;allowSetupSend=false;modelNow=1;fileResult={ModelCommitState::saved};
+  assert(!gitUpdate.busy() && !forbidden);requireCounterLease=true;modelReplies=modelEvents=editReplies=0;lastModelReport={};lastEdit={};FakeNvs::reset();pendingRestart=false;fileWrites=forbidden=setupFrames=0;allowSetupSend=setupEcho=false;modelNow=1;fileResult={ModelCommitState::saved};
   memset(diskShade,0,sizeof(diskShade));memset(diskGroup,0,sizeof(diskGroup));memset(diskLinks,0,sizeof(diskLinks));
   tx_queue.length=0;somfy.transceiver.sched={};somfy.transceiver.counterEdits={};somfy.configurationRevision=1;
-  for(auto &s:somfy.shades){s.clear();s.lastFrame={};s.gpioRelease=0;s.configurationRevision=1;}
+  for(auto &s:somfy.shades){s.clear();s.lastFrame={};s.gpioRelease=0;s.configurationRevision=1;for(auto &remote:s.linkedRemotes)remote.lastRollingCode=0;}
   for(auto &g:somfy.groups){g.clear();g.lastFrame={};g.direction=0;g.configurationRevision=1;}
   auto &s=somfy.shades[0];s.setShadeId(7);s.setRemoteAddress(address);s.lastRollingCode=1000;s.lastFrame.valid=true;diskShade[0]=1000;
 }
@@ -97,6 +139,149 @@ static void aliases() {
 }
 int main(int argc,char **argv) {
   loopQueue.begin();
+  if(argc>1 && !strcmp(argv[1],"sharedLink")) {
+    for(unsigned failure=0;failure<6;++failure) {
+      reset();auto &other=somfy.shades[1];other.setShadeId(22);other.setRemoteAddress(999);
+      if(failure==0)const_cast<ShadeBehaviour::State &>(other.state()).direction=1;
+      if(failure==1){assert(persistExplicitCounter(555,500).saved());}
+      if(failure==2)FakeNvs::failRead=1;
+      if(failure==5)FakeNvs::failSet=1;
+      model_edit_t edit;edit.type=model_edit_type_t::link_remote;edit.doc["shadeId"]=7;edit.doc["remoteAddress"]=555;edit.doc["rollingCode"]=100;
+      const auto before=somfy.configurationRevision,entity=somfy.shades[0].configurationRevision;
+      const auto sets=FakeNvs::sets;
+      if(failure==3)fileResult={ModelCommitState::failed,ModelCommitStage::write};
+      const auto result=applyModelEdit(edit);
+      if(failure<3 || failure==5) {
+        assert(!result.applied && somfy.configurationRevision==before && somfy.shades[0].configurationRevision==entity);
+        assert(FakeNvs::sets==sets+(failure==5?1:0) && !fileWrites && editReplies==1 && !modelEvents && !somfy.shades[0].linkedRemotes[0].getRemoteAddress());
+        assert(result.failure==(failure==0?edit_failure_t::busy:failure==1?edit_failure_t::badRequest:edit_failure_t::internal));
+      } else {
+        assert(result.applied && result.ok==(failure==4) && result.id==7 && fileWrites==1 && FakeNvs::sets==sets+1);
+        assert(somfy.configurationRevision==before+1 && somfy.shades[0].configurationRevision>entity && modelEvents==1 && editReplies==1);
+        assert(somfy.transceiver.counterQuarantine()==(failure==4?CounterQuarantine::none:CounterQuarantine::filePending));
+      }
+    }
+    puts("Production dispatcher prefix/link case + complete apply fanout preserve refused history and publish applied file failure once");return 0;
+  }
+  if(argc>1 && !strcmp(argv[1],"globalIdle")) {
+    for(unsigned busy=0;busy<3;++busy) {
+      reset();auto &other=somfy.shades[1];other.setShadeId(22);other.setRemoteAddress(999);
+      if(busy==0)const_cast<ShadeBehaviour::State &>(other.state()).direction=1;
+      else if(busy==1){other.lastFrame.await=1;other.lastFrame.processed=false;}
+      else other.gpioRelease=1;
+      LocalUi::RawTargetContext before,after;
+      assert(LocalUi::readRawTargetContext(somfy,{LocalUi::EntityKind::device,22},before));
+      for(bool link:{false,true}) {
+        const auto result=link ? linkExplicitRemote(7,555,100) : correctExplicitCounter(7,100);
+        assert(result.state==CounterDomainState::busy && !result.applied && !FakeNvs::opens && !fileWrites);
+        assert(LocalUi::readRawTargetContext(somfy,{LocalUi::EntityKind::device,22},after) && before.same(after));
+        assert(somfy.configurationRevision==1 && somfy.shades[0].lastFrame.valid && !gitUpdate.busy());
+      }
+    }
+    puts("Unrelated moving/held/pulse target preserves raw STOP context; counter/link refuse before owner/NVS/history");return 0;
+  }
+  if(argc>1 && !strcmp(argv[1],"browserCommit")) {
+    reset();fileResult={ModelCommitState::failed,ModelCommitStage::write};assert(linkExplicitRemote(7,555,100).applied);
+    const auto sets=FakeNvs::sets;const auto revision=somfy.configurationRevision;
+    fileResult={ModelCommitState::saved};requireCounterLease=false;
+    assert(applyModelCommit().file.saved());requireCounterLease=true;
+    assert(somfy.transceiver.counterQuarantine()==CounterQuarantine::filePending);
+    assert(submitModelCommit({8,99},ModelCommitMode::counterFileRecovery));
+    loop_item_t marker;assert(xQueueReceive(modelQueue,&marker,0));
+    assert(marker.op==uint8_t(ModelCommitMode::counterFileRecovery) && !marker.externalOwner.generation);
+    runModelCommit(marker);
+    assert(lastModelReport.file.saved() && somfy.transceiver.counterQuarantine()==CounterQuarantine::none);
+    assert(FakeNvs::sets==sets && somfy.configurationRevision==revision && modelReplies==2 && modelEvents==2);
+    reset();FakeNvs::failSet=1;assert(correctExplicitCounter(7,100).state==CounterDomainState::nvsUncertain);
+    assert(submitModelCommit({},ModelCommitMode::counterFileRecovery));assert(xQueueReceive(modelQueue,&marker,0));runModelCommit(marker);
+    assert(!fileWrites && FakeNvs::sets==1 && somfy.configurationRevision==1 && lastModelReport.refusal==RestartReason::counterUncertain);
+    assert(somfy.transceiver.counterQuarantine()==CounterQuarantine::nvsUnknown && modelReplies==1 && modelEvents==1);
+    puts("Real model + queue + commit service: explicit file-only recovery, unrelated-save isolation, unknown NVS refusal and no replay/history/NVS writes passed");return 0;
+  }
+  if(argc>1 && !strcmp(argv[1],"learnBound")) {
+    reset();assert(linkExplicitRemote(7,555,500).saved());assert(somfy.shades[0].unlinkRemote(555));
+    const auto sets=FakeNvs::sets;const auto revision=somfy.configurationRevision;const auto writableBefore=FakeNvs::writeOpens;
+    assert(linkExplicitRemote(7,555,400).state==CounterDomainState::stale);assert(FakeNvs::writeOpens==writableBefore);
+    assert(FakeNvs::sets==sets && somfy.configurationRevision==revision && !somfy.shades[0].linkedRemotes[0].getRemoteAddress());
+    assert(linkExplicitRemote(7,555,65535).saved());assert(somfy.shades[0].unlinkRemote(555));
+    const auto maxSets=FakeNvs::sets;assert(linkExplicitRemote(7,555,0).state==CounterDomainState::stale && FakeNvs::sets==maxSets);
+    reset();auto &alias=somfy.shades[1];alias.setShadeId(22);alias.setRemoteAddress(555);alias.lastRollingCode=700;
+    assert(linkExplicitRemote(7,555,600).state==CounterDomainState::stale && !FakeNvs::sets && !FakeNvs::opens && somfy.configurationRevision==1);
+    reset();auto &group=somfy.groups[0];group.setGroupId(3);group.setRemoteAddress(555);group.lastRollingCode=700;group.linkedShades[0]=7;
+    assert(linkExplicitRemote(7,555,600).state==CounterDomainState::stale && !FakeNvs::sets);
+    reset();FakeNvs::failRead=1;assert(linkExplicitRemote(7,555,100).state==CounterDomainState::nvsFailed);
+    assert(!FakeNvs::sets && !FakeNvs::writeOpens && somfy.configurationRevision==1 && somfy.transceiver.counterQuarantine()==CounterQuarantine::none);
+    reset();FakeNvs::readOnlyNamespaceMissing=true;
+    assert(linkExplicitRemote(7,555,100).saved() && FakeNvs::readOnlyOpens==1 && FakeNvs::writeOpens==1 && FakeNvs::sets==1);
+    reset();FakeNvs::beforeGet=[] {
+      FakeNvs::beforeGet=nullptr;assert(gitUpdate.busy() && somfy.transceiver.counterBlocksIdentity(555));
+      assert(linkExplicitRemote(7,777,50).state==CounterDomainState::busy && !FakeNvs::sets);
+    };
+    assert(linkExplicitRemote(7,555,100).saved());assert(FakeNvs::sets==1);
+    assert(somfy.shades[0].unlinkRemote(555));assert(persistExplicitCounter(555,800).saved()); // Newer retained identity since a candidate was captured.
+    const auto laterSets=FakeNvs::sets;assert(linkExplicitRemote(7,555,100).state==CounterDomainState::stale && FakeNvs::sets==laterSets);
+    assert(correctExplicitCounter(7,10).saved()); // Deliberate primary correction is a separate contract.
+    assert(!forbidden);puts("Checked received link: retained NVS/aliases, no wrap/read-error fallback, reservation freshness and explicit-lower separation passed");return 0;
+  }
+  if(argc>1 && !strcmp(argv[1],"aliasRisk")) {
+    for(bool quarantined:{false,true}) {
+      reset();if(quarantined){FakeNvs::failSet=1;assert(correctExplicitCounter(7,100).state==CounterDomainState::nvsUncertain);}
+      auto &primary=somfy.shades[0];const_cast<ShadeBehaviour::State &>(primary.state()).direction=1;
+      auto &alias=somfy.shades[1];alias.setShadeId(22);alias.setRemoteAddress(555);alias.restore(20,0,50,-1);
+      auto &group=somfy.groups[0];group.setGroupId(3);group.setRemoteAddress(555);group.linkedShades[0]=7;
+      allowSetupSend=setupEcho=true;const bool sent=group.sendCommand(somfy_commands::My,1);allowSetupSend=setupEcho=false;
+      if(quarantined)assert(!sent && setupFrames==0 && alias.state().target==20 && primary.state().direction==1);
+      else {assert(sent && alias.state().target==50);modelNow=2;alias.checkMovement();assert(alias.state().direction==1);}
+      assert(!forbidden);
+    }
+    puts("Actual group/echo/behaviour: idle alias favorite hazard preserved normally, refused under counter STOP exception");return 0;
+  }
+  if(argc>1 && !strcmp(argv[1],"commandGuard")) {
+    reset();FakeNvs::failSet=1;assert(correctExplicitCounter(7,100).state==CounterDomainState::nvsUncertain);
+    const auto opens=FakeNvs::opens,reads=FakeNvs::reads,sets=FakeNvs::sets;
+    assert(!counterCommandAllowed(address,somfy_commands::My));assert(counterCommandAllowed(999,somfy_commands::My));
+    auto &other=somfy.shades[1];other.setShadeId(22);other.setRemoteAddress(999);
+    auto &group=somfy.groups[15];group.setGroupId(16);group.setRemoteAddress(555);group.proto=radio_proto::RTS;
+    group.linkedShades[0]=7;group.linkedShades[31]=22;
+    assert(!counterCommandAllowed(555,somfy_commands::Up) && !counterCommandAllowed(555,somfy_commands::My));
+    const_cast<ShadeBehaviour::State &>(somfy.shades[0].state()).direction=1;
+    assert(!counterCommandAllowed(555,somfy_commands::My)); // mixed group never idle My.
+    const_cast<ShadeBehaviour::State &>(other.state()).direction=1;
+    assert(counterCommandAllowed(555,somfy_commands::My));
+    assert(!counterCommandAllowed(555,somfy_commands::Sensor));
+    other.shadeType=shade_types::drycontact;assert(!counterCommandAllowed(555,somfy_commands::My));
+    other.shadeType=shade_types::drycontact2;assert(!counterCommandAllowed(555,somfy_commands::My));
+    other.shadeType=shade_types::garage1;assert(!counterCommandAllowed(555,somfy_commands::My));
+    other.shadeType=shade_types::roller;other.bitLength=80;assert(!counterCommandAllowed(555,somfy_commands::My));
+    other.bitLength=56;other.proto=radio_proto::GP_Remote;assert(!counterCommandAllowed(555,somfy_commands::My));
+    other.proto=radio_proto::RTS;group.linkedShades[1]=31;assert(!counterCommandAllowed(555,somfy_commands::My));group.linkedShades[1]=0;
+    other.linkedRemotes[0].setRemoteAddress(555);assert(!counterCommandAllowed(555,somfy_commands::My));other.linkedRemotes[0].setRemoteAddress(0);
+    somfy.groups[0].setGroupId(3);somfy.groups[0].setRemoteAddress(555);assert(!counterCommandAllowed(555,somfy_commands::My));
+    assert(FakeNvs::opens==opens && FakeNvs::reads==reads && FakeNvs::sets==sets);
+    puts("Counter group guard: independent all-moving STOP only, mixed/idle/ambiguous/types refused");return 0;
+  }
+  if(argc>1 && !strcmp(argv[1],"sink")) {
+    reset();assert(somfy.transceiver.counterEdits.reserve(address,true,false,false)==CounterEditAdmission::admitted);
+    somfy.transceiver.counterEdits.finish({CounterEditState::uncertain},{});auto &radio=somfy.transceiver;
+    somfy_tx_job_t job;job.frame.remoteAddress=address;job.tx.bit_length=56;job.ticket=999;
+    assert(!radio.submitTx(job) && !job.ticket && !notifies && !radio.sched.hasPendingFor(address));
+    job.frame.remoteAddress=999;assert(radio.submitTx(job) && radio.sched.hasPendingFor(999));radio.sched={};
+    somfy_frame_t frame;frame.remoteAddress=address;frame.rollingCode=100;frame.cmd=somfy_commands::Up;frame.bitLength=56;
+    encodeTxJob(job,frame,1);job.repeater=true;job.frame={};
+    byte original[10];memcpy(original,job.tx.payload,10);assert(!radio.submitTx(job) && !memcmp(original,job.tx.payload,10));
+    frame.remoteAddress=999;encodeTxJob(job,frame,1);job.repeater=true;job.frame={};assert(radio.submitTx(job));radio.sched={};
+    byte bad[10]={};tx_queue.push(4,bad,56);
+    frame.remoteAddress=999;frame.cmd=somfy_commands::My;encodeTxJob(job,frame,1);tx_queue.push(4,job.tx.payload,56);
+    radio.serviceRepeater();assert(tx_queue.length==1 && !radio.sched.hasRepeaterWork());
+    radio.serviceRepeater();assert(!tx_queue.length && radio.sched.hasRepeaterWork());radio.sched={};
+    auto &group=somfy.groups[0];group.setGroupId(3);group.setRemoteAddress(555);group.linkedShades[0]=7;
+    frame.remoteAddress=555;frame.cmd=somfy_commands::Up;encodeTxJob(job,frame,1);tx_queue.push(4,job.tx.payload,56);
+    radio.serviceRepeater();assert(!tx_queue.length && !radio.sched.hasRepeaterWork());
+    const_cast<ShadeBehaviour::State &>(somfy.shades[0].state()).direction=1;
+    frame.cmd=somfy_commands::My;encodeTxJob(job,frame,1);tx_queue.push(4,job.tx.payload,56);
+    radio.serviceRepeater();assert(!tx_queue.length && radio.sched.hasRepeaterWork());
+    assert(!FakeNvs::opens && !forbidden);puts("Actual TX sink/raw head: exact identity, immutable payload, one refused head, unrelated/qualified STOP preserved");return 0;
+  }
   if(argc>1 && !strcmp(argv[1],"completedGroup")) {
     for(bool up:{false,true}) {
       reset();auto &group=somfy.groups[15];group.setGroupId(16);group.setRemoteAddress(address);

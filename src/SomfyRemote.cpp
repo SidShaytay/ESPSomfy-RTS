@@ -2,6 +2,7 @@
 #include "esp_log.h"
 #include "Somfy.h"
 #include "RollingCode.h"
+#include "CounterCommandGuard.h"
 
 static const char *TAG = "Somfy";
 
@@ -11,6 +12,7 @@ void SomfyRemote::setRemoteAddress(uint32_t address) { this->m_remoteAddress = a
 uint32_t SomfyRemote::getRemoteAddress() { return this->m_remoteAddress; }
 somfy_commands SomfyRemote::transformCommand(somfy_commands cmd) { return this->flipCommands ? flipCommand(cmd) : cmd; }
 bool SomfyRemote::sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repeat) {
+  if(!counterCommandAllowed(this->getRemoteAddress(),somfy_commands::Sensor))return false;
   if(this->proto==radio_proto::GP_Remote || this->proto==radio_proto::GP_Relay) return false;
   uint8_t flags = (this->getFlags() >> 4) & 0x0F;
   if(isWindy > 0) flags |= 0x01;
@@ -39,6 +41,7 @@ bool SomfyRemote::sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repe
 bool SomfyRemote::sendCommand(somfy_commands cmd) { return this->sendCommand(cmd, this->repeats); }
 bool SomfyRemote::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) { return this->sendCommandAfter(cmd, repeat, stepSize, 0).sent; }
 send_result_t SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority, bool hearsItself) {
+  if(!counterCommandAllowed(this->getRemoteAddress(),cmd))return {};
   if((this->proto==radio_proto::GP_Remote || this->proto==radio_proto::GP_Relay) &&
      !this->gpioCommandAllowed(this->transformCommand(cmd))) return {};
   // Build the frame aside and only take the rolling code once the frame is
@@ -91,13 +94,15 @@ send_result_t SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, 
   return result;
 }
 bool SomfyRemote::isLastCommand(somfy_commands cmd) {
-  if(this->lastFrame.cmd != cmd || this->lastFrame.rollingCode != this->lastRollingCode) {
+  if(!this->lastFrame.valid || this->lastFrame.cmd != cmd || this->lastFrame.rollingCode != this->lastRollingCode) {
     ESP_LOGD(TAG, "Not the last command %d: %d - %d", static_cast<uint8_t>(this->lastFrame.cmd), this->lastFrame.rollingCode, this->lastRollingCode);
     return false;
   }
   return true;
 }
 bool SomfyRemote::repeatFrame(uint8_t repeat) {
+  if(!this->lastFrame.valid || !counterCommandAllowed(this->getRemoteAddress(),this->lastFrame.cmd) ||
+     somfy.transceiver.counterBlocksIdentity(this->lastFrame.remoteAddress))return false;
   if((this->proto==radio_proto::GP_Remote || this->proto==radio_proto::GP_Relay) &&
      !this->gpioCommandAllowed(this->lastFrame.cmd)) return false;
   if(this->proto == radio_proto::GP_Relay)
@@ -142,6 +147,7 @@ uint16_t SomfyRemote::p_lastRollingCode(uint16_t code) {
   return old;
 }
 uint16_t SomfyRemote::setRollingCode(uint16_t code) {
+  if(somfy.transceiver.counterBlocksIdentity(this->getRemoteAddress()))return this->lastRollingCode;
   Preferences pref;
   if(this->lastRollingCode != code) {
     pref.begin("ShadeCodes");
