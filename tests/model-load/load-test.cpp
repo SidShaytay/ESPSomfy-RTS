@@ -291,6 +291,21 @@ int main(){char dir[]="/tmp/espsomfy-model-load.XXXXXX";assert(mkdtemp(dir));Lit
   assert(!result.complete&&!result.modelApplied&&!result.counterWriteAttempted&&!FakeNvs::writeOpens&&!live.gpio&&live.modelLoad.publishable());
  }
  if(getenv("RESTORE_RAW_CASE"))return 0;
+ // Duplicate stable IDs are ambiguous; duplicate unused slots and RF address aliases remain valid.
+ for(unsigned kind=0;kind<3;++kind)for(bool unused:{false,true}){
+  const char *only=getenv("RESTORE_DUPLICATE_KIND");if(only&&unsigned(atoi(only))!=kind)continue;
+  Writer writer;config_header_t h;h.version=SHADE_HDR_VER;h.length=SHADE_HDR_SIZE;h.shadeRecordSize=SHADE_REC_SIZE;h.groupRecordSize=GROUP_REC_SIZE;h.roomRecordSize=ROOM_REC_SIZE;
+  h.shadeRecords=kind==0?2:0;h.groupRecords=kind==1?2:0;h.roomRecords=kind==2?2:0;assert(writeConfigHeader(writer,h));
+  for(unsigned i=0;i<2;++i){
+   if(kind==0){shade_record_t rec;rec.shadeId=unused?255:1;rec.remoteAddress=100;assert(writeShadeRecord(writer,rec));}
+   else if(kind==1){group_record_t rec;rec.groupId=unused?255:1;rec.remoteAddress=100;assert(writeGroupRecord(writer,rec));}
+   else {room_record_t rec;rec.roomId=unused?0:1;assert(writeRoomRecord(writer,rec));}
+  }
+  FakeNvs::reset();stored(100,0);writeAt("/shades.tmp",writer.bytes);restoreAllowed=true;SomfyShadeController live;live.modelLoad.bootResult(ModelLoadStatus::loaded);ShadeConfigFile file;restore_options_t opts;opts.shades=true;
+  const auto result=file.restoreFile(&live,"/shades.tmp",opts,RestoreOwner,RadioInstallToken{1});
+  assert(result.complete==unused&&result.modelApplied==unused&&!FakeNvs::writeOpens&&live.modelLoad.publishable());
+ }
+ if(getenv("RESTORE_DUPLICATE_KIND"))return 0;
  // Bounded scalar decoding alone does not qualify active model identities/enums.
  for(unsigned invalid=0;invalid<8;++invalid){
   const char *only=getenv("RESTORE_SEMANTIC_CASE");if(only&&unsigned(atoi(only))!=invalid)continue;

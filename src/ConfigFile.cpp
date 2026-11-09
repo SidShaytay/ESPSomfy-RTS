@@ -273,6 +273,15 @@ bool ShadeConfigFile::validateRestoreRecords(const restore_options_t &opts){
     return proto==radio_proto::RTS || proto==radio_proto::RTW || proto==radio_proto::RTV ||
         proto==radio_proto::GP_Relay || proto==radio_proto::GP_Remote;
   };
+  uint32_t roomsSeen=0,shadesSeen=0,groupsSeen=0;
+  const auto uniqueId=[](uint32_t &seen,uint8_t id,uint8_t maximum,uint8_t unused){
+    if(id==unused)return true;
+    if(!id || id>maximum)return false;
+    const uint32_t mask=uint32_t(1)<<(id-1);
+    if(seen&mask)return false;
+    seen|=mask;return true;
+  };
+  static_assert(SOMFY_MAX_ROOMS<=32 && SOMFY_MAX_SHADES<=32 && SOMFY_MAX_GROUPS<=32,"Bounded stable ID sets");
   bool valid=true;
   if(opts.shades){
     const unsigned shadeFields=12+(v<5?5:SOMFY_MAX_LINKED_REMOTES)+(v<4?1:2)+
@@ -281,17 +290,17 @@ bool ShadeConfigFile::validateRestoreRecords(const restore_options_t &opts){
     const unsigned groupFields=6+SOMFY_MAX_GROUPED_SHADES+(v>=23?1:0)+
         (v>=12?1:0)+(v>=13?1:0)+(v>=18?1:0)+(v>=19?1:0);
     for(unsigned i=0;valid&&i<header.roomRecords;++i)valid=checked(3,[&]{
-      room_record_t rec;return readRoomRecord(*this,rec)&&rec.roomId<=SOMFY_MAX_ROOMS;
+      room_record_t rec;return readRoomRecord(*this,rec)&&uniqueId(roomsSeen,rec.roomId,SOMFY_MAX_ROOMS,0);
     });
     for(unsigned i=0;valid&&i<header.shadeRecords;++i)valid=checked(shadeFields,[&]{
       shade_record_t rec;if(!readShadeRecord(*this,header,rec))return false;
-      return rec.shadeId==255 || (rec.shadeId>0 && rec.shadeId<=SOMFY_MAX_SHADES &&
+      return rec.shadeId==255 || (uniqueId(shadesSeen,rec.shadeId,SOMFY_MAX_SHADES,255) &&
           uint8_t(rec.shadeType)<=uint8_t(shade_types::rgate1) &&
           uint8_t(rec.tiltType)<=uint8_t(tilt_types::euromode) && knownProtocol(rec.proto));
     });
     for(unsigned i=0;valid&&i<header.groupRecords;++i)valid=checked(groupFields,[&]{
       group_record_t rec;if(!readGroupRecord(*this,header,rec))return false;
-      return rec.groupId==255 || (rec.groupId>0 && rec.groupId<=SOMFY_MAX_GROUPS &&
+      return rec.groupId==255 || (uniqueId(groupsSeen,rec.groupId,SOMFY_MAX_GROUPS,255) &&
           rec.groupType==group_types::channel && knownProtocol(rec.proto));
     });
   }else valid=skipRecords(*this,uint32_t(header.roomRecords)+header.shadeRecords+header.groupRecords);
