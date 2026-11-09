@@ -5,6 +5,7 @@
 #include "SomfyFrame.h"
 #include "ShadeTypes.h"
 #include "ModelCommitResult.h"
+#include "ExplicitCounter.h"
 
 // The rules ModelEditor applies when the shade model is edited: which id, sort
 // order and remote address a new room, shade or group gets, how ids go into
@@ -41,6 +42,10 @@ struct edit_result_t {
   int8_t code = 0;
   const char *desc = "";
   edit_failure_t failure = edit_failure_t::badRequest;
+  // Preserve checked counter/link outcomes for local callers; descriptions
+  // remain presentation only, never a machine-readable failure discriminator.
+  bool hasCounterResult = false;
+  CounterDomainState counterState = CounterDomainState::invalid;
   bool durable() const { return applied && persistence.saved(); }
   static edit_result_t completed(uint8_t id,ModelCommitResult persistence);
   static edit_result_t error(const char *desc, int8_t code = 0) {
