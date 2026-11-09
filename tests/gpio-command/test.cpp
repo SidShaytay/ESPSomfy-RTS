@@ -15,6 +15,12 @@ void encodeRepeatJob(somfy_tx_job_t &,somfy_frame_t &,uint8_t){}
 void noteRepeatQueued(somfy_frame_t &,const somfy_tx_job_t &){}
 #include "production-rx.inc"
 int main(){
+ { SomfyShade shade;shade.proto=radio_proto::GP_Remote;shade.gpioUp=17;shade.gpioDown=40;shade.gpioMy=42;
+   somfy.modelLoad.fail();const auto before=gpioWrites;
+   assert(!shade.sendCommand(somfy_commands::Up) && !shade.moveToTarget(100));
+   shade.configureGPIOs();somfy.configureGPIOs();assert(gpioWrites==before);
+   somfy.modelLoad.bootResult(ModelLoadStatus::loaded);
+ }
  counterAllowed=false;
  SomfyShade blocked;blocked.proto=radio_proto::RTS;blocked.bitLength=0;
  assert(!blocked.sendCommand(somfy_commands::Up));

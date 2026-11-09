@@ -65,7 +65,7 @@ static void xTaskNotifyGive(void *){++notifies;}
 static constexpr uint32_t TX_QUEUE_DELAY=100;
 static std::mutex txLock;
 struct TxQueueLock {std::lock_guard<std::mutex> held;TxQueueLock():held(txLock){}};
-SomfyShadeController::SomfyShadeController() : startingAddress(100) {}
+SomfyShadeController::SomfyShadeController() : startingAddress(100) {modelLoad.bootResult(ModelLoadStatus::loaded);}
 SomfyShadeController somfy;
 static bool pendingRestart=false;
 bool restartPending(){return pendingRestart;}
@@ -139,6 +139,12 @@ static void aliases() {
 }
 int main(int argc,char **argv) {
   loopQueue.begin();
+  if(argc>1 && !strcmp(argv[1],"badLoad")) {
+    reset();somfy.modelLoad.fail();assert(!correctExplicitCounter(7,100).saved());assert(!linkExplicitRemote(7,999,100).saved());assert(!recoverExplicitCounterFile().saved());
+    somfy_tx_job_t job;job.ticket=999;job.frame.remoteAddress=address;job.tx.bit_length=56;
+    assert(!somfy.transceiver.submitTx(job) && !job.ticket && !notifies && !somfy.transceiver.sched.hasWork());
+    assert(!FakeNvs::opens && !forbidden);return 0;
+  }
   if(argc>1 && !strcmp(argv[1],"sharedLink")) {
     for(unsigned failure=0;failure<6;++failure) {
       reset();auto &other=somfy.shades[1];other.setShadeId(22);other.setRemoteAddress(999);

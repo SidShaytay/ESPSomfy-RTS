@@ -1,3 +1,4 @@
+#include "ModelLoadTrust.h"
 #include "ESPAsyncWebServer.h"
 #include "ModelCommitService.h"
 #include "SafeRestart.h"
@@ -13,6 +14,7 @@
 #define MQTT_CONNECTION_H
 #define TASK_WDT_H
 struct SomfyShadeController {
+  ModelLoadTrust modelLoad{ModelLoadStatus::loaded};
   struct Radio {
     bool uncertain=false;
     bool counterEditUncertain() const{return uncertain;}

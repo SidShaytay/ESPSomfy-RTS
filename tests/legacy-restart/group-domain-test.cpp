@@ -34,7 +34,7 @@ bool counterCommandAllowed(uint32_t,somfy_commands){return true;}
 static unsigned radioCalls = 0, nvsCalls = 0, commits = 0, shutdowns = 0;
 static uint32_t nowMs = 1;
 static unsigned long clockNow() { return nowMs; }
-SomfyShadeController::SomfyShadeController() : startingAddress(100) {}
+SomfyShadeController::SomfyShadeController() : startingAddress(100) {modelLoad.bootResult(ModelLoadStatus::loaded);}
 SomfyShadeController somfy;
 LoopQueue loopQueue;
 
