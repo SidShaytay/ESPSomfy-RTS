@@ -200,17 +200,19 @@ int main(int argc,char **argv) {
   }
   if(argc>1 && !strcmp(argv[1],"learnBound")) {
     reset();assert(linkExplicitRemote(7,555,500).saved());assert(somfy.shades[0].unlinkRemote(555));
-    const auto sets=FakeNvs::sets;const auto revision=somfy.configurationRevision;
-    assert(linkExplicitRemote(7,555,400).state==CounterDomainState::stale);
+    const auto sets=FakeNvs::sets;const auto revision=somfy.configurationRevision;const auto writableBefore=FakeNvs::writeOpens;
+    assert(linkExplicitRemote(7,555,400).state==CounterDomainState::stale);assert(FakeNvs::writeOpens==writableBefore);
     assert(FakeNvs::sets==sets && somfy.configurationRevision==revision && !somfy.shades[0].linkedRemotes[0].getRemoteAddress());
     assert(linkExplicitRemote(7,555,65535).saved());assert(somfy.shades[0].unlinkRemote(555));
     const auto maxSets=FakeNvs::sets;assert(linkExplicitRemote(7,555,0).state==CounterDomainState::stale && FakeNvs::sets==maxSets);
     reset();auto &alias=somfy.shades[1];alias.setShadeId(22);alias.setRemoteAddress(555);alias.lastRollingCode=700;
-    assert(linkExplicitRemote(7,555,600).state==CounterDomainState::stale && !FakeNvs::sets && somfy.configurationRevision==1);
+    assert(linkExplicitRemote(7,555,600).state==CounterDomainState::stale && !FakeNvs::sets && !FakeNvs::opens && somfy.configurationRevision==1);
     reset();auto &group=somfy.groups[0];group.setGroupId(3);group.setRemoteAddress(555);group.lastRollingCode=700;group.linkedShades[0]=7;
     assert(linkExplicitRemote(7,555,600).state==CounterDomainState::stale && !FakeNvs::sets);
     reset();FakeNvs::failRead=1;assert(linkExplicitRemote(7,555,100).state==CounterDomainState::nvsFailed);
-    assert(!FakeNvs::sets && somfy.configurationRevision==1 && somfy.transceiver.counterQuarantine()==CounterQuarantine::none);
+    assert(!FakeNvs::sets && !FakeNvs::writeOpens && somfy.configurationRevision==1 && somfy.transceiver.counterQuarantine()==CounterQuarantine::none);
+    reset();FakeNvs::readOnlyNamespaceMissing=true;
+    assert(linkExplicitRemote(7,555,100).saved() && FakeNvs::readOnlyOpens==1 && FakeNvs::writeOpens==1 && FakeNvs::sets==1);
     reset();FakeNvs::beforeGet=[] {
       FakeNvs::beforeGet=nullptr;assert(gitUpdate.busy() && somfy.transceiver.counterBlocksIdentity(555));
       assert(linkExplicitRemote(7,777,50).state==CounterDomainState::busy && !FakeNvs::sets);

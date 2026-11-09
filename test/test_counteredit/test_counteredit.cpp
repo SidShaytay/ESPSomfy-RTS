@@ -134,8 +134,41 @@ static void observed_prewrite_read_error_is_not_absent_or_an_uncertain_write() {
   TEST_ASSERT_EQUAL(CounterEditState::failed,persistObservedCounter(a,100,0).state);
   TEST_ASSERT_EQUAL(sets,FakeNvs::sets);TEST_ASSERT_TRUE(FakeNvs::handles.empty());
 }
+static void observed_refusal_cannot_open_or_create_a_writable_namespace() {
+ TEST_ASSERT_EQUAL(CounterEditState::stale,persistObservedCounter(a,5,6).state);
+ TEST_ASSERT_EQUAL(0,FakeNvs::opens);
+ TEST_ASSERT_TRUE(persistExplicitCounter(a,500).saved());
+ FakeNvs::readOnlyOpens=FakeNvs::writeOpens=0;
+ TEST_ASSERT_EQUAL(CounterEditState::stale,persistObservedCounter(a,499,0).state);
+ TEST_ASSERT_EQUAL(1,FakeNvs::readOnlyOpens);TEST_ASSERT_EQUAL(0,FakeNvs::writeOpens);
+ FakeNvs::failRead=FakeNvs::reads+1;
+ TEST_ASSERT_EQUAL(CounterEditState::failed,persistObservedCounter(a,600,0).state);
+ TEST_ASSERT_EQUAL(0,FakeNvs::writeOpens);TEST_ASSERT_TRUE(FakeNvs::handles.empty());
+}
+static void absent_namespace_and_key_allow_only_an_admitted_observed_write() {
+ FakeNvs::readOnlyNamespaceMissing=true;
+ TEST_ASSERT_TRUE(persistObservedCounter(a,20,0).saved());
+ TEST_ASSERT_EQUAL(1,FakeNvs::readOnlyOpens);TEST_ASSERT_EQUAL(1,FakeNvs::writeOpens);
+ TEST_ASSERT_EQUAL(1,FakeNvs::reads);TEST_ASSERT_EQUAL(1,FakeNvs::closes);
+ FakeNvs::reset();TEST_ASSERT_TRUE(persistObservedCounter(a,20,0).saved());
+ TEST_ASSERT_EQUAL(1,FakeNvs::readOnlyOpens);TEST_ASSERT_EQUAL(1,FakeNvs::writeOpens);
+ TEST_ASSERT_EQUAL(2,FakeNvs::closes);
+ for(int phase=0;phase<4;++phase){
+  FakeNvs::reset();
+  if(phase==0)FakeNvs::failOpen=1;
+  if(phase==1)FakeNvs::failOpen=2;
+  if(phase==2)FakeNvs::failRead=1;
+  if(phase==3)FakeNvs::failRead=2;
+  const auto result=persistObservedCounter(a,20,0);
+  TEST_ASSERT_EQUAL(phase==3?CounterEditState::uncertain:CounterEditState::failed,result.state);
+  if(phase==0 || phase==2)TEST_ASSERT_EQUAL(0,FakeNvs::writeOpens);
+  TEST_ASSERT_EQUAL(phase==3?1:0,FakeNvs::sets);TEST_ASSERT_TRUE(FakeNvs::handles.empty());
+ }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(observed_refusal_cannot_open_or_create_a_writable_namespace);
+  RUN_TEST(absent_namespace_and_key_allow_only_an_admitted_observed_write);
   RUN_TEST(observed_writer_never_lowers_retained_or_alias_highwater);
   RUN_TEST(observed_prewrite_read_error_is_not_absent_or_an_uncertain_write);
   RUN_TEST(verified_nvs_file_failure_requires_only_file_recovery);

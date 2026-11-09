@@ -27,7 +27,10 @@ and compares the proposed code with NVS and every live RAM alias. It refuses a
 lower code, including a retained key after unlink and 65535-to-0; only exact key
 absence counts as zero. A read error refuses before writing, without inventing a
 zero value or a new quarantine. Deliberate lowering remains the separate explicit
-primary-counter correction operation.
+primary-counter correction operation. Received-link preflight checks RAM high-water
+before opening NVS, then probes existing storage read-only; only after admission
+may it open a writable namespace. Refused or unreadable learning cannot create
+the namespace.
 
 The NVS writer checks open, set, commit and readback. A definite pre-write
 failure leaves running counters and a proposed new link unchanged. Once a

@@ -4,16 +4,22 @@
 namespace {
 CounterEditResult persistCounter(uint32_t address,uint16_t code,bool observed,uint16_t aliasHighwater) {
   if(!address || address>0xffffff)return {};
+  if(observed && code<aliasHighwater)return {CounterEditState::stale};
   char key[11];snprintf(key,sizeof(key),"_%lu",static_cast<unsigned long>(address));
   nvs_handle_t handle;
-  if(nvs_open("ShadeCodes",NVS_READWRITE,&handle)!=ESP_OK)return {};
   if(observed) {
+    // Preflight cannot create a namespace merely to reject a received code.
+    // Caller retains the same identity reservation across both handles.
     uint16_t stored=0;
-    const auto read=nvs_get_u16(handle,key,&stored);
-    // Only exact absence is zero. A failed read never authorizes a write.
-    if(read!=ESP_OK && read!=ESP_ERR_NVS_NOT_FOUND){nvs_close(handle);return {};}
-    if(code<stored || code<aliasHighwater){nvs_close(handle);return {CounterEditState::stale};}
+    const auto opened=nvs_open("ShadeCodes",NVS_READONLY,&handle);
+    if(opened==ESP_OK) {
+      const auto read=nvs_get_u16(handle,key,&stored);
+      nvs_close(handle);
+      if(read!=ESP_OK && read!=ESP_ERR_NVS_NOT_FOUND)return {};
+    } else if(opened!=ESP_ERR_NVS_NOT_FOUND)return {};
+    if(code<stored)return {CounterEditState::stale};
   }
+  if(nvs_open("ShadeCodes",NVS_READWRITE,&handle)!=ESP_OK)return {};
   // Once a set was attempted, conservatively report uncertainty for any
   // failure. Never write the previous value as a supposed rollback.
   bool saved=nvs_set_u16(handle,key,code)==ESP_OK;
