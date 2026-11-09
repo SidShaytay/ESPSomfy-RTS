@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 source=Path(sys.argv[1]).read_text()
 out=[]
-for name in ('Transceiver::beginFrequencyScan','Transceiver::endFrequencyScan','Transceiver::processFrequencyScan'):
+for name in ('Transceiver::beginFrequencyScan','Transceiver::endFrequencyScan','Transceiver::processFrequencyScan','Transceiver::txSuspended'):
  at=source.index(name+'(');start=source.rfind('\n',0,at)+1;brace=source.index('{',at);end=brace+1;depth=1
  while depth:
   depth+=(source[end]=='{')-(source[end]=='}');end+=1

@@ -49,6 +49,7 @@ struct Transceiver {
  void disableReceive(){io();rxmode=0;}
  void enableReceive(){io();rxmode=1;ELECHOUSE_cc1101.SetRx();}
  static void handleReceive(){}
+ bool txSuspended();
  void beginFrequencyScan();void endFrequencyScan();void processFrequencyScan(bool=false);void emitFrequencyScan(){}
 };
 #include "production-scan.inc"
@@ -79,6 +80,7 @@ int main(){
  for(unsigned prior:{0u,1u}){
   reset();Transceiver r;rxmode=prior;r.beginFrequencyScan();
   assert(rxmode==3&&r.sched.sealedForRestart()&&!r.available()&&!rxPausedForInstall);
+  assert(r.txSuspended() && "Existing admission must observe scan-paused RF, not defer commands until scan ends");
   auto next=job();assert(!r.sched.submit(next,true,0,0));
   const unsigned started=driverCalls;r.beginFrequencyScan();assert(driverCalls==started);
   rx_queue.length=2;somfy_rx.partial=true;noiseDetected=true;noiseCount=17;

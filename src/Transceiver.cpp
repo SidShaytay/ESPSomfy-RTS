@@ -977,7 +977,7 @@ bool Transceiver::counterEditUncertain() {
 }
 bool Transceiver::txSuspended() {
   TxQueueLock lock;
-  return this->sched.suspended();
+  return this->sched.suspended() || this->_administrationPaused.load();
 }
 bool Transceiver::txHasRoom() {
   // Without a radio task submitTx() fails straight away so there is no point waiting.
