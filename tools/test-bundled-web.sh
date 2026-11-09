@@ -20,7 +20,7 @@ PY
 )
 "${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -DESPSOMFY_BUNDLED_WEB=1 -DESPSOMFY_APP_COMPAT=\""$compat"\" \
  -I"$scratch" -I"$repo/tests/bundled-web" -I"$repo/tests/update-assets" -I"$repo/src" -I"$repo/test/stubs" \
- "$repo/tests/bundled-web/http-test.cpp" "$repo/src/BundledWeb.cpp" "$repo/src/GitUpdateAssets.cpp" "$repo/src/entryPoints/BundledWebRoutes.cpp" -o "$scratch/http"
+ "$repo/tests/bundled-web/http-test.cpp" "$repo/src/BundledWeb.cpp" "$repo/src/UpdateSha256.cpp" "$repo/src/GitUpdateAssets.cpp" "$repo/src/entryPoints/BundledWebRoutes.cpp" -o "$scratch/http"
 "$scratch/http"
 # Compile the actual version getter with independent bundled/generic storage.
 python3 - "$repo" "$scratch" <<'PY'
@@ -35,6 +35,6 @@ for variant in generic bundled; do
  [[ "$variant" != bundled ]] || flags=(-DESPSOMFY_BUNDLED_WEB=1)
  "${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror "${flags[@]}" \
   -I"$scratch" -I"$repo/tests/update-assets" -I"$repo/src" -I"$repo/test/stubs" \
-  "$repo/tests/bundled-web/version-test.cpp" "$repo/src/BundledWeb.cpp" -o "$scratch/version"
+  "$repo/tests/bundled-web/version-test.cpp" "$repo/src/BundledWeb.cpp" "$repo/src/UpdateSha256.cpp" -o "$scratch/version"
  "$scratch/version"
 done
