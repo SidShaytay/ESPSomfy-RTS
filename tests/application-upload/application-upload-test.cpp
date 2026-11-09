@@ -14,6 +14,21 @@
 #include "esp_timer.h"
 #if defined(ESPSOMFY_BUNDLED_WEB)
 #include "esp_heap_caps.h"
+// This HTTP fixture has no worker. Simulate only its public ticket reservation;
+// the real worker/controller suite separately verifies reservation and adoption.
+static bool reserveReady=true;
+static bool overrideFirmwareStatus=false;
+static GitUpdateSnapshot firmwareStatus;
+extern "C" GitUpdateSnapshot __real__ZNK14GitUpdateClass8snapshotEv(const GitUpdateClass *);
+extern "C" GitUpdateSnapshot __wrap__ZNK14GitUpdateClass8snapshotEv(const GitUpdateClass *service) {
+  return overrideFirmwareStatus?firmwareStatus:__real__ZNK14GitUpdateClass8snapshotEv(service);
+}
+extern "C" bool __wrap__ZN14GitUpdateClass20reserveManualInstallERK19GitUpdateOwnerTokenRm(
+    GitUpdateClass *service,const GitUpdateOwnerToken &owner,uint64_t &operation) {
+  assert(service==&gitUpdate&&service->ownsExternal(owner));
+  if(!reserveReady)return false;
+  static uint64_t ticket=9007199254740992ULL;operation=++ticket;return true;
+}
 #endif
 #include <iostream>
 #include <vector>
@@ -201,6 +216,8 @@ int main() {
   assert(!stagedAllocations&&!gitUpdate.busy());noEffects();
   AsyncWebServerRequest noMemory;failStagedAllocation=true;receive(noMemory);failStagedAllocation=false;
   assert(!stagedAllocations&&!gitUpdate.busy());noEffects();
+  AsyncWebServerRequest unavailable;receive(unavailable);reserveReady=false;firmware.complete(&unavailable);reserveReady=true;
+  assert(unavailable.status==503&&!stagedAllocations&&!gitUpdate.busy());noEffects();
   AsyncWebServerRequest tooSmall;
   firmware.upload(&tooSmall,String("firmware.bin"),0,image.data(),1,true);
   assert(!stagedAllocations&&!gitUpdate.busy());noEffects();
@@ -224,6 +241,23 @@ int main() {
   manualUploadLoop();assert(!stagedAllocations&&!gitUpdate.busy());noEffects();
   AsyncWebServerRequest queuedExpired;receive(queuedExpired);firmware.complete(&queuedExpired);
   manualClockMs+=30000;manualUploadLoop();loopQueue.drain();assert(!stagedAllocations&&!gitUpdate.busy());noEffects();
+  AsyncWebServerRequest statusDenied;statusDenied.allowed=false;firmware.statusGet(&statusDenied);assert(statusDenied.status==401);
+  for(const char *operation:{"0","01","18446744073709551616","x","1.0","-1",""}) {
+    AsyncWebServerRequest invalid;invalid.params["operationGeneration"]=operation;
+    firmware.statusGet(&invalid);assert(invalid.status==400);
+  }
+  AsyncWebServerRequest staleStatus;staleStatus.params["operationGeneration"]="9007199254740993";
+  firmware.statusGet(&staleStatus);assert(staleStatus.status==409);noEffects();
+  overrideFirmwareStatus=true;firmwareStatus.manual=true;firmwareStatus.operation=9007199254740993ULL;
+  firmwareStatus.phase=GitUpdatePhase::written;firmwareStatus.busy=true;
+  AsyncWebServerRequest exactStatus;exactStatus.params=staleStatus.params;firmware.statusGet(&exactStatus);
+  JsonDocument statusJson;assert(!deserializeJson(statusJson,exactStatus.body)&&exactStatus.status==200);
+  assert(statusJson["operationGeneration"].as<std::string>()=="9007199254740993"&&statusJson["state"].as<std::string>()=="written");
+  assert(!statusJson["restartScheduled"].as<bool>()&&statusJson["source"].as<std::string>()=="manual-file");
+  assert(exactStatus.body.find("owner")==std::string::npos&&exactStatus.body.find("security")==std::string::npos);
+  firmwareStatus.operation++;
+  AsyncWebServerRequest replacedStatus;replacedStatus.params=staleStatus.params;firmware.statusGet(&replacedStatus);assert(replacedStatus.status==409);
+  overrideFirmwareStatus=false;noEffects();
   std::cout << "Bundled upload stages complete file and hands it to loop without SDK/shutdown effects.\n";return 0;
 #endif
   AsyncWebServerRequest first, overlap;

@@ -61,6 +61,9 @@ public:
   GitUpdateRequest requestCheck(uint64_t &operation);
   GitUpdateRequest requestPrepare(const GitUpdateCandidate &expected);
   GitUpdateRequest requestInstall(const GitUpdateCandidate &,uint64_t &operation);
+  // Receive completion holds the queued firmware claim. Reserve a public
+  // operation before FIFO publication; loop adoption retains this same ticket.
+  bool reserveManualInstall(const GitUpdateOwnerToken &,uint64_t &operation);
   // Loop only. Caller holds the queued firmware claim/resource. On acceptance
   // the service owns this heap_caps PSRAM allocation and nulls image; refusal
   // leaves image and transfer ownership with the caller. No GitHub provenance.

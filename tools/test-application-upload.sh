@@ -16,7 +16,7 @@ Path(sys.argv[2]).write_text(text[start:end]+'\n')
 PYCODE
 for variant in generic bundled; do
 flags=()
-[[ "$variant" != bundled ]] || flags=(-DESPSOMFY_BUNDLED_WEB=1)
+[[ "$variant" != bundled ]] || flags=(-DESPSOMFY_BUNDLED_WEB=1 -Wl,--wrap=_ZN14GitUpdateClass20reserveManualInstallERK19GitUpdateOwnerTokenRm -Wl,--wrap=_ZNK14GitUpdateClass8snapshotEv)
 "${CXX:-c++}" "${flags[@]}" -std=c++17 -O2 -I"$scratch" -I"$json" -pthread -I"$repo/tests/application-upload" -I"$repo/tests/restore-execution" -I"$repo/tests/ui-adapter" -I"$repo/test/stubs" -I"$repo/src" \
   "$repo/tests/application-upload/application-upload-test.cpp" "$repo/src/GitUpdate.cpp" "$repo/src/ShadeRequests.cpp" "$repo/src/ShadeMotion.cpp" "$repo/src/RestartCoordinator.cpp" "$repo/src/RestartPolicy.cpp" "$repo/src/SettingsDurability.cpp" "$repo/src/SomfyFrame.cpp" -o "$scratch/application-upload"
 "$scratch/application-upload"

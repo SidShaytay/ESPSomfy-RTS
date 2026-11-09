@@ -32,7 +32,7 @@ struct AsyncWebServerRequest {
 };
 struct AsyncWebServer {
   std::function<void(AsyncWebServerRequest *)> complete,statusGet;
-  void on(const char *path,int method,decltype(complete) c){assert(std::string(path)=="/restoreStatus"&&method==HTTP_GET);statusGet=c;}
+  void on(const char *path,int method,decltype(complete) c){assert((std::string(path)=="/restoreStatus"||std::string(path)=="/firmwareStatus")&&method==HTTP_GET);statusGet=c;}
   std::function<void(AsyncWebServerRequest *, String, size_t, uint8_t *, size_t,
                      bool)>
       upload;

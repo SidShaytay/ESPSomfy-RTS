@@ -59,7 +59,7 @@ with tempfile.TemporaryDirectory(prefix='espsomfy-install-') as scratch:
     coupled += [str(root/'src'/name) for name in ('RestartCoordinator.cpp', 'RestartPolicy.cpp', 'SettingsDurability.cpp', 'SomfyFrame.cpp')]
     subprocess.run(coupled + ['-Wl,--wrap=time', '-l:libcrypto.so.3', '-o', str(binary)], check=True)
     for mode in ('valid', 'moving', 'queued', 'localPending', 'radioWork', 'pauseFailure', 'saveFailure', 'sourceSave', 'configSave', 'cancelWrite', 'sourceWrite', 'cleanupBusy', 'activationFailure', 'expireFinal', 'cancelFinal', 'staleCleanup',
-                 'manualValid', 'manualInvalid', 'manualOldAssets', 'manualWrongGrant', 'manualExpiredGrant', 'manualWriteFailure', 'manualBadMemory', 'manualNoClaim', 'manualLateAdoption', 'manualNotifyFailure'):
+                 'manualValid', 'manualReserved', 'manualReservationFailure', 'manualInvalid', 'manualOldAssets', 'manualWrongGrant', 'manualExpiredGrant', 'manualWriteFailure', 'manualBadMemory', 'manualNoClaim', 'manualLateAdoption', 'manualNotifyFailure'):
         subprocess.run([str(binary), mode, str(firmware), compat], check=True)
         print('PASS controller ' + mode, flush=True)
     developer=Path(scratch)/'developer.bin'
