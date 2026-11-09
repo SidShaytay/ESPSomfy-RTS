@@ -1,5 +1,7 @@
 #include "RestoreExecution.h"
 #include "SettingsDurability.h"
+#include "SettingsRevisions.h"
+#include "ProtoSettings.h"
 #include "ModelLoadTrust.h"
 #include "ESPAsyncWebServer.h"
 #include "ModelCommitService.h"
@@ -41,9 +43,10 @@ struct SomfyShadeController {
 } somfy;
 struct ConfigSettings { bool hasOtaSlot=true;struct { bool trusted=true;bool loadTrusted()const{return trusted;} } Security; } settings; // Qualified boot fixture.
 #define configsettings_h
+static std::function<void()> duringAuthentication;
 struct Web {
   bool uploadSuccess = false;
-  bool isAuthenticated(AsyncWebServerRequest *request){return request->allowed&&settings.Security.trusted;}
+  bool isAuthenticated(AsyncWebServerRequest *request){if(duringAuthentication)duringAuthentication();return request->allowed&&settings.Security.trusted;}
 } webServer;
 struct MqttConnection {
   unsigned stops = 0;
@@ -51,6 +54,8 @@ struct MqttConnection {
 } mqtt;
 FakeUpdate Update;
 
+static SettingsRevisions restoreSecurityHistory;
+uint64_t securityConfigurationRevision(){return restoreSecurityHistory.get(settings_section_t::security);}
 static bool admitted = true;
 static std::vector<bool> restarts;
 static unsigned resets = 0;
@@ -71,6 +76,7 @@ struct ShadeConfigFile {
     assert(gitUpdate.transferRestoreClaimed(owner,manualClockMs)&&restoreExecutionHolds(owner,radio));
     RestoreApplyResult result;
     if(somfy.transceiver.uncertain)return result;
+    restoreSecurityHistory.invalidateAll(); // Actual restore invalidates history after consuming its grant.
     ++restores;result.complete=restoreValid;result.refusal=restoreValid?RestoreRefusal::none:RestoreRefusal::invalid;
     result.modelApplied=opts.shades||opts.repeaters;result.modelFile={ModelCommitState::saved};
     if(opts.settings||opts.network||opts.mqtt||opts.transceiver){
@@ -354,6 +360,28 @@ int main() {
   loopQueue.drain();assert(restores==1 && restartPending() && !gitUpdate.ownsExternal(restoreSource));
   assert(!LittleFS.files.count("/shades.tmp") && gitUpdate.busy());
   restoreServer.statusGet(&query);assert(query.status==200&&query.body.find("\"phase\":\"applied\"")!=std::string::npos&&query.body.find("\"restartScheduled\":true")!=std::string::npos);
+  for(unsigned revoke=0;revoke<3;++revoke){
+    reset();AsyncWebServerRequest revokedQueued;
+    restoreServer.upload(&revokedQueued,String("x.backup"),0,&byte,1,true);restoreServer.complete(&revokedQueued);
+    assert(revokedQueued.status==202);
+    if(revoke==0)settings.Security.trusted=false;
+    else for(unsigned save=0;save<revoke;++save)restoreSecurityHistory.completed(settings_section_t::security);
+    loopQueue.drain();assert(restores==0 && !restartPending() && !gitUpdate.busy() && !LittleFS.files.count("/shades.tmp"));
+    assert(restoreExecutionStatus().phase==RestoreExecutionPhase::refused);
+  }
+  reset();AsyncWebServerRequest revokedBeforeCompletion;
+  restoreServer.upload(&revokedBeforeCompletion,String("x.backup"),0,&byte,1,true);
+  restoreSecurityHistory.completed(settings_section_t::security);
+  restoreServer.complete(&revokedBeforeCompletion);
+  assert(revokedBeforeCompletion.status==409&&!loopQueue.pending()&&!gitUpdate.busy()&&!LittleFS.files.count("/shades.tmp"));
+  reset();AsyncWebServerRequest revokedToken;
+  restoreServer.upload(&revokedToken,String("x.backup"),0,&byte,1,true);revokedToken.allowed=false;
+  restoreServer.complete(&revokedToken);assert(revokedToken.status==409&&!loopQueue.pending()&&!gitUpdate.busy());
+  reset();AsyncWebServerRequest changingAdmission;bool changed=false;
+  duringAuthentication=[&]{if(!changed){changed=true;restoreSecurityHistory.completed(settings_section_t::security);}};
+  restoreServer.upload(&changingAdmission,String("x.backup"),0,&byte,1,true);duringAuthentication={};
+  restoreServer.complete(&changingAdmission);
+  assert(changed&&changingAdmission.status==409&&!LittleFS.opens&&!loopQueue.pending()&&!gitUpdate.busy());
   reset();
   AsyncWebServerRequest staleRestore,newerRestore;
   restoreServer.upload(&staleRestore,String("x.backup"),0,&byte,1,true);restoreServer.complete(&staleRestore);

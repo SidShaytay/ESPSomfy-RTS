@@ -5,6 +5,8 @@
 #include "ModelIdleForAdministration.h"
 #include "SafeRestart.h"
 #include "SettingsDurability.h"
+#include "SettingsRevisions.h"
+#include "ConfigSettings.h"
 #include "Somfy.h"
 #include <LittleFS.h>
 #include <esp_random.h>
@@ -16,6 +18,7 @@
 #endif
 extern SomfyShadeController somfy;
 extern LoopQueue loopQueue;
+extern ConfigSettings settings;
 namespace RestoreExecutionDetail {
 #if defined(ESP_PLATFORM)
 portMUX_TYPE mutex=portMUX_INITIALIZER_UNLOCKED;
@@ -25,11 +28,12 @@ std::mutex mutex;
 struct Guard{std::lock_guard<std::mutex> lock;Guard():lock(mutex){}};
 #endif
 RestoreExecutionSnapshot view;
+uint64_t admittedSecurityRevision=0;
 bool started=false;
 struct Pending {
   GitUpdateOwnerToken source;
   RadioInstallToken radio;
-  bool queueHeld=false,deferred=false,faulted=false;
+  bool queueHeld=false,deferred=false,faulted=false,grantConsumed=false;
 } pending;
 static_assert(sizeof(Pending)<=64,"Bounded source-bound cleanup context");
 uint64_t now(){const auto value=esp_timer_get_time();return value<0?UINT64_MAX:uint64_t(value)/1000;}
@@ -100,12 +104,12 @@ bool beginRestoreExecution(){
   return nonce!=0;
 }
 bool restoreExecutionReady(){RestoreExecutionDetail::Guard guard;return RestoreExecutionDetail::view.bootSession!=0;}
-bool noteRestoreQueued(const GitUpdateOwnerToken &source){
-  if(source.kind!=GitUpdateExternalOwner::restore || !gitUpdate.transferRestoreClaimed(source,RestoreExecutionDetail::now()))return false;
+bool noteRestoreQueued(const GitUpdateOwnerToken &source,uint64_t securityRevision){
+  if(!securityRevision || securityRevision!=securityConfigurationRevision() || source.kind!=GitUpdateExternalOwner::restore || !gitUpdate.transferRestoreClaimed(source,RestoreExecutionDetail::now()))return false;
   RestoreExecutionDetail::Guard guard;auto &view=RestoreExecutionDetail::view;
   if(!view.bootSession || source.generation<=view.generation)return false;
   const auto nonce=view.bootSession;view={};view.bootSession=nonce;view.generation=source.generation;
-  view.phase=RestoreExecutionPhase::queued;view.fault=RestoreExecutionFault::none;return true;
+  view.phase=RestoreExecutionPhase::queued;view.fault=RestoreExecutionFault::none;RestoreExecutionDetail::admittedSecurityRevision=securityRevision;return true;
 }
 void refuseUnpublishedRestore(const GitUpdateOwnerToken &source,RestoreRefusal reason){
   if(source.kind!=GitUpdateExternalOwner::restore)return;
@@ -117,11 +121,15 @@ void refuseUnpublishedRestore(const GitUpdateOwnerToken &source,RestoreRefusal r
 namespace RestoreExecutionDetail {
 void run(const GitUpdateOwnerToken &source,uint8_t parts){
   if(pending.source.generation || source.kind!=GitUpdateExternalOwner::restore || !restoreExecutionReady())return;
-  {Guard guard;if(view.generation!=source.generation || view.phase!=RestoreExecutionPhase::queued)return;}
+  uint64_t securityRevision=0;
+  {Guard guard;if(view.generation!=source.generation || view.phase!=RestoreExecutionPhase::queued)return;securityRevision=admittedSecurityRevision;}
   if(!gitUpdate.claimTransfer(source,now(),true)){
     Guard guard;if(view.generation==source.generation){view.phase=RestoreExecutionPhase::refused;view.fault=RestoreExecutionFault::ownership;}return;
   }
   pending.source=source;publish(RestoreExecutionPhase::running);
+  if(!securityRevision || securityRevision!=securityConfigurationRevision() || !settings.Security.loadTrusted()){
+    refuse(RestoreRefusal::ownership);unwind();return;
+  }
   if(!parts || (parts&~uint8_t(RESTORE_SETTINGS|RESTORE_SHADES|RESTORE_NETWORK|RESTORE_TRANSCEIVER|RESTORE_REPEATERS|RESTORE_MQTT))){refuse(RestoreRefusal::invalid);unwind();return;}
   if(restartPending() || !modelIdleForAdministration(somfy) || !loopQueue.sealForRestart()){
     refuse(RestoreRefusal::busy);unwind();return;
@@ -130,12 +138,16 @@ void run(const GitUpdateOwnerToken &source,uint8_t parts){
   if(!somfy.transceiver.pauseForRestore(pending.radio)){
     refuse(RestoreRefusal::busy);unwind();return;
   }
-  if(!gitUpdate.transferRestoreClaimed(source,now()) || !modelIdleForAdministration(somfy)){
+  if(!gitUpdate.transferRestoreClaimed(source,now()) || !modelIdleForAdministration(somfy) ||
+      securityRevision!=securityConfigurationRevision() || !settings.Security.loadTrusted()){
     refuse(RestoreRefusal::ownership);unwind();return;
   }
   restore_options_t opts;
   opts.settings=parts&RESTORE_SETTINGS;opts.shades=parts&RESTORE_SHADES;opts.network=parts&RESTORE_NETWORK;
   opts.transceiver=parts&RESTORE_TRANSCEIVER;opts.repeaters=parts&RESTORE_REPEATERS;opts.mqtt=parts&RESTORE_MQTT;
+  // Synchronous loop adoption now consumes the verified grant. Its own
+  // restore-history invalidation must not revoke cleanup or replay this work.
+  pending.grantConsumed=true;
   auto apply=ShadeConfigFile::restore(&somfy,"/shades.tmp",opts,source,pending.radio);
   // Certify every requested part, never just a callee's complete boolean.
   const bool modelRequested=parts&(RESTORE_SHADES|RESTORE_REPEATERS);
@@ -160,7 +172,7 @@ void run(const GitUpdateOwnerToken &source,uint8_t parts){
 void runOwnedRestore(const GitUpdateOwnerToken &source,uint8_t parts){RestoreExecutionDetail::run(source,parts);}
 bool restoreExecutionHolds(const GitUpdateOwnerToken &source,const RadioInstallToken &radio){
   const auto &p=RestoreExecutionDetail::pending;
-  return source.generation && RestoreExecutionDetail::same(source,p.source) && p.queueHeld &&
+  return p.grantConsumed && source.generation && RestoreExecutionDetail::same(source,p.source) && p.queueHeld &&
     radio.generation && radio.generation==p.radio.generation && !p.deferred && !p.faulted;
 }
 void serviceRestoreCleanup(){RestoreExecutionDetail::unwind();}

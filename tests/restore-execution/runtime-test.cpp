@@ -13,6 +13,9 @@
 #include <cstdio>
 #define SOMFY_H
 #define configfile_h
+#define configsettings_h
+struct ConfigSettings{struct {bool trusted=true;bool loadTrusted()const{return trusted;}}Security;}settings;
+uint64_t securityConfigurationRevision(){return 1;}
 #define ESP_LOGE(...) ((void)0)
 #define ESP_LOGW(...) ((void)0)
 static unsigned randomCalls=0;static bool randomFailed=false;
@@ -52,7 +55,7 @@ RestartResult requestOwnedRestart(const GitUpdateOwnerToken &source,uint32_t){++
 static void clock(uint64_t now){stubEspTimerMicros=int64_t(now*1000);}
 static GitUpdateOwnerToken queued(){
  GitUpdateOwnerToken owner;assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::restore,owner));assert(gitUpdate.beginTransfer(owner,ManualUpdateKind::restore,uint64_t(stubEspTimerMicros)/1000));
- assert(gitUpdate.claimTransfer(owner,uint64_t(stubEspTimerMicros)/1000));assert(gitUpdate.transferResource(owner,true));assert(gitUpdate.queueTransfer(owner));assert(noteRestoreQueued(owner));
+ assert(gitUpdate.claimTransfer(owner,uint64_t(stubEspTimerMicros)/1000));assert(gitUpdate.transferResource(owner,true));assert(gitUpdate.queueTransfer(owner));assert(noteRestoreQueued(owner,securityConfigurationRevision()));
  assert(gitUpdate.finishTransfer(owner,uint64_t(stubEspTimerMicros)/1000,true));LittleFS.files["/shades.tmp"]="owned backup";return owner;
 }
 int main(int argc,char **argv){assert(argc==2);const std::string mode=argv[1];randomFailed=mode=="random";clock(100);loopQueue.begin();

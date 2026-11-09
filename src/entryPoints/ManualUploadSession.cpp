@@ -1,4 +1,6 @@
 #include "RestoreExecution.h"
+#include "SettingsRevisions.h"
+#include "Web.h"
 #include "ManualUploadSession.h"
 #include "ModelCommitService.h"
 #include "WebRoutes.h"
@@ -14,6 +16,7 @@
 #include <stdlib.h>
 extern SomfyShadeController somfy;
 extern MqttConnection mqtt;
+extern Web webServer;
 
 namespace {
 uint64_t now() { return uint64_t(esp_timer_get_time())/1000; }
@@ -53,7 +56,14 @@ ManualUploadState *begin(AsyncWebServerRequest *request,ManualUpdateKind kind) {
   auto *state=new(memory) ManualUploadState{};
   state->kind=kind;request->_tempObject=state;
   request->setAttribute("manualState",true);
-  if(kind==ManualUpdateKind::restore && !restoreExecutionReady()){state->failed=true;return state;}
+  if(kind==ManualUpdateKind::restore){
+    const auto revision=securityConfigurationRevision();
+    // Bind this grant across a fresh check, including same-value replacements.
+    // No request IP/token is fabricated or kept in the queued source.
+    if(!restoreExecutionReady() || !revision || !webServer.isAuthenticated(request) ||
+       securityConfigurationRevision()!=revision){state->failed=true;return state;}
+    state->securityRevision=revision;
+  }
   if(!gitUpdate.acquireExternal(kind==ManualUpdateKind::restore ? GitUpdateExternalOwner::restore : GitUpdateExternalOwner::manual,state->owner)) { state->failed=true;return state; }
   // Checked AFTER owner acquisition: no counter edit can begin between this
   // observation and SDK begin/shutdown. The owner is held through cleanup.
@@ -122,8 +132,13 @@ void receiveManualImage(AsyncWebServerRequest *request,ManualUpdateKind kind,siz
 }
 bool claimManualRestore(AsyncWebServerRequest *request) {
   const auto *state=manualUploadState(request);
-  return state && state->kind==ManualUpdateKind::restore && state->uploaded &&
-      !state->failed && !state->modelAttempted && gitUpdate.claimTransfer(state->owner,now());
+  if(!state || state->kind!=ManualUpdateKind::restore || !state->uploaded ||
+      state->failed || state->modelAttempted || !gitUpdate.claimTransfer(state->owner,now()))return false;
+  if(!state->securityRevision || securityConfigurationRevision()!=state->securityRevision ||
+      !webServer.isAuthenticated(request) || securityConfigurationRevision()!=state->securityRevision){
+    discardManualRestore(request);return false;
+  }
+  return true;
 }
 void discardManualRestore(AsyncWebServerRequest *request) {
   auto *state=manualUploadState(request);
@@ -134,6 +149,10 @@ void discardManualRestore(AsyncWebServerRequest *request) {
 bool queueManualRestore(AsyncWebServerRequest *request,uint8_t parts) {
   auto *state=manualUploadState(request);
   if(!state || state->kind!=ManualUpdateKind::restore || state->modelAttempted) return false;
+  if(!state->securityRevision || securityConfigurationRevision()!=state->securityRevision){
+    discardManualRestore(request);
+    request->send(409,_encoding_json,"{\"status\":\"ERROR\",\"desc\":\"Security settings changed; nothing was queued.\"}");return false;
+  }
   state->modelAttempted=true;
   if(!gitUpdate.queueTransfer(state->owner)) {
     // Completion still holds this exact receive claim even if disconnect
@@ -142,7 +161,7 @@ bool queueManualRestore(AsyncWebServerRequest *request,uint8_t parts) {
     gitUpdate.finishTransfer(state->owner,now(),false);
     request->send(409,_encoding_json,"{\"status\":\"ERROR\",\"desc\":\"Backup ownership expired; nothing was queued.\"}");return false;
   }
-  if(!noteRestoreQueued(state->owner)){
+  if(!noteRestoreQueued(state->owner,state->securityRevision)){
     state->failed=true;gitUpdate.finishTransfer(state->owner,now(),false);
     request->send(409,_encoding_json,"{\"status\":\"ERROR\",\"desc\":\"Restore source or status is unavailable; nothing was queued.\"}");return false;
   }
