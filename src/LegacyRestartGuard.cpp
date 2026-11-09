@@ -9,11 +9,12 @@ extern rebootDelay_t rebootDelay;
 RestartResult legacyGenericRestartAdmission() {
   if(gitUpdate.busy()) return {false,RestartReason::persistenceBusy};
   if(somfy.transceiver.counterEditUncertain()) return {false,RestartReason::counterUncertain};
-  if(rebootDelay.reboot) return {false,RestartReason::pending};
+  if(snapshotLegacyRestart(rebootDelay).reboot) return {false,RestartReason::pending};
   return {true,RestartReason::none};
 }
-RestartResult reserveLegacyRestart(GitUpdateOwnerToken &reservation) {
-  const GitUpdateOwnerToken source{rebootDelay.externalOwnerGeneration,GitUpdateExternalOwner(rebootDelay.externalOwnerKind)};
+namespace {
+RestartResult reserveFrom(const rebootDelay_t &snapshot,GitUpdateOwnerToken &reservation) {
+  const GitUpdateOwnerToken source{snapshot.externalOwnerGeneration,GitUpdateExternalOwner(snapshot.externalOwnerKind)};
   if(!gitUpdate.acquireRestart(reservation,uint64_t(esp_timer_get_time())/1000,source))
     return {false,source.generation ? RestartReason::stale : RestartReason::persistenceBusy};
   // Lock order is the shared updater owner, then the TX queue query. The
@@ -24,16 +25,22 @@ RestartResult reserveLegacyRestart(GitUpdateOwnerToken &reservation) {
   return {true,RestartReason::none};
 }
 
+}
+RestartResult reserveLegacyRestart(GitUpdateOwnerToken &reservation) {
+  return reserveFrom(snapshotLegacyRestart(rebootDelay),reservation);
+}
+
 // Hardware boundary supplied by the controller; called only with the
 // non-expiring shared restart owner already reserved.
 void performLegacyShutdown();
 bool legacyRestartLoop() {
-  if(!rebootDelay.reboot || millis()<=static_cast<uint32_t>(rebootDelay.rebootTime)) return false;
+  const auto snapshot=snapshotLegacyRestart(rebootDelay);
+  if(!snapshot.reboot || millis()<=static_cast<uint32_t>(snapshot.rebootTime)) return false;
   GitUpdateOwnerToken reservation;
-  const auto result=reserveLegacyRestart(reservation);
+  const auto result=reserveFrom(snapshot,reservation);
   if(!result.admitted) {
     ESP_LOGW("Restart","Restart refused: %s",restartReason(result.reason));
-    clearLegacyRestart(rebootDelay);return false;
+    clearLegacyRestart(rebootDelay,snapshot);return false;
   }
   performLegacyShutdown();return true;
 }

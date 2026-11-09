@@ -8,7 +8,8 @@ SDK/file operation holds a short lifecycle claim; no service or TX critical
 section is held across I/O.
 
 An abandoned transfer expires after 30 seconds without progress. Cleanup waits
-for an active operation to finish. A retired or expired callback cannot touch
+for an active operation to finish. Disconnect or loop expiry during restore
+validation also releases that exact operation claim before deferred cleanup. A retired or expired callback cannot touch
 another request's SDK operation, temporary file or owner. Restore and Application
 recovery carry the exact token through the existing FIFO queue. The existing
 Application recovery placement exception is unchanged. An expired marker performs
@@ -17,7 +18,9 @@ no recovery I/O and cannot delete a newer restore file.
 Successful transfers retain their source while publishing a restart request.
 Actual shutdown atomically hands that source to the same service's non-expiring
 restart owner before ending the network. A stale source cannot fall back to a
-generic restart. Generic restart publishers explicitly clear source metadata and
+generic restart. Publication, snapshot and conditional clearing of the complete
+armed/deadline/source record use one short critical section; no service lock or
+I/O occurs inside it. Generic restart publishers explicitly clear source metadata and
 refuse to overwrite an armed request. Settings save completion returns typed
 restart admission; saved settings need not mean a restart was scheduled.
 

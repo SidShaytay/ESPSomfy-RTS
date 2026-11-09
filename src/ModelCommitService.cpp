@@ -22,7 +22,7 @@ ModelCommitReport commit(const proto_reply_to_t &to,ModelCommitMode mode,const G
     if(loopQueue.pending()) admission={false,RestartReason::queuedOperations};
     else if(owner) admission={gitUpdate.transferRestartHeld(*owner,now()),RestartReason::stale};
     else admission=legacyGenericRestartAdmission();
-    if(rebootDelay.reboot) admission={false,RestartReason::pending};
+    if(snapshotLegacyRestart(rebootDelay).reboot) admission={false,RestartReason::pending};
     report.restartDeferred=!admission.admitted;
     if(report.restartDeferred) report.refusal=admission.reason;
     report.rebooting=admission.admitted;
