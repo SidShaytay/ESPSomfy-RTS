@@ -54,3 +54,4 @@ inline LoopQueue loopQueue;
 
 // Share the complete production learned-intent registry in every actual queue harness.
 #include "../../src/LocalLearnQueue.cpp"
+#include "../../src/LocalLearnQueueRuntime.cpp"

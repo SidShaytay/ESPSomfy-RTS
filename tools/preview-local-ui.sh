@@ -27,7 +27,7 @@ trap 'rm -rf -- "$scratch"' EXIT
   "$repo/tests/ui-render/runtime-test.cpp" "$repo/src/LocalUiRuntime.cpp" "$repo/src/LocalUiRenderer.cpp" \
   "$repo/src/LocalUi.cpp" "$repo/src/LocalControlPolicy.cpp" "$repo/src/ShadeRequests.cpp" "$repo/src/ShadeMotion.cpp" "$repo/src/SomfyFrame.cpp" "$repo/src/StatusDisplay.cpp" \
   "$repo/src/LocalSettingsForm.cpp" "$repo/src/LocalSettingsRuntime.cpp" "$repo/src/LocalSettingsMemory.cpp" "$repo/src/LocalSettingsRenderer.cpp" \
-  "$repo/src/LocalWifiScan.cpp" "$repo/src/LocalWifiScanRuntime.cpp" "$repo/src/WifiScanFeed.cpp" "$repo/src/LocalSystem.cpp" "$repo/src/LocalSystemRuntime.cpp" "$repo/src/LocalAdministration.cpp" "$repo/src/LocalAdvanced.cpp" "$scratch/configuration-owner.o" "$repo/src/LocalOrder.cpp" "$repo/src/LocalEntityForm.cpp" "$repo/src/LocalEntityRenderer.cpp" "$repo/src/EntityFields.cpp" "$repo/src/ProtoEdits.cpp" \
+  "$repo/src/LocalWifiScan.cpp" "$repo/src/LocalWifiScanRuntime.cpp" "$repo/src/WifiScanFeed.cpp" "$repo/src/LocalSystem.cpp" "$repo/src/LocalSystemRuntime.cpp" "$repo/src/LocalAdministration.cpp" "$repo/src/LocalAdvanced.cpp" "$repo/src/LocalReceive.cpp" "$repo/src/LocalLearnCandidates.cpp" "$scratch/configuration-owner.o" "$repo/src/LocalOrder.cpp" "$repo/src/LocalEntityForm.cpp" "$repo/src/LocalEntityRenderer.cpp" "$repo/src/EntityFields.cpp" "$repo/src/ProtoEdits.cpp" \
   "$repo/src/ProtoSettings.cpp" "$repo/src/ProtoParse.cpp" "$repo/src/ProtoSchema.cpp" "$repo/src/JsonFormatter.cpp" "$gfx/Adafruit_GFX.cpp" \
   -o "$scratch/runtime"
 "$scratch/runtime" "$out"

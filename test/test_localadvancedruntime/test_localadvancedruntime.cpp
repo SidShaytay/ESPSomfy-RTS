@@ -1,5 +1,7 @@
 #define ESPSOMFY_LOCAL_UI
 #define SOMFY_H
+#include "CounterEdit.h"
+#include "CounterResults.h"
 #include "GitUpdate.h"
 #include "LocalAdvancedRuntime.h"
 #include "LocalEntityRuntime.h"
@@ -7,6 +9,7 @@
 #include "LocalUiAuthorizationAdapter.h"
 #include "LoopQueue.h"
 #include "ModelCommitService.h"
+#include "ModelLoadTrust.h"
 #include "SomfyEditor.h"
 #include <stdlib.h>
 #include <string.h>
@@ -49,6 +52,7 @@ struct Group {
   uint32_t getRemoteAddress() { return address; }
 };
 struct SomfyShadeController {
+  ModelLoadTrust modelLoad{ModelLoadStatus::loaded};
   uint64_t configurationRevision = 1, restoreRevision = 1;
   Shade shades[32];
   Group groups[16];
@@ -57,6 +61,8 @@ struct SomfyShadeController {
     uint64_t configurationRevision = 1;
     bool quiet = true;
     uint32_t blocked = 0;
+    CounterQuarantine quarantine = CounterQuarantine::none;
+    CounterQuarantine counterQuarantine() { return quarantine; }
     bool counterBlocksIdentity(uint32_t address) {
       return address && blocked == address;
     }
@@ -83,6 +89,16 @@ static bool expireAllocation = false, restartAllocation = false,
             memberMoves = false, blockAllocation = false;
 static ModelCommitState file = ModelCommitState::saved;
 uint32_t LoopQueue::pending() const { return pendingCount; }
+static loop_item_t learnedMarker;
+static bool queueAccepts = true;
+bool LoopQueue::submit(const loop_item_t &item, bool) {
+  if (!queueAccepts)
+    return false;
+  learnedMarker = item;
+  return true;
+}
+static unsigned linkWrites = 0;
+static CounterDomainState linkState = CounterDomainState::saved;
 static void *acquire(size_t n) {
   if (expireAllocation)
     ++LocalUi::security.generation;
@@ -97,6 +113,32 @@ static void *acquire(size_t n) {
 static void release(void *p) { free(p); }
 edit_result_t applyModelEdit(model_edit_t &edit) {
   ++applies;
+  if (edit.type == model_edit_type_t::link_remote) {
+    TEST_ASSERT_FALSE(
+        gitUpdate.busy()); // Shared checked domain owns counter lease itself.
+    GitUpdateOwnerToken owner;
+    TEST_ASSERT_TRUE(
+        gitUpdate.acquireExternal(GitUpdateExternalOwner::counter, owner));
+    TEST_ASSERT_EQUAL(3, edit.doc.size());
+    TEST_ASSERT_TRUE(edit.doc["proto"].isNull());
+    TEST_ASSERT_TRUE(edit.doc["bitLength"].isNull());
+    const bool applied = linkState == CounterDomainState::saved ||
+                         linkState == CounterDomainState::modelFailed ||
+                         linkState == CounterDomainState::modelUncertain;
+    if (applied || linkState == CounterDomainState::nvsUncertain)
+      ++linkWrites;
+    if (applied) {
+      somfy.shades[0].linkedRemotes[0].address = edit.doc["remoteAddress"];
+      ++somfy.configurationRevision;
+    }
+    if (linkState == CounterDomainState::nvsUncertain)
+      somfy.transceiver.quarantine = CounterQuarantine::nvsUnknown;
+    else if (applied && file != ModelCommitState::saved)
+      somfy.transceiver.quarantine = CounterQuarantine::filePending;
+    TEST_ASSERT_TRUE(gitUpdate.releaseExternal(owner));
+    return counterLinkResult(
+        7, {linkState, applied, {file, ModelCommitStage::write}});
+  }
   TEST_ASSERT_TRUE(gitUpdate.busy());
   GitUpdateOwnerToken competing;
   TEST_ASSERT_FALSE(
@@ -118,9 +160,25 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
   ++somfy.configurationRevision;
   return edit_result_t::completed(7, {file, ModelCommitStage::write});
 }
-ModelCommitReport applyModelCommit(const proto_reply_to_t &, ModelCommitMode) {
+ModelCommitReport applyModelCommit(const proto_reply_to_t &,
+                                   ModelCommitMode mode) {
   ++commits;
-  TEST_ASSERT_TRUE(gitUpdate.busy());
+  if (mode == ModelCommitMode::counterFileRecovery &&
+      somfy.transceiver.quarantine != CounterQuarantine::none) {
+    TEST_ASSERT_FALSE(gitUpdate.busy());
+    if (somfy.transceiver.quarantine == CounterQuarantine::nvsUnknown) {
+      ModelCommitReport report;
+      report.refusal = RestartReason::counterUncertain;
+      return report;
+    }
+    GitUpdateOwnerToken owner;
+    TEST_ASSERT_TRUE(
+        gitUpdate.acquireExternal(GitUpdateExternalOwner::counter, owner));
+    if (file == ModelCommitState::saved)
+      somfy.transceiver.quarantine = CounterQuarantine::none;
+    TEST_ASSERT_TRUE(gitUpdate.releaseExternal(owner));
+  } else
+    TEST_ASSERT_TRUE(gitUpdate.busy());
   return {{file, ModelCommitStage::write}};
 }
 namespace LocalUi {
@@ -161,6 +219,7 @@ Backend &runtimeBackend() {
 } // namespace LocalUi
 #include "../../src/GitUpdate.cpp"
 #include "../../src/LocalAdvancedRuntime.cpp"
+#include "../../src/LocalLearnQueueRuntime.cpp"
 void setUp() {
   somfy = {};
   somfy.shades[0].id = 7;
@@ -171,7 +230,9 @@ void setUp() {
   somfy.groups[0].linkedShades[31] = 88;
   somfy.repeaters[6] = 654321;
   LocalUi::security = {AuthMode::none, true, false, 1, 1};
-  pendingCount = applies = commits = 0;
+  pendingCount = applies = commits = linkWrites = 0;
+  linkState = CounterDomainState::saved;
+  queueAccepts = true;
   expireAllocation = restartAllocation = memberMoves = blockAllocation = false;
   pendingRestart = false;
   file = ModelCommitState::saved;
@@ -426,8 +487,108 @@ static void exact_identity_quarantine_cannot_be_hidden_by_metadata() {
   TEST_ASSERT_TRUE(result.edit.applied);
   TEST_ASSERT_EQUAL(123456, somfy.transceiver.blocked);
 }
+struct Witness : LearnPending {
+  LearnQueueReason state = LearnQueueReason::ready;
+  unsigned calls = 0;
+  LearnQueueReason current(uint64_t) override {
+    ++calls;
+    return state;
+  }
+  void execute(uint64_t) override {}
+  void cancelled(LearnQueueReason) override {}
+};
+static void checked_link_uses_only_address_counter_and_domain_owned_lease() {
+  JsonAllocator memory(65536, acquire, release);
+  Context context;
+  const Target target{Scope::devices, 7};
+  source().capture(target, context);
+  Witness witness;
+  LearnSelection candidate{1, 1, 12345, 65535, 2, 80};
+  const auto result =
+      source().linkLearn(target, context, source().authorization(),
+                         source().revision(), candidate, witness, memory);
+  TEST_ASSERT_TRUE(result.edit.applied);
+  TEST_ASSERT_TRUE(result.edit.hasCounterResult);
+  TEST_ASSERT_EQUAL(CounterDomainState::saved, result.edit.counterState);
+  TEST_ASSERT_EQUAL(1, applies);
+  TEST_ASSERT_EQUAL(1, linkWrites);
+  TEST_ASSERT_EQUAL(12345, somfy.shades[0].linkedRemotes[0].address);
+  TEST_ASSERT_GREATER_THAN(0, witness.calls);
+}
+static void final_link_witness_auth_queue_owner_and_memory_are_fresh() {
+  const Target target{Scope::devices, 7};
+  Context context;
+  source().capture(target, context);
+  Witness witness;
+  LearnSelection candidate{1, 1, 12345, 0, 0, 56};
+  for (unsigned reason = 0; reason < 5; reason++) {
+    JsonAllocator memory(65536, acquire, release);
+    if (reason == 0)
+      witness.state = LearnQueueReason::candidate;
+    if (reason == 1)
+      pendingCount = 1;
+    if (reason == 2)
+      pendingRestart = true;
+    if (reason == 3)
+      expireAllocation = true;
+    auto result =
+        source().linkLearn(target, context, source().authorization(),
+                           source().revision(), candidate, witness, memory);
+    TEST_ASSERT_FALSE(result.edit.applied);
+    if (reason == 0)
+      TEST_ASSERT_EQUAL(LearnQueueReason::candidate, result.freshness);
+    TEST_ASSERT_EQUAL(0, applies);
+    TEST_ASSERT_EQUAL(0, linkWrites);
+    witness.state = LearnQueueReason::ready;
+    pendingCount = 0;
+    pendingRestart = false;
+    expireAllocation = false;
+    if (reason == 3) {
+      source().capture(target, context);
+    }
+    if (reason == 4)
+      break;
+    if (reason == 3) { // Next iteration denies allocation entirely.
+      JsonAllocator tiny(1, acquire, release);
+      result =
+          source().linkLearn(target, context, source().authorization(),
+                             source().revision(), candidate, witness, tiny);
+      TEST_ASSERT_EQUAL(Admission::noMemory, result.admission);
+      break;
+    }
+  }
+}
+static void
+counter_file_retry_uses_shared_special_mode_without_nested_owner_or_link() {
+  JsonAllocator memory(65536, acquire, release);
+  const Target target{Scope::devices, 7};
+  Context context;
+  source().capture(target, context);
+  Witness witness;
+  somfy.transceiver.quarantine = CounterQuarantine::filePending;
+  auto result = source().retryLearnFile(
+      target, context, source().authorization(), source().revision(), witness);
+  TEST_ASSERT_TRUE(result.report.file.saved());
+  TEST_ASSERT_EQUAL(1, commits);
+  TEST_ASSERT_EQUAL(0, applies);
+  TEST_ASSERT_EQUAL(0, linkWrites);
+  result = source().retryLearnFile(
+      target, context, source().authorization(), source().revision(),
+      witness); // Already recovered: protected current-file save.
+  TEST_ASSERT_TRUE(result.report.file.saved());
+  TEST_ASSERT_EQUAL(2, commits);
+  somfy.transceiver.quarantine = CounterQuarantine::nvsUnknown;
+  result = source().retryLearnFile(target, context, source().authorization(),
+                                   source().revision(), witness);
+  TEST_ASSERT_EQUAL(RestartReason::counterUncertain, result.report.refusal);
+  TEST_ASSERT_EQUAL(0, linkWrites);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(checked_link_uses_only_address_counter_and_domain_owned_lease);
+  RUN_TEST(final_link_witness_auth_queue_owner_and_memory_are_fresh);
+  RUN_TEST(
+      counter_file_retry_uses_shared_special_mode_without_nested_owner_or_link);
   RUN_TEST(read_stable_targets_and_every_physical_association);
   RUN_TEST(checked_marker_and_missing_member_under_configuration_lease);
   RUN_TEST(refuses_stale_busy_nonmissing_and_nonidle_without_mutation);

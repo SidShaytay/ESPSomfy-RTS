@@ -1,5 +1,7 @@
 #pragma once
 #include "LocalEntityForm.h"
+#include "LocalLearnCandidates.h"
+#include "LocalLearnQueue.h"
 #include "LocalTargetRead.h"
 namespace LocalUi {
 namespace Advanced {
@@ -47,9 +49,35 @@ struct Action {
 };
 // Stage1 has no RF method. All mutation is configuration only. Runtime checks
 // fresh authority/history/raw context and queue/restart/owner/idle admission.
+struct LearnApplyResult {
+  edit_result_t edit;
+  EntityAdmin::Admission admission = EntityAdmin::Admission::accepted;
+  LearnQueueReason freshness = LearnQueueReason::ready;
+};
+struct LearnFileResult {
+  ModelCommitReport report;
+  EntityAdmin::Admission admission = EntityAdmin::Admission::accepted;
+  LearnQueueReason freshness = LearnQueueReason::ready;
+};
 class Backend {
 public:
   virtual ~Backend() = default;
+  virtual ReceiveHub &receivedFrames() = 0;
+  virtual LearnQueued queueLearn(LearnPending &, uint64_t) = 0;
+  virtual bool cancelLearn(uint64_t, LearnPending &) = 0;
+  // Read-only auth/history/raw-context check; own FIFO marker still exists.
+  virtual EntityAdmin::Admission checkLearnContext(Target, const Context &,
+                                                   EntityAdmin::Authorization,
+                                                   uint64_t) = 0;
+  virtual LearnApplyResult linkLearn(Target, const Context &,
+                                     EntityAdmin::Authorization, uint64_t,
+                                     const LearnSelection &,
+                                     LearnPending &witness,
+                                     ArduinoJson::Allocator &) = 0;
+  virtual LearnFileResult retryLearnFile(Target, const Context &,
+                                         EntityAdmin::Authorization, uint64_t,
+                                         LearnPending &witness) = 0;
+
   virtual EntityAdmin::Authorization authorization() = 0;
   virtual uint64_t revision() = 0;
   virtual void activity() = 0;
@@ -80,6 +108,11 @@ class Form {
   bool select();
   void apply();
   void refused(EntityAdmin::Admission, const char *reason = nullptr);
+  LearnQueueReason learnCurrent(uint64_t);
+  void runLearn(uint64_t);
+  void learnCancelled(LearnQueueReason);
+  void queueLearn(uint64_t, bool fileOnly);
+  void learnFault(const char *, bool chooseFrame = false);
 
 public:
   static constexpr uint64_t timeoutMs = 120000;
