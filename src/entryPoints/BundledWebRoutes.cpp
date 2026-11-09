@@ -4,7 +4,9 @@
 #include <ESPAsyncWebServer.h>
 #include <cstdio>
 #include <new>
+#include <atomic>
 namespace {
+std::atomic<bool> ready{false};
 class BundledWebHandler final:public AsyncWebHandler {
 public:
   bool canHandle(AsyncWebServerRequest *request)const override {
@@ -23,5 +25,21 @@ public:
   }
 };
 }
-void registerBundledWebRoutes(AsyncWebServer &server){auto *handler=new(std::nothrow) BundledWebHandler();if(handler)server.addHandler(handler);}
+bool registerBundledWebRoutes(AsyncWebServer &server) {
+  ready.store(false,std::memory_order_release);
+  auto *handler=new(std::nothrow) BundledWebHandler();
+  if(!handler)return false;
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS)
+  try {
+#endif
+    // Pinned server returns this reference only after its owning list accepted
+    // the handler. With exceptions disabled, registry OOM terminates before
+    // readiness can become true; it cannot silently publish a usable handler.
+    if(&server.addHandler(handler)!=handler)return false;
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS)
+  } catch(const std::bad_alloc &) {delete handler;return false;}
+#endif
+  ready.store(true,std::memory_order_release);return true;
+}
+bool bundledWebRoutesReady(){return ready.load(std::memory_order_acquire);}
 #endif

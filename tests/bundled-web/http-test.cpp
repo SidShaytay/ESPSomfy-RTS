@@ -5,9 +5,19 @@
 #include <cassert>
 #include <cstring>
 #include <cstdio>
+#include <new>
 int hashFailure=0;unsigned activeHashes=0;
+static bool failNothrow=false;
+void *operator new(std::size_t n,const std::nothrow_t &)noexcept {
+ if(failNothrow)return nullptr;
+ try{return ::operator new(n);}catch(...){return nullptr;}
+}
 int main(){
- AsyncWebServer server;registerBundledWebRoutes(server);assert(server.handler);
+ assert(!bundledWebRoutesReady());
+ AsyncWebServer failed;failNothrow=true;assert(!registerBundledWebRoutes(failed));failNothrow=false;
+ assert(!bundledWebRoutesReady()&&!failed.handler);
+ failed.failRegistry=true;assert(!registerBundledWebRoutes(failed));assert(!bundledWebRoutesReady()&&!failed.handler);
+ AsyncWebServer server;assert(registerBundledWebRoutes(server));assert(server.handler&&bundledWebRoutesReady());
  const auto *index=BundledWeb::find("/");assert(index&&index==BundledWeb::find("/index.html"));
  assert(std::strcmp(BundledWeb::sourceVersion(),"4.0.1")==0);
  for(const char *path:{"/","/index.html","/index.js","/app.css","/appversion"}){

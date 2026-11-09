@@ -22,3 +22,19 @@ PY
  -I"$scratch" -I"$repo/tests/bundled-web" -I"$repo/tests/update-assets" -I"$repo/src" -I"$repo/test/stubs" \
  "$repo/tests/bundled-web/http-test.cpp" "$repo/src/BundledWeb.cpp" "$repo/src/entryPoints/BundledWebRoutes.cpp" -o "$scratch/http"
 "$scratch/http"
+# Compile the actual version getter with independent bundled/generic storage.
+python3 - "$repo" "$scratch" <<'PY'
+from pathlib import Path
+import sys
+source=(Path(sys.argv[1])/'src/ConfigSettings.cpp').read_text()
+start=source.index('bool ConfigSettings::getAppVersion()');end=source.index('\nbool ConfigSettings::requiresAuth()',start)
+(Path(sys.argv[2])/'actual-version.inc').write_text(source[start:end])
+PY
+for variant in generic bundled; do
+ flags=()
+ [[ "$variant" != bundled ]] || flags=(-DESPSOMFY_BUNDLED_WEB=1)
+ "${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror "${flags[@]}" \
+  -I"$scratch" -I"$repo/tests/update-assets" -I"$repo/src" -I"$repo/test/stubs" \
+  "$repo/tests/bundled-web/version-test.cpp" "$repo/src/BundledWeb.cpp" -o "$scratch/version"
+ "$scratch/version"
+done

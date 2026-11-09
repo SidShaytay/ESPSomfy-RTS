@@ -4,6 +4,7 @@ import hashlib
 from pathlib import Path
 import tempfile
 import unittest
+import runpy
 import update_assets
 import bundled_web_assets
 
@@ -16,6 +17,22 @@ class BundleTests(unittest.TestCase):
         (self.data/'app.css.gz').write_bytes(gzip.compress(b'body{}',mtime=0))
         (self.data/'appversion').write_bytes(b'4.0.1\n')
         update_assets.write_manifest(self.data)
+    def test_generic_prebuild_is_completely_inactive(self):
+        class Env:
+            def get(self,key):
+                if key=='PIOENV':return 'esp32dev'
+                raise AssertionError('generic bundle hook queried '+key)
+        runpy.run_path(str(Path(__file__).resolve().parent.parent/'bundle_web.py'),init_globals={'env':Env(),'Import':lambda _:None})
+    def test_canonical_prebuild_installs_generated_include_path(self):
+        class Env:
+            def __init__(this):this.paths=[]
+            def get(this,key):return 'lilygo-t-embed-cc1101' if key=='PIOENV' else str(self.root)
+            def subst(this,_):return str(self.root/'build')
+            def Append(this,CPPPATH):this.paths+=CPPPATH
+        env=Env()
+        runpy.run_path(str(Path(__file__).resolve().parent.parent/'bundle_web.py'),init_globals={'env':env,'Import':lambda _:None})
+        self.assertEqual(env.paths,[str(self.root/'build')])
+        self.assertTrue((self.root/'build/BundledWebData.h').is_file())
     def test_exact_deterministic_flash_table_and_source_version(self):
         first=bundled_web_assets.generate(self.data,self.root/'one.h')
         second=bundled_web_assets.generate(self.data,self.root/'two.h')

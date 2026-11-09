@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <map>
 #include <string>
+#include <new>
 using String=std::string;
 constexpr int HTTP_GET=1,HTTP_POST=2;
 struct AsyncWebServerResponse {
@@ -28,7 +29,7 @@ struct AsyncWebHandler {
  virtual void handleRequest(AsyncWebServerRequest *){}
 };
 struct AsyncWebServer {
- AsyncWebHandler *handler=nullptr;
+ AsyncWebHandler *handler=nullptr;bool failRegistry=false;
  ~AsyncWebServer(){delete handler;}
- void addHandler(AsyncWebHandler *h){handler=h;}
+ AsyncWebHandler &addHandler(AsyncWebHandler *h){if(failRegistry)throw std::bad_alloc();handler=h;return *h;}
 };

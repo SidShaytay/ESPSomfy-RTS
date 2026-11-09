@@ -1,3 +1,5 @@
 #pragma once
 class AsyncWebServer;
-void registerBundledWebRoutes(AsyncWebServer &server);
+// Registration readiness only; complete postboot health has separate gates.
+bool registerBundledWebRoutes(AsyncWebServer &server);
+bool bundledWebRoutesReady();

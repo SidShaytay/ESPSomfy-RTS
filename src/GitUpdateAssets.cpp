@@ -1,6 +1,13 @@
 #include "GitUpdateAssets.h"
 #include "GitUpdateProfile.h"
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+#if defined(ESPSOMFY_BUNDLED_WEB)
+#include "BundledWeb.h"
+#ifndef ESPSOMFY_APP_COMPAT
+#error "Bundled web requires its compiled exact-byte compatibility digest"
+#endif
+UpdateAttestation gitUpdateAssetsStatus(UpdateAttestationControl control){return BundledWeb::verify(ESPSOMFY_APP_COMPAT,control);}
+bool gitUpdateAssetsMatch(){return updateAttested(gitUpdateAssetsStatus());}
+#elif defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
 #include <LittleFS.h>
 #include "TaskWdt.h"
 #include <mbedtls/sha256.h>
