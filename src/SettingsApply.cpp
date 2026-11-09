@@ -53,6 +53,8 @@ const char *settingsSaveFailureDescription(settings_save_state_t state) {
     "Settings were not saved; running settings unchanged.";
 }
 const char *settingsApplyFailureDescription(const settings_apply_result_t &result) {
+  if(result.persistence.radioCleanupFault)
+    return "Radio cleanup fault; further radio saves and restart remain blocked. No automatic retry or recovery was performed.";
   if(result.persistence.liveApplied)
     return "Radio settings applied; initialization status is uncertain. Reopen Radio before retrying; restart remains blocked.";
   switch(result.refusal) {

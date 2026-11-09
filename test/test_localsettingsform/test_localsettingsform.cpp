@@ -35,7 +35,7 @@ struct Memory : ArduinoJson::Allocator {
 struct Fake : Backend {
   Authorization auth{true, 1, 1};
   SettingsRevisions revisions;
-  bool readUnavailable=false,liveApplied=false;
+  bool readUnavailable=false,liveApplied=false,cleanupFault=false;
   bool changeOnRead = false;
   bool rejectLate = false, busy = false, restartBlocked = false, ethernet = false, fixedPins = true;
   proto_field_t overrideField = proto_field_t::count;
@@ -95,7 +95,7 @@ struct Fake : Backend {
     ++saves;
     applied.set(request);
     settings_apply_result_t r;
-    r.persistence.state = outcome;r.persistence.liveApplied=liveApplied;
+    r.persistence.state = outcome;r.persistence.liveApplied=liveApplied;r.persistence.radioCleanupFault=cleanupFault;
     r.restartBlocked = restartBlocked;
     r.restartReason=restartCause;
     return r;
@@ -379,6 +379,7 @@ static void saved_section_reports_outstanding_restart_block_without_retaining_a_
   TEST_ASSERT_FALSE(form.view().dirty);TEST_ASSERT_EQUAL(0,mem.active);
   TEST_ASSERT_EQUAL(1,backend.saves);
   form.tick(2);form.activate(2);TEST_ASSERT_EQUAL(1,backend.saves);
+ }
 }
 static void validation_and_save_transient_admission_fail_closed() {
   Memory mem;
@@ -901,12 +902,14 @@ static void unavailable_snapshot_closes_without_default_replace_or_save() {
  form.activate(2);form.turn(1,3);TEST_ASSERT_EQUAL(0,state.saves);
 }
 static void applied_radio_failure_closes_and_wipes_without_replaying_save() {
- Memory mem;Fake backend;backend.outcome=settings_save_state_t::partial;backend.liveApplied=true;
+ for(bool fault:{false,true}) {
+ Memory mem;Fake backend;backend.outcome=settings_save_state_t::partial;backend.liveApplied=true;backend.cleanupFault=fault;
  Form form(backend,mem);form.openSection(settings_section_t::radio,0);
  turnTo(form,2);form.activate(1);form.turn(1,1);chooseNumericApply(form);
  turnTo(form,settingsFieldCount(settings_section_t::radio,false)-2);form.activate(1);form.turn(1,1);form.activate(1);
- TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_FALSE(form.view().dirty);TEST_ASSERT_EQUAL(Notice::appliedUncertain,form.view().notice);
+ TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_FALSE(form.view().dirty);TEST_ASSERT_EQUAL(fault?Notice::cleanupFault:Notice::appliedUncertain,form.view().notice);
  TEST_ASSERT_EQUAL(0,mem.active);TEST_ASSERT_EQUAL(1,backend.saves);form.activate(2);TEST_ASSERT_EQUAL(1,backend.saves);
+ }
 }
 int main() {
   UNITY_BEGIN();RUN_TEST(applied_radio_failure_closes_and_wipes_without_replaying_save);RUN_TEST(unsupported_frequency_requires_explicit_valid_replacement_without_losing_other_drafts);RUN_TEST(unavailable_snapshot_closes_without_default_replace_or_save);

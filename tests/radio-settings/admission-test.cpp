@@ -24,12 +24,20 @@ int main(int argc,char **argv){assert(argc==2);const std::string mode=argv[1];fr
  if(mode=="lateMovement")beforeDetach=[]{somfy.shades[0].id=1;somfy.shades[0].idle=false;};
  if(mode=="marker")failMarker=true;
  if(mode=="persist")failPersist=true;
+ if(mode=="staleCleanup")duringSave=[]{++somfy.transceiver.installGeneration;};
  if(mode=="busyCleanup")duringSave=[]{radioBusy=true;cleanupAfterSaveBusy=true;};
- const bool refused=mode!="success"&&mode!="groupCompleted"&&mode!="marker"&&mode!="persist"&&mode!="busyCleanup";
+ const bool refused=mode!="success"&&mode!="groupCompleted"&&mode!="marker"&&mode!="persist"&&mode!="busyCleanup"&&mode!="staleCleanup";
  const auto result=somfy.transceiver.setConfig(next);
  if(refused){assert(!result.saved()&&!saves&&!applies);assert(somfy.transceiver.config.RXPin==8);assert(loopQueue.work==unsigned(mode=="pending"));assert(!loopQueue.restartSealed.load());}
  else if(mode=="persist")assert(!result.saved()&&saves==1&&!applies&&somfy.transceiver.config.RXPin==8);
- else {assert(saves==1&&applies==1&&somfy.transceiver.config.RXPin==9);if(mode=="marker")assert(!result.saved()&&result.state==settings_save_state_t::partial&&result.liveApplied&&!settingsDurability().status().restartAllowed());else assert(result.saved());}
+ else {assert(saves==1&&applies==1&&somfy.transceiver.config.RXPin==9);if(mode=="marker")assert(!result.saved()&&result.state==settings_save_state_t::partial&&result.liveApplied&&!settingsDurability().status().restartAllowed());else if(mode!="staleCleanup")assert(result.saved());}
+ if(mode=="staleCleanup") {
+  assert(!result.saved() && result.radioCleanupFault && gitUpdate.busy() && loopQueue.restartSealed.load());
+  const auto generation=somfy.transceiver.installGeneration;
+  serviceRadioSettingsCleanup();assert(gitUpdate.busy()&&loopQueue.restartSealed.load());
+  assert(!somfy.transceiver.setConfig(next).saved()&&saves==1&&applies==1);
+  assert(somfy.transceiver.installGeneration==generation);puts("Stale cleanup capability remains quarantined without releasing replacement resources");return 0;
+ }
  if(foreign.generation)assert(gitUpdate.releaseExternal(foreign));
  if(cleanupAfterSaveBusy){assert(gitUpdate.busy()&&loopQueue.restartSealed.load());assert(!somfy.transceiver.setConfig(next).saved()&&saves==1);radioBusy=false;serviceRadioSettingsCleanup();assert(!gitUpdate.busy()&&!loopQueue.restartSealed.load());}
  assert(!gitUpdate.busy());puts("Actual live radio save admission/pause/cleanup outcome passed");

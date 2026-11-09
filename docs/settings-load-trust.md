@@ -57,7 +57,10 @@ persistence/application. Scans, foreign owners, queued/repeater/radio work and
 movement refuse before persistence. Cleanup retains the owner and seals when
 resume is busy, then reduces them on later loop passes; there is no flush or RF
 command. Already-owned restore uses a separate exact owner/pause-token path,
-without acquiring another owner.
+without acquiring another owner. A stale cleanup capability latches a visible
+cleanup fault and retains its owner, producer seal and radio token. It cannot
+resume/release another session, retry itself or admit another radio save; no
+automatic fault recovery is claimed.
 
 A checked initialization-marker failure after live adoption reports an applied
 partial outcome, advances the radio section revision and closes the old LCD

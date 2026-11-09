@@ -357,6 +357,13 @@ static void verified_cfg_repair_adopts_provenance_only_after_all_selected_writes
   TEST_ASSERT_EQUAL_STRING("prior",current.hostname);TEST_ASSERT_FALSE(current.networkUsable());TEST_ASSERT_EQUAL(0,effects.completions);
  }
 }
+static void cleanup_fault_never_certifies_a_complete_save() {
+ const settings_save_result_t fault{settings_save_state_t::saved,"radio cleanup",true,true};
+ TEST_ASSERT_FALSE(fault.saved());
+ settings_apply_result_t result;result.persistence=fault;
+ TEST_ASSERT_FALSE(result.saved());TEST_ASSERT_NOT_NULL(strstr(settingsApplyFailureDescription(result),"cleanup fault"));
+ TEST_ASSERT_NULL(strstr(settingsApplyFailureDescription(result),"unchanged"));
+}
 static void applied_radio_marker_failure_never_claims_unchanged_or_complete_save() {
  ConfigSettings current;qualifySettings(current);Effects effects;
  effects.radioResult={settings_save_state_t::partial,"radioInit",true};
@@ -366,7 +373,7 @@ static void applied_radio_marker_failure_never_claims_unchanged_or_complete_save
  TEST_ASSERT_NOT_NULL(strstr(settingsApplyFailureDescription(result),"applied"));
 }
 int main() {
-  UNITY_BEGIN();RUN_TEST(applied_radio_marker_failure_never_claims_unchanged_or_complete_save);RUN_TEST(verified_cfg_repair_adopts_provenance_only_after_all_selected_writes);
+  UNITY_BEGIN();RUN_TEST(cleanup_fault_never_certifies_a_complete_save);RUN_TEST(applied_radio_marker_failure_never_claims_unchanged_or_complete_save);RUN_TEST(verified_cfg_repair_adopts_provenance_only_after_all_selected_writes);
   RUN_TEST(actual_completion_refusal_is_reported_without_replaying_effects);
   RUN_TEST(test_composite_failure_remarks_earlier_full_draft_namespace);
   RUN_TEST(test_unrelated_success_reports_saved_but_restart_blocked_before_completion);

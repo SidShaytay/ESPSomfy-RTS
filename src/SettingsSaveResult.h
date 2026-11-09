@@ -7,10 +7,12 @@ enum class settings_save_state_t : uint8_t { saved, failed, partial };
 struct settings_save_result_t {
   settings_save_state_t state;
   bool liveApplied; // A later radio-marker failure cannot claim RAM stayed unchanged.
+  bool radioCleanupFault; // Exact resource capability became stale; no automatic retry.
   const char *failedKey; // schema key only; never a stored value
   constexpr settings_save_result_t(settings_save_state_t value=settings_save_state_t::saved,
-      const char *key=nullptr,bool applied=false):state(value),liveApplied(applied),failedKey(key) {}
-  bool saved() const { return state == settings_save_state_t::saved; }
+      const char *key=nullptr,bool applied=false,bool cleanupFault=false):
+      state(value),liveApplied(applied),radioCleanupFault(cleanupFault),failedKey(key) {}
+  bool saved() const { return state == settings_save_state_t::saved && !radioCleanupFault; }
 };
 
 // Legacy source cleanup is optional after the destination is verified. Failure

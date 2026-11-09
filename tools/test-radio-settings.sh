@@ -42,4 +42,4 @@ PY
 "${CXX:-c++}" -std=c++17 -O2 -pthread -I"$repo/src" -I"$json" -c "$repo/src/GitUpdate.cpp" -o "$scratch/owner.o"
 "${CXX:-c++}" -std=c++17 -O2 -ffunction-sections -fdata-sections -Wl,--gc-sections -pthread -DRADIO_SETTINGS_HOST_TEST -I"$scratch" -I"$repo/src" -I"$repo/test/stubs" -I"$json" \
  "$scratch/test.cpp" "$repo/src/RadioScheduler.cpp" "$repo/src/PulseDecoder.cpp" "$repo/src/SettingsDurability.cpp" "$repo/src/SomfyFrame.cpp" "$scratch/owner.o" -o "$scratch/test"
-for mode in owner movement held group groupCompleted pending producer radio scan restart untrusted lateMovement marker persist busyCleanup success;do "$scratch/test" "$mode";done
+for mode in owner movement held group groupCompleted pending producer radio scan restart untrusted lateMovement marker persist busyCleanup staleCleanup success;do "$scratch/test" "$mode";done

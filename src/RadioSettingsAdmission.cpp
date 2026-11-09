@@ -16,20 +16,21 @@ namespace {
 struct RadioSettingsRelease {
   GitUpdateOwnerToken owner;
   RadioInstallToken radio;
-  bool queueSealed=false;
+  bool queueSealed=false,cleanupFault=false;
 } release;
 bool idle() {
   return somfy.modelLoad.usable() && !restartPending() && modelIdleForAdministration(somfy);
 }
-settings_save_result_t refused(){return {settings_save_state_t::failed,"radio admission"};}
+settings_save_result_t refused(){return {settings_save_state_t::failed,"radio admission",false,release.cleanupFault};}
 }
 void serviceRadioSettingsCleanup() {
-  if(!release.owner.generation)return;
+  if(!release.owner.generation || release.cleanupFault)return;
   // Never touch another operation's token/resources after ownership loss.
   if(!gitUpdate.ownsExternal(release.owner))return;
   if(release.radio.generation) {
     const auto result=somfy.transceiver.resumeAfterInstall(release.radio);
     if(result==RadioInstallResume::busy)return;
+    if(result==RadioInstallResume::stale){release.cleanupFault=true;return;}
     release.radio={};
   }
   if(release.queueSealed){loopQueue.reopenAfterRefusedRestart();release.queueSealed=false;}
@@ -45,7 +46,11 @@ settings_save_result_t saveRadioConfiguration(Transceiver &radio,const transceiv
   if(!gitUpdate.ownsExternal(release.owner) || loopQueue.pending() || !idle()) {
     serviceRadioSettingsCleanup();return refused();
   }
-  const auto result=radio.setConfigWhilePaused(next,release.radio,release.owner);
+  auto result=radio.setConfigWhilePaused(next,release.radio,release.owner);
   serviceRadioSettingsCleanup();
+  if(release.cleanupFault) {
+    result.state=result.liveApplied?settings_save_state_t::partial:settings_save_state_t::failed;
+    result.radioCleanupFault=true;result.failedKey="radio cleanup";
+  }
   return result;
 }
