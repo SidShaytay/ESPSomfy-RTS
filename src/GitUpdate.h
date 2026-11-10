@@ -7,7 +7,7 @@
 
 // One shared updater service. Installation callbacks are an unfinished draft:
 // startup/UI wiring and postboot acceptance remain unfinished.
-enum class GitUpdatePhase : uint8_t { unavailable, idle, queued, checking, available, current, preparing, prepared, changed, cancelled, error, downloading, verifying, writing, written, cleanupPending };
+enum class GitUpdatePhase : uint8_t { unavailable, idle, queued, checking, available, current, preparing, prepared, changed, cancelled, error, downloading, verifying, writing, written, cleanupPending, retryWaiting };
 enum class GitUpdateReason : uint8_t {
   none, unsupported, notStarted, development, memory, admission, clock, hardware,
   layout, bootloader, assets, transport, headers, redirect, notPublished, body,
@@ -88,7 +88,7 @@ public:
   bool activateInstall(uint64_t operation);
   void finishInstallRestart(uint64_t operation,bool mayClean);
   bool requestCancel();
-  bool requestCancel(uint64_t expectedOperation);
+  bool requestCancel(uint64_t expectedOperation,GitUpdateReason reason=GitUpdateReason::cancelled);
   bool acquireExternal(GitUpdateExternalOwner kind,GitUpdateOwnerToken &token);
   bool releaseExternal(const GitUpdateOwnerToken &token);
   bool ownsExternal(const GitUpdateOwnerToken &token) const;

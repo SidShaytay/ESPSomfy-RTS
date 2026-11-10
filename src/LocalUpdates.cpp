@@ -27,6 +27,7 @@ const char *message(GitUpdateReason reason) {
 }
 const char *progress(GitUpdatePhase phase) {
   switch(phase){
+  case GitUpdatePhase::retryWaiting:return "Waiting to retry";
   case GitUpdatePhase::queued:return "Waiting for checks";
   case GitUpdatePhase::checking:return "Checking GitHub";
   case GitUpdatePhase::downloading:return "Downloading update";
@@ -159,9 +160,10 @@ void Form::render(FormView &out)const{
     strcpy(out.rows[2].label,"GitHub release");
     if(value.candidate.generation==s.candidate)snprintf(out.rows[2].value,sizeof(out.rows[2].value),"%s",value.candidate.version);
   }else if(s.page==Session::Page::progress){
-    title=progress(value.phase);hint=value.phase==GitUpdatePhase::cleanupPending?"Controls stay paused until cleanup completes.":value.cancellable?"Keep power connected. Back cancels this update.":"Keep power connected. Back leaves this screen.";
+    title=progress(value.phase);hint=s.installing && !backend.authorization().allowed?"Install continues; Back to unlock menus.":value.phase==GitUpdatePhase::cleanupPending?"Controls stay paused until cleanup completes.":value.cancellable?"Keep power connected. Back cancels this update.":"Keep power connected. Back leaves this screen.";
     out.rowCount=out.total=2;
-    if(s.checking)strcpy(out.rows[0].label,"Checking GitHub...");
+    if(value.phase==GitUpdatePhase::retryWaiting)snprintf(out.rows[0].label,sizeof(out.rows[0].label),"Retry %u in %lus",unsigned(value.retryCount),static_cast<unsigned long>((value.retryDelayMs+999)/1000));
+    else if(s.checking)strcpy(out.rows[0].label,"Checking GitHub...");
     else snprintf(out.rows[0].label,sizeof(out.rows[0].label),"Progress: %u%%",unsigned(value.progress));
     strcpy(out.rows[1].label,s.installing && !backend.authorization().allowed?"Back to unlock menus":value.cancellable?"Cancel update":"Final checks; please wait");out.selected=1;
     if(value.phase==GitUpdatePhase::error){title="Update needs recovery";hint=message(value.reason);strcpy(out.rows[0].label,"Controls paused");strcpy(out.rows[1].label,"Back: System");}

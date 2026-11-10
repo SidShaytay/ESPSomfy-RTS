@@ -111,7 +111,7 @@ static void confirmed_install_outlives_menu_inactivity_without_renewing_it(){
  Backend b;b.available();JsonAllocator pool(4096,malloc,free);Updates::Form form(b,pool);EntityAdmin::FormView v;
  form.open(0);form.turn(1,1);form.activate(2);form.turn(1,3);form.activate(4);const auto activity=b.activityCount;
  b.auth.allowed=false;++b.auth.generation;form.tick(120005);TEST_ASSERT_FALSE(form.closed());TEST_ASSERT_EQUAL(0,b.cancels);TEST_ASSERT_EQUAL(activity,b.activityCount);
- form.tick(900000);TEST_ASSERT_FALSE(form.closed());form.render(v);TEST_ASSERT_EQUAL(EntityAdmin::Mode::updateStatus,v.mode);
+ form.tick(900000);TEST_ASSERT_FALSE(form.closed());form.render(v);TEST_ASSERT_EQUAL(EntityAdmin::Mode::updateStatus,v.mode);TEST_ASSERT_NOT_NULL(strstr(v.hint,"Install continues"));TEST_ASSERT_NULL(strstr(v.hint,"Back cancels"));
  form.tick(gitUpdateInstallDurationMs+4);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(1,b.cancels);
 }
 static void continuation_does_not_survive_config_or_foreign_operation(){

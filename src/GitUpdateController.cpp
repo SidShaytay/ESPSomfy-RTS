@@ -107,7 +107,7 @@ void beginGitUpdateController(){gitUpdate.begin(GitUpdateControllerDetail::admit
 void loopGitUpdateController(){
   using namespace GitUpdateControllerDetail;
   const auto status=gitUpdate.snapshot();
-  if(source.operation && status.busy && status.operation==source.operation && !current(source.operation))gitUpdate.requestCancel(source.operation);
+  if(source.operation && status.busy && status.operation==source.operation && !current(source.operation))gitUpdate.requestCancel(source.operation,GitUpdateReason::admission);
   gitUpdate.loop();
 }
 bool gitUpdateControllerPaused(){return GitUpdateControllerDetail::source.queueHeld || GitUpdateControllerDetail::source.radio.generation;}
