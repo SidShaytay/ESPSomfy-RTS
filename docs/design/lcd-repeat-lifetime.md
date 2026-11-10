@@ -1,6 +1,6 @@
 # LCD everyday remote: repeat lifetime proposal
 
-Status: scheduler foundation implemented against main dcdb588 (4.5.0); LCD ownership/receipt propagation and interaction remain unimplemented. No hardware testing. This proposal requires the interaction decision below before UI implementation; it is not a claim that finite batches satisfy the accepted release requirement.
+Status: scheduler cancellation and typed receipt foundations are implemented. Retained LCD ownership, terminal-event forwarding and the interaction remain unimplemented. No hardware testing. This proposal requires the interaction decision below before UI implementation; it is not a claim that finite batches satisfy the accepted release requirement.
 
 ## Acceptance gap and interaction decision
 
@@ -25,3 +25,11 @@ Scope is E14 everyday virtual-remote repeats. Pairing, Set/Clear Favourite and g
 `test/test_radioscheduler/test_radioscheduler.cpp` adds three real production-scheduler cases: admitted queued ticket removal, taken-before-start refusal, and on-air next-repeat refusal, each preserving unrelated work and exact ticket outcomes. The original checkpoint eb25236 used a temporary SFINAE adapter to exercise current main as a no-op cancellation: all three intended runtime assertions failed while existing scheduler cases passed (`/tmp/i25-repeat-lifetime-red.log`, local). That adapter is now removed: the tests call the implemented production API directly. The focused native run passes all 43 cases (`/tmp/i25-repeat-lifetime-green.log`, local), including duplicate/unknown/terminal cancellation, cancellation plus flush, final-frame completion racing cancellation, same-remote queue order, restart accounting and outcome capacity. `tools/test-radio-cancel.sh` also passes with the actual extracted production wrapper and real scheduler; its substituted clock asserts queue-lock ownership, task notification asserts the lock is released, and no radio-lock seam is supplied (`/tmp/i25-radio-cancel-wrapper.log`, local). The tests do not emulate radio transmission or claim electrical timing evidence.
 
 Remaining integration checks: actual-model receipt/outcome tests, 56/80-bit radio-boundary integration and actual UI/FIFO ownership/lifetime tests. Existing suspension/flush scheduler cases remain green. Production changes require independent review and relevant broad integration checks before main; physical RF/motor testing remains separately authorized.
+
+## Implemented receipt foundation
+
+`ShadeRequests::runOwnedRepeat()` returns an `owned_repeat_receipt_t` containing the exact accepted RF ticket. The dedicated backend hook refuses by default; ordinary request callers keep their existing behavior. The concrete model validates the explicit count, everyday command whitelist, RF protocol, bit length, Euro and step constraints before dispatch. Unsupported owned requests cannot fall back to an untracked command.
+
+New-command receipts use the existing shade/group command path, preserving counter, flip, movement and group-member bookkeeping. Repeating the previous frame requires the transformed command and step size to match; a changed step sends a new command with its own counter and ticket. Receipts come from that invocation's actual transmission result, without a global last-ticket value or another event consumer. Existing GPIO boolean paths retain their behavior but are unavailable through the RF-owned API.
+
+The compiled model harness covers new/repeated receipts, counters, flip and step binding, group bookkeeping, refusal without mutation and unsupported request rejection. Independent removal of the step-match condition fails the changed-step regression. This proves receipt propagation, not that the LCD retains or cancels an admitted job. The UI must still retain ownership through terminal notification and bind cancellation to release, Back, timeout and context invalidation.
