@@ -1,5 +1,6 @@
 #include "esp_log.h"
 #include "ShadeBehaviour.h"
+#include <cmath>
 
 static const char *TAG = "Somfy";
 
@@ -1023,6 +1024,20 @@ bool ShadeBehaviour::setMyPosition(int8_t pos, int8_t tilt, uint32_t now) {
     else sent = this->storeMyPosition(this->s.currentPos, -1.0f, now);
   }
   return sent;
+}
+bool ShadeBehaviour::programMyPositionHere(bool clear, uint32_t now) {
+  if(this->isToggle() || this->settings.shadeType == shade_types::drycontact ||
+     this->settings.shadeType == shade_types::drycontact2 || !this->idleForAdministration()) return false;
+  const bool lift = this->settings.tiltType != tilt_types::tiltonly;
+  const bool tilt = this->settings.tiltType != tilt_types::none;
+  const auto valid = [](float value) { return std::isfinite(value) && value >= 0 && value <= 100; };
+  if((lift && !valid(this->s.currentPos)) || (tilt && !valid(this->s.currentTiltPos))) return false;
+  const bool same = (!lift || this->s.myPos == this->s.currentPos) &&
+                    (!tilt || this->s.myTiltPos == this->s.currentTiltPos);
+  if(clear && !same) return false; // Never move to an old favourite implicitly.
+  if(!clear && same) return true;  // Setting it again must not clear it.
+  return this->storeMyPosition(clear || !lift ? -1.0f : this->s.currentPos,
+                               clear || !tilt ? -1.0f : this->s.currentTiltPos, now);
 }
 bool ShadeBehaviour::storeMyPosition(float pos, float tiltPos, uint32_t now) {
   // Set it before sending so processFrame doesn't head for the old one.  It is
