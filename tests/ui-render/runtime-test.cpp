@@ -310,9 +310,15 @@ ModelCommitReport applyModelCommit(const proto_reply_to_t &,ModelCommitMode mode
 }
 #include "../../src/LocalEntityRuntime.cpp"
 static std::vector<shade_request_t> submitted;
+static uint32_t lastOwnedTicket=1000;
+static std::map<uint32_t,uint32_t> ownedAddresses;
 struct RecordingRequests {shade_request_result_t run(const shade_request_t &r){
   if(r.command==somfy_commands::Prog||r.type==shade_request_type_t::shade_sensor||r.type==shade_request_type_t::group_sensor){assert(gitUpdate.busy());GitUpdateOwnerToken competitor;assert(!gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,competitor));}
   submitted.push_back(r);return shade_request_result_t::done;
+}
+shade_request_result_t runOwnedRepeat(const shade_request_t &r,owned_repeat_receipt_t &receipt){
+  const auto result=run(r);receipt.ticket=result==shade_request_result_t::done?++lastOwnedTicket:0;
+  if(receipt.ticket)ownedAddresses[receipt.ticket]=somfy.getShadeById(r.id)->address;return result;
 }}shadeRequests;
 #define ShadeRequests RecordingRequests
 #include "../../src/LocalAdvancedRuntime.cpp"
@@ -504,6 +510,63 @@ int main(int argc,char **argv){
   busBusy=false;idle();click();idle();assert(submitted.size()==beforeRepeats+1);
   assert(submitted.back().repeat==2 && submitted.back().id==7 && submitted.back().command==somfy_commands::Up && submitted.back().type==shade_request_type_t::shade_command);
   assert(lastQuery.screen==Screen::control && lastQuery.action==Action::stop);
+  assert(localControlPending()); // Admitted repeat still owns its exact RF job.
+  saveFrame(preview,"runtime-repeat-active");
+  auto txEvent=[&](uint32_t ticket,tx_event_t type){somfy_tx_event_t event;
+    event.ticket=ticket;event.type=type;event.cmd=somfy_commands::Up;event.remoteAddress=ownedAddresses.count(ticket)?ownedAddresses[ticket]:700;event.at=testNow;
+    localControlTxEvent(event);
+  };
+  const auto firstOwned=lastOwnedTicket;
+  txEvent(firstOwned+10000,tx_event_t::finished);assert(localControlPending());
+  back();assert(localControlPending() && somfy.transceiver.cancelledTicket==firstOwned);
+  assert(submitted.size()==beforeRepeats+1); // Cancellation is not a MY/STOP request.
+  txEvent(firstOwned,tx_event_t::aborted);assert(!localControlPending());idle();click();idle();
+  assert(lastQuery.screen==Screen::control && lastQuery.action==Action::stop);
+  auto controlFromStatus=[&]{
+    for(unsigned i=0;i<10&&RuntimeTestAccess::view(ui).screen!=Screen::status;++i){back();idle();}
+    assert(RuntimeTestAccess::view(ui).screen==Screen::status);
+    rotate(1);idle();rotate(1);idle();click();idle();click();idle();
+    assert(lastQuery.screen==Screen::control && lastQuery.entity.id==7);
+  };
+  auto admitRepeatedUp=[&](unsigned count){
+    assert(lastQuery.screen==Screen::control && lastQuery.action==Action::stop);
+    const auto before=submitted.size();somfy.transceiver.cancelledTicket=0;
+    rotate(1);idle();rotate(1);idle();click();idle();assert(lastQuery.screen==Screen::actions);
+    for(unsigned i=0;i<20&&lastQuery.action!=repeatsNavigation;++i){rotate(1);idle();}
+    click();idle();assert(lastQuery.screen==Screen::repeatActions && lastQuery.action==Action::up);
+    click();idle();assert(lastQuery.screen==Screen::repeatValue);
+    for(unsigned i=0;i<130&&unsigned(lastQuery.draftValue)<count;++i){rotate(1);idle();}
+    assert(unsigned(lastQuery.draftValue)==count);click();idle();assert(lastQuery.valueChoice==2);
+    rotate(-1);idle();click();idle();
+    assert(submitted.size()==before+1 && submitted.back().command==somfy_commands::Up && unsigned(submitted.back().repeat)==count);
+    assert(localControlPending() && lastQuery.screen==Screen::control && lastQuery.action==Action::stop);
+    txEvent(lastOwnedTicket,tx_event_t::started);return lastOwnedTicket;
+  };
+  // These travel through production Runtime, Adapter, FIFO and completed GFX
+  // frames; only the RF request/event boundary is fake.
+  for(unsigned cause=0;cause<4;++cause){
+    const auto ticket=admitRepeatedUp(2);const auto requests=submitted.size();
+    const auto address=one.address;uint16_t *pixels=nullptr;
+    if(cause==0){++one.address;idle();} // Exact target identity changed.
+    else if(cause==1){authorization.configure(AuthMode::pin,"","!!!!");idle();}
+    else if(cause==2){pixels=RuntimeTestAccess::losePixels(ui);assert(!ui.tick(testNow,status,false,send,light));}
+    else tick(false,6000); // Derived admitted-air deadline, not queue admission age.
+    assert(localControlPending() && somfy.transceiver.cancelledTicket==ticket);
+    assert(submitted.size()==requests); // No implicit STOP/MY or request replay.
+    txEvent(ticket-1,tx_event_t::finished);assert(localControlPending());
+    txEvent(ticket,tx_event_t::aborted);assert(!localControlPending());
+    one.address=address;authorization.configure(AuthMode::none,"","");
+    if(pixels)RuntimeTestAccess::restorePixels(ui,pixels);
+    idle();controlFromStatus();
+  }
+  const auto longTicket=admitRepeatedUp(127);tick(false,6000);
+  assert(localControlPending() && !somfy.transceiver.cancelledTicket); // Not the old5s admission timeout.
+  const auto beforeExplicitStop=submitted.size();click();idle();
+  assert(somfy.transceiver.cancelledTicket==longTicket && localControlPending());
+  txEvent(longTicket,tx_event_t::aborted);idle();
+  assert(!localControlPending() && submitted.size()==beforeExplicitStop+1 && submitted.back().command==somfy_commands::My && submitted.back().id==7 && submitted.back().repeat==-1);
+  puts("Actual encoder/GFX: admitted repeat Back, identity/auth/graphics/deadline cancellation, exact terminal ownership and explicit one-shot STOP passed");
+  controlFromStatus();
   // Back retracts an unsubmitted intent; no request or MY is generated.
   const auto beforePending=submitted.size();somfy.transceiver.room=false;
   idle();rotate(-1);idle();click();assert(localControlPending() && submitted.size()==beforePending);

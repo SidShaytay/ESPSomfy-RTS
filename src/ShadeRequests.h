@@ -66,9 +66,15 @@ struct shade_info_t {
 // device it is the shade model (SomfyShadeOps); the tests record the calls.
 // Positions are stored ones, so already turned round for a flipped shade.
 enum class shade_request_result_t : uint8_t;
+bool validOwnedRepeatRequest(const shade_request_t &);
+
+struct owned_repeat_receipt_t { uint32_t ticket = 0; };
+
 class ShadeOps {
   public:
     virtual ~ShadeOps() {}
+    // Explicit opt-in: legacy backends must never fall back to untracked send.
+    virtual uint32_t sendOwnedRepeat(const shade_request_t &) { return 0; }
     virtual bool findShade(uint8_t shadeId, shade_info_t &info) = 0;
     // repeats is the group's own repeat count.
     virtual bool findGroup(uint8_t groupId, uint8_t &repeats) = 0;
@@ -110,6 +116,9 @@ class ShadeRequests {
   public:
     explicit ShadeRequests(ShadeOps &ops) : ops(ops) {}
     shade_request_result_t run(const shade_request_t &req);
+    // Explicit-count command variants always start a fresh intent/counter;
+    // repeat variants may reuse the matching current wire frame.
+    shade_request_result_t runOwnedRepeat(const shade_request_t &, owned_repeat_receipt_t &);
   private:
     ShadeOps &ops;
 };

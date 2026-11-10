@@ -86,3 +86,27 @@ bool SomfyShadeOps::sendGroupSensorCommand(uint8_t groupId, int8_t windy, int8_t
   if(sent)group->emitState();
   return sent;
 }
+
+uint32_t SomfyShadeOps::sendOwnedRepeat(const shade_request_t &req) {
+  if(!somfy.modelLoad.usable() || !validOwnedRepeatRequest(req)) return 0;
+  const bool grouped=req.type==shade_request_type_t::group_repeat || req.type==shade_request_type_t::group_command;
+  if(!grouped && req.type!=shade_request_type_t::shade_repeat && req.type!=shade_request_type_t::shade_command) return 0;
+  auto *shade=grouped?nullptr:somfy.getShadeById(req.id);
+  auto *group=grouped?somfy.getGroupById(req.id):nullptr;
+  SomfyRemote *remote=grouped?static_cast<SomfyRemote *>(group):static_cast<SomfyRemote *>(shade);
+  if(!remote || (remote->proto!=radio_proto::RTS && remote->proto!=radio_proto::RTW && remote->proto!=radio_proto::RTV)) return 0;
+  const auto bits=remote->bitLength?remote->bitLength:somfy.transceiver.config.type;
+  if(bits!=56 && bits!=80) return 0;
+  if((req.command==somfy_commands::Toggle || req.command==somfy_commands::Favorite) && bits!=80) return 0;
+  if(shade && shade->tiltType==tilt_types::euromode && (req.command==somfy_commands::Up || req.command==somfy_commands::Down)) return 0;
+  const bool step=req.command==somfy_commands::StepUp || req.command==somfy_commands::StepDown;
+  if(step ? req.stepSize<1 || req.stepSize>127 : req.stepSize!=0) return 0;
+  const auto wire=remote->transformCommand(req.command);
+  if((req.type==shade_request_type_t::shade_repeat || req.type==shade_request_type_t::group_repeat) &&
+     remote->isLastCommand(wire) && remote->lastFrame.stepSize==req.stepSize &&
+     remote->lastFrame.remoteAddress==remote->getRemoteAddress() &&
+     remote->lastFrame.proto==remote->proto && remote->lastFrame.bitLength==bits)
+    return remote->repeatFrameReceipt(req.repeat).ticket;
+  return grouped?group->sendCommandReceipt(req.command,req.repeat,req.stepSize).ticket:
+                 shade->sendCommandReceipt(req.command,req.repeat,req.stepSize).ticket;
+}

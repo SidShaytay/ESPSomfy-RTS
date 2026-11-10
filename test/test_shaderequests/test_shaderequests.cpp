@@ -410,10 +410,45 @@ static void explicit_favorite_requests_keep_actions_distinct_and_ignore_position
     TEST_ASSERT_EQUAL(shade_request_result_t::radio_refused,requests.run(req));ops.radioTakes=true;
   }
 }
+static void test_owned_repeat_receipt_comes_from_this_backend_call() {
+  struct OwnedOps:FakeShadeOps {
+    unsigned n=600;
+    uint32_t sendOwnedRepeat(const shade_request_t &) override { return ++n; }
+  } ops;
+  ShadeRequests service(ops);owned_repeat_receipt_t receipt;
+  shade_request_t req;req.id=1;req.type=shade_request_type_t::shade_repeat;req.command=somfy_commands::Up;req.repeat=12;
+  TEST_ASSERT_EQUAL_UINT8((uint8_t)shade_request_result_t::done,(uint8_t)service.runOwnedRepeat(req,receipt));
+  TEST_ASSERT_EQUAL_UINT32(601,receipt.ticket);
+  req.type=shade_request_type_t::group_repeat;
+  TEST_ASSERT_EQUAL_UINT8((uint8_t)shade_request_result_t::done,(uint8_t)service.runOwnedRepeat(req,receipt));
+  TEST_ASSERT_EQUAL_UINT32(602,receipt.ticket);
+  req.command=somfy_commands::My;
+  TEST_ASSERT_EQUAL_UINT8((uint8_t)shade_request_result_t::radio_refused,(uint8_t)service.runOwnedRepeat(req,receipt));
+  TEST_ASSERT_EQUAL_UINT32(0,receipt.ticket);TEST_ASSERT_EQUAL_UINT32(602,ops.n);
+}
+
+static void test_owned_repeat_receipt_is_explicit_and_rejects_other_requests() {
+  FakeShadeOps ops;ShadeRequests service(ops);shade_request_t req;
+  owned_repeat_receipt_t receipt;receipt.ticket=999;
+  req.type=shade_request_type_t::set_favorite;req.id=1;req.repeat=20;
+  TEST_ASSERT_EQUAL_UINT8((uint8_t)shade_request_result_t::radio_refused,(uint8_t)service.runOwnedRepeat(req,receipt));
+  TEST_ASSERT_EQUAL_UINT32(0,receipt.ticket);
+  TEST_ASSERT_TRUE(ops.calls.empty());
+  req.type=shade_request_type_t::shade_repeat;req.command=somfy_commands::Up;
+  // Legacy/fake backends default-refuse owned dispatch, never fall back to an
+  // untracked bool send or guess a receipt from a prior operation.
+  receipt.ticket=999;
+  TEST_ASSERT_EQUAL_UINT8((uint8_t)shade_request_result_t::radio_refused,(uint8_t)service.runOwnedRepeat(req,receipt));
+  TEST_ASSERT_EQUAL_UINT32(0,receipt.ticket);
+  TEST_ASSERT_TRUE(ops.calls.empty());
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_owned_repeat_receipt_comes_from_this_backend_call);
+  RUN_TEST(test_owned_repeat_receipt_is_explicit_and_rejects_other_requests);
   RUN_TEST(explicit_favorite_requests_keep_actions_distinct_and_ignore_position_fields);
   RUN_TEST(checked_counter_outcome_is_returned_without_claiming_success);
   RUN_TEST(test_a_missing_shade_is_not_found);

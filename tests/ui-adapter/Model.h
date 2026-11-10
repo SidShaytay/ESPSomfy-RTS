@@ -4,13 +4,23 @@
 #define SOMFY_H
 #include "ShadeSettings.h"
 #include "ShadeRequests.h"
+#include "ShadeBehaviour.h"
 #include <string.h>
-struct SomfyShade : ShadeSettings,RemoteSettings {
+// Receipt transport is deliberately unavailable in this adapter-only model.
+// Actual remote/group receipt semantics are compiled by test-owned-repeat.sh.
+struct SomfyRemote : RemoteSettings {
+ radio_proto proto=radio_proto::RTS;somfy_frame_t lastFrame;
+ virtual uint32_t getRemoteAddress() const=0;
+ somfy_commands transformCommand(somfy_commands cmd){return flipCommands?flipCommand(cmd):cmd;}
+ bool isLastCommand(somfy_commands){return false;}
+ send_result_t repeatFrameReceipt(uint8_t){return {};}
+ send_result_t sendCommandReceipt(somfy_commands,uint8_t,uint8_t){return {};}
+};
+struct SomfyShade : ShadeSettings,SomfyRemote {
   uint8_t id=255,roomId=0,gpioUp=0,gpioDown=0,gpioMy=0,gpioFlags=0;
   int8_t sortOrder=0;
   char name[21]="Device";
   bool paired=true,idle=true,light=false;
-  radio_proto proto=radio_proto::RTS;
   uint32_t address=100,gpioRelease=0;
   uint16_t lastRollingCode=1;
   uint64_t configurationRevision=1,observationRevision=1;
@@ -42,10 +52,10 @@ struct SomfyShade : ShadeSettings,RemoteSettings {
   void emitState(){} bool save(){return true;} void configChanged(){++configurationRevision;}
   uint16_t setRollingCode(uint16_t code){auto old=lastRollingCode;lastRollingCode=code;return old;}
 };
-struct SomfyGroup : RemoteSettings {
-  uint8_t id=255,roomId=0; int8_t sortOrder=0,direction=0;somfy_frame_t lastFrame;
+struct SomfyGroup : SomfyRemote {
+  uint8_t id=255,roomId=0; int8_t sortOrder=0,direction=0;
   char name[21]="Group"; uint8_t linkedShades[32]={};
-  radio_proto proto=radio_proto::RTS; uint32_t address=500;uint16_t lastRollingCode=0;
+  uint32_t address=500;uint16_t lastRollingCode=0;
   uint64_t configurationRevision=1;
   uint8_t statusFlags=0;uint8_t getFlags()const{return statusFlags;}
   uint8_t getGroupId() const{return id;} uint32_t getRemoteAddress() const{return address;}
@@ -62,6 +72,7 @@ struct SomfyShadeController {
     uint64_t configurationRevision=1;
     struct Config {uint8_t type=56;} config;
     bool ready=true,suspended=false,room=true,quiescent=true,installPaused=false;
+    uint32_t cancelledTicket=0;bool cancelTx(uint32_t ticket){cancelledTicket=ticket;return true;}
     bool restartQuiescent()const{return quiescent;}
     CounterQuarantine quarantine=CounterQuarantine::none;
     CounterQuarantine counterQuarantine()const{return quarantine;}

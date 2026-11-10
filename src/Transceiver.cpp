@@ -16,6 +16,7 @@
 #include "BitLength.h"
 #ifdef ESPSOMFY_LOCAL_UI
 #include "LocalReceive.h"
+#include "LocalControlQueue.h"
 #include <esp_timer.h>
 #endif
 #include "CounterTxPolicy.h"
@@ -827,6 +828,9 @@ void Transceiver::loop() {
       ESP_LOGW(TAG, "Radio TX cut short %s for %d", translateSomfyCommand(evt.cmd).c_str(), evt.remoteAddress);
     // Line the simulated shades up with what actually went on air.
     somfy.processTxEvent(evt);
+#ifdef ESPSOMFY_LOCAL_UI
+    LocalUi::localControlTxEvent(evt);
+#endif
   }
   if(scanEmitPending.exchange(false)) this->emitFrequencyScan();
   if (noiseDetected && rxmode != 3 && this->config.noiseDetection) {

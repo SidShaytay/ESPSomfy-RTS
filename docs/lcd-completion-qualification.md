@@ -6,7 +6,7 @@ Issue #25 remains open. Installed firmware, host tests and a capability inventor
 
 Controller 4.5.0, source `dcdb588`, has exact-image, normal-boot, valid-OTA and unchanged-settings/counter evidence. Its actual updater identity is `dev-dcdb588eea14`; it intentionally refuses GitHub checking before network access. A clean, release-tagged canonical build is required for that path. Do not bypass the identity guard. Building locally, publishing a release and installing it are separate stages.
 
-Remaining software acceptance includes cancellation of future everyday repeat frames on release, Back and timeout, and working separate/Euro wired-relay tilt unless Sid explicitly accepts an exception. Settings preservation and an unavailable notice alone do not meet the latter requirement. These are separate from the hardware measurements below.
+Remaining software acceptance includes the remaining hold/release input for everyday repeats (Back/auth/context/timeout cancellation after admission is implemented), and working separate/Euro wired-relay tilt unless Sid explicitly accepts an exception. Settings preservation and an unavailable notice alone do not meet the latter requirement. These are separate from the hardware measurements below.
 
 ## Completed partial measurement
 
