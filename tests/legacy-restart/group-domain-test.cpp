@@ -119,6 +119,15 @@ int main(int argc, char **argv) {
   shade.setShadeId(7);
   shade.setRemoteAddress(700);
   shade.upTime = shade.downTime = 100;
+  if(mode=="favorite") {
+    group.bitLength=shade.bitLength=80;group.linkedShades[31]=7;
+    shade.restore(0,0,50,-1);
+    assert(group.sendCommand(somfy_commands::Favorite,3));
+    assert(radioCalls==1 && nvsCalls==1 && group.lastFrame.cmd==somfy_commands::Favorite);
+    assert(shade.state().target==50 && !shade.idleForAdministration());
+    assert(requestRestart(1).reason==RestartReason::activeMovement);
+    puts("Group Favorite: one group transmission, member estimate, restart blocked");return 0;
+  }
   const bool unknown = mode.rfind("unknown", 0) == 0, empty = mode == "empty",
              dangling = mode == "dangling";
   const bool up = mode == "up" || mode == "moving" || dangling;

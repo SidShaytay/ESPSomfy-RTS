@@ -148,6 +148,19 @@ int main(){
     if(action==Action::sunOn) assert(sent.command==sunFlagCommand(true));
     if(action==Action::sunOff) assert(sent.command==sunFlagCommand(false));
   }
+  // Exact group Favorite; incomplete, mixed and unsupported members fail closed.
+  group.linkedShades[0]=22;group.linkedShades[1]=7;group.bitLength=80;two.bitLength=80;
+  ++group.configurationRevision;++two.configurationRevision;++somfy.configurationRevision;
+  model=open(view,{EntityKind::group,11});auto count=submitted.size();
+  assert(dispatch(command(view,Action::favourite))==DispatchResult::done && submitted.size()==count+1);
+  assert(submitted.back().type==shade_request_type_t::group_command && submitted.back().id==11 && submitted.back().command==somfy_commands::Favorite);
+  two.bitLength=56;++two.configurationRevision;open(view,{EntityKind::group,11});count=submitted.size();
+  assert(dispatch(command(view,Action::favourite))==DispatchResult::refused && submitted.size()==count);
+  two.bitLength=80;two.shadeType=shade_types::garage1;++two.configurationRevision;open(view,{EntityKind::group,11});
+  assert(dispatch(command(view,Action::favourite))==DispatchResult::refused && submitted.size()==count);
+  two.shadeType=shade_types::shutter;group.linkedShades[1]=99;++group.configurationRevision;open(view,{EntityKind::group,11});
+  assert(dispatch(command(view,Action::favourite))!=DispatchResult::done && submitted.size()==count);
+  group.linkedShades[1]=7;++group.configurationRevision;open(view,{EntityKind::device,7});
   auto invalid=command(view,Action::position);invalid.value=101;beforeGroup=submitted.size();
   assert(dispatch(invalid)==DispatchResult::refused && submitted.size()==beforeGroup);
   assert(dispatch(command(view,Action::count))==DispatchResult::refused && submitted.size()==beforeGroup);

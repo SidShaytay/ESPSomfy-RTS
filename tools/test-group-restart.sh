@@ -26,4 +26,4 @@ PY
  -I"$scratch" -I"$json" -I"$repo/test/stubs" -I"$repo/src" \
  "$repo/tests/legacy-restart/group-domain-test.cpp" "$repo/src/ShadeBehaviour.cpp" "$repo/src/ShadeMotion.cpp" "$repo/src/ShadeSensors.cpp" "$repo/src/SomfyFrame.cpp" "$repo/src/GitUpdate.cpp" "$repo/src/SettingsDurability.cpp" "$repo/src/RestartCoordinator.cpp" "$repo/src/RestartPolicy.cpp" "$repo/src/SettingsValues.cpp" \
  -o "$scratch/group"
-for case in up down moving empty dangling unknownUp unknownDown unknownMy unknownToggle unknownStepUp unknownStepDown unknownFavorite;do "$scratch/group" "$case";done
+for case in favorite up down moving empty dangling unknownUp unknownDown unknownMy unknownToggle unknownStepUp unknownStepDown unknownFavorite;do "$scratch/group" "$case";done
