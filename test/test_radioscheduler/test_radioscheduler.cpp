@@ -492,10 +492,75 @@ static void restart_work_includes_waiting_taken_and_unobserved_outcomes() {
   scheduler.reopenAfterRefusedRestart();
   TEST_ASSERT_NOT_EQUAL(0,submit(scheduler,REMOTE_B));
 }
+// RED contract seam: current production has no ticket cancellation API. The
+// fallback deliberately performs today's post-dispatch behaviour (nothing),
+// so these tests execute the real scheduler and fail at runtime, not at build.
+// Remove this fallback once RadioScheduler::cancel(ticket, now) is implemented.
+template<class Scheduler>
+static auto cancelOwnedTicket(Scheduler &s, uint32_t ticket, uint32_t now, int)
+  -> decltype(s.cancel(ticket, now), void()) { s.cancel(ticket, now); }
+template<class Scheduler>
+static void cancelOwnedTicket(Scheduler &, uint32_t, uint32_t, long) {}
+
+static void test_release_after_admission_drops_only_owned_queued_ticket() {
+  RadioScheduler s;
+  const auto owned=submit(s,REMOTE_A);
+  const auto other=submit(s,REMOTE_B);
+  cancelOwnedTicket(s,owned,1,0);
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(other,runNext(s,2),
+    "release must remove the admitted repeat ticket without dropping unrelated work");
+  assertEvent(s,tx_event_t::dropped,owned);
+  assertEvent(s,tx_event_t::started,other);
+  assertEvent(s,tx_event_t::finished,other);
+  assertNoEvents(s);
+}
+static void test_release_after_take_prevents_start_without_flushing_other_job() {
+  RadioScheduler s;
+  const auto owned=submit(s,REMOTE_A);
+  const auto other=submit(s,REMOTE_B);
+  somfy_tx_job_t job;uint32_t wait=0;
+  TEST_ASSERT_TRUE(s.next(0,job,wait));
+  TEST_ASSERT_EQUAL_UINT32(owned,job.ticket);
+  cancelOwnedTicket(s,owned,1,0);
+  TEST_ASSERT_FALSE_MESSAGE(s.start(owned,2),
+    "release between take and start must prevent the owned repeat from going on air");
+  assertEvent(s,tx_event_t::dropped,owned);
+  TEST_ASSERT_EQUAL_UINT32(other,runNext(s,3));
+  assertEvent(s,tx_event_t::started,other);
+  assertEvent(s,tx_event_t::finished,other);
+  assertNoEvents(s);
+}
+static void test_release_on_air_stops_next_repeat_preserving_ticket_outcomes() {
+  RadioScheduler s;
+  auto repeat=makeJob(REMOTE_A);repeat.repeats=127;
+  const auto owned=s.submit(repeat,false,0,0);
+  const auto other=submit(s,REMOTE_B);
+  somfy_tx_job_t job;uint32_t wait=0;
+  TEST_ASSERT_TRUE(s.next(0,job,wait));
+  TEST_ASSERT_TRUE(s.start(owned,0));
+  // Transceiver::transmitJob checks this predicate after the initial complete
+  // frame and before each repeat. Release must not inject a MY/STOP command.
+  TEST_ASSERT_TRUE(s.keepSending(owned));
+  cancelOwnedTicket(s,owned,1,0);
+  TEST_ASSERT_FALSE_MESSAGE(s.keepSending(owned),
+    "release must stop FUTURE repeats after admission at the next frame boundary");
+  s.ended(owned,false,2);
+  cancelOwnedTicket(s,owned,3,0); // stale cancellation cannot affect another job
+  TEST_ASSERT_EQUAL_UINT32(other,runNext(s,4));
+  assertEvent(s,tx_event_t::started,owned);
+  assertEvent(s,tx_event_t::aborted,owned);
+  assertEvent(s,tx_event_t::started,other);
+  assertEvent(s,tx_event_t::finished,other);
+  assertNoEvents(s);
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_release_after_admission_drops_only_owned_queued_ticket);
+  RUN_TEST(test_release_after_take_prevents_start_without_flushing_other_job);
+  RUN_TEST(test_release_on_air_stops_next_repeat_preserving_ticket_outcomes);
   RUN_TEST(restart_work_includes_waiting_taken_and_unobserved_outcomes);
   RUN_TEST(test_jobs_go_out_in_the_order_they_came);
   RUN_TEST(test_tickets_are_distinct_and_set_in_the_job);
