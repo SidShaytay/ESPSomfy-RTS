@@ -3,6 +3,9 @@
 ## Objective / acceptance
 Complete web functionality on the LILYGO LCD/buttons/rotary with agreed security and explicit accepted alternatives. Normative requirements: GitHub25 comment6753845395, cached `/tmp/i25-goal-normative.json`. Do not redefine completion around passing tests, installed code or 83 classified rows. Audit open requirements in `main/docs/lcd-capability-audit.md`; qualification plan `main/docs/lcd-completion-qualification.md`.
 
+## Active next milestone — accepted repeat cancellation
+Implement the already-required Back/auth/context/recovery cancellation after RF admission, with exact ticket retained until the existing single-consumer terminal event. This common behavior does not choose hold versus finite-click interaction; no hold input/page implementation while answer pending. Preserve one-shot/STOP/programming/GPIO behavior and fresh-command semantics for each new LCD intent. Acceptance: actual adapter+FIFO+scheduler and actual encoder/renderer prove queued/on-air/terminal races, exact-ticket isolation, context/session invalidation and no MY/STOP; focused RED→GREEN, independent review, full integration gates. Main6936b26 verified clean at resume. Previous goal turn was progress (integrated code/evidence/status); this is additional unblocked original-scope work, not a blocker-only turn.
+
 ## Current authoritative state (2026-11-10)
 - Local main **6936b26**, clean, UNPUSHED. No release/tag/PR published. Remote main previously fc5a294; do not confuse it with local integration.
 - Controller still **4.5.0 / dcdb588**, exact app1 image/ELF, OTA16 VALID, healthy normal reboot, unchanged five settings sections/entities/counters. Healthy4.4 remains app0. No controller access/write/reset/RF/motor/GPIO/HA action in this continuation. Passive read-only diagnostics service previously restored active.
