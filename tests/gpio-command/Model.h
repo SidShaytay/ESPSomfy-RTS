@@ -51,7 +51,7 @@ struct SomfyShade:SomfyRemote,ShadeSettings,MotorLink,ShadeEvents {
  bool canGpioCommand(somfy_commands);bool canGpioSeek(bool=false);bool canGpioTilt(somfy_commands);
  void triggerGPIOs(somfy_frame_t &)override;
  bool sendCommand(somfy_commands);bool sendCommand(somfy_commands,uint8_t,uint8_t=0);
- bool sendTiltCommand(somfy_commands);bool moveToTarget(float,float=-1);bool moveToTiltTarget(float);bool setMyPosition(int8_t,int8_t=-1);bool moveToMyPosition();
+ bool sendTiltCommand(somfy_commands);bool moveToTarget(float,float=-1);bool moveToTiltTarget(float);bool setMyPosition(int8_t,int8_t=-1);bool moveToMyPosition();bool programMyPositionHere(bool);
 };
 struct SomfyShadeController {
   ModelLoadTrust modelLoad{ModelLoadStatus::loaded};

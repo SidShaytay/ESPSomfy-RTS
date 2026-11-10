@@ -71,7 +71,7 @@ int main(){
  checked_counter_reads_preserve_absence_rollover_and_sensor_semantics();
  { SomfyShade shade;shade.proto=radio_proto::GP_Remote;shade.gpioUp=17;shade.gpioDown=40;shade.gpioMy=42;
    somfy.modelLoad.fail();const auto before=gpioWrites;
-   assert(!shade.sendCommand(somfy_commands::Up) && !shade.moveToTarget(100));
+   assert(!shade.sendCommand(somfy_commands::Up) && !shade.moveToTarget(100) && !shade.programMyPositionHere(false));
    shade.configureGPIOs();somfy.configureGPIOs();assert(gpioWrites==before);
    somfy.modelLoad.bootResult(ModelLoadStatus::loaded);
  }
@@ -81,7 +81,7 @@ int main(){
  assert(!blocked.sendCommandAfter(somfy_commands::Up,1,0,0).sent);
  assert(!blocked.sendSensorCommand(1,1,1));
  assert(!blocked.moveToTarget(80) && !blocked.moveToTiltTarget(80) && !blocked.sendTiltCommand(somfy_commands::Up));
- assert(!blocked.setMyPosition(80) && !blocked.moveToMyPosition());
+ assert(!blocked.setMyPosition(80) && !blocked.moveToMyPosition() && !blocked.programMyPositionHere(false));
  assert(!FakeNvs::reads && !storageWrites && !gpioWrites && !behaviourCalls && !somfy.frames && !blocked.bitLength);
  counterAllowed=true;
  SomfyShade observed;observed.linkedRemotes[0].setRemoteAddress(12345);
