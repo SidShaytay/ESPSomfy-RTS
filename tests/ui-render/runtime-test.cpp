@@ -511,6 +511,7 @@ int main(int argc,char **argv){
   assert(submitted.back().repeat==2 && submitted.back().id==7 && submitted.back().command==somfy_commands::Up && submitted.back().type==shade_request_type_t::shade_command);
   assert(lastQuery.screen==Screen::control && lastQuery.action==Action::stop);
   assert(localControlPending()); // Admitted repeat still owns its exact RF job.
+  saveFrame(preview,"runtime-repeat-active");
   auto txEvent=[&](uint32_t ticket,tx_event_t type){somfy_tx_event_t event;
     event.ticket=ticket;event.type=type;event.cmd=somfy_commands::Up;event.remoteAddress=ownedAddresses.count(ticket)?ownedAddresses[ticket]:700;event.at=testNow;
     localControlTxEvent(event);
