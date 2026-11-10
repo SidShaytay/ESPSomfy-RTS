@@ -117,16 +117,16 @@ bool GitUpdateClass::beginTransfer(const GitUpdateOwnerToken &token,ManualUpdate
   Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.begin(token,kind,now);
 }
 bool GitUpdateClass::prepareApplication(const GitUpdateOwnerToken &token,const ManualApplicationSource &source,uint64_t now) {
-  Guard guard;return owns(token) && manualTransfer.prepareApplication(token,source,now);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.prepareApplication(token,source,now);
 }
 bool GitUpdateClass::claimApplicationPreparation(const GitUpdateOwnerToken &token,const ManualApplicationSource &source,uint64_t now) {
-  Guard guard;return owns(token) && manualTransfer.claimPreparation(token,source,now);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.claimPreparation(token,source,now);
 }
 bool GitUpdateClass::applicationPrepared(const GitUpdateOwnerToken &token) {
   Guard guard;return owns(token) && manualTransfer.applicationPrepared(token);
 }
 bool GitUpdateClass::claimPreparedApplication(const GitUpdateOwnerToken &token,const ManualApplicationSource &source,uint64_t now) {
-  Guard guard;return owns(token) && manualTransfer.claimPreparedApplication(token,source,now);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.claimPreparedApplication(token,source,now);
 }
 bool GitUpdateClass::cancelApplicationPreparation(const GitUpdateOwnerToken &token,const ManualApplicationSource &source) {
   Guard guard;return owns(token) && manualTransfer.cancelPreparation(token,source);
@@ -165,7 +165,7 @@ bool GitUpdateClass::transferRestartHeld(const GitUpdateOwnerToken &token,uint64
   Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.restartHeld(token,now);
 }
 bool GitUpdateClass::transferRestartReady(const GitUpdateOwnerToken &token,uint64_t now) {
-  Guard guard;return owns(token) && manualTransfer.restartReady(token,now);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.restartReady(token,now);
 }
 bool GitUpdateClass::acquireRestart(GitUpdateOwnerToken &result,uint64_t now,const GitUpdateOwnerToken &expected) {
   Guard guard;now=manualTransferClock(now);
@@ -192,7 +192,7 @@ ManualUpdateCleanup GitUpdateClass::claimTransferCleanup(uint64_t now) {
   return owns(work.token) ? work : ManualUpdateCleanup{};
 }
 ManualUpdateCleanup GitUpdateClass::claimTransferCleanup(const GitUpdateOwnerToken &expected,uint64_t now) {
-  Guard guard;
+  Guard guard;now=manualTransferClock(now);
   if(!owns(expected))return {};
   const auto work=manualTransfer.cleanup(now);
   return owns(work.token) ? work : ManualUpdateCleanup{};
@@ -565,15 +565,14 @@ void writeInstallation() {
     const auto count=std::min(size_t(4096),installImage->capacity-offset);
     memcpy(chunk.get(),installImage->data+offset,count);
     if(esp_ota_write(handle,chunk.get(),count)!=ESP_OK){okay=false;break;}
-    offset+=count;cooperate();const auto now=transferNow();
-    {Guard guard;okay=manualTransfer.finish(installSource,now,true) && (view.manual?manualTransfer.claimInstall(installSource,now):manualTransfer.claim(installSource,now));view.progress=uint8_t(offset*100/installImage->capacity);}
+    offset+=count;cooperate();
+    {Guard guard;const auto now=manualTransferClock(transferNow());okay=manualTransfer.finish(installSource,now,true) && (view.manual?manualTransfer.claimInstall(installSource,now):manualTransfer.claim(installSource,now));view.progress=uint8_t(offset*100/installImage->capacity);}
   }
   if(stopped())okay=false;
   bool closed=true;
   if(!okay){closed=esp_ota_abort(handle)==ESP_OK;fail(GitUpdateReason::writeFailed);}
   else okay=esp_ota_end(handle)==ESP_OK; // The SDK consumes the handle even on error.
-  const auto now=transferNow();
-  {Guard guard;
+  {Guard guard;const auto now=manualTransferClock(transferNow());
     if(!closed){installUncertain=true;view.phase=GitUpdatePhase::error;view.reason=GitUpdateReason::writeFailed;view.cancellable=false;return;}
     // An expired progress claim is reclaimed by discardInstallation. I/O is
     // already closed; no controller cleanup may run before that reclamation.
@@ -666,8 +665,8 @@ void GitUpdateClass::loop() {
     }
     if(command==3){
       if(!installHooks.current(operation)){cancelled=true;return;}
-      const auto now=transferNow();GitUpdateOwnerToken prepared;
-      {Guard guard;prepared={installLease,GitUpdateExternalOwner::manual};
+      GitUpdateOwnerToken prepared;
+      {Guard guard;const auto now=manualTransferClock(transferNow());prepared={installLease,GitUpdateExternalOwner::manual};
         if(!installSource.generation){owner=Owner::manual;installSource=prepared;
           if(!manualTransfer.begin(prepared,ManualUpdateKind::firmware,now)||!manualTransfer.claim(prepared,now)){installCleanup=true;return;}}
         else if(!owns(installSource) || installSource.generation!=prepared.generation){installCleanup=true;return;}}
@@ -716,7 +715,7 @@ GitUpdateRequest GitUpdateClass::requestInstall(const GitUpdateCandidate &expect
 }
 GitUpdateRequest GitUpdateClass::requestCheck() { return queue(false,{}); }
 bool GitUpdateClass::reserveManualInstall(const GitUpdateOwnerToken &source,uint64_t &operation) {
-  const auto now=transferNow();Guard guard;
+  Guard guard;const auto now=manualTransferClock(transferNow());
   if(!owns(source) || source.kind!=GitUpdateExternalOwner::manual || reservedManualLease || installLease ||
      !workerTask.load() || !installHooks.manual || !candidateGeneration || candidateGeneration==UINT64_MAX ||
      !manualTransfer.firmwareQueuedClaimed(source,now))return false;
@@ -729,9 +728,9 @@ GitUpdateRequest GitUpdateClass::requestManualInstall(const GitUpdateOwnerToken 
   if(!bytes || !esp_ptr_external_ram(bytes) || size<1024 || size>GitUpdatePolicy::APP_BYTES)return GitUpdateRequest::unavailable;
   std::unique_ptr<Buffer> staged(new(std::nothrow)Buffer(nullptr,size));
   if(!staged)return GitUpdateRequest::unavailable;
-  uint64_t ticket;const auto now=transferNow();
+  uint64_t ticket;
   {
-    Guard guard;
+    Guard guard;const auto now=manualTransferClock(transferNow());
     if(!owns(source) || source.kind!=GitUpdateExternalOwner::manual || installLease || installImage ||
        !workerTask.load() || !installHooks.manual || !securityRevision ||
        (reservedManualLease!=source.generation && candidateGeneration==UINT64_MAX) ||
@@ -739,9 +738,8 @@ GitUpdateRequest GitUpdateClass::requestManualInstall(const GitUpdateOwnerToken 
     ticket=reservedManualLease==source.generation ? view.operation : ++candidateGeneration;
   }
   if(!installHooks.manual(source,ticket,securityRevision))return GitUpdateRequest::unavailable;
-  const auto adoptedAt=transferNow();
   {
-    Guard guard;
+    Guard guard;const auto adoptedAt=manualTransferClock(transferNow());
     if(!owns(source) || installLease || !manualTransfer.adoptFirmware(source,adoptedAt))return GitUpdateRequest::unavailable;
     manualTransfer.resource(source,false); // The staged buffer transfers to this service; no SDK handle is open.
     reservedManualLease=0;
