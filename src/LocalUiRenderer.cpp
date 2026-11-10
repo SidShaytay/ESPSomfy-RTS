@@ -255,7 +255,7 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
         } else if(v.catalogue==CatalogueKind::groups) text(247,y+21,"Group",false,muted,59);
       } else text(22,y+21,settings?"Settings unavailable":roomKinds?(index?"Groups":"Devices"):home[index],false,white,280);
     }
-    const char *footer=v.notice!=Notice::none?notices[int(v.notice)]:list?"Press: open   Estimates only":"Turn: select   Press: open";
+    const char *footer=v.notice!=Notice::none?notices[int(v.notice)]:v.quickPicking?"Press: pin shortcut":list?"Press: open   Estimates only":"Turn: select   Press: open";
     text(12,164,footer,false,v.notice==Notice::none?muted:amber);
   } else if(v.screen == Screen::brightness) {
     text(12, 28, "Display settings", true, white);
