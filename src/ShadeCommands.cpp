@@ -1,0 +1,27 @@
+#include "Somfy.h"
+#include "CounterCommandGuard.h"
+extern SomfyShadeController somfy;
+
+bool SomfyShade::sendCommand(somfy_commands cmd) { if(!somfy.modelLoad.usable())return false; return this->sendCommand(cmd, this->repeats); }
+bool SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) { return this->sendCommandReceipt(cmd,repeat,stepSize).sent; }
+send_result_t SomfyShade::sendCommandReceipt(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) { if(!somfy.modelLoad.usable())return {};
+  if(!counterCommandAllowed(this->getRemoteAddress(),cmd))return {};
+  if(!this->canGpioCommand(cmd))return {};
+  if(cmd==somfy_commands::My && !this->isToggle() && this->shadeType!=shade_types::drycontact && (this->simMy || this->proto==radio_proto::GP_Relay) && this->isIdle() && !this->canGpioSeek(this->tiltType!=tilt_types::none))return {};
+  // This sendCommand function will always be called externally. sendCommand at the remote level
+  // is expected to be called internally when the motor needs commanded.
+  if(this->bitLength == 0) this->bitLength = somfy.transceiver.config.type;
+  send_result_t result;
+  result.sent=this->behaviour.sendCommand(cmd, repeat, stepSize, millis(), &result.ticket);
+  return result;
+}
+bool SomfyShade::sendTiltCommand(somfy_commands cmd) { if(!somfy.modelLoad.usable())return false; if(!counterCommandAllowed(this->getRemoteAddress(),cmd))return false; if(!this->canGpioTilt(cmd))return false; return this->behaviour.sendTiltCommand(cmd, millis()); }
+bool SomfyShade::moveToTarget(float pos, float tilt) { if(!somfy.modelLoad.usable())return false; if(!counterCommandAllowed(this->getRemoteAddress(),somfy_commands::UpDown))return false; if(!this->canGpioSeek(tilt>=0 || this->tiltType==tilt_types::tiltonly))return false; return this->behaviour.moveToTarget(pos, tilt, millis()); }
+bool SomfyShade::moveToTiltTarget(float target) { if(!somfy.modelLoad.usable())return false; if(!counterCommandAllowed(this->getRemoteAddress(),somfy_commands::UpDown))return false; if(!this->canGpioSeek(true))return false; return this->behaviour.moveToTiltTarget(target, millis()); }
+bool SomfyShade::setMyPosition(int8_t pos, int8_t tilt) { if(!somfy.modelLoad.usable())return false; if(!counterCommandAllowed(this->getRemoteAddress(),somfy_commands::UpDown))return false; if(!this->canGpioSeek(this->tiltType!=tilt_types::none))return false; return this->behaviour.setMyPosition(pos, tilt, millis()); }
+bool SomfyShade::programMyPositionHere(bool clear) {
+  if(!somfy.modelLoad.usable() || !counterCommandAllowed(this->getRemoteAddress(),somfy_commands::My) ||
+     !this->canGpioCommand(somfy_commands::My) || !this->canGpioSeek(this->tiltType!=tilt_types::none)) return false;
+  return this->behaviour.programMyPositionHere(clear,millis());
+}
+bool SomfyShade::moveToMyPosition() { if(!somfy.modelLoad.usable())return false; if(!counterCommandAllowed(this->getRemoteAddress(),somfy_commands::My))return false; if(!this->canGpioCommand(somfy_commands::My) || ((this->simMy || this->proto==radio_proto::GP_Relay) && !this->canGpioSeek(this->tiltType!=tilt_types::none)))return false; return this->behaviour.moveToMyPosition(millis()); }

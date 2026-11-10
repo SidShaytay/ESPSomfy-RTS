@@ -1,56 +1,135 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
-#include <LittleFS.h>
 #include "esp_log.h"
 #include "LoopQueue.h"
-#include "ConfigFile.h"
 #include "Somfy.h"
 #include "SomfyEditor.h"
 #include "Utils.h"
 #include "outputs/ProtoSocket.h"
 #include "DeviceOps.h"
+#ifdef ESPSOMFY_LOCAL_UI
+#include "LocalControlQueue.h"
+#include "LocalLearnQueue.h"
+#endif
+#include "ModelCommitService.h"
+#include "SafeRestart.h"
+#include "RestoreExecution.h"
+#include "FrequencyScanAdmission.h"
+#include "entryPoints/ManualUploadSession.h"
 
 static const char *TAG = "LoopQueue";
 
 extern SomfyShadeController somfy;
 extern ShadeRequests shadeRequests;
-extern rebootDelay_t rebootDelay;
-
-static restore_options_t restoreOptions(uint8_t parts) {
-  restore_options_t opts;
-  opts.settings = parts & RESTORE_SETTINGS;
-  opts.shades = parts & RESTORE_SHADES;
-  opts.network = parts & RESTORE_NETWORK;
-  opts.transceiver = parts & RESTORE_TRANSCEIVER;
-  opts.repeaters = parts & RESTORE_REPEATERS;
-  opts.mqtt = parts & RESTORE_MQTT;
-  return opts;
-}
 
 void LoopQueue::begin() {
   if(!this->queue) this->queue = xQueueCreate(LOOP_QUEUE_SIZE, sizeof(loop_item_t));
 }
 bool LoopQueue::submit(const loop_item_t &item, bool first) {
-  if(!this->queue) return false;
+  if(!this->queue || restartSealed.load()) return false;
+  producers.fetch_add(1);
+  // A producer observed before sealing keeps it from completing; a producer
+  // arriving after sealing cannot enqueue. No mutex spans an RTOS queue call.
+  if(restartSealed.load() || !protoSocket.acceptsMutation(item)) {producers.fetch_sub(1);return false;}
   // async_tcp also services the sockets, so it must never wait on loop() or
   // the radio.
+  loop_item_t admitted=item;
+  admitted.radioPauseAtAdmission=radioInstallPaused();
+  admitted.radioScanAtAdmission=frequencyScanActive();
+  if((admitted.radioPauseAtAdmission||admitted.radioScanAtAdmission) &&
+     (item.type==loop_item_type_t::local_control || item.type==loop_item_type_t::local_advanced) && item.localRadio) {
+    producers.fetch_sub(1);return false;
+  }
   QueueHandle_t q = static_cast<QueueHandle_t>(this->queue);
-  if((first ? xQueueSendToFront(q, &item, 0) : xQueueSend(q, &item, 0)) != pdTRUE) {
+  const bool accepted=(first ? xQueueSendToFront(q, &admitted, 0) : xQueueSend(q, &admitted, 0)) == pdTRUE;
+  if(accepted && loopItemMutates(item))noteRestartOperationAccepted();
+  producers.fetch_sub(1);
+  if(!accepted) {
     ESP_LOGE(TAG, "Loop queue full, dropping item");
     return false;
   }
   return true;
 }
+bool LoopQueue::beginSocketMutation(uint32_t clientId) {
+  if(!queue || restartSealed.load())return false;
+  producers.fetch_add(1);
+  if(restartSealed.load() || !protoSocket.acceptsClientMutation(clientId)){
+    producers.fetch_sub(1);return false;
+  }
+  return true;
+}
+void LoopQueue::endSocketMutation(bool accepted) {
+  if(accepted)noteRestartOperationAccepted();
+  producers.fetch_sub(1);
+}
+bool LoopQueue::sealForRestart() {
+  bool expected=false;
+  if(!restartSealed.compare_exchange_strong(expected,true)) return false;
+  if(producers.load() || pending()) {restartSealed.store(false);return false;}
+  return true;
+}
+bool LoopQueue::restartSealHeld() const {return restartSealed.load() && !producers.load() && !pending();}
+void LoopQueue::reopenAfterRefusedRestart() {restartSealed.store(false);}
+uint32_t LoopQueue::pending() const {
+  return this->queue ? uxQueueMessagesWaiting(static_cast<QueueHandle_t>(this->queue)) : 0;
+}
 void LoopQueue::drain() {
   if(!this->queue) return;
   QueueHandle_t q = static_cast<QueueHandle_t>(this->queue);
+#ifdef ESPSOMFY_LOCAL_UI
+  // Observe the single slot even behind a held head: idle/new motion must not
+  // reacquire STOP eligibility while other clients wait for the radio.
+  LocalUi::refreshLocalControl();
+  LocalUi::refreshLocalLearn();
+#endif
   loop_item_t item;
   // Items run in order, so only the one at the head can be held back.
   while(xQueuePeek(q, &item, 0) == pdTRUE) {
+    if(!protoSocket.acceptsMutation(item)){
+      xQueueReceive(q,&item,0);protoSocket.discardRetiredMutation(item);continue;
+    }
+#ifdef ESPSOMFY_LOCAL_UI
+    if(item.type == loop_item_type_t::local_advanced && !LocalUi::localLearnTokenActive(item.localToken)) {
+      xQueueReceive(q,&item,0);continue;
+    }
+    if(item.type == loop_item_type_t::local_control) {
+      if(LocalUi::localControlTokenActive(item.localToken)) LocalUi::refreshLocalControl();
+      if(!LocalUi::localControlTokenActive(item.localToken)) {
+        xQueueReceive(q, &item, 0); // cancelled/expired markers never hold FIFO
+        continue;
+      }
+    }
+#endif
+    // Install admission is published only while the empty FIFO is sealed.
+    // Classify the mutable model here, never on an HTTP/MQTT producer task.
+    // Retain refusals across resume: delayed RF must never become movement.
+    if((item.radioPauseAtAdmission || item.radioScanAtAdmission || radioInstallPaused() || frequencyScanActive()) && item.type==loop_item_type_t::shade_request && shadeRequestUsesRadio(item.request.type)) {
+      const auto *shade=somfy.getShadeById(item.request.id);
+      const bool radio=shadeRequestIsForGroup(item.request.type) || item.request.type==shade_request_type_t::unpair ||
+        !shade || (shade->proto!=radio_proto::GP_Relay && shade->proto!=radio_proto::GP_Remote);
+      if(radio) {
+        xQueueReceive(q,&item,0);
+        protoSocket.replyRequest(item.replyTo,item.request,shade_request_result_t::radio_refused);
+        continue;
+      }
+    }
     if(holdLoopItem(item, somfy.transceiver.txSuspended(), somfy.transceiver.txHasRoom())) break;
     // loop() is the only consumer so this is the item we peeked.
     xQueueReceive(q, &item, 0);
     switch(item.type) {
+      case loop_item_type_t::firmware_install:
+        runManualFirmware(item.externalOwner);
+        break;
+      case loop_item_type_t::local_advanced:
+#ifdef ESPSOMFY_LOCAL_UI
+        LocalUi::runLocalLearn(item.localToken);
+#endif
+        break;
+      case loop_item_type_t::local_control:
+#ifdef ESPSOMFY_LOCAL_UI
+        LocalUi::runLocalControl(item.localToken);
+#endif
+        break;
       case loop_item_type_t::shade_request: {
         const shade_request_result_t result = shadeRequests.run(item.request);
         if(result == shade_request_result_t::radio_refused)
@@ -58,22 +137,12 @@ void LoopQueue::drain() {
         protoSocket.replyRequest(item.replyTo, item.request, result);
         break;
       }
-      case loop_item_type_t::restore_shades: {
-        restore_options_t opts = restoreOptions(item.restoreParts);
-        const bool restored = ShadeConfigFile::restore(&somfy, "/shades.tmp", opts);
-        // It holds the whole backup, rolling codes included, and has no use now.
-        LittleFS.remove("/shades.tmp");
-        // A failed restore stops before it changes anything, so there is
-        // nothing to reboot for.
-        if(!restored) {
-          ESP_LOGE(TAG, "Restore failed, keeping the current settings");
-          break;
-        }
-        ESP_LOGI(TAG, "Rebooting ESP for restored settings...");
-        rebootDelay.reboot = true;
-        rebootDelay.rebootTime = millis() + 1000;
+      case loop_item_type_t::restore_shades:
+        runOwnedRestore(item.externalOwner,item.restoreParts);
         break;
-      }
+      case loop_item_type_t::model_commit:
+        runModelCommit(item);
+        break;
       case loop_item_type_t::model_edit:
         runModelEdit(item.edit);
         break;

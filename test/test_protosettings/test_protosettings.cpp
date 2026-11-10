@@ -11,6 +11,7 @@ void tearDown() {}
 
 static JsonDocument payload;
 static JsonDocument doc;
+static proto_error_buffer_t error;
 static settings_section_t section;
 
 static void load(const char *json) {
@@ -19,7 +20,7 @@ static void load(const char *json) {
 }
 static const char *expand(const char *json, bool hasEthernet = true) {
   load(json);
-  return expandSettingsPayload(payload.as<JsonObjectConst>(), hasEthernet, section, doc);
+  return expandSettingsPayload(payload.as<JsonObjectConst>(), hasEthernet, section, doc, error);
 }
 static const char *sectionOf(const char *json) {
   load(json);
@@ -126,6 +127,16 @@ static void test_numbers_are_checked_against_what_the_radio_can_be_set_to() {
   TEST_ASSERT_EQUAL_STRING("rxBandwidth must be 58.03-812.50", expand(R"({"se":"radio","bw":900})"));
   TEST_ASSERT_EQUAL_STRING("deviation must be 1.58-380.85", expand(R"({"se":"radio","dv":0})"));
 }
+static void test_frequency_rejects_driver_band_gaps_without_clamping() {
+  for(const char *value:{"300","348","378","464","779","928"}) {
+    std::string json="{\"se\":\"radio\",\"fq\":"+std::string(value)+"}";
+    TEST_ASSERT_GOOD(expand(json.c_str()));
+  }
+  for(const char *value:{"348.01","360","377.99","464.01","700","778.99"}) {
+    std::string json="{\"se\":\"radio\",\"fq\":"+std::string(value)+"}";
+    TEST_ASSERT_NOT_NULL(expand(json.c_str()));
+  }
+}
 static void test_strings_must_fit_their_setting() {
   // hostname holds 31 characters, a PIN 4.
   TEST_ASSERT_GOOD(expand(R"({"se":"general","hn":"0123456789012345678901234567890"})"));
@@ -202,8 +213,39 @@ static void test_a_route_name_belongs_to_its_section() {
   TEST_ASSERT_EQUAL_UINT16(bit(settings_part_t::security), parts());
 }
 
+static void test_independent_settings_errors_survive_interleaved_parses() {
+  JsonDocument firstPayload, secondPayload, firstOut, secondOut;
+  proto_error_buffer_t firstBuffer, secondBuffer;
+  settings_section_t firstSection, secondSection;
+  deserializeJson(firstPayload, R"({"se":"general","unknown":1})");
+  deserializeJson(secondPayload, R"({"se":"mqtt","po":0})");
+  const char *firstError = expandSettingsPayload(firstPayload.as<JsonObjectConst>(), true, firstSection, firstOut, firstBuffer);
+  const char *secondError = expandSettingsPayload(secondPayload.as<JsonObjectConst>(), true, secondSection, secondOut, secondBuffer);
+  TEST_ASSERT_EQUAL_STRING("Unknown field unknown", firstError);
+  TEST_ASSERT_EQUAL_STRING("port must be 1-65535", secondError);
+}
+
+static void test_connection_choices_match_supported_hardware_before_expansion() {
+  const auto *wifi = settingsFieldAt(settings_section_t::network, 0, false);
+  TEST_ASSERT_EQUAL(proto_field_t::connMode, wifi->field);
+  TEST_ASSERT_EQUAL(1, wifi->lo);
+  TEST_ASSERT_EQUAL(1, wifi->hi);
+  TEST_ASSERT_EQUAL(1, wifi->choiceCount);
+  TEST_ASSERT_EQUAL(1, wifi->choices[0]);
+  TEST_ASSERT_GOOD(expand(R"({"se":"network","cn":1})", false));
+  TEST_ASSERT_NOT_NULL(expand(R"({"se":"network","cn":2})", false));
+  TEST_ASSERT_NOT_NULL(expand(R"({"se":"network","cn":3})", false));
+  TEST_ASSERT_GOOD(expand(R"({"se":"network","cn":2})", true));
+  TEST_ASSERT_GOOD(expand(R"({"se":"network","cn":3})", true));
+  const auto *ethernet = settingsFieldAt(settings_section_t::network, 0, true);
+  TEST_ASSERT_EQUAL(1, ethernet->lo);
+  TEST_ASSERT_EQUAL(3, ethernet->hi);
+}
+
 int main(int argc, char **argv) {
   UNITY_BEGIN();
+  RUN_TEST(test_connection_choices_match_supported_hardware_before_expansion);
+  RUN_TEST(test_independent_settings_errors_survive_interleaved_parses);
   RUN_TEST(test_every_section_by_its_name);
   RUN_TEST(test_a_section_must_be_named);
   RUN_TEST(test_short_keys_become_the_route_names);
@@ -214,7 +256,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_whole_numbers_are_checked_against_what_the_setting_holds);
   RUN_TEST(test_the_bit_length_is_56_or_80);
   RUN_TEST(test_the_radio_proto_is_one_there_is);
-  RUN_TEST(test_numbers_are_checked_against_what_the_radio_can_be_set_to);
+  RUN_TEST(test_numbers_are_checked_against_what_the_radio_can_be_set_to);RUN_TEST(test_frequency_rejects_driver_band_gaps_without_clamping);
   RUN_TEST(test_strings_must_fit_their_setting);
   RUN_TEST(test_addresses_are_checked_and_empty_clears_them);
   RUN_TEST(test_only_what_was_sent_is_in_the_request);

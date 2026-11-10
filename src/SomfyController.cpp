@@ -1,3 +1,9 @@
+#include "FrequencyScanService.h"
+#include "RestoreExecution.h"
+#include "ModelLoadSnapshot.h"
+#include "SettingsDurability.h"
+#include "RadioSettingsAdmission.h"
+#include "LilygoBuild.h"
 #include "esp_log.h"
 #include <WiFi.h>
 #include <LittleFS.h>
@@ -10,6 +16,11 @@
 #include "Somfy.h"
 #include "MqttConnection.h"
 #include "LoopQueue.h"
+#include "SafeRestart.h"
+#if defined(ESPSOMFY_BUNDLED_WEB)
+#include "BundledWebRoutes.h"
+#endif
+#include "entryPoints/ManualUploadSession.h"
 #include "ShadeRequests.h"
 #include "SomfyShadeOps.h"
 #include "esp_core_dump.h"
@@ -21,6 +32,14 @@
 #include <inttypes.h>
 #include "Timing.h"
 #include "BoardProfile.h"
+#include "GitUpdateBootHealth.h"
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+#include "GitUpdateController.h"
+#include "GitUpdateMemory.h"
+#include "GitUpdateAssets.h"
+#include "GitUpdateBootloader.h"
+#include <esp_timer.h>
+#endif
 
 static const char *TAG = "Main";
 #define LOOP_SLOW_MS 100
@@ -36,11 +55,22 @@ static const char *TAG = "Main";
 // at boot.  loop() confirms it once otaProven().
 extern "C" bool verifyRollbackLater() { return true; }
 static bool otaPending = false;
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+static GitUpdateBootHealth otaHealth;
+static bool updaterBootloaderHealthy=false,updaterAssetsHealthy=false;
+#endif
+GitUpdateBootStatus gitUpdateBootStatus(){
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  return {otaPending,otaHealth.rollbackRequired(),gitUpdateRecoveryNotice()};
+#else
+  return {otaPending,false};
+#endif
+}
 
 ConfigSettings settings;
 Web webServer;
 ESPNetwork net;
-rebootDelay_t rebootDelay;
+
 SomfyShadeController somfy;
 MqttConnection mqtt;
 SomfyShadeOps shadeOps;
@@ -81,6 +111,11 @@ static void onAllocFailed(size_t size, uint32_t caps, const char *function) {
 #include "StatusPanel.h"
 
 void setup() {
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  // The global allocator must precede display/capture/web startup and HMAC.
+  // On failure no later code attempts to switch allocation/free pairs.
+  gitUpdateMemoryBegin();
+#endif
   Serial.begin(SERIAL_BAUD);
   BoardProfile::begin();
   StatusPanel::begin();
@@ -127,7 +162,9 @@ void setup() {
 #undef CRASH_LOG
   }
   ESP_LOGI(TAG, "Mounting File System...");
-  if (LittleFS.begin()) {
+  const bool modelFsMounted=LittleFS.begin(false);
+  noteModelFilesystemMounted(modelFsMounted);
+  if (modelFsMounted) {
       ESP_LOGI(TAG, "Total: %d bytes", LittleFS.totalBytes());
       ESP_LOGI(TAG, "Used:  %d bytes", LittleFS.usedBytes());
       ESP_LOGI(TAG, "Free:  %d bytes", LittleFS.totalBytes() - LittleFS.usedBytes());
@@ -137,10 +174,13 @@ void setup() {
       ESP_LOGE(TAG, "LittleFS mount failed!");
   }
   settings.begin();
+  somfy.transceiver.loadReadOnly();
+  settings.applyStartup(somfy.transceiver.config);
   if(WiFi.status() == WL_CONNECTED) WiFi.disconnect(true);
   delay(10);
   // Before anything that can submit to it: the web servers and MQTT.
   loopQueue.begin();
+  beginRestoreExecution();
   webServer.startup();
   webServer.begin();
   delay(1000);
@@ -155,6 +195,16 @@ void setup() {
   otaPending = esp_ota_get_state_partition(esp_ota_get_running_partition(), &otaState) == ESP_OK &&
     otaState == ESP_OTA_IMG_PENDING_VERIFY;
   if(otaPending) ESP_LOGW(TAG, "Updated firmware, keeping it once it has run %ds with the network up", OTA_PROVEN_MS / 1000);
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  updaterBootloaderHealthy=gitUpdateBootloaderMatches();
+  updaterAssetsHealthy=gitUpdateAssetsMatch();
+  otaHealth.start(otaPending,0);
+  beginGitUpdateController();
+#endif
+}
+
+void performLegacyShutdown() {
+  net.end();ESP.restart();
 }
 
 void loop() {
@@ -163,20 +213,21 @@ void loop() {
   // Times the whole pass for the memory event, including any time the loop task was
   // pre-empted, since that delays the loop too.
   ElapsedTimer pass;
-  if(rebootDelay.reboot && millis() > rebootDelay.rebootTime) {
-    ESP_LOGI(TAG, "Rebooting after %lums", rebootDelay.rebootTime);
-    net.end();
-    ESP.restart();
-    return;
-  }
+  serviceRadioSettingsCleanup();
+  manualUploadLoop();
+  if(restartLoop()) return;
   // Each step only logs when it holds up the loop for LOOP_SLOW_MS or more.
   ElapsedTimer timing;
   net.loop();
   logIfSlow(TAG, "Loop net", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  if(!gitUpdateControllerPaused()) {
+#endif
   somfy.loop();
   logIfSlow(TAG, "Loop somfy", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
+  FrequencyScan::poll();
   loopQueue.drain();
   logIfSlow(TAG, "Loop queue", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
@@ -184,6 +235,9 @@ void loop() {
   somfy.sendChanges();
   logIfSlow(TAG, "Loop changes", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  }
+#endif
   if(net.connected() || net.softAPOpened) {
     webServer.loop();
     logIfSlow(TAG, "Loop web server", timing.lap(), LOOP_SLOW_MS);
@@ -192,16 +246,47 @@ void loop() {
     logIfSlow(TAG, "Loop sockets", timing.lap(), LOOP_SLOW_MS);
     esp_task_wdt_reset();
   }
-  if(rebootDelay.reboot && millis() > rebootDelay.rebootTime) {
-    net.end();
-    ESP.restart();
+  // Observe newly decoded movement before local input, so a cancelled restart
+  // cannot reject a STOP press for motion that this pass has already seen.
+  if(restartLoop()) return;
+  StatusPanel::loop();
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  // Normal accepted work drains before preparation. While paused, keep only
+  // network/status/UI and reducing cleanup active; never run model producers.
+  loopGitUpdateController();
+#endif
+  if(restartLoop()) return;
+  bool updateNetworkReady=net.connected() && somfy.modelLoad.usable() && settings.settingsUsable() &&
+      somfy.transceiver.config.loadStatus.usable() &&
+      (!somfy.transceiver.config.enabled || somfy.transceiver.config.radioInit) &&
+      settingsDurability().status().restartAllowed() && !somfy.isDirty;
+#if defined(ESPSOMFY_BUNDLED_WEB)
+  // Registration is necessary, but full installer health checks remain separate.
+  updateNetworkReady=updateNetworkReady && bundledWebRoutesReady();
+#endif
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  updateNetworkReady=updateNetworkReady && modelFilesystemMounted() && gitUpdateMemoryReady() &&
+      updaterBootloaderHealthy && updaterAssetsHealthy && StatusPanel::healthy() &&
+      !somfy.transceiver.counterEditUncertain() && (!somfy.transceiver.config.enabled || somfy.transceiver.available()) &&
+      !gitUpdateControllerPaused() && !gitUpdate.busy() && pass.us()<1000000 &&
+      heap_caps_get_free_size(MALLOC_CAP_INTERNAL|MALLOC_CAP_8BIT)>=24576;
+  const auto bootMicros=esp_timer_get_time();
+  const auto action=otaHealth.poll(updateNetworkReady,bootMicros<0?UINT64_MAX:uint64_t(bootMicros)/1000);
+  if(action==GitUpdateBootHealth::Action::confirm) {
+    if(esp_ota_mark_app_valid_cancel_rollback()==ESP_OK) {
+      otaHealth.confirmed();otaPending=false;
+      Serial.println("OTA health confirmed=1");
+    } else ESP_LOGE(TAG,"Unable to confirm updated firmware; keeping confirmation pending");
+  } else if(action==GitUpdateBootHealth::Action::rollbackRequired) {
+    ESP_LOGE(TAG,"Updated firmware failed boot health; rollback required");
   }
-  if(otaPending && otaProven(net.connected(), millis(), OTA_PROVEN_MS)) {
-    otaPending = false;
-    if(esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) ESP_LOGI(TAG, "Updated firmware confirmed, rollback cancelled");
+  gitUpdateRecoveryLoop(otaHealth.rollbackRequired(),bootMicros<0?UINT64_MAX:uint64_t(bootMicros)/1000);
+#else
+  if(otaPending && otaProven(updateNetworkReady, millis(), OTA_PROVEN_MS)) {
+    if(esp_ota_mark_app_valid_cancel_rollback() == ESP_OK) {otaPending = false;ESP_LOGI(TAG, "Updated firmware confirmed, rollback cancelled");}
     else ESP_LOGE(TAG, "Unable to confirm the updated firmware");
   }
+#endif
   esp_task_wdt_reset();
-  StatusPanel::loop();
   loopStats.record(pass.us());
 }

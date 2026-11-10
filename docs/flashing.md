@@ -2,7 +2,7 @@
 
 Use this procedure to back up an existing controller and update its firmware while preserving configuration, rolling codes and the previous application. A/B means two application slots: the updater writes the inactive one and selects it for the next boot.
 
-The normal path is a firmware-only A/B update on the **same verified partition layout**. It does not update the web filesystem. First installation, a layout change, a board without a second app slot, or recovery from an unreachable application needs a separate board-specific USB plan.
+The normal path is a firmware-only A/B update on the **same verified partition layout**. On the canonical shared LILYGO build, the matching web UI is embedded in that firmware and rolls back with it; private LittleFS data remains untouched. Generic firmware retains its existing separate web filesystem. First installation, a layout change, a board without a second app slot, or recovery from an unreachable application needs a separate board-specific USB plan.
 
 Run the blocks in order in the same Bash session from the repository root. Stop on any failure; do not treat a partial capture as a recovery set. Tool setup requires `uv` and network access; it installs only into your user-owned cache.
 
@@ -14,14 +14,11 @@ Record the physical board, source revision and firmware hash, build environment,
 
 Use the latest `main` as the completed integration baseline. New features start there and join `main` after review and tests, so subsequent firmware includes previous features. Do not assemble a deployment from unfinished parallel branches. Check that the selected image preserves the installed features:
 
-| Existing LILYGO setup | PlatformIO environment |
+| Physical LILYGO board | PlatformIO environment |
 | --- | --- |
-| Interactive LCD and manual controls | `lilygo-t-embed-cc1101-plus-ui` |
-| LCD UI with commands deliberately locked | `lilygo-t-embed-cc1101-plus-ui-preview` |
-| Simple read-only status screen | `lilygo-t-embed-cc1101-plus-display` |
-| Headless controller | `lilygo-t-embed-cc1101-plus` |
+| T-Embed CC1101 or CC1101 Plus | `lilygo-t-embed-cc1101` |
 
-For other supported boards, use their exact environment from `platformio.ini`. Do not flash a headless build over an LCD installation accidentally.
+The shared build includes the display, local interface and local commands. The retired Plus-only environment and `-display`, `-ui` and `-ui-preview` environments are rejected and must not silently alias a new image. Treat transition from an old profile as a separately verified migration; do not infer hardware identity from its display or version text. Generic boards keep their distinct environments.
 
 Identify HA/HomeKit/MQTT automation writers and arrange a quiet period so state and counters cannot advance unnoticed during capture. Record any automation changes for restoration. Do not run a second controller with the same radio identities.
 
@@ -88,18 +85,18 @@ An exception is allowed **only when Sid explicitly authorizes firmware-only A/B 
 
 ## 3. Build and check the exact candidate
 
-Use the pinned pioarduino Core 6.2.0 toolchain installed by `bash tools/setup-lilygo.sh`. From the chosen clean source worktree, this example builds the interactive LCD variant without accessing a device:
+Use the pinned pioarduino Core 6.2.0 toolchain installed by `bash tools/setup-lilygo.sh`. From the chosen clean source worktree, this example builds the shared full-feature CC1101/Plus target without accessing a device:
 
 ```bash
 set -euo pipefail
 pio_tool="${ESPSOMFY_TOOL_CACHE:-$HOME/.cache/espsomfy-lilygo}/pio-python/bin/pio"
-build_environment=lilygo-t-embed-cc1101-plus-ui
+build_environment=lilygo-t-embed-cc1101
 "$pio_tool" run -e "$build_environment" -j 4
 artifact_dir="$PWD/.pio/build/$build_environment"
 sha256sum "$artifact_dir/firmware.bin" "$artifact_dir/firmware.elf" "$artifact_dir/partitions.bin"
 ```
 
-If `PLATFORMIO_BUILD_DIR` is set, use that actual output directory instead. Record the clean Git revision, environment, relevant compiler defines, tool/dependency versions, firmware size and hashes. Keep the ELF for decoding a later crash. Run the relevant native, protocol, board/SPI and display/adapter checks before installation; [AGENTS.md](../AGENTS.md) and the [UI guide](lilygo-local-ui.md) list them. The headless `tools/build-lilygo.sh` packager must not label an LCD UI image.
+If `PLATFORMIO_BUILD_DIR` is set, use that actual output directory instead. Record the clean Git revision, environment, relevant compiler defines, tool/dependency versions, firmware size and hashes. Keep the ELF for decoding a later crash. Run the relevant native, protocol, board/SPI and display/adapter checks before installation; [AGENTS.md](../AGENTS.md) and the [UI guide](lilygo-local-ui.md) list them. The `tools/build-lilygo.sh` packager validates the single full-feature shared image and its exact supported CC1101/Plus hardware list.
 
 Compare the candidate's decoded partition table with the board's verified table. Account for erased sector padding when comparing generated `partitions.bin` with a flash sector. Confirm the inactive app differs from the running app and the image fits it. An A/B upload cannot migrate partitions or create a second slot.
 
@@ -113,13 +110,57 @@ Use the authenticated local **firmware update** screen, which posts one file to 
 
 Upload exactly that one file once. Do not choose **application/filesystem update** (`/updateApplication`) or **restore** (`/restore`). A successful firmware-only update changes the inactive application and normal OTA-selection metadata; NVS, LittleFS, bootloader, partition table and the old active application remain untouched.
 
-The upload stops radio/MQTT operation and schedules a reboot. Keep stable power and retain the response and private diagnostics. A dropped HTTP connection is ambiguous: inspect the running build/slot before retrying. HTTP success alone does not establish that the intended firmware booted.
+On the canonical bundled build, **HTTP 202 / `QUEUED` means the file was
+received and staged for verification/installation**. It does not mean the image
+was installed or selected for boot. The response supplies an exact
+`operationGeneration`; the browser follows that operation through
+`/firmwareStatus`. Receipt, verification, installation and restart are separate
+states. Initial staging does not pause radio/MQTT or select an app slot. The
+verified, loop-owned installer later performs idle/work admission, current-state
+saving, resource pausing and checked installation/restart.
+
+Keep stable power and retain the response and private diagnostics. Do not retry
+a failed, interrupted or ambiguous upload automatically. HTTP 409 from operation
+status means the tracked operation is no longer current: reconnect and review
+the running identity/slot and status before deliberately deciding what to do.
+A dropped connection or HTTP success alone proves neither installation nor boot.
+Generic builds retain their legacy firmware-upload path; canonical staging/status
+semantics must not be assumed for those builds.
 
 ## 5. Verify the reboot without moving anything
 
 Identify the new boot by its exact firmware image/ELF identity, app slot and restarted uptime, not just the version label. Allow the updater's delayed reboot; exclude an early response from the old application.
 
-When an image is pending OTA validation, this firmware confirms it once **uptime is at least 60,000 ms and the network is connected**. This is not proof of radio operation or 60 continuous seconds of connectivity. Verify the confirmation result and stable uptime, then observe longer for unexpected restarts, watchdogs or memory loss.
+Arrange continuous passive monitoring **before the pending image boots**. USB
+serial attachment, port closure and control-signal changes can reset some
+board/host combinations. Keep DTR/RTS behaviour and HUPCL (hang-up-on-close)
+under control, and avoid opening/closing competing monitors until confirmation.
+An unexpected reset can invalidate a pending-image validation trial and affect
+bootloader rollback. Record the reset reason and boot sequence; rollback alone
+does not establish that the host caused it.
+
+For the canonical LILYGO build, a pending image requires **60 continuous healthy
+seconds**, not just 60 seconds of uptime. Health includes connected networking,
+trusted model/settings/radio configuration, verified saved state, mounted model
+storage, updater allocator/bootloader/bundled assets, healthy LCD rendering,
+no counter-storage uncertainty and available radio when enabled. Updates must not be
+paused/busy; loop passes must stay below one second and free internal memory
+must be at least 24 KiB. An unhealthy sample or an observation gap longer than
+one second restarts the healthy interval. Confirm that OTA validation actually
+succeeded, then observe longer for unexpected resets, watchdogs or memory loss.
+
+At 180 seconds without confirmation, the canonical build records a rollback
+intent; it does **not** force an immediate reboot through movement or queued
+work. The LCD briefly reports what it is waiting for. Automatic rollback waits
+for safe idle/work admission and a verified current-state save, then schedules
+a checked restart. New movement can postpone it again. **Rollback needs
+attention** means a safe previous-image/recovery path could not be established.
+See [boot health and recovery](github-update-boot-health.md).
+
+Other generic builds retain the legacy uptime-based `otaProven` condition:
+at least 60 seconds uptime plus the shared network/model/settings readiness
+checks. That condition does not establish the canonical continuous-health
+interval. Neither policy establishes physical motor or RF behaviour.
 
 Compare saved and current configuration, identities, membership, calibration and counters. Investigate differences; do not overwrite newer counters to force equality. Verify protocol synchronization and the expected schema capability, radio initialization/register/RX status, Wi-Fi/listener availability, and read-only HA entity availability. For LCD builds also check command-lock status and framebuffer/fallback health. These checks establish software state, not physical motor movement or RF reliability.
 

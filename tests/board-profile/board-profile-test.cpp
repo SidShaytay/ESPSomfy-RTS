@@ -1,8 +1,10 @@
 #include <assert.h>
 #include <stdio.h>
 #include "BoardProfile.h"
+#include "StatusBuild.h"
 #include "SPI.h"
 #include <driver/gpio.h>
+#include <initializer_list>
 
 TestSerial Serial;
 TestESP ESP;
@@ -57,6 +59,30 @@ unsigned long millis() { return clockMs; }
 void delay(unsigned long duration) { clockMs += duration; }
 
 int main() {
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  assert(BoardProfile::integratedRadio && strcmp(BoardProfile::name, "CC1101 / Plus") == 0);
+#else
+  assert(!BoardProfile::integratedRadio && strcmp(BoardProfile::name, "Generic") == 0);
+#endif
+  assert(!BoardProfile::radioFrequencyAllowed(NAN));assert(!BoardProfile::radioFrequencyAllowed(INFINITY));
+  if(BoardProfile::integratedRadio) {
+    assert(BoardProfile::radioFrequencyAllowed(387));assert(BoardProfile::radioFrequencyAllowed(464));
+    assert(!BoardProfile::radioFrequencyAllowed(386.99f));assert(!BoardProfile::radioFrequencyAllowed(464.01f));
+  } else {
+    for(float f:{300.f,348.f,378.f,464.f,779.f,928.f})assert(BoardProfile::radioFrequencyAllowed(f));
+    for(float f:{299.99f,348.01f,377.99f,464.01f,778.99f,928.01f})assert(!BoardProfile::radioFrequencyAllowed(f));
+  }
+  char build[48];
+  StatusPanel::buildIdentity(build, sizeof(build), "test");
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+#ifdef ESPSOMFY_LOCAL_UI
+  assert(strcmp(build, "CC1101 / Plus UI test") == 0);
+#else
+  assert(strcmp(build, "CC1101 / Plus LCD test") == 0);
+#endif
+#else
+  assert(strcmp(build, "Generic LCD test") == 0);
+#endif
   BoardProfile::begin();
   if(BoardProfile::integratedRadio) {
     assert(powerTransitions == 1);

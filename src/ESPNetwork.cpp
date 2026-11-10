@@ -1,3 +1,4 @@
+#include "PinOwnership.h"
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <ESPmDNS.h>
@@ -8,6 +9,8 @@
 #include "Somfy.h"
 #include "outputs/ProtoSocket.h"
 #include "Utils.h"
+#include "WifiClientScan.h"
+#include <esp_timer.h>
 #include "SSDP.h"
 #include "MqttConnection.h"
 
@@ -15,41 +18,50 @@ static const char *TAG = "Network";
 
 extern ConfigSettings settings;
 extern MqttConnection mqtt;
-extern rebootDelay_t rebootDelay;
+
 extern ESPNetwork net;
 extern SomfyShadeController somfy;
 extern LoopStats loopStats;
 
 static bool _apScanning = false;
-// The scan for clients: asked for, then running.  WiFi holds the results of
-// one scan at a time, so it and the roaming scan never overlap.
-static bool _clientScanWanted = false;
-static bool _clientScanning = false;
+static WifiClientScan clientScanner(wifiScanFeed());
 int connectRetries = 0;
-// A client that asks during a scan gets that scan's networks.
-void ESPNetwork::scanForClients() { if(!_clientScanning) _clientScanWanted = true; }
-static void clientScanLoop(ESPNetwork &net) {
-  if(_clientScanning) {
-    const int16_t n = WiFi.scanComplete();
-    if(n == WIFI_SCAN_RUNNING) return;
-    _clientScanning = false;
-    if(n < 0) ESP_LOGW(TAG, "WiFi scan failed");
-    else ESP_LOGI(TAG, "Scanned %d networks", n);
+void ESPNetwork::scanForClients() { clientScanner.requestWeb(uint64_t(esp_timer_get_time())/1000); }
+namespace {
+class ClientScanDriver final : public WifiScanDriver {
+  ESPNetwork &network;
+  int networks=0;
+public:
+  explicit ClientScanDriver(ESPNetwork &value):network(value){}
+  bool mayStart() const override {return !_apScanning && !network.connecting() && WiFi.scanComplete()==WIFI_SCAN_FAILED;}
+  bool start() override {
+    // The SDK returns RUNNING for an already-active foreign scan too. It also
+    // deletes cold result storage on start, so neither state grants ownership.
+    if(WiFi.scanComplete()!=WIFI_SCAN_FAILED)return false;
+    // Preserve the existing explicit client-scan behavior. No settings save or
+    // connection to a selected result is performed here.
+    if(network.softAPOpened)WiFi.disconnect(false);
+    return WiFi.scanNetworks(true,true)==WIFI_SCAN_RUNNING;
+  }
+  int result() override {networks=WiFi.scanComplete();return networks;}
+  uint16_t count() const override {return networks>0?uint16_t(networks):0;}
+  bool read(uint16_t index,WifiScanNetwork &out) const override {
+    out={};if(index>=count() || index>255)return false;
+    String ssid;uint8_t authentication=0,*bssid=nullptr;int32_t rssi=0,channel=0;
+    if(!WiFi.getNetworkInfo(uint8_t(index),ssid,authentication,rssi,bssid,channel) ||
+       ssid.length()>32 || !bssid || rssi<INT16_MIN || rssi>INT16_MAX || channel<0 || channel>255)return false;
+    memcpy(out.ssid,ssid.c_str(),ssid.length());memcpy(out.bssid,bssid,6);
+    out.rssi=int16_t(rssi);out.channel=uint8_t(channel);out.authentication=authentication;return true;
+  }
+  void broadcast(int n) override {
+    networks=n;
+    if(n<0)ESP_LOGW(TAG,"WiFi scan failed");else ESP_LOGI(TAG,"Scanned %d networks",n);
     protoSocket.wifiNetworks(n);
-    WiFi.scanDelete();
-    return;
   }
-  // Not in the middle of joining a network either, as the roaming scan isn't.
-  if(!_clientScanWanted || _apScanning || net.connecting()) return;
-  _clientScanWanted = false;
-  // As /scanaps does: the soft AP's connection attempts would get in its way.
-  if(net.softAPOpened) WiFi.disconnect(false);
-  if(WiFi.scanNetworks(true, true) == WIFI_SCAN_RUNNING) _clientScanning = true;
-  else {
-    ESP_LOGW(TAG, "WiFi scan didn't start");
-    protoSocket.wifiNetworks(WIFI_SCAN_FAILED);
-  }
+  void clearResults() override {WiFi.scanDelete();}
+};
 }
+static void clientScanLoop(ESPNetwork &net) {ClientScanDriver driver(net);clientScanner.loop(driver,uint64_t(esp_timer_get_time())/1000);}
 void ESPNetwork::end() {
   SSDP.end();
   mqtt.end();
@@ -63,6 +75,11 @@ bool ESPNetwork::setup() {
   WiFi.setAutoReconnect(false);
   WiFi.onEvent(this->networkEvent);
   this->disconnectTime = millis();
+  if(!settings.networkUsable()) {
+    // Existing fallback transport only: never apply unreadable stored settings.
+    if(WiFi.status()==WL_CONNECTED)WiFi.disconnect(false,false);
+    this->openSoftAP();return true;
+  }
   if(WiFi.status() == WL_CONNECTED) WiFi.disconnect(true, true);
   if(settings.connType == conn_types_t::wifi || settings.connType == conn_types_t::unset) {
     WiFi.persistent(false);
@@ -112,6 +129,10 @@ void ESPNetwork::loop() {
   //    c. SoftAP: This condition retains the Soft AP because no other connection method is available.
   // Before the connection steps, which return early while connecting.
   clientScanLoop(*this);
+  if(!settings.networkUsable()) {
+    if(!softAPOpened && !openingSoftAP)this->openSoftAP();
+    return;
+  }
   conn_types_t ctype = this->preferredConnType();
   this->connect(ctype); // Connection timeout handled in connect function as well as the opening of the Soft AP if needed.
   if(this->connecting()) return; // If we are currently attempting to connect to something then we need to bail here.
@@ -145,7 +166,7 @@ void ESPNetwork::loop() {
       }
     }
   }
-  if(!this->connecting() && !settings.WIFI.hidden && !_clientScanWanted && !_clientScanning) {
+  if(!this->connecting() && !settings.WIFI.hidden && !clientScanner.pending() && !clientScanner.active()) {
     if((this->softAPOpened && WiFi.softAPgetStationNum() == 0) ||
       (!this->connected() && ctype == conn_types_t::wifi)) {
       // If the Soft AP is opened and there are no clients connected then we need to scan for an AP.  If
@@ -324,6 +345,7 @@ void ESPNetwork::setConnected(conn_types_t connType) {
 }
 #if HAS_ETHERNET
 bool ESPNetwork::connectWired() {
+  if(!settings.networkUsable())return false;
   if(ETH.linkUp()) {
     // If the ethernet link is re-established then we need to shut down wifi.
     if(WiFi.status() == WL_CONNECTED) {
@@ -347,6 +369,12 @@ bool ESPNetwork::connectWired() {
   this->connTarget = conn_types_t::ethernet;
   this->connType = conn_types_t::unset;
   if(!this->ethStarted) {
+    if(!ethernetActivationPinsAvailable(settings)) {
+      if(!this->connected())this->openSoftAP();
+      return false;
+    }
+    // Retain before any driver attempt, including a later partial failure.
+    liveEthernetPins.retain(settings.Ethernet.pinClaims());
     // Currently the ethernet module will leak memory if you call begin more than once.
     this->ethStarted = true;
     WiFi.mode(WIFI_OFF);
@@ -409,6 +437,7 @@ void ESPNetwork::updateHostname() {
   }
 }
 bool ESPNetwork::connectWiFi(const uint8_t *bssid, const int32_t channel) {
+  if(!settings.networkUsable())return false;
   if(this->softAPOpened && WiFi.softAPgetStationNum() > 0) {
     // There is a client connected to the soft AP.  We do not want to close out the connection.  While both the
     // Soft AP and a wifi connection can coexist on ESP32 the performance is abysmal.
@@ -555,7 +584,7 @@ bool ESPNetwork::openSoftAP() {
   this->openingSoftAP = true;
   ESP_LOGI(TAG, "Turning the HotSpot On");
   resetTaskWdt(); // Make sure we do not reboot here.
-  WiFi.softAP(strlen(settings.hostname) > 0 ? settings.hostname : "ESPSomfy RTS", "");
+  WiFi.softAP(settings.loadStatus.usable() && strlen(settings.hostname)>0 ? settings.hostname : "ESPSomfy RTS", "");
   delay(200);
   return true;
 }

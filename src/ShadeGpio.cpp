@@ -1,19 +1,36 @@
 #include "esp_log.h"
 #include "Somfy.h"
-#include "BoardProfile.h"
+extern SomfyShadeController somfy;
+#include "ShadeGpioPolicy.h"
+#include "GpioPinClaims.h"
 
 static const char *TAG = "Somfy";
 
-// A backup may contain GPIO assignments from another board. Keep its shade
-// identity, but never drive a pad used by this board's integrated hardware.
-static bool usesBoardGPIOs(const SomfyShade &shade) {
-  if(shade.proto != radio_proto::GP_Relay && shade.proto != radio_proto::GP_Remote) return false;
-  return BoardProfile::usesPin(shade.gpioUp) || BoardProfile::usesPin(shade.gpioDown) ||
-    (shade.proto == radio_proto::GP_Remote && BoardProfile::usesPin(shade.gpioMy));
+// Legacy/foreign assignments stay stored for explicit repair, but never reach
+// physical GPIO setup or writes when reserved, invalid or aliased.
+static bool unsafeGPIOs(SomfyShade &shade) {
+  if(!ShadeGpioPolicy::physicalMask(shade.proto))return false;
+  return shade.validateGPIOs(shade.proto,shade.gpioUp,shade.gpioDown,shade.gpioMy)!=0;
+}
+static void writeAssignedGPIO(uint8_t pin,uint8_t value) {
+  if(pin!=255)digitalWrite(pin,value);
+}
+void SomfyShadeController::configureGPIOs() {
+  if(!modelLoad.usable())return;
+  for(auto &shade:this->shades)if(shade.getShadeId()!=255)shade.configureGPIOs();
+}
+void SomfyShade::configureGPIOs() {
+  if(!somfy.modelLoad.usable())return;
+  if(unsafeGPIOs(*this))return;
+  const uint8_t mask=ShadeGpioPolicy::physicalMask(this->proto);
+  const uint8_t pins[]={this->gpioUp,this->gpioDown,this->gpioMy};
+  retainGpioPinClaims(ShadeGpioPolicy::pinClaims(this->proto,this->gpioUp,this->gpioDown,this->gpioMy));
+  for(uint8_t i=0;i<3;i++)if((mask & (1u<<i)) && pins[i]!=255)pinMode(pins[i],OUTPUT);
 }
 
 void SomfyShade::setGPIOs() {
-  if(usesBoardGPIOs(*this)) return;
+  if(!somfy.modelLoad.usable())return;
+  if(unsafeGPIOs(*this)) return;
   if(this->proto == radio_proto::GP_Relay) {
     // Determine whether the direction needs to be set.
     uint8_t p_on = (this->gpioFlags & (uint8_t)gpio_flags_t::LowLevelTrigger) == 0x00 ? HIGH : LOW;
@@ -25,37 +42,37 @@ void SomfyShade::setGPIOs() {
     else if(this->tiltType == tilt_types::tiltonly)
       dir = this->state().tiltDirection;
     if(this->shadeType == shade_types::drycontact) {
-      digitalWrite(this->gpioDown, this->state().currentPos == 100 ? p_on : p_off);
+      writeAssignedGPIO(this->gpioDown, this->state().currentPos == 100 ? p_on : p_off);
       this->gpioDir = this->state().currentPos == 100 ? 1 : -1;
     }
     else if(this->shadeType == shade_types::drycontact2) {
       if(this->state().currentPos == 100) {
-        digitalWrite(this->gpioDown, p_off);
-        digitalWrite(this->gpioUp, p_on);
+        writeAssignedGPIO(this->gpioDown, p_off);
+        writeAssignedGPIO(this->gpioUp, p_on);
       }
       else {
-        digitalWrite(this->gpioUp, p_off);
-        digitalWrite(this->gpioDown, p_on);
+        writeAssignedGPIO(this->gpioUp, p_off);
+        writeAssignedGPIO(this->gpioDown, p_on);
       }
       this->gpioDir = this->state().currentPos == 100 ? 1 : -1;
     }
     else {
       switch(dir) {
         case -1:
-          digitalWrite(this->gpioDown, p_off);
-          digitalWrite(this->gpioUp, p_on);
+          writeAssignedGPIO(this->gpioDown, p_off);
+          writeAssignedGPIO(this->gpioUp, p_on);
           if(dir != this->gpioDir) ESP_LOGD(TAG, "UP: true, DOWN: false");
           this->gpioDir = dir;
           break;
         case 1:
-          digitalWrite(this->gpioUp, p_off);
-          digitalWrite(this->gpioDown, p_on);
+          writeAssignedGPIO(this->gpioUp, p_off);
+          writeAssignedGPIO(this->gpioDown, p_on);
           if(dir != this->gpioDir) ESP_LOGD(TAG, "UP: false, DOWN: true");
           this->gpioDir = dir;
           break;
         default:
-          digitalWrite(this->gpioUp, p_off);
-          digitalWrite(this->gpioDown, p_off);
+          writeAssignedGPIO(this->gpioUp, p_off);
+          writeAssignedGPIO(this->gpioDown, p_off);
           if(dir != this->gpioDir) ESP_LOGD(TAG, "UP: false, DOWN: false");
           this->gpioDir = dir;
           break;
@@ -66,16 +83,17 @@ void SomfyShade::setGPIOs() {
     if(millis() > this->gpioRelease) {
       //uint8_t p_on = (this->gpioFlags & (uint8_t)gpio_flags_t::LowLevelTrigger) == 0x00 ? HIGH : LOW;
       uint8_t p_off = (this->gpioFlags & (uint8_t)gpio_flags_t::LowLevelTrigger) == 0x00 ? LOW : HIGH;
-      digitalWrite(this->gpioUp, p_off);
-      digitalWrite(this->gpioDown, p_off);
-      digitalWrite(this->gpioMy, p_off);
+      writeAssignedGPIO(this->gpioUp, p_off);
+      writeAssignedGPIO(this->gpioDown, p_off);
+      writeAssignedGPIO(this->gpioMy, p_off);
       this->gpioRelease = 0;
     }
   }
 }
 void SomfyRemote::triggerGPIOs(somfy_frame_t &) { }
 void SomfyShade::triggerGPIOs(somfy_frame_t &frame) {
-  if(usesBoardGPIOs(*this)) return;
+  if(!somfy.modelLoad.usable())return;
+  if(unsafeGPIOs(*this)) return;
   if(this->proto == radio_proto::GP_Remote) {
     uint8_t p_on = (this->gpioFlags & (uint8_t)gpio_flags_t::LowLevelTrigger) == 0x00 ? HIGH : LOW;
     uint8_t p_off = (this->gpioFlags & (uint8_t)gpio_flags_t::LowLevelTrigger) == 0x00 ? LOW : HIGH;
@@ -83,18 +101,18 @@ void SomfyShade::triggerGPIOs(somfy_frame_t &frame) {
     switch(frame.cmd) {
       case somfy_commands::My:
         if(this->shadeType != shade_types::drycontact && !this->isToggle()) {
-          digitalWrite(this->gpioUp, p_off);
-          digitalWrite(this->gpioDown, p_off);
-          digitalWrite(this->gpioMy, p_on);
+          writeAssignedGPIO(this->gpioUp, p_off);
+          writeAssignedGPIO(this->gpioDown, p_off);
+          writeAssignedGPIO(this->gpioMy, p_on);
           dir = 0;
           if(dir != this->gpioDir) ESP_LOGD(TAG, "UP: false, DOWN: false, MY: true");
         }
         break;
       case somfy_commands::Up:
         if(this->shadeType != shade_types::drycontact && !this->isToggle() && this->shadeType != shade_types::drycontact2) {
-          digitalWrite(this->gpioMy, p_off);
-          digitalWrite(this->gpioDown, p_off);
-          digitalWrite(this->gpioUp, p_on);
+          writeAssignedGPIO(this->gpioMy, p_off);
+          writeAssignedGPIO(this->gpioDown, p_off);
+          writeAssignedGPIO(this->gpioUp, p_on);
           dir = -1;
           ESP_LOGD(TAG, "UP: true, DOWN: false, MY: false");
         }
@@ -102,34 +120,34 @@ void SomfyShade::triggerGPIOs(somfy_frame_t &frame) {
       case somfy_commands::Toggle:
       case somfy_commands::Down:
         if(this->shadeType != shade_types::drycontact && !this->isToggle() && this->shadeType != shade_types::drycontact2) {
-          digitalWrite(this->gpioMy, p_off);
-          digitalWrite(this->gpioUp, p_off);
+          writeAssignedGPIO(this->gpioMy, p_off);
+          writeAssignedGPIO(this->gpioUp, p_off);
         }
-        digitalWrite(this->gpioDown, p_on);
+        writeAssignedGPIO(this->gpioDown, p_on);
         dir = 1;
         ESP_LOGD(TAG, "UP: false, DOWN: true, MY: false");
         break;
       case somfy_commands::MyUp:
         if(this->shadeType != shade_types::drycontact && !this->isToggle() && this->shadeType != shade_types::drycontact2) {
-          digitalWrite(this->gpioDown, p_off);
-          digitalWrite(this->gpioMy, p_on);
-          digitalWrite(this->gpioUp, p_on);
+          writeAssignedGPIO(this->gpioDown, p_off);
+          writeAssignedGPIO(this->gpioMy, p_on);
+          writeAssignedGPIO(this->gpioUp, p_on);
           ESP_LOGD(TAG, "UP: true, DOWN: false, MY: true");
         }
         break;
       case somfy_commands::MyDown:
         if(this->shadeType != shade_types::drycontact && !this->isToggle() && this->shadeType != shade_types::drycontact2) {
-          digitalWrite(this->gpioUp, p_off);
-          digitalWrite(this->gpioMy, p_on);
-          digitalWrite(this->gpioDown, p_on);
+          writeAssignedGPIO(this->gpioUp, p_off);
+          writeAssignedGPIO(this->gpioMy, p_on);
+          writeAssignedGPIO(this->gpioDown, p_on);
           ESP_LOGD(TAG, "UP: false, DOWN: true, MY: true");
         }
         break;
       case somfy_commands::MyUpDown:
         if(this->shadeType != shade_types::drycontact && this->isToggle() && this->shadeType != shade_types::drycontact2) {
-          digitalWrite(this->gpioUp, p_on);
-          digitalWrite(this->gpioMy, p_on);
-          digitalWrite(this->gpioDown, p_on);
+          writeAssignedGPIO(this->gpioUp, p_on);
+          writeAssignedGPIO(this->gpioMy, p_on);
+          writeAssignedGPIO(this->gpioDown, p_on);
           ESP_LOGD(TAG, "UP: true, DOWN: true, MY: true");
         }
         break;
@@ -141,19 +159,9 @@ void SomfyShade::triggerGPIOs(somfy_frame_t &frame) {
   }  
 }
 bool SomfyShade::usesPin(uint8_t pin) {
-  if(this->proto != radio_proto::GP_Remote && this->proto != radio_proto::GP_Relay) return false;
-  if(this->gpioDown == pin) return true;
-  else if(this->shadeType == shade_types::drycontact)
-    return this->gpioDown == pin;
-  else if(this->isToggle()) {
-    if(this->proto == radio_proto::GP_Relay && this->gpioUp == pin) return true;    
-  }
-  else if(this->shadeType == shade_types::drycontact2) {
-    if(this->proto == radio_proto::GP_Relay && (this->gpioUp == pin || this->gpioDown == pin)) return true;
-  }
-  else {
-    if(this->gpioUp == pin) return true;
-    else if(this->proto == radio_proto::GP_Remote && this->gpioMy == pin) return true;    
-  }
-  return false;
+  if(pin==255)return false;
+  const uint8_t mask=ShadeGpioPolicy::physicalMask(this->proto);
+  return ((mask & ShadeGpioPolicy::up) && this->gpioUp==pin) ||
+    ((mask & ShadeGpioPolicy::down) && this->gpioDown==pin) ||
+    ((mask & ShadeGpioPolicy::my) && this->gpioMy==pin);
 }

@@ -3,6 +3,7 @@
 #include "ProtoEdits.h"
 #include "ProtoParse.h"
 #include "BitLength.h"
+#include "EntityFields.h"
 
 struct edit_op_t {
   proto_type_t type;
@@ -64,20 +65,32 @@ static const proto_field_t GROUP_FIELDS[] = {
   proto_field_t::name, proto_field_t::roomId, proto_field_t::remoteAddress, proto_field_t::bitLength,
   proto_field_t::proto, proto_field_t::flipCommands, proto_field_t::repeats
 };
-template<size_t N>
-static bool in(proto_field_t field, const proto_field_t (&fields)[N]) {
-  for(proto_field_t f : fields)
-    if(f == field) return true;
-  return false;
+const edit_form_t *editForm(model_edit_type_t type) {
+  static const edit_form_t FORMS[] = {
+    {ROOM_FIELDS, sizeof(ROOM_FIELDS)/sizeof(*ROOM_FIELDS), proto_field_t::count},
+    {SHADE_FIELDS, sizeof(SHADE_FIELDS)/sizeof(*SHADE_FIELDS), proto_field_t::count},
+    {GROUP_FIELDS, sizeof(GROUP_FIELDS)/sizeof(*GROUP_FIELDS), proto_field_t::count},
+    {ROOM_FIELDS, sizeof(ROOM_FIELDS)/sizeof(*ROOM_FIELDS), proto_field_t::roomId},
+    {SHADE_FIELDS, sizeof(SHADE_FIELDS)/sizeof(*SHADE_FIELDS), proto_field_t::shadeId},
+    {GROUP_FIELDS, sizeof(GROUP_FIELDS)/sizeof(*GROUP_FIELDS), proto_field_t::groupId}
+  };
+  switch(type) {
+    case model_edit_type_t::add_room: return &FORMS[0];
+    case model_edit_type_t::add_shade: return &FORMS[1];
+    case model_edit_type_t::add_group: return &FORMS[2];
+    case model_edit_type_t::save_room: return &FORMS[3];
+    case model_edit_type_t::save_shade: return &FORMS[4];
+    case model_edit_type_t::save_group: return &FORMS[5];
+    default: return nullptr;
+  }
 }
 static bool takes(model_edit_type_t type, proto_field_t f) {
+  if(const auto *form = editForm(type)) {
+    if(form->identity != proto_field_t::count && f == form->identity) return true;
+    for(uint8_t i=0;i<form->count;i++) if(f == form->fields[i]) return true;
+    return false;
+  }
   switch(type) {
-    case model_edit_type_t::add_room: return in(f, ROOM_FIELDS);
-    case model_edit_type_t::save_room: return f == proto_field_t::roomId || in(f, ROOM_FIELDS);
-    case model_edit_type_t::add_shade: return in(f, SHADE_FIELDS);
-    case model_edit_type_t::save_shade: return f == proto_field_t::shadeId || in(f, SHADE_FIELDS);
-    case model_edit_type_t::add_group: return in(f, GROUP_FIELDS);
-    case model_edit_type_t::save_group: return f == proto_field_t::groupId || in(f, GROUP_FIELDS);
     case model_edit_type_t::delete_room: return f == proto_field_t::roomId;
     case model_edit_type_t::delete_shade: return f == proto_field_t::shadeId;
     case model_edit_type_t::delete_group: return f == proto_field_t::groupId;
@@ -98,10 +111,8 @@ static const char *routeName(model_edit_type_t type, proto_field_t f) {
   if(type == model_edit_type_t::link_remote && f == proto_field_t::lastRollingCode) return "rollingCode";
   return protoField(f).name;
 }
-// What the reply's desc points at; every parse runs on async_tcp, one at a
-// time.
-static char why[64];
-const char *expandEditPayload(model_edit_type_t type, JsonObjectConst d, JsonDocument &doc) {
+const char *expandEditPayload(model_edit_type_t type, JsonObjectConst d, JsonDocument &doc, proto_error_buffer_t &why) {
+  why[0] = '\0';
   doc.clear();
   switch(type) {
     case model_edit_type_t::room_order:
@@ -141,7 +152,15 @@ const char *expandEditPayload(model_edit_type_t type, JsonObjectConst d, JsonDoc
     if(field == proto_field_t::bitLength &&
        (!kv.value().is<uint8_t>() || !supportedBitLength(kv.value().as<uint8_t>())))
       return "bitLength must be 56 or 80";
+    if(const auto *bounds=entityField(type,field)) {
+      if(!validEntityValue(*bounds,kv.value())) {
+        snprintf(why,sizeof(why),"%s is outside its supported bounds",f.name);
+        return why;
+      }
+    }
   }
+  if((type==model_edit_type_t::link_to_group || type==model_edit_type_t::unlink_from_group) &&
+     (obj["groupId"].isNull() || obj["shadeId"].isNull()))return "Membership requires groupId and shadeId";
   // A left-out field is not given, so it can't stand for unpaired.
   if(type == model_edit_type_t::set_paired && obj["paired"].isNull()) return "paired is missing";
   return doc.overflowed() ? "Too large" : nullptr;

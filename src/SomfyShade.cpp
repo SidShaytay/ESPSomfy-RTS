@@ -6,7 +6,16 @@ static const char *TAG = "Somfy";
 
 extern SomfyShadeController somfy;
 
+void SomfyShade::onChanged(uint16_t bits) {
+  this->changed |= bits;
+  if(bits & (SHADE_CHANGED_MY_POS | SHADE_CHANGED_MY_TILT_POS)) {
+    ++configurationRevision;
+    ++somfy.configurationRevision;
+  }
+}
+
 void SomfyShade::clear() {
+  ++configurationRevision;
   this->setShadeId(255);
   this->setRemoteAddress(0);
   this->behaviour.clear();
@@ -29,33 +38,11 @@ void SomfyShade::clear() {
   this->repeats = 1;
   this->sortOrder = 255;
 }
-bool SomfyShade::linkRemote(uint32_t address, uint16_t rollingCode) {
-  Preferences pref;
-  // Check to see if the remote is already linked. If it is
-  // just return true after setting the rolling code
-  for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
-    if(this->linkedRemotes[i].getRemoteAddress() == address) {
-      this->linkedRemotes[i].setRollingCode(rollingCode);
-      return true;
-    }
-  }
-  for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
-    if(this->linkedRemotes[i].getRemoteAddress() == 0) {
-      this->linkedRemotes[i].setRemoteAddress(address);
-      this->linkedRemotes[i].setRollingCode(rollingCode);
-      this->commit();
-      return true;
-    }
-  }
-  return false;
-}
-void SomfyShade::commit() { somfy.commit(); }
 bool SomfyShade::unlinkRemote(uint32_t address) {
   Preferences pref;
   for(uint8_t i = 0; i < SOMFY_MAX_LINKED_REMOTES; i++) {
     if(this->linkedRemotes[i].getRemoteAddress() == address) {
       this->linkedRemotes[i].setRemoteAddress(0);
-      this->commit();
       return true;
     }
   }
@@ -98,31 +85,10 @@ void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
   this->behaviour.onFrame(frame, internal, millis());
 }
 void SomfyShade::processWaitingFrame() { this->behaviour.onWaitingFrame(millis()); }
-void SomfyShade::processInternalCommand(somfy_commands cmd, uint8_t repeat) { this->behaviour.onGroupCommand(cmd, repeat, millis()); }
+void SomfyShade::processInternalCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) { this->behaviour.onGroupCommand(cmd, repeat, millis(), stepSize); }
 void SomfyShade::checkMovement() { this->behaviour.tick(millis()); }
 void SomfyShade::markTxPending(uint32_t ticket) { this->behaviour.onTxQueued(ticket, millis()); }
 void SomfyShade::processTxEvent(const somfy_tx_event_t &evt) { this->behaviour.onTxEvent(evt); }
-bool SomfyShade::sendCommand(somfy_commands cmd) { return this->sendCommand(cmd, this->repeats); }
-bool SomfyShade::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
-  // This sendCommand function will always be called externally. sendCommand at the remote level
-  // is expected to be called internally when the motor needs commanded.
-  if(this->bitLength == 0) this->bitLength = somfy.transceiver.config.type;
-  return this->behaviour.sendCommand(cmd, repeat, stepSize, millis());
-}
-bool SomfyShade::sendTiltCommand(somfy_commands cmd) { return this->behaviour.sendTiltCommand(cmd, millis()); }
-bool SomfyShade::moveToTarget(float pos, float tilt) { return this->behaviour.moveToTarget(pos, tilt, millis()); }
-bool SomfyShade::moveToTiltTarget(float target) { return this->behaviour.moveToTiltTarget(target, millis()); }
-bool SomfyShade::setMyPosition(int8_t pos, int8_t tilt) { return this->behaviour.setMyPosition(pos, tilt, millis()); }
-bool SomfyShade::moveToMyPosition() { return this->behaviour.moveToMyPosition(millis()); }
 void SomfyShade::setPosition(float pos, float tilt) { this->behaviour.setPosition(pos, tilt); }
-send_result_t SomfyShade::send(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority) {
-  return SomfyRemote::sendCommandAfter(cmd, repeat, stepSize, delayMs, priority, true);
-}
 void SomfyShade::onSaveWanted() { somfy.isDirty = true; }
 void SomfyShade::onSensorFlags() { somfy.updateGroupFlags(); }
-bool SomfyShade::save() {
-  Preferences pref;
-  this->commit();
-  this->publish();
-  return true;
-}

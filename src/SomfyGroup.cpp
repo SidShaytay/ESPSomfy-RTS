@@ -1,12 +1,14 @@
 #include "esp_log.h"
 #include "Somfy.h"
 #include "ModelEditor.h"
+#include "CounterCommandGuard.h"
 
 static const char *TAG = "Somfy";
 
 extern SomfyShadeController somfy;
 
 void SomfyGroup::clear() {
+  ++configurationRevision;
   this->setGroupId(255);
   this->setRemoteAddress(0);
   this->repeats = 0;
@@ -48,13 +50,17 @@ int8_t SomfyGroup::p_direction(int8_t dir) {
   return old;
 }
 bool SomfyGroup::sendCommand(somfy_commands cmd) { return this->sendCommand(cmd, this->repeats); }
-bool SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
+bool SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) { return this->sendCommandReceipt(cmd,repeat,stepSize).sent; }
+send_result_t SomfyGroup::sendCommandReceipt(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
+  if(!somfy.modelLoad.usable())return {};
+  if(!counterCommandAllowed(this->getRemoteAddress(),cmd))return {};
   ESP_LOGI(TAG, "[Group %u] sendCommand cmd=%s repeat=%u", this->getGroupId(), translateSomfyCommand(cmd).c_str(), repeat);
   // This sendCommand function will always be called externally. sendCommand at the remote level
   // is expected to be called internally when the motor needs commanded.
   if(this->bitLength == 0) this->bitLength = somfy.transceiver.config.type;
   // Leave the group and its shades alone if the radio didn't take the command.
-  if(!SomfyRemote::sendCommand(cmd, repeat, stepSize)) return false;
+  const auto result=SomfyRemote::sendCommandAfter(cmd, repeat, stepSize, 0);
+  if(!result.sent) return {};
 
   switch(cmd) {
     case somfy_commands::My:
@@ -75,13 +81,12 @@ bool SomfyGroup::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSiz
       SomfyShade *shade = somfy.getShadeById(this->linkedShades[i]);
       if(shade) {
         ESP_LOGI(TAG, "[Group %u] processInternalCommand on shade %u cmd=%s", this->getGroupId(), shade->getShadeId(), translateSomfyCommand(cmd).c_str());
-        shade->processInternalCommand(cmd, repeat);
+        shade->processInternalCommand(cmd, repeat, stepSize);
         shade->emitCommand(cmd, "group", this->getRemoteAddress());
       }
     }
   }
   this->updateFlags();
   this->emitState();
-  return true;
+  return result;
 }
-bool SomfyGroup::save() { somfy.commit(); return true; }

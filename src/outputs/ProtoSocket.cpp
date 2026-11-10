@@ -13,6 +13,8 @@
 #include "ProtoEdits.h"
 #include "ProtoAssembly.h"
 #include "ProtoSettings.h"
+#include "ProtoModelResults.h"
+#include "ModelCommitService.h"
 #include "DeviceOps.h"
 #include "SomfyEditor.h"
 #include "LoopQueue.h"
@@ -173,7 +175,8 @@ static void replyOk(AsyncWebSocketClient *client, uint32_t id) {
 // A command op that becomes a shade request: loop() runs it and replies.
 static void queueShadeOp(AsyncWebSocketClient *client, const proto_message_t &req, JsonObjectConst d) {
   loop_item_t item;
-  const char *bad = parseShadeOp(req.type, d, item.request);
+  proto_error_buffer_t error;
+  const char *bad = parseShadeOp(req.type, d, item.request, error);
   if(bad) { replyError(client, req.id, proto_error_t::badRequest, bad); return; }
   // Nothing goes on air during a frequency scan, so say so now rather than
   // once it reaches the radio.
@@ -189,12 +192,18 @@ static void queueShadeOp(AsyncWebSocketClient *client, const proto_message_t &re
 static void sendRemoteCommand(AsyncWebSocketClient *client, const proto_message_t &req, JsonObjectConst d) {
   somfy_frame_t frame;
   uint8_t repeats;
-  const char *bad = parseRemoteCommandOp(d, frame, repeats);
+  proto_error_buffer_t error;
+  const char *bad = parseRemoteCommandOp(d, frame, repeats, error);
   if(bad) { replyError(client, req.id, proto_error_t::badRequest, bad); return; }
-  if(!somfy.sendFrame(frame, repeats)) {
-    replyError(client, req.id, proto_error_t::radioUnavailable, PROTO_RADIO_REFUSED);
-    return;
+  if(!loopQueue.beginSocketMutation(client->id())) {
+    replyError(client,req.id,proto_error_t::busy,"Model context changed or operations are paused; reconnect and retry.");return;
   }
+  struct Producer {
+    bool accepted=false;
+    ~Producer(){loopQueue.endSocketMutation(accepted);}
+  } producer;
+  producer.accepted=somfy.sendFrame(frame,repeats)!=0;
+  if(!producer.accepted){replyError(client,req.id,proto_error_t::radioUnavailable,PROTO_RADIO_REFUSED);return;}
   replyOk(client, req.id);
 }
 // An edit op: loop() applies it as its edit route does, and replies.
@@ -206,7 +215,8 @@ static void queueEditOp(AsyncWebSocketClient *client, const proto_message_t &msg
     else replyError(client, msg.id, proto_error_t::internal, "Out of memory");
     return;
   }
-  const char *bad = expandEditPayload(type, d, edit->doc);
+  proto_error_buffer_t error;
+  const char *bad = expandEditPayload(type, d, edit->doc, error);
   if(bad) {
     cancelModelEdit(edit);
     replyError(client, msg.id, proto_error_t::badRequest, bad);
@@ -231,6 +241,12 @@ static void queueDeviceOp(AsyncWebSocketClient *client, const proto_message_t &m
   item.type = loop_item_type_t::proto_device;
   item.op = msg.type;
   item.replyTo = {client->id(), msg.id};
+  if(msg.type == static_cast<uint8_t>(proto_type_t::commitModel)) {
+    const char *bad=parseModelCommitPayload(d);
+    if(bad){replyError(client,msg.id,proto_error_t::badRequest,bad);return;}
+    if(!submitModelCommit(item.replyTo,ModelCommitMode::counterFileRecovery))replyError(client,msg.id,proto_error_t::busy,"Command queue full");
+    return;
+  }
   if(msg.type == static_cast<uint8_t>(proto_type_t::getSettings)) {
     settings_section_t section;
     const char *bad = parseSettingsSection(d, section);
@@ -245,7 +261,8 @@ static void queueDeviceOp(AsyncWebSocketClient *client, const proto_message_t &m
       else replyError(client, msg.id, proto_error_t::internal, "Out of memory");
       return;
     }
-    const char *bad = expandSettingsPayload(d, HAS_ETHERNET, save->section, save->request);
+    proto_error_buffer_t error;
+    const char *bad = expandSettingsPayload(d, HAS_ETHERNET, save->section, save->request, error);
     if(bad) {
       freeSettingsSave(save);
       replyError(client, msg.id, proto_error_t::badRequest, bad);
@@ -255,8 +272,16 @@ static void queueDeviceOp(AsyncWebSocketClient *client, const proto_message_t &m
     save->ip = client->remoteIP();
     item.save = save;
   }
-  // An unpair waits at the head of the queue while a frequency scan runs, so
-  // the scan's end goes ahead of it.
+  if(msg.type==uint8_t(proto_type_t::endFrequencyScan)||msg.type==uint8_t(proto_type_t::getFrequencyScanResult)) {
+    const auto value=d[protoField(proto_field_t::scanToken).key];
+    const auto text=value.as<JsonString>();
+    FrequencyScanToken token;
+    if(!value.is<const char *>()||!parseFrequencyScanToken(text.c_str(),text.size(),token)) {
+      replyError(client,msg.id,proto_error_t::badRequest,"An exact scan token is required");return;
+    }
+    item.setScanToken(token);
+  }
+  // An exact Stop may reduce an owned scan ahead of unrelated queued work.
   const bool first = msg.type == static_cast<uint8_t>(proto_type_t::endFrequencyScan);
   if(loopQueue.submit(item, first)) return;
   if(item.save) freeSettingsSave(item.save);
@@ -431,6 +456,32 @@ bool ProtoSocket::hasClients() const {
     if(s.clientId.load()) return true;
   return false;
 }
+static proto_reply_to_t queuedMutationOrigin(const loop_item_t &item) {
+  return item.type==loop_item_type_t::model_edit && item.edit ? item.edit->replyTo : item.replyTo;
+}
+bool ProtoSocket::acceptsClientMutation(uint32_t clientId) const {
+  return clientMayMutate(slots,PROTO_MAX_CLIENTS,clientId);
+}
+bool ProtoSocket::acceptsMutation(const loop_item_t &item) const {
+  if(item.type==loop_item_type_t::proto_read || (item.type==loop_item_type_t::proto_device &&
+      item.op==uint8_t(proto_type_t::getSettings)))return true;
+  const auto origin=queuedMutationOrigin(item);
+  return !origin.client || acceptsClientMutation(origin.client);
+}
+void ProtoSocket::discardRetiredMutation(const loop_item_t &item) {
+  const auto origin=queuedMutationOrigin(item);
+  if(item.type==loop_item_type_t::model_edit && item.edit)cancelModelEdit(item.edit);
+  if(item.type==loop_item_type_t::proto_device && item.save)freeSettingsSave(item.save);
+  replyRefused(origin,proto_error_t::busy,"Model context changed; reconnect before sending commands.");
+}
+void ProtoSocket::retireModelSessions() {
+  if(!onLoopTask())return;
+  uint32_t retired[PROTO_MAX_CLIENTS]={};unsigned count=0;
+  // Model restore holds the queue seal. Mark every captured identity before
+  // any close call; an asynchronous disconnect/new claim cannot retire its new ID.
+  for(proto_slot_t &slot:slots){const auto id=slot.clientId.load();if(id){retireSlot(slot,id);retired[count++]=id;}}
+  for(unsigned i=0;i<count;++i)ws.close(retired[i]);
+}
 bool ProtoSocket::sending() const { return onLoopTask() && this->hasClients(); }
 
 /*********************************************************************
@@ -492,14 +543,11 @@ static void sendReply(const proto_reply_to_t &to, BufferedJsonFormatter &json, c
   ws.text(to.client, buf, json.length());
 }
 void ProtoSocket::replyRequest(const proto_reply_to_t &to, const shade_request_t &req, shade_request_result_t result) {
-  if(!onLoopTask() || to.id == 0) return;
-  char buf[192];
-  BufferedJsonFormatter json;
-  json.setBuffer(buf, sizeof(buf));
-  const proto_error_t code = protoRequestError(result);
-  if(code == proto_error_t::none) writeOkReply(json, to.id);
-  else writeErrorReply(json, to.id, code, protoRequestErrorDesc(req, result));
-  sendReply(to, json, buf, sizeof(buf));
+  if(!onLoopTask() || to.id==0)return;
+  char buf[320];BufferedJsonFormatter json;json.setBuffer(buf,sizeof(buf));
+  beginFrame(json,proto_type_t::reply,to.id);ProtoWriter writer(json);
+  writeShadeRequestResult(writer,req,result);endFrame(json);
+  sendReply(to,json,buf,sizeof(buf));
 }
 
 // What an edit op's reply says: for an add, the new item's id; for a refused
@@ -512,17 +560,16 @@ void ProtoSocket::replyEdit(const proto_reply_to_t &to, model_edit_type_t type, 
   json.setBuffer(buf, sizeof(buf));
   beginFrame(json, proto_type_t::reply, id);
   ProtoWriter w(json);
-  w.add(proto_field_t::ok, result.ok);
-  if(!result.ok) {
-    w.add(proto_field_t::code, static_cast<uint8_t>(result.notFound ? proto_error_t::notFound : proto_error_t::badRequest));
-    w.add(proto_field_t::desc, result.desc);
-    w.add(proto_field_t::validation, result.code);
-  }
-  else if(type == model_edit_type_t::add_room) w.add(proto_field_t::roomId, result.id);
-  else if(type == model_edit_type_t::add_shade) w.add(proto_field_t::shadeId, result.id);
-  else if(type == model_edit_type_t::add_group) w.add(proto_field_t::groupId, result.id);
+  writeModelEditResult(w,type,result);
   endFrame(json);
   sendReply(to, json, buf, sizeof(buf));
+}
+void ProtoSocket::replyModelCommit(const proto_reply_to_t &to,ModelCommitReport report) {
+  if(!onLoopTask() || to.id==0)return;
+  char buffer[256];BufferedJsonFormatter json;json.setBuffer(buffer,sizeof(buffer));
+  beginFrame(json,proto_type_t::reply,to.id);ProtoWriter writer(json);
+  writeModelCommitReport(writer,report);endFrame(json);
+  sendReply(to,json,buffer,sizeof(buffer));
 }
 // The reads an edit form needs: what a new room, shade or group would get,
 // and the shades a group could take.
@@ -740,6 +787,12 @@ void ProtoSocket::settingsChanged(uint32_t savedBy, const char *section) {
     const uint32_t id = s.clientId.load();
     if(id && id != savedBy) ws.text(id, frameBuffer, eventJson.length());
   }
+}
+void ProtoSocket::modelPersistence(ModelCommitReport report,uint32_t exceptClient) {
+  if(!this->sending())return;
+  ProtoWriter writer(beginEvent(proto_type_t::modelPersistence));writeModelCommitReport(writer,report);
+  if(!finishEvent())return;
+  for(proto_slot_t &slot:slots){const uint32_t id=slot.clientId.load();if(id && id!=exceptClient)ws.text(id,frameBuffer,eventJson.length());}
 }
 // The client that saved the security settings, closed once its reply has
 // gone: a close frame goes ahead of the messages waiting to be sent.

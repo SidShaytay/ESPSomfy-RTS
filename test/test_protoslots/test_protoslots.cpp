@@ -151,10 +151,24 @@ static void test_wants_of_the_client_loop_read_are_taken() {
   TEST_ASSERT_EQUAL_UINT32(0, a.wants.load());
 }
 
+static void test_retired_identity_never_recovers_from_old_next_or_sync() {
+ proto_slot_t slots[2];auto *slot=claimSlot(slots,2,71,false);TEST_ASSERT_NOT_NULL(slot);
+ TEST_ASSERT_TRUE(clientMayMutate(slots,2,71));retireSlot(*slot,71);
+ slot->wants.fetch_or(WANTS_NEXT|WANTS_SYNC_AGAIN);nextSyncStep(*slot,1);
+ TEST_ASSERT_FALSE(clientMayMutate(slots,2,71));freeSlot(*slot);TEST_ASSERT_FALSE(clientMayMutate(slots,2,71));
+}
+static void test_late_retirement_of_old_id_does_not_retire_reused_slot() {
+ proto_slot_t slots[1];auto *old=claimSlot(slots,1,71,false);const auto retired=old->clientId.load();freeSlot(*old);
+ auto *fresh=claimSlot(slots,1,72,false);retireSlot(*old,retired);
+ TEST_ASSERT_TRUE(clientMayMutate(slots,1,72));TEST_ASSERT_FALSE(clientMayMutate(slots,1,71));
+ retireSlot(*fresh,72);TEST_ASSERT_FALSE(clientMayMutate(slots,1,72));
+}
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_retired_identity_never_recovers_from_old_next_or_sync);
+  RUN_TEST(test_late_retirement_of_old_id_does_not_retire_reused_slot);
   RUN_TEST(test_a_sixth_client_gets_no_slot);
   RUN_TEST(test_a_freed_slot_is_taken_again_clean);
   RUN_TEST(test_no_sync_before_hello);

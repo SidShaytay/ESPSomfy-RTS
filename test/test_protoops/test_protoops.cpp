@@ -2,6 +2,8 @@
 #include <string.h>
 #include <ArduinoJson.h>
 #include "ProtoOps.h"
+#include "ProtoFrame.h"
+#include "CounterResults.h"
 
 // Socket protocol 2's command ops: what each payload asks for, and what is
 // refused before anything reaches loop() (docs/PROTOCOL.md).
@@ -10,12 +12,13 @@ void setUp() {}
 void tearDown() {}
 
 static JsonDocument doc;
+static proto_error_buffer_t error;
 static shade_request_t req;
 
 static const char *parse(proto_type_t type, const char *payload) {
   doc.clear();
   TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(doc, payload).code());
-  return parseShadeOp(static_cast<uint8_t>(type), doc.as<JsonObjectConst>(), req);
+  return parseShadeOp(static_cast<uint8_t>(type), doc.as<JsonObjectConst>(), req, error);
 }
 #define TEST_ASSERT_GOOD(why) TEST_ASSERT_NULL_MESSAGE(why, why)
 
@@ -74,7 +77,7 @@ static void test_only_the_first_problem_is_reported() {
 }
 static void test_a_left_out_payload_is_missing_everything() {
   doc.clear();
-  TEST_ASSERT_EQUAL_STRING("shadeId is missing", parseShadeOp(static_cast<uint8_t>(proto_type_t::unpairShade), JsonObjectConst(), req));
+  TEST_ASSERT_EQUAL_STRING("shadeId is missing", parseShadeOp(static_cast<uint8_t>(proto_type_t::unpairShade), JsonObjectConst(), req, error));
 }
 static void test_tilt_command() {
   TEST_ASSERT_GOOD(parse(proto_type_t::tiltCommand, R"({"s":2,"t":40})"));
@@ -82,6 +85,12 @@ static void test_tilt_command() {
   TEST_ASSERT_EQUAL_INT8(40, req.target);
 }
 static void test_group_command_needs_a_command() {
+  for(unsigned step:{1u,127u})for(auto operation:{proto_type_t::groupCommand,proto_type_t::repeatCommand}){
+    char payload[96];snprintf(payload,sizeof(payload),"{\"g\":2,\"cm\":\"StepUp\",\"re\":3,\"z\":%u}",step);
+    TEST_ASSERT_GOOD(parse(operation,payload));TEST_ASSERT_EQUAL(step,req.stepSize);TEST_ASSERT_EQUAL(3,req.repeat);
+    TEST_ASSERT_EQUAL(somfy_commands::StepUp,req.command);
+    TEST_ASSERT_EQUAL(operation==proto_type_t::groupCommand?shade_request_type_t::group_command:shade_request_type_t::group_repeat,req.type);
+  }
   TEST_ASSERT_GOOD(parse(proto_type_t::groupCommand, R"({"g":1,"cm":"my","re":4})"));
   TEST_ASSERT_EQUAL(shade_request_type_t::group_command, req.type);
   TEST_ASSERT_EQUAL_UINT8(1, req.id);
@@ -172,7 +181,7 @@ static void test_remote_command() {
   deserializeJson(doc, R"({"a":1193046,"cm":"Up","c":42,"ek":160,"rp":3})");
   somfy_frame_t frame;
   uint8_t repeats = 9;
-  TEST_ASSERT_GOOD(parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats));
+  TEST_ASSERT_GOOD(parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats, error));
   TEST_ASSERT_EQUAL_UINT32(0x123456, frame.remoteAddress);
   TEST_ASSERT_EQUAL(somfy_commands::Up, frame.cmd);
   TEST_ASSERT_EQUAL_UINT16(42, frame.rollingCode);
@@ -184,7 +193,7 @@ static void test_remote_command_defaults() {
   deserializeJson(doc, R"({"a":1,"cm":"My","c":1})");
   somfy_frame_t frame;
   uint8_t repeats = 9;
-  TEST_ASSERT_GOOD(parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats));
+  TEST_ASSERT_GOOD(parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats, error));
   TEST_ASSERT_EQUAL_UINT8(0xA7, frame.encKey);
   TEST_ASSERT_EQUAL_UINT8(0, repeats);
 }
@@ -193,13 +202,13 @@ static void test_remote_command_needs_an_address_and_a_rolling_code() {
   uint8_t repeats;
   doc.clear();
   deserializeJson(doc, R"({"cm":"Up","c":1})");
-  TEST_ASSERT_EQUAL_STRING("remoteAddress is missing", parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats));
+  TEST_ASSERT_EQUAL_STRING("remoteAddress is missing", parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats, error));
   doc.clear();
   deserializeJson(doc, R"({"a":0,"cm":"Up","c":1})");
-  TEST_ASSERT_EQUAL_STRING("remoteAddress must be 1-16777215", parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats));
+  TEST_ASSERT_EQUAL_STRING("remoteAddress must be 1-16777215", parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats, error));
   doc.clear();
   deserializeJson(doc, R"({"a":5,"cm":"Up","c":0})");
-  TEST_ASSERT_EQUAL_STRING("lastRollingCode must be 1-65535", parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats));
+  TEST_ASSERT_EQUAL_STRING("lastRollingCode must be 1-65535", parseRemoteCommandOp(doc.as<JsonObjectConst>(), frame, repeats, error));
 }
 
 /*********************************************************************
@@ -223,10 +232,52 @@ static void test_request_results_become_replies() {
   TEST_ASSERT_EQUAL_STRING("The shade has no tilt", protoRequestErrorDesc(shade, shade_request_result_t::no_tilt));
 }
 
+static void test_independent_command_errors_survive_interleaved_parses() {
+  JsonDocument shadeDoc, remoteDoc;
+  proto_error_buffer_t shadeBuffer, remoteBuffer;
+  shade_request_t shade;
+  somfy_frame_t frame;
+  uint8_t repeats;
+  deserializeJson(shadeDoc, R"({"cm":"Up"})");
+  deserializeJson(remoteDoc, R"({"cm":"Up","c":1})");
+  const char *shadeError = parseShadeOp(static_cast<uint8_t>(proto_type_t::shadeCommand), shadeDoc.as<JsonObjectConst>(), shade, shadeBuffer);
+  const char *remoteError = parseRemoteCommandOp(remoteDoc.as<JsonObjectConst>(), frame, repeats, remoteBuffer);
+  TEST_ASSERT_EQUAL_STRING("shadeId is missing", shadeError);
+  TEST_ASSERT_EQUAL_STRING("remoteAddress is missing", remoteError);
+}
+
+static void counter_replies_distinguish_applied_file_failure_and_refusal() {
+  shade_request_t command;command.type=shade_request_type_t::set_rolling_code;
+  for(auto result:{shade_request_result_t::done,shade_request_result_t::counter_busy,shade_request_result_t::counter_blocked,
+      shade_request_result_t::counter_failed,shade_request_result_t::counter_uncertain,shade_request_result_t::counter_file_failed,
+      shade_request_result_t::counter_file_uncertain,shade_request_result_t::counter_stale,shade_request_result_t(255)}) {
+    char text[320];BufferedJsonFormatter formatter;formatter.setBuffer(text,sizeof(text));
+    beginFrame(formatter,proto_type_t::reply,UINT32_MAX);ProtoWriter writer(formatter);
+    writeShadeRequestResult(writer,command,result);endFrame(formatter);
+    TEST_ASSERT_FALSE(formatter.overflowed());JsonDocument reply;TEST_ASSERT_FALSE(deserializeJson(reply,text));
+    auto data=reply["d"].as<JsonObject>();
+    const bool applied=result==shade_request_result_t::done || result==shade_request_result_t::counter_file_failed || result==shade_request_result_t::counter_file_uncertain;
+    TEST_ASSERT_EQUAL(applied,protoBool(data,proto_field_t::applied));
+    TEST_ASSERT_EQUAL(result==shade_request_result_t::done,protoBool(data,proto_field_t::durable));
+    TEST_ASSERT_EQUAL(result==shade_request_result_t::done,protoBool(data,proto_field_t::ok));
+    if(result!=shade_request_result_t::done)TEST_ASSERT_NOT_NULL(protoRequestErrorDesc(command,result));
+    if(applied)TEST_ASSERT_EQUAL(result==shade_request_result_t::done?0:result==shade_request_result_t::counter_file_uncertain?2:1,protoInt(data,proto_field_t::modelSaveState));
+  }
+}
+static void invalid_counter_identity_is_not_reported_as_a_storage_failure() {
+  CounterDomainResult invalid{CounterDomainState::invalid};
+  const auto result=counterRequestResult(invalid);
+  TEST_ASSERT_EQUAL(proto_error_t::badRequest,protoRequestError(result));
+  shade_request_t request;request.type=shade_request_type_t::set_rolling_code;
+  TEST_ASSERT_EQUAL_STRING(counterDomainDescription(CounterDomainState::invalid),protoRequestErrorDesc(request,result));
+}
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(invalid_counter_identity_is_not_reported_as_a_storage_failure);
+  RUN_TEST(counter_replies_distinguish_applied_file_failure_and_refusal);
+  RUN_TEST(test_independent_command_errors_survive_interleaved_parses);
   RUN_TEST(test_every_command_op_but_the_remote_frame_is_a_shade_request);
   RUN_TEST(test_shade_command_by_name);
   RUN_TEST(test_shade_command_to_a_target);

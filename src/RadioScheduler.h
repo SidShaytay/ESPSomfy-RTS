@@ -28,6 +28,17 @@ class RadioScheduler {
     uint32_t submit(somfy_tx_job_t &job, bool priority, uint16_t delayMs, uint32_t now);
     // Whether a normal (not priority) job would be taken right now.
     bool hasRoom() const;
+    // Include completed outcomes not yet observed by the model loop.
+    bool hasWork() const { return count || taken || eventCount; }
+    bool sealForRestart() {
+      if(restartSealed || hasWork()) return false;
+      restartSealed=true;return true;
+    }
+    bool sealedForRestart() const { return restartSealed; }
+    void reopenAfterRefusedRestart() { restartSealed=false; }
+    // Read-only counter-edit admission checks; include taken/on-air work.
+    bool hasPendingFor(uint32_t remoteAddress) const;
+    bool hasRepeaterWork() const;
     // For the radio task: takes the job to send next.  False when there is
     // none due, waitMs then says how long until there is (RADIO_WAIT_FOREVER
     // when nothing waits).  A job taken goes on air through start() and
@@ -41,6 +52,11 @@ class RadioScheduler {
     bool keepSending(uint32_t ticket) const;
     // The job on air stopped, after every frame when complete.
     void ended(uint32_t ticket, bool complete, uint32_t now);
+    // Cancels only this ticket: a waiting job is dropped; a taken/on-air job
+    // is prevented from starting/continuing at the next frame boundary. No
+    // motor STOP is sent. Returns false for zero, unknown or ended tickets.
+    // Repeated cancellation of a still-taken ticket is harmless and true.
+    bool cancel(uint32_t ticket, uint32_t now);
     // Drops every waiting job and cuts short the one on air.
     void flush(uint32_t now);
     // Refuses new jobs until every reason (TX_SUSPEND_*) is resumed.  Flushes.
@@ -54,6 +70,7 @@ class RadioScheduler {
   private:
     somfy_tx_job_t jobs[TX_JOB_QUEUE_SIZE];
     uint8_t count = 0;
+    bool restartSealed = false;
     uint32_t lastTicket = 0;
     uint8_t suspendMask = 0;
     // The job taken by next() and not yet ended (0 for none), kept for its

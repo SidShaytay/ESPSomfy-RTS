@@ -1,7 +1,9 @@
 #include <Preferences.h>
+#include <nvs.h>
 #include "esp_log.h"
 #include "Somfy.h"
 #include "RollingCode.h"
+#include "CounterCommandGuard.h"
 
 static const char *TAG = "Somfy";
 
@@ -11,6 +13,9 @@ void SomfyRemote::setRemoteAddress(uint32_t address) { this->m_remoteAddress = a
 uint32_t SomfyRemote::getRemoteAddress() { return this->m_remoteAddress; }
 somfy_commands SomfyRemote::transformCommand(somfy_commands cmd) { return this->flipCommands ? flipCommand(cmd) : cmd; }
 bool SomfyRemote::sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repeat) {
+  if(!somfy.modelLoad.usable())return false;
+  if(!counterCommandAllowed(this->getRemoteAddress(),somfy_commands::Sensor))return false;
+  if(this->proto==radio_proto::GP_Remote || this->proto==radio_proto::GP_Relay) return false;
   uint8_t flags = (this->getFlags() >> 4) & 0x0F;
   if(isWindy > 0) flags |= 0x01;
   if(isSunny > 0) flags |= 0x02;
@@ -38,10 +43,14 @@ bool SomfyRemote::sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repe
 bool SomfyRemote::sendCommand(somfy_commands cmd) { return this->sendCommand(cmd, this->repeats); }
 bool SomfyRemote::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) { return this->sendCommandAfter(cmd, repeat, stepSize, 0).sent; }
 send_result_t SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority, bool hearsItself) {
+  if(!somfy.modelLoad.usable())return {};
+  if(!counterCommandAllowed(this->getRemoteAddress(),cmd))return {};
+  if((this->proto==radio_proto::GP_Remote || this->proto==radio_proto::GP_Relay) &&
+     !this->gpioCommandAllowed(this->transformCommand(cmd))) return {};
   // Build the frame aside and only take the rolling code once the frame is
   // queued so a dropped command leaves the remote untouched.
   somfy_frame_t frame = this->lastFrame;
-  frame.rollingCode = this->peekNextRollingCode();
+  if(!this->peekNextRollingCode(frame.rollingCode)) return {};
   frame.remoteAddress = this->getRemoteAddress();
   frame.cmd = this->transformCommand(cmd);
   frame.repeats = repeat;
@@ -88,38 +97,51 @@ send_result_t SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, 
   return result;
 }
 bool SomfyRemote::isLastCommand(somfy_commands cmd) {
-  if(this->lastFrame.cmd != cmd || this->lastFrame.rollingCode != this->lastRollingCode) {
+  if(!this->lastFrame.valid || this->lastFrame.cmd != cmd || this->lastFrame.rollingCode != this->lastRollingCode) {
     ESP_LOGD(TAG, "Not the last command %d: %d - %d", static_cast<uint8_t>(this->lastFrame.cmd), this->lastFrame.rollingCode, this->lastRollingCode);
     return false;
   }
   return true;
 }
-bool SomfyRemote::repeatFrame(uint8_t repeat) {
+bool SomfyRemote::repeatFrame(uint8_t repeat) { return this->repeatFrameReceipt(repeat).sent; }
+send_result_t SomfyRemote::repeatFrameReceipt(uint8_t repeat) {
+  if(!somfy.modelLoad.usable())return {};
+  if(!this->lastFrame.valid || !counterCommandAllowed(this->getRemoteAddress(),this->lastFrame.cmd) ||
+     somfy.transceiver.counterBlocksIdentity(this->lastFrame.remoteAddress))return {};
+  if((this->proto==radio_proto::GP_Remote || this->proto==radio_proto::GP_Relay) &&
+     !this->gpioCommandAllowed(this->lastFrame.cmd)) return {};
   if(this->proto == radio_proto::GP_Relay)
-    return true;
+    return {true,0};
   else if(this->proto == radio_proto::GP_Remote) {
     this->triggerGPIOs(this->lastFrame);
-    return true;
+    return {true,0};
   }
   somfy_tx_job_t job;
   encodeRepeatJob(job, this->lastFrame, repeat);
-  if(!somfy.transceiver.submitTx(job)) return false;
+  if(!somfy.transceiver.submitTx(job)) return {};
   noteRepeatQueued(this->lastFrame, job);
   //somfy.processFrame(this->lastFrame, true);
-  return true;
+  return {true,job.ticket};
 }
 // The next rolling code is consumed by commitRollingCode once the frame using
 // it has been queued.  After that lastRollingCode holds what NVS does.
-uint16_t SomfyRemote::peekNextRollingCode() {
-  return nextRollingCode(this->m_rollingCodeSynced, this->lastRollingCode, [this]() {
-    Preferences pref;
-    if(!pref.begin("ShadeCodes")) {
-      ESP_LOGE(TAG, "peekNextRollingCode() pref.begin(ShadeCodes) FAILED");
+bool SomfyRemote::peekNextRollingCode(uint16_t &code) {
+  uint16_t stored=0;
+  if(!this->m_rollingCodeSynced) {
+    nvs_handle_t handle=0;
+    const auto opened=nvs_open("ShadeCodes",NVS_READONLY,&handle);
+    if(opened!=ESP_OK && opened!=ESP_ERR_NVS_NOT_FOUND)return false;
+    if(opened==ESP_OK) {
+      const auto read=nvs_get_u16(handle,this->m_remotePrefId,&stored);
+      nvs_close(handle);
+      if(read!=ESP_OK && read!=ESP_ERR_NVS_NOT_FOUND)return false;
+      if(read==ESP_ERR_NVS_NOT_FOUND)stored=0;
     }
-    uint16_t code = pref.getUShort(this->m_remotePrefId, 0);
-    pref.end();
-    return code;
-  });
+  }
+  // Exact absence starts at one; a verified 65535 intentionally wraps to zero.
+  // No output or remote state changes when a storage read fails.
+  code=nextRollingCode(this->m_rollingCodeSynced,this->lastRollingCode,[stored](){return stored;});
+  return true;
 }
 void SomfyRemote::commitRollingCode(uint16_t code) {
   Preferences pref;
@@ -137,6 +159,7 @@ uint16_t SomfyRemote::p_lastRollingCode(uint16_t code) {
   return old;
 }
 uint16_t SomfyRemote::setRollingCode(uint16_t code) {
+  if(somfy.transceiver.counterBlocksIdentity(this->getRemoteAddress()))return this->lastRollingCode;
   Preferences pref;
   if(this->lastRollingCode != code) {
     pref.begin("ShadeCodes");

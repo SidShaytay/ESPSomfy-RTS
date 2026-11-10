@@ -2,8 +2,19 @@
 #include <WiFi.h>
 #include <atomic>
 #include <new>
+#if defined(ESP_PLATFORM)
+#include <freertos/FreeRTOS.h>
+#else
+#include <mutex>
+#endif
 #include "esp_log.h"
 #include "DeviceOps.h"
+#include "SettingsApply.h"
+#include "SelectedSettingsRestore.h"
+#include "PinOwnership.h"
+#include "SettingsCompletion.h"
+#include "SafeRestart.h"
+#include "SettingsDurability.h"
 #include "ConfigSettings.h"
 #include "ESPNetwork.h"
 #include "MqttConnection.h"
@@ -12,6 +23,7 @@
 #include "Utils.h"
 #include "entryPoints/Web.h"
 #include "outputs/ProtoSocket.h"
+#include "FrequencyScanService.h"
 
 static const char *TAG = "DeviceOps";
 
@@ -20,9 +32,30 @@ extern SomfyShadeController somfy;
 extern ESPNetwork net;
 extern MqttConnection mqtt;
 extern Web webServer;
-extern rebootDelay_t rebootDelay;
 
 static std::atomic<bool> saveBusy(false);
+// Synchronized settings history: bounded memory only, never settings/SDK I/O.
+namespace SettingsHistoryDetail {
+SettingsRevisions revisions;
+#if defined(ESP_PLATFORM)
+portMUX_TYPE mutex=portMUX_INITIALIZER_UNLOCKED;
+struct Guard { Guard(){portENTER_CRITICAL(&mutex);}~Guard(){portEXIT_CRITICAL(&mutex);} };
+#else
+std::mutex mutex;
+struct Guard { std::lock_guard<std::mutex> lock;Guard():lock(mutex){} };
+#endif
+}
+uint64_t deviceSettingsRevision(settings_section_t section) {
+  SettingsHistoryDetail::Guard guard;return SettingsHistoryDetail::revisions.get(section);
+}
+uint64_t securityConfigurationRevision() { return deviceSettingsRevision(settings_section_t::security); }
+void invalidateDeviceSettingsRevisions() {
+  SettingsHistoryDetail::Guard guard;SettingsHistoryDetail::revisions.invalidateAll();
+}
+void noteDeviceSettingsCompleted(settings_section_t section) {
+  SettingsHistoryDetail::Guard guard;SettingsHistoryDetail::revisions.completed(section);
+}
+// End synchronized settings history.
 
 settings_save_t *newSettingsSave(bool &busy) {
   busy = saveBusy.exchange(true);
@@ -40,186 +73,93 @@ void freeSettingsSave(settings_save_t *save) {
  * getSettings: what the settings routes sent, under the dictionary's
  * keys.  Secrets only say whether they are set.
  ********************************************************************/
-// An address of 0.0.0.0 is sent as "", as the settings routes did.
-static void addAddress(ProtoWriter &w, proto_field_t field, const IPAddress &ip) {
-  if(ip != IPAddress(0, 0, 0, 0)) w.add(field, ip.toString().c_str());
-}
-static void writeSettings(ProtoWriter &w, settings_section_t section) {
-  switch(section) {
-    case settings_section_t::general:
-      w.add(proto_field_t::hostname, settings.hostname);
-      w.add(proto_field_t::ssdpBroadcast, settings.ssdpBroadcast);
-      w.add(proto_field_t::ntpServer, settings.NTP.ntpServer);
-      w.add(proto_field_t::posixZone, settings.NTP.posixZone);
-      break;
-    case settings_section_t::network:
-      w.add(proto_field_t::connMode, static_cast<uint8_t>(settings.connType));
-      w.add(proto_field_t::ssid, settings.WIFI.ssid);
-      w.add(proto_field_t::hasPassphrase, hasSecret(settings.WIFI.passphrase));
-      w.add(proto_field_t::roaming, settings.WIFI.roaming);
-      w.add(proto_field_t::hidden, settings.WIFI.hidden);
-#if HAS_ETHERNET
-      w.add(proto_field_t::hasEthernet, true);
-      w.add(proto_field_t::boardType, settings.Ethernet.boardType);
-      w.add(proto_field_t::phyType, settings.Ethernet.phyType);
-      w.add(proto_field_t::CLKMode, settings.Ethernet.CLKMode);
-      w.add(proto_field_t::phyAddress, settings.Ethernet.phyAddress);
-      w.add(proto_field_t::PWRPin, settings.Ethernet.PWRPin);
-      w.add(proto_field_t::MDCPin, settings.Ethernet.MDCPin);
-      w.add(proto_field_t::MDIOPin, settings.Ethernet.MDIOPin);
-#endif
-      w.add(proto_field_t::dhcp, settings.IP.dhcp);
-      addAddress(w, proto_field_t::ip, settings.IP.ip);
-      addAddress(w, proto_field_t::gateway, settings.IP.gateway);
-      addAddress(w, proto_field_t::subnet, settings.IP.subnet);
-      addAddress(w, proto_field_t::dns1, settings.IP.dns1);
-      addAddress(w, proto_field_t::dns2, settings.IP.dns2);
-      break;
-    case settings_section_t::mqtt:
-      w.add(proto_field_t::enabled, settings.MQTT.enabled);
-      w.add(proto_field_t::pubDisco, settings.MQTT.pubDisco);
-      w.add(proto_field_t::protocol, settings.MQTT.protocol);
-      w.add(proto_field_t::hostname, settings.MQTT.hostname);
-      w.add(proto_field_t::port, settings.MQTT.port);
-      w.add(proto_field_t::username, settings.MQTT.username);
-      w.add(proto_field_t::hasPassword, hasSecret(settings.MQTT.password));
-      w.add(proto_field_t::rootTopic, settings.MQTT.rootTopic);
-      w.add(proto_field_t::discoTopic, settings.MQTT.discoTopic);
-      break;
-    case settings_section_t::security:
-      w.add(proto_field_t::securityType, static_cast<uint8_t>(settings.Security.type));
-      w.add(proto_field_t::username, settings.Security.username);
-      w.add(proto_field_t::hasPassword, hasSecret(settings.Security.password));
-      w.add(proto_field_t::hasPin, hasSecret(settings.Security.pin));
-      break;
-    case settings_section_t::radio: {
-      const transceiver_config_t &cfg = somfy.transceiver.config;
-      w.add(proto_field_t::bitLength, cfg.type);
-      w.add(proto_field_t::proto, static_cast<uint8_t>(cfg.proto));
-      w.add(proto_field_t::enabled, cfg.enabled);
-      w.add(proto_field_t::TXPin, cfg.TXPin);
-      w.add(proto_field_t::RXPin, cfg.RXPin);
-      w.add(proto_field_t::SCKPin, cfg.SCKPin);
-      w.add(proto_field_t::MOSIPin, cfg.MOSIPin);
-      w.add(proto_field_t::MISOPin, cfg.MISOPin);
-      w.add(proto_field_t::CSNPin, cfg.CSNPin);
-      w.add(proto_field_t::frequency, cfg.frequency);
-      w.add(proto_field_t::rxBandwidth, cfg.rxBandwidth);
-      w.add(proto_field_t::deviation, cfg.deviation);
-      w.add(proto_field_t::txPower, cfg.txPower);
-      w.add(proto_field_t::noiseDetection, cfg.noiseDetection);
-      w.add(proto_field_t::radioInit, cfg.radioInit);
-      break;
+class ProtocolSettingsSink : public SettingsSnapshotSink {
+  ProtoWriter &writer;
+public:
+  explicit ProtocolSettingsSink(ProtoWriter &writer) : writer(writer) {}
+  void field(proto_field_t field, const settings_value_t &value) override {
+    switch(value.kind) {
+      case 'b': writer.add(field,value.boolean); break;
+      case 'i': writer.add(field,value.integer); break;
+      case 'n': writer.add(field,value.number); break;
+      case 's': writer.add(field,value.text); break;
     }
   }
+};
+bool readDeviceSettings(settings_section_t section, SettingsSnapshotSink &sink) {
+  return readSettingsSnapshot(section,settings,somfy.transceiver.config,sink);
 }
 
 /*********************************************************************
  * saveSettings: what the settings routes do with their request
  ********************************************************************/
-// Applies the parts of the network section that were sent.  True when the
-// device must reboot for them, by the rules of /setNetwork.
-static bool saveNetwork(JsonObject req, uint16_t parts) {
-  bool reboot = false;
-  if(settingsSets(parts, settings_part_t::conn)) {
-    const conn_types_t connType = static_cast<conn_types_t>(req["connType"].as<uint8_t>());
-    if(connType != settings.connType) {
-      settings.connType = connType;
-      settings.save();
-      reboot = true;
-    }
+class RuntimeSettingsEffects : public SettingsEffects {
+  const security_types securityBefore;
+  const uint32_t originSocketClient;
+public:
+  explicit RuntimeSettingsEffects(uint32_t origin) : securityBefore(settings.Security.type), originSocketClient(origin) {}
+  RestartResult completed(settings_section_t section, bool reboot) override {
+    noteDeviceSettingsCompleted(section);
+    return completeSettingsSave({section,securityBefore,settings.Security.type,originSocketClient,reboot},protoSocket,requestRestart);
   }
-  if(settingsSets(parts, settings_part_t::wifi)) {
-    // Compared after fromJSON, which decides whether an empty passphrase keeps the stored one.
-    WifiSettings before = settings.WIFI;
-    settings.WIFI.fromJSON(req);
-    settings.WIFI.save();
-    // Not while someone is on the soft AP: the device joins the network once
-    // they have left it.
-    if(settings.connType == conn_types_t::wifi && WiFi.softAPgetStationNum() == 0 &&
-      (strcmp(before.ssid, settings.WIFI.ssid) != 0 || strcmp(before.passphrase, settings.WIFI.passphrase) != 0))
-      reboot = true;
+  bool networkPinsAvailable(const ConfigSettings &candidate) const override {return networkPinConfigurationAvailable(candidate);}
+  bool wifiClientsPresent() const override { return WiFi.softAPgetStationNum() != 0; }
+  void hostnameChanged() override { net.updateHostname(); }
+  void timeChanged() override { settings.NTP.apply(); }
+  void mqttChanged() override { mqtt.disconnect();mqtt.lastConnect=0; }
+  settings_save_result_t saveRadio(JsonObject request) override {
+    transceiver_config_t next = somfy.transceiver.config;
+    next.fromJSON(request);
+    const auto result=somfy.transceiver.setConfig(next);
+    if(result.liveApplied && !result.saved())noteDeviceSettingsCompleted(settings_section_t::radio);
+    return result;
   }
-#if HAS_ETHERNET
-  if(settingsSets(parts, settings_part_t::ethernet)) {
-    settings.Ethernet.fromJSON(req);
-    settings.Ethernet.save();
-    if(settings.connType == conn_types_t::ethernet || settings.connType == conn_types_t::ethernetpref) reboot = true;
-  }
-#endif
-  if(settingsSets(parts, settings_part_t::ip)) {
-    settings.IP.fromJSON(req);
-    settings.IP.save();
-  }
-  return reboot;
+};
+RestoreSettingsResult applyPreparedSettingsRestore(SelectedSettingsRestore &stage,Transceiver &radio,
+    const GitUpdateOwnerToken &owner,const RadioInstallToken &pause) {
+  RuntimeSettingsEffects effects(0);return stage.apply(settings,radio,owner,pause,effects);
+}
+settings_apply_result_t applyDeviceSettings(settings_section_t section, JsonObject request, uint32_t originSocketClient) {
+  RuntimeSettingsEffects effects(originSocketClient);
+  return applySettings(settings,section,request,effects);
+}
+settings_reconcile_result_t reconcileRunningDeviceSettings(uint32_t originSocketClient) {
+  RuntimeSettingsEffects effects(originSocketClient);
+  return reconcileRunningSettings(settings,somfy.transceiver.config,effects);
 }
 static void runSave(const proto_reply_to_t &to, settings_save_t *save) {
-  JsonObject req = save->request.as<JsonObject>();
   const settings_section_t section = save->section;
-  const uint16_t parts = settingsParts(section, req);
-  bool reboot = false;
-  char token[API_TOKEN_SIZE] = "";
-  const security_types securityBefore = settings.Security.type;
-  switch(section) {
-    case settings_section_t::general:
-      if(settingsSets(parts, settings_part_t::general)) {
-        settings.fromJSON(req);
-        settings.save();
-        if(!req["hostname"].isNull()) net.updateHostname();
-      }
-      if(settingsSets(parts, settings_part_t::ntp)) {
-        settings.NTP.fromJSON(req);
-        settings.NTP.save();
-        settings.NTP.apply();
-      }
-      break;
-    case settings_section_t::network:
-      reboot = saveNetwork(req, parts);
-      break;
-    case settings_section_t::mqtt:
-      // loop() connects again with the new settings.
-      mqtt.disconnect();
-      settings.MQTT.fromJSON(req);
-      settings.MQTT.save();
-      break;
-    case settings_section_t::security:
-      settings.Security.fromJSON(req);
-      settings.Security.save();
-      if(settings.requiresAuth()) webServer.createAPIToken(IPAddress(save->ip), token);
-      break;
-    case settings_section_t::radio: {
-      // Parsed into a copy so the radio task never sees a half updated config.
-      transceiver_config_t cfg = somfy.transceiver.config;
-      cfg.fromJSON(req);
-      somfy.transceiver.setConfig(cfg);
-      break;
-    }
-  }
+  const uint32_t ip = save->ip;
+  const auto result = applyDeviceSettings(section,save->request.as<JsonObject>(),to.client);
   freeSettingsSave(save);
+  if(!result.saved()) {
+    const auto code = result.refusal == settings_apply_refusal_t::unauthorized ? proto_error_t::unauthorized :
+      result.refusal == settings_apply_refusal_t::stale ? proto_error_t::busy :
+      result.refusal != settings_apply_refusal_t::none ? proto_error_t::badRequest : proto_error_t::internal;
+    protoSocket.replyRefused(to,code,settingsApplyFailureDescription(result));
+    ESP_LOGE(TAG,"Socket [%lu] %s settings save refused or failed%s",(unsigned long)to.client,settingsSectionName(section),
+      result.persistence.state == settings_save_state_t::partial ? "; durable state may be partial" : "");
+    return;
+  }
+  char token[API_TOKEN_SIZE] = "";
+  if(section == settings_section_t::security && settings.requiresAuth()) webServer.createAPIToken(IPAddress(ip),token);
+  const bool reboot = result.reboot;
   ProtoWriter w = protoSocket.beginReply(to);
   w.add(proto_field_t::apiKey, token);
   w.add(proto_field_t::rebooting, reboot);
+  if(result.restartBlocked) w.add(proto_field_t::desc,restartReason(result.restartReason));
   protoSocket.endReply(to);
   ESP_LOGI(TAG, "Socket [%lu] saved the %s settings%s", (unsigned long)to.client, settingsSectionName(section), reboot ? ", rebooting" : "");
-  // Under Secured every token may have changed, and a client that connected
-  // under None had none: they all connect again, the saver with the token in
-  // its reply, and the rest log in when theirs is refused.  None to None
-  // changes nobody's access.
-  const bool closeAll = section == settings_section_t::security &&
-    (securityBefore != settings.Security.type || settings.requiresAuth());
-  if(closeAll) protoSocket.closeAll(to.client);
-  else protoSocket.settingsChanged(to.client, settingsSectionName(section));
-  if(reboot) {
-    rebootDelay.rebootTime = millis() + 1000;
-    rebootDelay.reboot = true;
-  }
+  // Completion is shared with local saves. closeAll(origin) defers this
+  // socket until its reply above drains, so its replacement token is delivered.
 }
 
 void runDeviceOp(const loop_item_t &item) {
   switch(static_cast<proto_type_t>(item.op)) {
     case proto_type_t::getSettings: {
       ProtoWriter w = protoSocket.beginReply(item.replyTo);
-      writeSettings(w, static_cast<settings_section_t>(item.section));
+      ProtocolSettingsSink sink(w);
+      readDeviceSettings(static_cast<settings_section_t>(item.section),sink);
       protoSocket.endReply(item.replyTo);
       break;
     }
@@ -233,28 +173,37 @@ void runDeviceOp(const loop_item_t &item) {
       protoSocket.beginReply(item.replyTo);
       protoSocket.endReply(item.replyTo);
       break;
-    case proto_type_t::beginFrequencyScan:
-      if(!somfy.transceiver.config.enabled) {
-        protoSocket.replyRefused(item.replyTo, proto_error_t::radioUnavailable, "The radio is disabled");
-        break;
+    case proto_type_t::beginFrequencyScan: {
+      FrequencyScanToken token;
+      if(!FrequencyScan::begin(FrequencyScan::webSource(item.replyTo.client),token)) {
+        protoSocket.replyRefused(item.replyTo,proto_error_t::busy,"Radio scan admission refused; accepted work was preserved");break;
       }
-      somfy.transceiver.beginFrequencyScan();
-      protoSocket.beginReply(item.replyTo);
-      protoSocket.endReply(item.replyTo);
-      break;
+      char text[42];
+      if(!formatFrequencyScanToken(token,text,sizeof(text))) {
+        FrequencyScan::stop(FrequencyScan::webSource(item.replyTo.client),token);
+        protoSocket.replyRefused(item.replyTo,proto_error_t::internal,"Scan identity unavailable");break;
+      }
+      auto reply=protoSocket.beginReply(item.replyTo);reply.add(proto_field_t::scanToken,text);protoSocket.endReply(item.replyTo);break;
+    }
     case proto_type_t::endFrequencyScan:
-      somfy.transceiver.endFrequencyScan();
-      protoSocket.beginReply(item.replyTo);
-      protoSocket.endReply(item.replyTo);
-      break;
-    case proto_type_t::reboot:
-      ESP_LOGI(TAG, "Socket [%lu] asked for a reboot", (unsigned long)item.replyTo.client);
-      protoSocket.beginReply(item.replyTo);
-      protoSocket.endReply(item.replyTo);
-      // Time for the reply to go out.
-      rebootDelay.rebootTime = millis() + 500;
-      rebootDelay.reboot = true;
-      break;
+      if(!FrequencyScan::stop(FrequencyScan::webSource(item.replyTo.client),item.scanToken)) {
+        protoSocket.replyRefused(item.replyTo,proto_error_t::badRequest,"Scan source is stale or belongs to another session");break;
+      }
+      protoSocket.beginReply(item.replyTo);protoSocket.endReply(item.replyTo);break;
+    case proto_type_t::getFrequencyScanResult: {
+      float frequency=0;
+      if(!FrequencyScan::peak(FrequencyScan::webSource(item.replyTo.client),item.scanToken,frequency)) {
+        protoSocket.replyRefused(item.replyTo,proto_error_t::badRequest,"No current completed signal result for this scan");break;
+      }
+      auto reply=protoSocket.beginReply(item.replyTo);reply.add(proto_field_t::frequency,frequency);protoSocket.endReply(item.replyTo);break;
+    }
+    case proto_type_t::reboot: {
+      const auto admission=requestRestart(500);
+      if(!admission.admitted) {
+        protoSocket.replyRefused(item.replyTo,proto_error_t::busy,restartReason(admission.reason));break;
+      }
+      protoSocket.beginReply(item.replyTo);protoSocket.endReply(item.replyTo);break;
+    }
     default:
       if(item.save) freeSettingsSave(item.save);
       protoSocket.replyRefused(item.replyTo, proto_error_t::internal, "Not a device op");

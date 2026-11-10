@@ -1,7 +1,7 @@
 #include "StatusPanel.h"
 #ifdef ESPSOMFY_STATUS_DISPLAY
-#if !defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
-#error "Status LCD requires the exact LILYGO Plus board profile"
+#if !defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+#error "Status LCD requires an exact supported LILYGO board profile"
 #endif
 #include <Arduino.h>
 #include <SPI.h>
@@ -11,6 +11,8 @@
 #include "BoardProfile.h"
 #include "DisplayBus.h"
 #include "StatusDisplay.h"
+#include "GitUpdate.h"
+#include "GitUpdateMemory.h"
 #ifdef ESPSOMFY_LOCAL_UI
 #include "LocalUiRuntime.h"
 #include "LocalUiCapture.h"
@@ -63,6 +65,7 @@ class Panel : public Output {
 public:
   uint32_t maxRowUs = 0, maxBusUs = 0, skipped = 0;
   void requireFallbackText(bool required) {requireText=required;}
+  bool healthy() const {return !busFailed && phase==20 && clearY==170;}
   Result initialize(uint32_t now) override {
     if(busFailed) return Result::failed;
     if(phase==20 && clearY==170) return Result::ready;
@@ -170,6 +173,7 @@ void loop(bool running) {
   const auto initialized=panel.initialize(millis());
   if(initialized==Result::failed) {panel.brightness(0);LocalUi::capturePoll(nullptr,true,0,0);return;}
   if(initialized==Result::pending)return;
+  s.recovery=gitUpdateRecoveryNotice(); // Decision changes need not wait for the one-second telemetry sample.
   s.graphicsFailure=uint8_t(ui.failure());
   if(!ui.tick(millis(),s,digitalRead(wake)==LOW,sendBand,light))
 #endif
@@ -185,6 +189,27 @@ void loop(bool running) {
 #ifdef ESPSOMFY_LOCAL_UI
     Serial.printf("LCD UI PSRAM=%u paintUs=%lu fallback=%u\n", unsigned(ui.failure()==LocalUi::GraphicsFailure::none?LocalUi::graphicsBytes:0), (unsigned long)ui.maxPaintUs, unsigned(ui.failure()));
 #endif
+    // Keep the full updater snapshot transient; never print its identity fields.
+    // Both accessors release their own locks before the first Serial call below.
+    struct UpdateMetrics {size_t minInternal, minLargest, maxPsram, workerStack;GitUpdateTransport transport;};
+    static_assert(sizeof(GitUpdateSnapshot)<=512, "Bound diagnostic snapshot stack");
+    const auto update=[] {
+      const auto sampled=gitUpdate.snapshot();
+      return UpdateMetrics{sampled.minInternalFree,sampled.minLargestInternal,
+        sampled.maxPsramUsed,sampled.workerStackMinimum,sampled.transport};
+    }();
+    const auto tls=gitUpdateMemoryStats();
+    // Heap/stack extrema are sampled; workerStack=0 is unsampled.
+    // TLS requested counts include allocator bookkeeping, not SDK heap overhead.
+    Serial.printf("LCD update minInternalB=%lu minLargestInternalB=%lu maxPsramUsedB=%lu workerStackMinB=%lu tlsRequestedB=%lu tlsPeakRequestedB=%lu tlsInternalPeakRequestedB=%lu tlsFailures=%lu download=%u stage=%u sdkErr=%ld http=%ld errno=%ld tlsSdkErr=%ld tlsErr=%ld tlsFlags=%ld certState=%u certFailure=%u\n",
+      (unsigned long)update.minInternal,(unsigned long)update.minLargest,
+      (unsigned long)update.maxPsram,(unsigned long)update.workerStack,
+      (unsigned long)tls.requested,(unsigned long)tls.peak,
+      (unsigned long)tls.internalPeak,(unsigned long)tls.failures,
+      unsigned(update.transport.download),unsigned(update.transport.stage),
+      (long)update.transport.sdkError,(long)update.transport.httpStatus,(long)update.transport.socketError,
+      (long)update.transport.tlsSdkError,(long)update.transport.tlsError,(long)update.transport.tlsFlags,
+      unsigned(update.transport.certificateState),unsigned(update.transport.certificateFailure));
     Serial.printf("LCD battery state=%u percent=%u mV=%u mA=%d\n", unsigned(s.battery.state),
       unsigned(s.battery.percent), unsigned(s.battery.millivolts), int(s.battery.milliamps));
     Serial.printf("LCD internal=%u PSRAM=%u maxRowUs=%lu maxBusUs=%lu busySkips=%lu\n",
@@ -192,8 +217,16 @@ void loop(bool running) {
       (unsigned long)panel.maxRowUs, (unsigned long)panel.maxBusUs, (unsigned long)panel.skipped);
   }
 }
+bool healthy() {
+#ifdef ESPSOMFY_LOCAL_UI
+  return panel.healthy() && ui.healthy();
+#else
+  return panel.healthy();
+#endif
+}
 }
 #else
 void StatusPanel::begin() {}
 void StatusPanel::loop(bool) {}
+bool StatusPanel::healthy(){return false;}
 #endif

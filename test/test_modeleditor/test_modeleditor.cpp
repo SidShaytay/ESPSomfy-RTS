@@ -2,7 +2,8 @@
 #include <set>
 #include "ModelEditor.h"
 
-void setUp() {}
+static std::set<uint8_t> radioPins, ethernetPins, shadePins, invalidPins;
+void setUp() {radioPins.clear();ethernetPins.clear();shadePins.clear();invalidPins.clear();}
 void tearDown() {}
 
 /*********************************************************************
@@ -86,7 +87,6 @@ static void test_repeater_addresses_use_the_same_rules() {
 /*********************************************************************
  * GPIO pins
  ********************************************************************/
-static std::set<uint8_t> radioPins, ethernetPins, shadePins;
 static bool inSet(uint8_t pin, void *ctx) { return static_cast<std::set<uint8_t> *>(ctx)->count(pin) > 0; }
 static pin_users_t users(std::set<uint8_t> &pins) {
   pin_users_t u;
@@ -94,50 +94,51 @@ static pin_users_t users(std::set<uint8_t> &pins) {
   u.ctx = &pins;
   return u;
 }
-static int8_t conflict(shade_types type, radio_proto proto, uint8_t up, uint8_t down, uint8_t my) {
-  return gpioPinConflict(type, proto, up, down, my, users(radioPins), users(ethernetPins), users(shadePins));
+static int8_t conflict(radio_proto proto, uint8_t up, uint8_t down, uint8_t my) {
+  return gpioPinConflict(proto, up, down, my, users(radioPins), users(ethernetPins), users(shadePins), users(invalidPins));
 }
 
 static void test_a_radio_shade_uses_no_pins() {
   radioPins = { 4 };
-  TEST_ASSERT_EQUAL_INT8(0, conflict(shade_types::roller, radio_proto::RTS, 4, 4, 4));
+  TEST_ASSERT_EQUAL_INT8(0, conflict(radio_proto::RTS, 4, 4, 4));
 }
 static void test_free_pins_are_fine() {
   radioPins = { 4 }; ethernetPins = { 18 }; shadePins = { 21 };
-  TEST_ASSERT_EQUAL_INT8(0, conflict(shade_types::roller, radio_proto::GP_Remote, 25, 26, 27));
+  TEST_ASSERT_EQUAL_INT8(0, conflict(radio_proto::GP_Remote, 25, 26, 27));
 }
 static void test_a_pin_the_radio_uses() {
   radioPins = { 26 }; ethernetPins = {}; shadePins = {};
-  TEST_ASSERT_EQUAL_INT8(PIN_CONFLICT_RADIO, conflict(shade_types::roller, radio_proto::GP_Remote, 25, 26, 27));
+  TEST_ASSERT_EQUAL_INT8(PIN_CONFLICT_RADIO, conflict(radio_proto::GP_Remote, 25, 26, 27));
 }
 static void test_every_pin_is_checked_against_ethernet() {
   // It used to check only the up pin against Ethernet.
   radioPins = {}; shadePins = {};
   ethernetPins = { 26 };
-  TEST_ASSERT_EQUAL_INT8(PIN_CONFLICT_ETHERNET, conflict(shade_types::roller, radio_proto::GP_Remote, 25, 26, 27));
+  TEST_ASSERT_EQUAL_INT8(PIN_CONFLICT_ETHERNET, conflict(radio_proto::GP_Remote, 25, 26, 27));
   ethernetPins = { 27 };
-  TEST_ASSERT_EQUAL_INT8(PIN_CONFLICT_ETHERNET, conflict(shade_types::roller, radio_proto::GP_Remote, 25, 26, 27));
+  TEST_ASSERT_EQUAL_INT8(PIN_CONFLICT_ETHERNET, conflict(radio_proto::GP_Remote, 25, 26, 27));
 }
 static void test_a_pin_another_shade_uses() {
   radioPins = {}; ethernetPins = {};
   shadePins = { 25 };
-  TEST_ASSERT_EQUAL_INT8(PIN_CONFLICT_SHADE, conflict(shade_types::roller, radio_proto::GP_Remote, 25, 26, 27));
+  TEST_ASSERT_EQUAL_INT8(PIN_CONFLICT_SHADE, conflict(radio_proto::GP_Remote, 25, 26, 27));
 }
-static void test_only_the_pins_a_shade_drives_are_checked() {
-  radioPins = {}; ethernetPins = {};
-  shadePins = { 25, 27 };
-  // A relay never drives My.
-  TEST_ASSERT_EQUAL_INT8(PIN_CONFLICT_SHADE, conflict(shade_types::roller, radio_proto::GP_Relay, 25, 26, 27));
-  TEST_ASSERT_EQUAL_INT8(0, conflict(shade_types::roller, radio_proto::GP_Relay, 24, 26, 27));
-  // A dry contact only drives down; a two way dry contact up and down.
-  TEST_ASSERT_EQUAL_INT8(0, conflict(shade_types::drycontact, radio_proto::GP_Remote, 25, 26, 27));
-  TEST_ASSERT_EQUAL_INT8(0, conflict(shade_types::drycontact2, radio_proto::GP_Remote, 24, 26, 27));
-  // A single button gate on a remote only drives down.
-  TEST_ASSERT_EQUAL_INT8(0, conflict(shade_types::garage1, radio_proto::GP_Remote, 25, 26, 27));
+static void test_every_physically_configured_pad_is_conflict_checked() {
+  radioPins={};ethernetPins={};shadePins={25,27};
+  TEST_ASSERT_EQUAL_INT8(PIN_CONFLICT_SHADE,conflict(radio_proto::GP_Remote,25,26,27));
+  TEST_ASSERT_EQUAL_INT8(PIN_CONFLICT_SHADE,conflict(radio_proto::GP_Remote,24,26,27));
+  TEST_ASSERT_EQUAL_INT8(PIN_CONFLICT_SHADE,conflict(radio_proto::GP_Relay,25,26,27));
+  TEST_ASSERT_EQUAL_INT8(0,conflict(radio_proto::GP_Relay,24,26,27));
+}
+static void test_duplicate_pads_and_invalid_outputs_are_refused_but_unset_is_not_a_pad() {
+  TEST_ASSERT_EQUAL_INT8(PIN_CONFLICT_DUPLICATE,conflict(radio_proto::GP_Remote,25,26,25));
+  TEST_ASSERT_EQUAL_INT8(PIN_CONFLICT_DUPLICATE,conflict(radio_proto::GP_Relay,25,25,27));
+  invalidPins={26};TEST_ASSERT_EQUAL_INT8(PIN_INVALID_OUTPUT,conflict(radio_proto::GP_Remote,25,26,27));
+  invalidPins={255};TEST_ASSERT_EQUAL_INT8(0,conflict(radio_proto::GP_Remote,255,26,255));
 }
 static void test_255_means_no_pin() {
   radioPins = { 255 }; ethernetPins = { 255 }; shadePins = { 255 };
-  TEST_ASSERT_EQUAL_INT8(0, conflict(shade_types::roller, radio_proto::GP_Remote, 255, 26, 255));
+  TEST_ASSERT_EQUAL_INT8(0, conflict(radio_proto::GP_Remote, 255, 26, 255));
 }
 
 /*********************************************************************
@@ -161,8 +162,7 @@ static void test_any_other_refusal_is_not_not_found() {
 }
 
 static edit_result_t resultFor(uint8_t id, uint8_t shadeId = 0) {
-  edit_result_t r;
-  r.id = id;
+  edit_result_t r=edit_result_t::completed(id,{ModelCommitState::saved,ModelCommitStage::none});
   r.shadeId = shadeId;
   return r;
 }
@@ -255,7 +255,8 @@ int main(int argc, char **argv) {
   RUN_TEST(test_a_pin_the_radio_uses);
   RUN_TEST(test_every_pin_is_checked_against_ethernet);
   RUN_TEST(test_a_pin_another_shade_uses);
-  RUN_TEST(test_only_the_pins_a_shade_drives_are_checked);
+  RUN_TEST(test_every_physically_configured_pad_is_conflict_checked);
+  RUN_TEST(test_duplicate_pads_and_invalid_outputs_are_refused_but_unset_is_not_a_pad);
   RUN_TEST(test_255_means_no_pin);
   RUN_TEST(test_a_shade_edit_sends_the_whole_shade);
   RUN_TEST(test_a_group_edit_sends_the_whole_group);

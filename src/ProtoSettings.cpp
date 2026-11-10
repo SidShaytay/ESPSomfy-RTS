@@ -4,6 +4,7 @@
 #include "ProtoSettings.h"
 #include "ProtoParse.h"
 #include "EthPhy.h"
+#include "BoardProfile.h"
 
 static const char *const SECTIONS[] = {"general", "network", "mqtt", "security", "radio"};
 const char *settingsSectionName(settings_section_t section) { return SECTIONS[static_cast<uint8_t>(section)]; }
@@ -26,12 +27,11 @@ static settings_section_t sectionOf(settings_part_t part) {
 // hundredths, and hi a string's longest length: what the setting holds, so the
 // route's fromJSON neither cuts it short nor wraps it.  The has* fields and
 // radioInit are only ever sent.
-struct settings_field_t {
-  settings_part_t part;
-  proto_field_t field;
-  const char *route;  // the name the route reads; nullptr when it is the field's
-  int32_t lo;
-  int32_t hi;
+static const int16_t BIT_LENGTHS[] = {56,80};
+static const int16_t RADIO_PROTOCOLS[] = {0,1,2,8,9};
+static const int16_t WIFI_CONNECTIONS[] = {1};
+static const settings_field_t WIFI_CONNECTION = {
+  settings_part_t::conn, proto_field_t::connMode, "connType", 1, 1, WIFI_CONNECTIONS, 1
 };
 static const settings_field_t FIELDS[] = {
   {settings_part_t::general, proto_field_t::hostname, nullptr, 0, 31},
@@ -73,9 +73,9 @@ static const settings_field_t FIELDS[] = {
   {settings_part_t::security, proto_field_t::password, nullptr, 0, 32},
   {settings_part_t::security, proto_field_t::pin, nullptr, 0, 4},
   // 56 or 80, checked on its own.
-  {settings_part_t::radio, proto_field_t::bitLength, "type", 56, 80},
+  {settings_part_t::radio, proto_field_t::bitLength, "type", 56, 80, BIT_LENGTHS, 2},
   // RTS, RTW, RTV, GP Relay or GP Remote (radio_proto), checked on its own.
-  {settings_part_t::radio, proto_field_t::proto, nullptr, 0, 9},
+  {settings_part_t::radio, proto_field_t::proto, nullptr, 0, 9, RADIO_PROTOCOLS, 5},
   {settings_part_t::radio, proto_field_t::enabled, nullptr, 0, 0},
   {settings_part_t::radio, proto_field_t::TXPin, nullptr, 0, 54},
   {settings_part_t::radio, proto_field_t::RXPin, nullptr, 0, 54},
@@ -90,10 +90,35 @@ static const settings_field_t FIELDS[] = {
   {settings_part_t::radio, proto_field_t::txPower, nullptr, -30, 12},
   {settings_part_t::radio, proto_field_t::noiseDetection, nullptr, 0, 0}
 };
-static const char *routeName(const settings_field_t &s) { return s.route ? s.route : protoField(s.field).name; }
-static const settings_field_t *saved(settings_section_t section, proto_field_t field) {
+static const settings_field_t *forHardware(const settings_field_t &field, bool hasEthernet) {
+  return !hasEthernet && field.field == proto_field_t::connMode ? &WIFI_CONNECTION : &field;
+}
+static bool included(const settings_field_t &field, settings_section_t section, bool hasEthernet) {
+  return sectionOf(field.part) == section && (hasEthernet || !field.ethernetOnly());
+}
+const settings_field_t *settingsFieldFor(settings_part_t part,proto_field_t key,bool hasEthernet) {
+  for(const auto &field:FIELDS)if(field.part==part && field.field==key && (hasEthernet || !field.ethernetOnly()))return forHardware(field,hasEthernet);
+  return nullptr;
+}
+bool settingsIntegerValid(const settings_field_t &field,int64_t value) {
+  if(value<field.lo || value>field.hi)return false;
+  if(!field.choiceCount)return true;
+  for(uint8_t i=0;i<field.choiceCount;++i)if(value==field.choices[i])return true;
+  return false;
+}
+uint8_t settingsFieldCount(settings_section_t section, bool hasEthernet) {
+  uint8_t count=0;
+  for(const auto &field : FIELDS) if(included(field,section,hasEthernet)) ++count;
+  return count;
+}
+const settings_field_t *settingsFieldAt(settings_section_t section, uint8_t index, bool hasEthernet) {
+  for(const auto &field : FIELDS)
+    if(included(field,section,hasEthernet) && index-- == 0) return forHardware(field,hasEthernet);
+  return nullptr;
+}
+static const settings_field_t *saved(settings_section_t section, proto_field_t field, bool hasEthernet) {
   for(const settings_field_t &s : FIELDS)
-    if(s.field == field && sectionOf(s.part) == section) return &s;
+    if(s.field == field && sectionOf(s.part) == section) return forHardware(s,hasEthernet);
   return nullptr;
 }
 
@@ -109,7 +134,9 @@ const char *parseSettingsSection(JsonObjectConst d, settings_section_t &section)
 }
 
 // Four numbers 0-255 between dots.
-static bool isAddress(const char *s) {
+bool settingsAddressValid(const char *s) {
+  if(!s)return false;
+  if(!*s)return true;
   for(int part = 0; part < 4; part++) {
     if(part > 0 && *s++ != '.') return false;
     if(*s < '0' || *s > '9') return false;
@@ -121,24 +148,21 @@ static bool isAddress(const char *s) {
   return *s == '\0';
 }
 
-// What the reply's desc points at; every parse runs on async_tcp, one at a
-// time.
-static char why[64];
 // A value already of its field's kind: nullptr when it is in range.
-static const char *checkValue(const settings_field_t &s, const proto_field_info_t &f, JsonVariant value) {
+static const char *checkValue(const settings_field_t &s, const proto_field_info_t &f, JsonVariant value, proto_error_buffer_t &why) {
   if(f.kind == 'i') {
-    const bool inRange = value.is<int64_t>() && value.as<int64_t>() >= s.lo && value.as<int64_t>() <= s.hi;
+    const bool valid=value.is<int64_t>() && settingsIntegerValid(s,value.as<int64_t>());
     if(s.field == proto_field_t::bitLength) {
-      if(inRange && (value.as<int>() == 56 || value.as<int>() == 80)) return nullptr;
+      if(valid) return nullptr;
       snprintf(why, sizeof(why), "%s must be 56 or 80", f.name);
       return why;
     }
     if(s.field == proto_field_t::proto) {
-      if(inRange && (value.as<int>() <= 2 || value.as<int>() >= 8)) return nullptr;
+      if(valid) return nullptr;
       snprintf(why, sizeof(why), "%s must be 0, 1, 2, 8 or 9", f.name);
       return why;
     }
-    if(inRange) return nullptr;
+    if(valid) return nullptr;
     if(s.lo == s.hi) snprintf(why, sizeof(why), "%s must be %ld", f.name, (long)s.lo);
     else snprintf(why, sizeof(why), "%s must be %ld-%ld", f.name, (long)s.lo, (long)s.hi);
     return why;
@@ -146,7 +170,11 @@ static const char *checkValue(const settings_field_t &s, const proto_field_info_
   if(f.kind == 'n') {
     // Half a hundredth either way, as 58.03 is a little under it in a float.
     const double hundredths = value.as<double>() * 100;
-    if(hundredths > s.lo - 0.5 && hundredths < s.hi + 0.5) return nullptr;
+    if(hundredths > s.lo - 0.5 && hundredths < s.hi + 0.5) {
+      if(s.field==proto_field_t::frequency && !BoardProfile::radioFrequencyAllowed(value.as<float>()))
+        return "frequency is outside the supported radio bands";
+      return nullptr;
+    }
     snprintf(why, sizeof(why), "%s must be %ld.%02ld-%ld.%02ld", f.name, (long)(s.lo / 100), (long)(s.lo % 100),
       (long)(s.hi / 100), (long)(s.hi % 100));
     return why;
@@ -160,14 +188,15 @@ static const char *checkValue(const settings_field_t &s, const proto_field_info_
   if(s.part != settings_part_t::ip) return nullptr;
   // The settings send 0.0.0.0 as "", so "" sets it back.
   if(!text[0]) value.set("0.0.0.0");
-  else if(!isAddress(text)) {
+  else if(!settingsAddressValid(text)) {
     snprintf(why, sizeof(why), "%s is not an IP address", f.name);
     return why;
   }
   return nullptr;
 }
 
-const char *expandSettingsPayload(JsonObjectConst d, bool hasEthernet, settings_section_t &section, JsonDocument &doc) {
+const char *expandSettingsPayload(JsonObjectConst d, bool hasEthernet, settings_section_t &section, JsonDocument &doc, proto_error_buffer_t &why) {
+  why[0] = '\0';
   doc.clear();
   const char *bad = parseSettingsSection(d, section);
   if(bad) return bad;
@@ -180,18 +209,18 @@ const char *expandSettingsPayload(JsonObjectConst d, bool hasEthernet, settings_
     }
     if(field == proto_field_t::section) continue;
     const proto_field_info_t &f = protoField(field);
-    const settings_field_t *s = saved(section, field);
+    const settings_field_t *s = saved(section, field, hasEthernet);
     if(!s) {
       snprintf(why, sizeof(why), "%s can't be saved in %s", f.name, settingsSectionName(section));
       return why;
     }
     if(s->part == settings_part_t::ethernet && !hasEthernet) return "This device has no Ethernet";
-    JsonVariant value = obj[routeName(*s)].to<JsonVariant>();
+    JsonVariant value = obj[s->routeName()].to<JsonVariant>();
     if(!protoRouteValue(f, kv.value(), value)) {
       snprintf(why, sizeof(why), "%s is not a %s", f.name, protoKindName(f.kind));
       return why;
     }
-    bad = checkValue(*s, f, value);
+    bad = checkValue(*s, f, value, why);
     if(bad) return bad;
   }
   if(obj.size() == 0) return "Nothing to save";
@@ -202,7 +231,7 @@ uint16_t settingsParts(settings_section_t section, JsonObjectConst request) {
   uint16_t parts = 0;
   for(JsonPairConst kv : request)
     for(const settings_field_t &s : FIELDS)
-      if(sectionOf(s.part) == section && strcmp(routeName(s), kv.key().c_str()) == 0)
+      if(sectionOf(s.part) == section && strcmp(s.routeName(), kv.key().c_str()) == 0)
         parts |= 1u << static_cast<uint8_t>(s.part);
   return parts;
 }

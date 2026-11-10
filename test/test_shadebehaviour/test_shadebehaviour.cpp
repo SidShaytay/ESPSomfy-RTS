@@ -1,6 +1,7 @@
 #include <unity.h>
 #include <vector>
 #include "ShadeBehaviour.h"
+#include "LocalControlPolicy.h"
 
 // Scenario tests pinning what ShadeBehaviour does today, moved unchanged from
 // SomfyShade.  Where the copies of a rule disagree the test says "today:" so
@@ -279,6 +280,25 @@ static void test_a_group_step_after_move_to_target_sends_no_stop() {
   ASSERT_POS(41, r.st().currentPos);
   TEST_ASSERT_EQUAL(before, r.link.sent.size());
 }
+static void test_lcd_repeated_toggle_cannot_emit_long_my() {
+  using namespace LocalUi;
+  Rig r;
+  ControlDescriptor d;d.proto=radio_proto::RTS;d.paired=true;d.shadeType=shade_types::garage1;d.bitLength=56;
+  shade_request_t request;
+  const auto result=prepareControlRequest(ControlAction::toggle,d,1,-1,0,request,127);
+  if(result==ControlResult::done)r.b.sendCommand(request.command,request.repeat,request.stepSize,r.now);
+  TEST_ASSERT_EQUAL(int(ControlResult::unsupported),int(result));
+  TEST_ASSERT_EQUAL(0,r.link.sent.size());
+  TEST_ASSERT_EQUAL(int(ControlResult::done),int(prepareControlRequest(ControlAction::toggle,d,1,-1,0,request)));
+  r.b.sendCommand(request.command,1,request.stepSize,r.now);
+  ASSERT_CMD(somfy_commands::My,r.lastSent().cmd);
+  TEST_ASSERT_EQUAL(1,r.lastSent().repeat);
+  d.bitLength=r.remote.bitLength=80;
+  TEST_ASSERT_EQUAL(int(ControlResult::done),int(prepareControlRequest(ControlAction::toggle,d,1,-1,0,request,127)));
+  r.b.sendCommand(request.command,request.repeat,request.stepSize,r.now);
+  ASSERT_CMD(somfy_commands::Toggle,r.lastSent().cmd);
+  TEST_ASSERT_EQUAL(127,r.lastSent().repeat);
+}
 static void test_toggle_on_a_56_bit_shade_sends_my() {
   Rig r;
   r.b.sendCommand(somfy_commands::Toggle, 1, 0, r.now);
@@ -545,6 +565,25 @@ static void test_group_down_and_step() {
   s.b.onGroupCommand(somfy_commands::StepDown, 1, s.now);
   ASSERT_POS(51, s.st().target);
 }
+static void test_group_step_preserves_transmitted_size_for_member_estimates() {
+  for(auto cmd : {somfy_commands::StepUp, somfy_commands::StepDown}) {
+    for(uint8_t steps : {uint8_t(0), uint8_t(1), uint8_t(3), uint8_t(127)}) {
+      for(auto tilt : {tilt_types::none, tilt_types::integrated, tilt_types::tiltonly}) {
+        Rig group, member, individual;
+        group.remote.bitLength=member.remote.bitLength=individual.remote.bitLength=80;
+        member.settings.tiltType=individual.settings.tiltType=tilt;
+        member.b.restore(50,50,-1,-1); individual.b.restore(50,50,-1,-1);
+        TEST_ASSERT_TRUE(group.link.send(cmd,1,steps,0,false).sent);
+        TEST_ASSERT_EQUAL(steps,group.lastSent().stepSize);
+        individual.b.sendCommand(cmd,1,steps,individual.now);
+        member.b.onGroupCommand(group.lastFrame.cmd,group.lastFrame.repeats,member.now,group.lastFrame.stepSize);
+        ASSERT_POS(individual.st().target,member.st().target);
+        ASSERT_POS(individual.st().tiltTarget,member.st().tiltTarget);
+        TEST_ASSERT_EQUAL(0,member.link.sent.size()); // no second member RF frame
+      }
+    }
+  }
+}
 static void test_group_sun_flag_needs_a_sensor() {
   Rig r;
   r.b.onGroupCommand(somfy_commands::SunFlag, 1, r.now);
@@ -563,6 +602,67 @@ static void test_group_sun_flag_needs_a_sensor() {
 /*********************************************************************
  * The favorite
  ********************************************************************/
+// The LCD's programming stage must never start a positioning sequence.
+static void favorite_observation_revision_catches_fractional_changes_and_return_to_same_position() {
+  Rig r;r.b.restore(30,0,70,-1);const auto before=r.b.favouriteObservationRevision();
+  r.b.setPosition(30.1f,-1);const auto away=r.b.favouriteObservationRevision();TEST_ASSERT_TRUE(away>before);
+  r.b.setPosition(30,-1);TEST_ASSERT_TRUE(r.b.favouriteObservationRevision()>away);
+  const auto same=r.b.favouriteObservationRevision();r.b.setPosition(30,-1);TEST_ASSERT_EQUAL(same,r.b.favouriteObservationRevision());
+  r.press(somfy_commands::My);TEST_ASSERT_TRUE(r.b.favouriteObservationRevision()>same);
+}
+static void test_explicit_favorite_set_and_clear_never_implicitly_move() {
+  Rig r;r.b.restore(30,0,70,-1);
+  TEST_ASSERT_TRUE(r.b.programMyPositionHere(false,r.now));
+  TEST_ASSERT_EQUAL(1,r.link.sent.size());ASSERT_CMD(somfy_commands::My,r.lastSent().cmd);
+  TEST_ASSERT_EQUAL(35,r.lastSent().repeat);TEST_ASSERT_EQUAL(0,r.lastSent().delayMs);
+  TEST_ASSERT_EQUAL_FLOAT(30,r.st().target);TEST_ASSERT_EQUAL_FLOAT(30,r.st().myPos);
+  TEST_ASSERT_FALSE(r.b.programMyPositionHere(true,r.now)); // First transmission unresolved.
+  const int saves=r.events.saves;r.event(tx_event_t::finished,r.lastSent().ticket);
+  TEST_ASSERT_EQUAL(saves+1,r.events.saves);
+  TEST_ASSERT_TRUE(r.b.programMyPositionHere(false,r.now)); // Set is not toggle/clear.
+  TEST_ASSERT_EQUAL(1,r.link.sent.size());
+  TEST_ASSERT_TRUE(r.b.programMyPositionHere(true,r.now));
+  TEST_ASSERT_EQUAL(2,r.link.sent.size());TEST_ASSERT_EQUAL(35,r.lastSent().repeat);
+  TEST_ASSERT_EQUAL_FLOAT(-1,r.st().myPos);TEST_ASSERT_EQUAL_FLOAT(30,r.st().target);
+  r.event(tx_event_t::dropped,r.lastSent().ticket);TEST_ASSERT_EQUAL_FLOAT(30,r.st().myPos);
+  TEST_ASSERT_EQUAL(saves+1,r.events.saves);
+}
+static void test_explicit_favorite_clear_elsewhere_refuses_without_move_or_program() {
+  Rig r;r.b.restore(30,0,70,-1);
+  TEST_ASSERT_FALSE(r.b.programMyPositionHere(true,r.now));
+  TEST_ASSERT_EQUAL(0,r.link.sent.size());TEST_ASSERT_EQUAL_FLOAT(30,r.st().target);
+  TEST_ASSERT_EQUAL_FLOAT(70,r.st().myPos);
+  r.b.moveToTarget(40,-1,r.now);const auto sent=r.link.sent.size();
+  TEST_ASSERT_FALSE(r.b.programMyPositionHere(false,r.now));TEST_ASSERT_EQUAL(sent,r.link.sent.size());
+}
+static void test_explicit_favorite_tilt_uses_exact_observed_positions() {
+  for(auto tilt:{tilt_types::integrated,tilt_types::tiltmotor,tilt_types::euromode,tilt_types::tiltonly}) {
+    Rig r;r.settings.tiltType=tilt;r.b.restore(100,42,70,70);r.b.setPosition(100,42.5f);
+    TEST_ASSERT_TRUE(r.b.programMyPositionHere(false,r.now));
+    TEST_ASSERT_EQUAL_FLOAT(42.5f,r.st().myTiltPos);
+    TEST_ASSERT_EQUAL_FLOAT(tilt==tilt_types::tiltonly?-1:100,r.st().myPos);
+    r.event(tx_event_t::finished,r.lastSent().ticket);
+    r.b.setPosition(100,42.6f);TEST_ASSERT_FALSE(r.b.programMyPositionHere(true,r.now));
+    TEST_ASSERT_EQUAL(1,r.link.sent.size());
+    r.b.setPosition(100,42.5f);TEST_ASSERT_TRUE(r.b.programMyPositionHere(true,r.now));
+    TEST_ASSERT_EQUAL_FLOAT(-1,r.st().myPos);TEST_ASSERT_EQUAL_FLOAT(-1,r.st().myTiltPos);
+    TEST_ASSERT_EQUAL(2,r.link.sent.size());
+  }
+}
+static void test_explicit_favorite_rejects_toggle_and_drycontact_commands() {
+  for(auto type:{shade_types::garage1,shade_types::lgate1,shade_types::cgate1,shade_types::rgate1,shade_types::drycontact,shade_types::drycontact2}) {
+    Rig r;r.settings.shadeType=type;r.b.restore(30,0,70,-1);
+    TEST_ASSERT_FALSE(r.b.programMyPositionHere(false,r.now));
+    TEST_ASSERT_FALSE(r.b.programMyPositionHere(true,r.now));
+    TEST_ASSERT_EQUAL(0,r.link.sent.size());TEST_ASSERT_EQUAL_FLOAT(30,r.st().target);
+  }
+}
+static void test_explicit_favorite_refused_program_restores_previous_values() {
+  Rig r;r.b.restore(30,0,70,-1);r.link.refuseNext=true;
+  TEST_ASSERT_FALSE(r.b.programMyPositionHere(false,r.now));
+  TEST_ASSERT_EQUAL_FLOAT(70,r.st().myPos);TEST_ASSERT_EQUAL(0,r.link.sent.size());
+  TEST_ASSERT_EQUAL(0,r.events.saves);
+}
 static void test_set_favorite_here_is_committed_when_all_on_air() {
   Rig r;
   r.b.restore(30, 0, -1, -1);
@@ -643,8 +743,95 @@ static void test_restore_set_position_and_clear_tilt() {
   TEST_ASSERT_EQUAL_FLOAT(-1.0f, r.st().myTiltPos);
 }
 
+static void test_administration_idle_rejects_a_held_frame_without_side_effects() {
+  Rig r;TEST_ASSERT_TRUE(r.b.idleForAdministration());
+  r.press(somfy_commands::My);
+  TEST_ASSERT_TRUE(r.b.isIdle());
+  const auto sent=r.link.sent.size();const auto saves=r.events.saves;
+  TEST_ASSERT_FALSE(r.b.idleForAdministration());
+  TEST_ASSERT_EQUAL(sent,r.link.sent.size());TEST_ASSERT_EQUAL(saves,r.events.saves);
+  r.wait(600);TEST_ASSERT_TRUE(r.b.idleForAdministration());
+}
+static void test_administration_idle_rejects_a_queued_hold_until_resolved() {
+  Rig r;r.b.onTxQueued(99,r.now);TEST_ASSERT_TRUE(r.b.isIdle());
+  TEST_ASSERT_FALSE(r.b.idleForAdministration());
+  r.event(tx_event_t::dropped,99);TEST_ASSERT_TRUE(r.b.idleForAdministration());
+}
+static void test_administration_idle_waits_for_the_stop_outcome() {
+  Rig r;TEST_ASSERT_TRUE(r.b.moveToTarget(40,-1,r.now));
+  TEST_ASSERT_FALSE(r.b.idleForAdministration());r.onAir();r.run(4100);
+  TEST_ASSERT_TRUE(r.b.isIdle());TEST_ASSERT_FALSE(r.b.idleForAdministration());
+  r.event(tx_event_t::finished,r.lastSent().ticket);
+  TEST_ASSERT_TRUE(r.b.idleForAdministration());
+}
+static void test_administration_idle_waits_for_favourite_programming() {
+  Rig r;r.b.restore(30,0,-1,-1);
+  TEST_ASSERT_TRUE(r.b.setMyPosition(30,-1,r.now));
+  TEST_ASSERT_TRUE(r.b.isIdle());TEST_ASSERT_FALSE(r.b.idleForAdministration());
+  r.event(tx_event_t::finished,r.lastSent().ticket);
+  TEST_ASSERT_TRUE(r.b.idleForAdministration());
+}
+// A native group Favorite has already been transmitted on the group address.
+// Displaced local sequences may not append member STOP or favourite programming.
+static void test_group_favorite_displaces_position_simmy_and_programming_sequences() {
+  for(unsigned source=0;source<4;++source) {
+    Rig r;r.remote.bitLength=80;r.settings.tiltType=tilt_types::tiltmotor;
+    r.b.restore(0,0,60,40);
+    if(source==0) TEST_ASSERT_TRUE(r.b.moveToTarget(80,80,r.now));
+    if(source==1) {r.settings.simMy=true;TEST_ASSERT_TRUE(r.b.moveToMyPosition(r.now));}
+    if(source==2) TEST_ASSERT_TRUE(r.b.setMyPosition(80,80,r.now));
+    if(source==3) TEST_ASSERT_TRUE(r.b.moveToTiltTarget(80,r.now));
+    r.onAir();r.run(200);const auto sent=r.link.sent.size();
+    r.b.onGroupCommand(somfy_commands::Favorite,3,r.now);
+    r.run(30000);
+    TEST_ASSERT_EQUAL(sent,r.link.sent.size());
+    ASSERT_POS(60,r.st().currentPos);ASSERT_POS(40,r.st().currentTiltPos);
+    ASSERT_POS(60,r.st().myPos);ASSERT_POS(40,r.st().myTiltPos);
+    TEST_ASSERT_TRUE(r.b.idleForAdministration());
+  }
+}
+static void test_group_favorite_consumes_obsolete_deferred_my_without_replay() {
+  for(bool longPress:{false,true}) {
+    Rig r;r.remote.bitLength=80;r.settings.simMy=true;r.b.restore(0,0,60,-1);
+    r.press(somfy_commands::My);r.lastFrame.repeats=longPress?35:0;
+    TEST_ASSERT_FALSE(r.lastFrame.processed);TEST_ASSERT_NOT_EQUAL(0,r.lastFrame.await);
+    r.b.onGroupCommand(somfy_commands::Favorite,3,r.now);
+    r.run(1000);r.wait(600);r.run(30000);r.wait(600);
+    TEST_ASSERT_EQUAL(0,r.link.sent.size());ASSERT_POS(60,r.st().target);
+    ASSERT_POS(60,r.st().myPos);TEST_ASSERT_TRUE(r.b.idleForAdministration());
+  }
+}
+static void test_group_favorite_preserves_already_accepted_tx_outcomes() {
+  // A queued position command remains unsettled until its real outcome arrives.
+  Rig queued;queued.b.restore(0,0,60,-1);queued.b.moveToTarget(80,-1,queued.now);
+  const auto moving=queued.lastSent().ticket;
+  queued.b.onGroupCommand(somfy_commands::Favorite,3,queued.now);
+  queued.run(1000);TEST_ASSERT_FALSE(queued.b.idleForAdministration());
+  queued.event(tx_event_t::started,moving);queued.run(30000);
+  TEST_ASSERT_EQUAL(1,queued.link.sent.size());ASSERT_POS(60,queued.st().myPos);
+  TEST_ASSERT_TRUE(queued.b.idleForAdministration());
+  // Already accepted programming still commits/restores from its actual ticket.
+  for(bool finished:{false,true}) {
+    Rig programming;programming.b.restore(30,0,70,-1);
+    programming.b.setMyPosition(30,-1,programming.now);
+    const auto ticket=programming.lastSent().ticket;
+    programming.b.onGroupCommand(somfy_commands::Favorite,3,programming.now);
+    programming.run(1000);TEST_ASSERT_FALSE(programming.b.idleForAdministration());
+    programming.event(finished?tx_event_t::finished:tx_event_t::dropped,ticket);
+    TEST_ASSERT_EQUAL(1,programming.link.sent.size());
+    ASSERT_POS(finished?30:70,programming.st().myPos);
+    TEST_ASSERT_TRUE(programming.b.idleForAdministration());
+  }
+}
 int main(int argc, char **argv) {
   UNITY_BEGIN();
+  RUN_TEST(test_group_favorite_displaces_position_simmy_and_programming_sequences);
+  RUN_TEST(test_group_favorite_consumes_obsolete_deferred_my_without_replay);
+  RUN_TEST(test_group_favorite_preserves_already_accepted_tx_outcomes);
+  RUN_TEST(test_administration_idle_rejects_a_held_frame_without_side_effects);
+  RUN_TEST(test_administration_idle_rejects_a_queued_hold_until_resolved);
+  RUN_TEST(test_administration_idle_waits_for_the_stop_outcome);
+  RUN_TEST(test_administration_idle_waits_for_favourite_programming);
   RUN_TEST(test_down_waits_for_the_radio_then_travels);
   RUN_TEST(test_refused_command_moves_nothing);
   RUN_TEST(test_hold_times_out_without_a_radio_event);
@@ -656,6 +843,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_refused_stop_runs_on_to_the_limit);
   RUN_TEST(test_a_step_after_move_to_target_sends_no_stop);
   RUN_TEST(test_a_group_step_after_move_to_target_sends_no_stop);
+  RUN_TEST(test_lcd_repeated_toggle_cannot_emit_long_my);
   RUN_TEST(test_toggle_on_a_56_bit_shade_sends_my);
   RUN_TEST(test_flipped_shade_sends_the_other_way);
   RUN_TEST(test_remote_down_and_my_stop);
@@ -673,7 +861,14 @@ int main(int argc, char **argv) {
   RUN_TEST(test_today_integrated_tilt_turns_back_after_a_lift_target);
   RUN_TEST(test_tilt_only_lift_stays_down_whatever_the_source);
   RUN_TEST(test_group_down_and_step);
+  RUN_TEST(test_group_step_preserves_transmitted_size_for_member_estimates);
   RUN_TEST(test_group_sun_flag_needs_a_sensor);
+  RUN_TEST(favorite_observation_revision_catches_fractional_changes_and_return_to_same_position);
+  RUN_TEST(test_explicit_favorite_set_and_clear_never_implicitly_move);
+  RUN_TEST(test_explicit_favorite_clear_elsewhere_refuses_without_move_or_program);
+  RUN_TEST(test_explicit_favorite_tilt_uses_exact_observed_positions);
+  RUN_TEST(test_explicit_favorite_rejects_toggle_and_drycontact_commands);
+  RUN_TEST(test_explicit_favorite_refused_program_restores_previous_values);
   RUN_TEST(test_set_favorite_here_is_committed_when_all_on_air);
   RUN_TEST(test_set_favorite_dropped_keeps_the_old_one);
   RUN_TEST(test_set_favorite_elsewhere_moves_there_first);

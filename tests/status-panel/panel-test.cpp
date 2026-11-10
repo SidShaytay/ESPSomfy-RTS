@@ -2,9 +2,24 @@
 #include "SPI.h"
 #include <algorithm>
 #include <cstring>
+#include "GitUpdate.h"
+#include "GitUpdateMemory.h"
 uint32_t fakeNow = 0;
 int pins[64] = {};
 bool spiOK = true, attachOK = true, allocationOK = true, owned = false, busy = false;
+bool updaterSampling=false;
+unsigned updaterSamples=0, tlsSamples=0;
+GitUpdateSnapshot updateSample;
+GitUpdateMemoryStats tlsSample;
+GitUpdateClass gitUpdate;
+GitUpdateSnapshot GitUpdateClass::snapshot() const {
+  assert(!owned && !SPI.active); updaterSampling=true; ++updaterSamples;
+  const auto result=updateSample; updaterSampling=false; return result;
+}
+GitUpdateMemoryStats gitUpdateMemoryStats() {
+  assert(!owned && !SPI.active); updaterSampling=true; ++tlsSamples;
+  const auto result=tlsSample; updaterSampling=false; return result;
+}
 SerialStub Serial;
 SPIStub SPI;
 bool tryDisplayBus(void (*fn)(void *), void *ctx) {
@@ -58,5 +73,32 @@ int main() {
   StatusPanel::Panel timeout;
   assert(timeout.initialize(0) == Result::pending);
   assert(timeout.initialize(5001) == Result::failed);
-  puts("Status panel: ownership, selects, bounds, busy bus, initialization and failures passed");
+  busy=false;
+  updateSample.minInternalFree=101; updateSample.minLargestInternal=202;
+  updateSample.maxPsramUsed=303; updateSample.workerStackMinimum=0;
+  strcpy(updateSample.installed,"PRIVATE_INSTALLED");
+  strcpy(updateSample.candidate.version,"PRIVATE_CANDIDATE");
+  strcpy(updateSample.candidate.sourceSha,"PRIVATE_SOURCE");
+  updateSample.operation=987654321;
+  tlsSample.requested=404; tlsSample.peak=505; tlsSample.internalPeak=606;
+  tlsSample.failures=7;
+  updateSample.transport.download=GitUpdateDownload::api;updateSample.transport.stage=GitUpdateTransportStage::open;
+  updateSample.transport.sdkError=-1;updateSample.transport.socketError=104;updateSample.transport.tlsSdkError=0x801a;
+  updateSample.transport.tlsError=-0x7280;updateSample.transport.tlsFlags=8;updateSample.transport.certificateState=1;
+  fakeNow=29999; StatusPanel::loop(true);
+  assert(updaterSamples==0 && tlsSamples==0 && Serial.output.empty());
+  fakeNow=30000; StatusPanel::loop(true);
+  const std::string expected="LCD update minInternalB=101 minLargestInternalB=202 maxPsramUsedB=303 workerStackMinB=0 tlsRequestedB=404 tlsPeakRequestedB=505 tlsInternalPeakRequestedB=606 tlsFailures=7 download=1 stage=3 sdkErr=-1 http=0 errno=104 tlsSdkErr=32794 tlsErr=-29312 tlsFlags=8 certState=1 certFailure=0\n";
+  assert(Serial.output.find(expected)!=std::string::npos);
+  assert(updaterSamples==1 && tlsSamples==1);
+  assert(Serial.output.find("PRIVATE_")==std::string::npos);
+  assert(Serial.output.find("987654321")==std::string::npos);
+  const auto first=Serial.output;
+  fakeNow=59999; StatusPanel::loop(true);
+  assert(Serial.output==first && updaterSamples==1 && tlsSamples==1);
+  updateSample.workerStackMinimum=808; tlsSample.requested=909;
+  fakeNow=60000; StatusPanel::loop(true);
+  assert(updaterSamples==2 && tlsSamples==2);
+  assert(Serial.output.find("workerStackMinB=808 tlsRequestedB=909")!=std::string::npos);
+  puts("Status panel: ownership, bounds, failures and private 30-second updater metrics passed");
 }

@@ -1,26 +1,150 @@
-# Local shutter UI
+# Local controller UI
 
-Use [the standard flashing procedure](flashing.md) for backup and firmware-only A/B updates. Select the UI environment that preserves the intended command-lock setting; the headless packager does not package this UI.
+Use [the standard flashing procedure](flashing.md) for backup and firmware-only A/B updates. Build `lilygo-t-embed-cc1101` for either CC1101 or Plus; the shared image includes display, UI and commands.
 
-The optional 320×170 UI adds status, room selection, controls, details and saved display settings to the LILYGO Plus display. It follows the approved dark/teal mockup using the real Adafruit fonts and vector drawing; the generated previews use the same renderer as the board.
+The 320×170 UI adds status, room selection, controls, details and saved display settings to the LILYGO CC1101/Plus display. It follows the approved dark/teal mockup using the real Adafruit fonts and vector drawing; the generated previews use the same renderer as the board.
 
-**Physical shutter controls are enabled in the installed firmware.** Sid authorized manual operation and firmware installation; the assistant has sent no shutter commands. No upstream publication is included.
+This guide describes the software in current main, including the full LCD
+administration and verified updater. Check **Details** for the running firmware,
+application and build identity; a source checkout or version label alone does
+not establish what is installed. Dated evidence near the end of this page is
+historical. See the [implementation audit](lcd-capability-audit.md) for coverage
+and physical-verification limits.
+
+## Navigation versions
+
+The paths in this guide apply to **4.8.0 and later**. Version **4.7.3** uses the older navigation shown below. Check the running version in Details before following a path.
+
+| Task | 4.7.3 | 4.8.0 and later |
+|---|---|---|
+| Browse targets | Quick access → Browse & settings → Rooms / Devices / Groups | Quick access → Browse all → Rooms / Devices / Groups |
+| Settings and administration | Browse & settings → Settings / Administration | This controller → Configure → named section / Rooms, devices & groups |
+| Display and shortcuts | Browse & settings → Display settings; Quick access → Manage shortcuts | This controller → Configure → Display / Quick entries |
+| GitHub updates, restart, browser files | Browse & settings → System → chosen action | This controller → Maintenance → chosen action |
+| Network details, receive diagnostics, radio scan, copy-log guidance | Browse & settings → System; copy-log guidance is under Browser files & Web | This controller → Diagnostics → chosen action |
+| WiFi scan | Browse & settings → System → WiFi scan | This controller → Configure → Network → WiFi scan |
+| Status and About | Browse & settings → Status; hold Status for Details | This controller → Status / About |
+
+Both versions retain protected forms, explicit confirmations and supported commands. Version 4.7.3 requires its original installation session to remain valid. **4.8.0 and later** combine this navigation with the confirmed-install 30-minute window and temporary-download retries; ordinary menu authorization still expires after 120 seconds. See [GitHub updates](lcd-github-updates.md) for cancellation, unlock and failure behavior.
+
+## Start on the LCD
+
+1. Wake the display with one input; that first input sends no command.
+2. Quick access shows three pinned devices or groups together. Select one to
+   open its controls; opening sends no command. **Browse all** opens Rooms, Devices and Groups. **This controller** opens configuration, maintenance, Status, About and diagnostics.
+3. Unlock with the configured web PIN/password when requested. Ordinary controls
+   appear only for the selected target’s supported capabilities. Read the action
+   and confirmation on the display before pressing.
+4. From shortcut controls, Back returns directly to Quick access. Hold on Status
+   for Details. For a software update, open **This controller → Maintenance → GitHub updates** and follow its
+   separate default-Cancel release review.
+
+Displayed movement and percentages are estimates. STOP uses MY on ordinary RTS
+motors; it is not a physical emergency-stop system. One-button Toggle devices
+have different stop/reverse semantics and no ordinary STOP action.
+
+## Choose daily shortcuts
+
+**This controller → Configure → Quick entries** edits the three Quick access slots. Select a slot, then
+**Pin device**, **Pin group**, **Remove shortcut**, **Move up** or **Move down**.
+Choose **Save shortcuts**, review all three targets, then turn from **Cancel** to
+**Save** and press. The configured web credential also protects these edits.
+Back or **Cancel** on the Manage screen discards the unsaved draft, as does an
+expired session. **Cancel** on the final Save review returns to Manage and keeps
+your draft. Selecting a target
+or changing the draft sends no motor command.
+
+Without saved shortcuts, the UI suggests group ID 1 and device IDs 1 and 2 when
+those targets exist. Suggestions stay in memory until you explicitly save them.
+Saved empty slots remain empty. A missing target or changed radio identity shows
+**Unavailable**; it never selects another device. Restoring the same target ID and
+radio identity makes its shortcut usable again after fresh checks.
+Names follow the current configuration. Shortcut pins are separate from the
+motor's MY/Favourite position.
+
+**Browse all** contains only the Rooms, Devices and Groups catalogues. **This controller → Configure** contains settings, Display, Quick entries and **Rooms, devices & groups** administration. Startup opens Quick access when the model is ready
+and no movement or pending control needs attention. Ordinary idle navigation
+returns to Status before sleep; waking Status returns to Quick access. Waking a
+control page preserves it, keeping its existing STOP access and expiry rules.
+
+## Find a workflow
+
+| Task | LCD path and guide |
+|---|---|
+| Everyday controls and bounded repeats | Target → controls / More / Repeats; instructions below |
+| Position, then set or clear Favourite | Target → More → Set favourite here / Clear favourite; [observed-stop stages](lcd-favourite.md) |
+| Rooms, devices, groups and ordering | This controller → Configure → Rooms, devices & groups; [entity administration](lcd-entity-administration.md), [ordering](lcd-ordering.md) |
+| Status, paired marker, linked remotes, counters | This controller → Configure → Rooms, devices & groups → Devices/Groups → Advanced; [status/metadata](lcd-advanced-metadata.md), [counter correction](lcd-primary-counter-correction.md) |
+| Pair/unpair one motor | Device Advanced → Pair/unpair guide; [programming guide](lcd-programming-guide.md) |
+| Edit group list or program group membership | Group Advanced → Member links or Motor programming; [list repair](lcd-group-membership.md), [motor programming](lcd-group-programming.md) |
+| Receive/review repeater or remove association | This controller → Configure → Rooms, devices & groups → More → Repeaters; [repeater guide](lcd-repeater-learning.md) |
+| Explicit remote chords or sensor simulation | Device/group Advanced → Advanced remote / Sensor simulation; [chords](lcd-advanced-remote.md), [sensor guide](lcd-sensor-simulation.md) |
+| Settings and secrets | This controller → Configure; [settings forms](lcd-settings-forms.md) |
+| WiFi/network details and scans | This controller → Diagnostics → Network details / Radio frequency scan; Configure → Network → WiFi scan; [System](lcd-system.md), [WiFi](lcd-wifi-scan.md), [radio scan](lcd-radio-scan.md) |
+| Receive diagnostics | This controller → Diagnostics → Receive diagnostics; [receive guide](lcd-receive-diagnostics.md) |
+| Update firmware without a computer | This controller → Maintenance → GitHub updates; [verified update/rollback](lcd-github-updates.md) |
+| Backup, restore, manual files, clipboard/cache | This controller → Maintenance → Browser files & Web; Diagnostics → Copy receive log supplies browser guidance; [System](lcd-system.md), [generic filesystem files](generic-filesystem-update.md) |
 
 ## Use the encoder
 
 - First input after dim/off wakes only. A button held during boot is ignored until released.
-- From Status, turn or press to choose an item. Hold for Details. Details lists Firmware (the compiled firmware version) and Application (the installed web-filesystem version) separately. Turn the wheel to scroll through all ten diagnostic rows; press or Back returns to Status. Missing version data is shown as unavailable.
-- Turn clockwise to move down through the list and anticlockwise to move up, one item per physical detent. Choose an individual shade, Both rooms, Status or Display settings.
-- Press opens the selected page. Hold returns; the separate Back button also returns. Back saves any display-setting changes.
-- On Controls, turn to highlight UP/STOP/DOWN and press to submit the action. STOP is selected initially and after an attempt. A long hold goes back and never repeats a command.
-- Positions are estimates. Both rooms shows the current names and separate estimates for its members; group selection has an amber double-shutter icon.
-- In Display settings, turn to adjust the highlighted value. Press advances through Brightness, Dim after and Sleep after; pressing on the last row saves and returns. Back or hold also saves and returns. Changes are saved together when leaving, rather than writing flash on every turn. A failure to save is shown explicitly.
-- Brightness levels are 2, 4, 8, 16, 32, 64, 128 and 255 out of 255 (default 32). Dim/sleep choices are disabled, 5, 10, 15, 20, 30, 60, 120 and 300 seconds. **No dim** disables dimming; **No sleep** keeps the display on. Defaults are dim after 10 seconds and sleep after 20 seconds, measured independently from the last activity.
-- While any configured shade is estimated moving, the UI stays awake so STOP remains reachable. Wake/rotation/holding/Back alone never creates a shutter request. With No sleep selected, idle navigation returns to Status after 30 seconds while leaving the display on.
+- From Status, turn or press to open Quick access. Choose **Browse all** for target catalogues or **This controller** for controller tasks. Hold for Details; turn there to scroll all fourteen diagnostic rows. Details distinguishes compiled Firmware from installed web-file Application version. Opening About through This controller returns to that menu; the existing Status hold shortcut retains its normal return.
+- In Browse all, turn to Rooms, Devices or Groups, then press. This controller opens Configure, Maintenance, Status, About or Diagnostics. Status opens the existing wake screen directly; About opens the existing scrolling Details page. Rooms includes All rooms and Unassigned filters. Catalogues show three rows at a time, keep the selected device ID when entries reorder, and handle every configured device/group. Names can repeat; the visible stable ID identifies each target.
+- **This controller → Configure → Rooms, devices & groups → Rooms / Devices / Groups** adds, edits and deletes configuration through protected local forms. Apply changes only the draft; Save performs the edit. Device/group Save and all Delete confirmations start with Cancel selected. Full lists show every stable ID; Add is marked full when no slots remain. If an edit applies but its model file is not saved, Retry saves the current file without repeating the edit. See [entity administration](lcd-entity-administration.md).
+- **More → Repeats** opens supported everyday RF actions. Steps ask for their size before the repeat count. Follow [Hold to send repeats](#hold-to-send-repeats) below; the final review differs from an ordinary one-shot Apply.
+- On a control page, turn to the available UP/STOP/DOWN or Toggle action and press. More opens additional supported actions: position, tilt, MY position, 80-bit Favorite, steps and sun flags. The menu reflects the actual device capabilities; it adds no separate light opcode. Group actions require compatible configured RF members. An 80-bit group also offers Favorite when every configured member supports it; mixed, missing or incompatible members disable it. This sends one command using the group identity and updates member estimates, without substituting individual member commands.
+- Numeric position/tilt drafts range from 0 to 100; steps range from 1 to 127. Turn to adjust, press to review, then turn from the default **Cancel** to **Apply** and press. Turns and Cancel send nothing. An unavailable position estimate prevents opening a position draft rather than choosing a target silently. Back cancels a draft and returns directly to the main control page with STOP selected when supported.
+- Push requires the selected row, target, action and Apply choice to have reached the panel. If SPI is busy, wait for the display and press again. A previously shown STOP remains reachable while the same target repaints estimates. Changed identity, configuration or group membership requires reopening the target.
+- Back returns without sending a command. An encoder hold also returns from navigation/editors, except on the final **Hold to send** repeat review. Display drafts are cancelled by Back. Press advances through Brightness, Dim after and Sleep after; pressing the last row explicitly saves. Saves occur together, never on every turn, and failures are shown.
+- Brightness levels are 2, 4, 8, 16, 32, 64, 128 and 255 out of 255 (default 32). Dim/sleep choices are disabled, 5, 10, 15, 20, 30, 60, 120 and 300 seconds. **No dim** disables dimming; **No sleep** keeps the display on. Defaults are dim after 10 seconds and sleep after 20 seconds, measured independently from the last input.
+- While any configured shade is estimated moving, the UI stays awake so STOP remains reachable. Wake, rotation and Back create no shutter request; only the explicit repeat-review hold starts repeated commands. With No sleep selected, idle navigation returns to Status after 30 seconds while leaving the display on.
 
-The [manufacturer schematic](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/hardware/T-Embed-CC1101%20V1.0%2024-07-29.pdf) and [component/pin list](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/README.md) do not document an ambient-light sensor. Brightness is manual. The encoder uses INA 4, INB 5 and KEY 0; Back uses GPIO6. The decoder follows the manufacturer's TWO03 mode, recognizing detents at both 00 and 11 and rejecting invalid Gray-code transitions/bounce. Sid confirmed the display, wheel and separate Back button work on the installed update.
+## Hold to send repeats
 
-The Wi-Fi glyph indicates connection, not measured signal strength. The installed build reads battery percentage and voltage from the BQ27220 fuel gauge. Status shows percentage; Details shows percentage and voltage. Startup, no battery, invalid values and failed reads are labeled explicitly. USB/charging detection remains outside this change. Live checks returned 100% and 4,146 mV; these are gauge-reported values, not an independent capacity measurement.
+1. Open the target’s **More → Repeats** menu and choose a supported RF action. For a step action, choose the step size first.
+2. Choose **1–127 repeats**, press to review, then turn from the default **Cancel** to **Hold to send**. Check the target, action, step size and maximum repeat count on the completed display.
+3. Hold the encoder for about **800 ms** after the press has debounced. A short tap sends nothing and shows a hold hint. One eligible hold starts one fresh command with the reviewed count; keeping it down never starts a second batch.
+4. Release to end future repeat frames. The active footer says **Release ends repeats; then STOP**. Release does not send MY/STOP and does not stop a shutter already moving; release first, then use the separate supported **STOP** action if needed.
+5. Read the outcome. Completion, refusal or expiry replaces the active hold hint even while the encoder remains down. Release before starting another action; completing the maximum count while held does not rearm the button.
+
+Wait for the complete review before pressing. If the screen is busy when the press starts, completing it while the knob is still down cannot authorize that hold: release, wait, then press again. Wake-only input, a button held at boot, rotation during the press, or changed target/authorization cancels eligibility. Back, authorization expiry, context changes, timeout and graphics recovery also cancel remaining admitted repeats. Cancellation is observed between complete RF frames; a frame already committed may still finish. Other queued commands are preserved.
+
+The count uses the shared protocol’s repeat definition and may exclude the initial frame; it is not a number of physical movements. MY/STOP, 56-bit Toggle, individual Euro-mode UP/DOWN, position seeks, tilt requests and wired GPIO actions have no everyday repeat option. Their ordinary supported controls remain available. Pairing, Set/Clear Favourite and Advanced remote programming retain their separate staged confirmations and protocol batches.
+
+An accepted action first enters the shared model-loop queue. Unsubmitted actions expire after five seconds and never retry automatically. A started finite repeat job has its own count-derived deadline, so a valid long batch is not cut off at five seconds. **Active; Back cancels remaining** means the local action is still owned, including any cancellation waiting for its final outcome. Changed configuration, authorization, restore history or a backward clock refuses or cancels the old intent. STOP stays available for the same target under its existing security rules.
+
+A fresh STOP for the same unchanged target retracts its queued UP/DOWN/other action. If the target is already idle, this only cancels the queued start and sends no MY. If moving, STOP joins the end of the shared queue. **Cancelled; STOP not queued** means the old start was removed but the queue had no room for the replacement; press again when ready. Other targets' pending actions require explicit Back cancellation. Back cannot undo a command already accepted by the existing request service.
+
+The current font displays ASCII. Unsupported UTF-8 code points and control characters appear as `?`, while stored names remain unchanged. Stable IDs distinguish labels that render identically. Separate/Euro GPIO relay tilt is unavailable because the original web-backed relay driver has no mapping for it. All mode settings, ordinary supported lift and existing RF/GPIO-remote tilt behavior are retained; adding a new actuator design is outside this port.
+
+Configured web credentials also unlock local controls and administration. After two minutes without input, new actions require unlock. Only an already authorized, continuing movement retains ordinary STOP, for at most 30 seconds after the original expiry. Idle, changed configuration, explicit lock or sleep ends that exception; later movement does not regain it. Tilt STOP, MY, Toggle and every other action require unlock after expiry. Numeric drafts discard on timeout, authorization replacement or target changes. See the [interaction and security policy](lcd-interaction-security-design.md) for attempt limits and screenshot protection.
+
+The [manufacturer schematic](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/hardware/T-Embed-CC1101%20V1.0%2024-07-29.pdf) and [component/pin list](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/README.md) do not document an ambient-light sensor. Brightness is manual. The encoder uses INA 4, INB 5 and KEY 0; Back uses GPIO6. The decoder follows the manufacturer's TWO03 mode, recognizing detents at both 00 and 11 and rejecting invalid Gray-code transitions/bounce. Dated bring-up notes below record earlier display/encoder/Back checks.
+
+The Wi-Fi glyph indicates connection, not measured signal strength. The status adapter reads battery percentage and voltage from the BQ27220 fuel gauge. Status shows percentage; Details shows percentage and voltage. Startup, no battery, invalid values and failed reads are labeled explicitly. USB/charging detection remains outside this change. Earlier bring-up samples are historical gauge readings, not current controller state or an independent capacity measurement.
+
+## If a settings save fails
+
+A settings save error leaves the running settings unchanged and does not automatically reconnect or restart the controller. If the error says settings may be partly persisted, retry the complete intended settings before restarting: some stored values may already have changed, and a restart can load those values. Reading settings shows the running values, so it cannot prove that storage rolled back.
+
+The local Settings and Administration menus use this shared checked service. Backup/restore and manual firmware/web-file transfers remain browser-owned. The existing restore workflow has separate completion and partial-write limitations; this change does not make restores transactional.
+
+## Health in Details
+
+Hold on Status, then turn to the bottom four Details rows. They show free internal memory and its boot low-water mark, the largest available internal block, free PSRAM, and the last published loop rate and maximum pass time. Memory uses KiB; timing uses milliseconds, with seconds for long passes. Very high rates use `k/s` (thousands per second). Details refreshes once per second; loop statistics use the existing published window, normally every 30 seconds. `Loop: awaiting sample` means no window has been published yet. Missing PSRAM is labeled separately from a present device with zero free memory. These are read-only diagnostics.
+
+## Resolve a refusal or update problem
+
+| Message or symptom | What to do |
+|---|---|
+| Wait / selection not yet displayed | Let the screen finish drawing, then press again. Unseen confirmations do not execute. |
+| Changed / unlock required | Reopen the exact target and unlock again. Old queued actions or observations cannot be reused. |
+| Applied but file save failed | Use the displayed file-only retry when available. It saves the current model; it does not repeat a configuration edit or RF programming. |
+| GitHub updates unavailable / no eligible release | Check the network, stable-build identity and supported release availability. Main source is not automatically a published release. See [update requirements](lcd-github-updates.md). |
+| Controls paused / Update needs recovery | Keep power connected and follow the displayed cleanup/recovery status. Leaving the page does not release an uncertain update. Use the [state-preserving recovery procedure](flashing.md) if attention is required. |
+| Verifying new firmware / Rollback waiting | Continuous health checks or automatic idle rollback are running. The LCD briefly explains waiting for movement, work or saved state; see [boot health](github-update-boot-health.md). |
+| Unreadable model/settings | Existing recovery routes remain; there is no full-section LCD repair wizard. A normal reflash preserves configuration and does not repair corrupt settings by itself. See [model recovery](model-load-recovery.md) and [settings recovery limits](settings-load-trust.md). |
+| Light or relay tilt unavailable | Configuration is retained; no lamp command or separate/Euro relay tilt mapping is invented. See [unavailable controls](lcd-unavailable-controls.md). |
 
 ## Memory and rendering
 
@@ -29,6 +153,8 @@ The Wi-Fi glyph indicates connection, not measured signal strength. The installe
 | Full 320×170 RGB565 framebuffer | Explicit `MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT` | 108,800 bytes | UI lifetime |
 | Optional immutable screenshot | Same explicit PSRAM allocation | 108,866 bytes | One HTTP response; freed on completion/disconnect |
 | Four-scanline SPI bounce buffer | Internal static RAM | 2,560 bytes | UI lifetime |
+| Single pending local command with exact guard | Internal static RAM | At most 704 bytes | Model-loop lifetime |
+| Shared 32-item queue payload (all entry points) | Internal RTOS heap | At most 2,560 bytes plus RTOS bookkeeping | Application lifetime |
 | Simple fallback text canvas | Small heap allocation | 720 bytes | Display lifetime |
 | Fallback/clear pixel scanline | Internal static RAM | 640 bytes | Display lifetime |
 
@@ -36,30 +162,31 @@ The main drawing buffer uses about 1.3% of the 8 MiB PSRAM. With one screenshot 
 
 The graphics allocation never silently falls back to internal SRAM. If PSRAM is absent or the allocation fails, the existing simple status renderer shows `LCD: PSRAM not found` or `LCD: PSRAM alloc failed`, with the same saved dim/sleep timeouts and awake brightness. If its small text buffer, PWM or SPI initialization also fails, the backlight remains off and web/HA continue. Failure of the fallback text allocation alone does not disable a working PSRAM renderer.
 
-Rendering happens only when visible state changes. Frame contents live in PSRAM; changed four-line bands are copied/byte-swapped into the internal transfer buffer before trying the existing radio mutex. One band is attempted per two milliseconds, with zero lock wait; the last band contains two lines. The LCD path never remaps radio pins, changes SPI pin modes, masks interrupts or ends the shared bus. Hashes skip unchanged bands. No full-screen animation or double buffering is used.
+Rendering happens only when visible state changes. Frame contents live in PSRAM; changed four-line bands are copied/byte-swapped into the internal transfer buffer before trying the existing radio mutex. A loop pass admits up to eight changed bands within an 8 ms SPI admission budget, with zero lock wait and a separate bus release after each band. Unchanged-band validation can continue to a 10 ms work limit; the last band contains two lines. This avoids spending one whole controller-loop pass on every unchanged band while retaining completed-frame input and screenshot guards. The LCD path never remaps radio pins, changes SPI pin modes, masks interrupts or ends the shared bus. Hashes skip unchanged bands. No full-screen animation or double buffering is used.
 
-Commands require the currently selected page/target/action to have been presented. Position/uptime repainting does not disable an already presented STOP selection. Fresh model validation checks the exact existing RF identity and group member identities before dispatch; there are no new rolling-code identities. GPIO4/5/6 are reserved against relay output assignments in every Plus build.
+Commands require the currently selected page/target/action to have been presented. Position/uptime repainting does not disable an already presented STOP selection. Fresh model validation checks the exact existing RF identity and group member identities before dispatch; there are no new rolling-code identities. GPIO4/5/6 are reserved against relay output assignments in the shared CC1101/Plus build.
 
-The enabled build reuses `ShadeRequests` on the model-owning loop. Group UP/DOWN use the existing group identity. When both members are estimated moving, group STOP uses the same shared identity as UP/DOWN. If only one member is estimated moving, STOP addresses that member individually, rechecking immediately before submission, to avoid broadcasting MY to idle members. RTS has no motor position acknowledgement: estimates can be wrong, and a shared STOP/MY radio command cannot provide an absolute physical no-favourite guarantee. Actual RF/STOP semantics require separate approved testing. The canonical `lilygo-t-embed-cc1101-plus-ui` environment defines `ESPSOMFY_LOCAL_COMMANDS`. Use the separate `lilygo-t-embed-cc1101-plus-ui-preview` environment when a command-locked build is wanted.
+The enabled build reuses `ShadeRequests` on the model-owning loop. Group UP/DOWN use the existing group identity. When all configured members are estimated moving, group STOP uses the same shared identity as UP/DOWN. A refused shared STOP has no individual fallback. For mixed groups, STOP addresses only moving eligible members individually, rechecking immediately before submission, to avoid broadcasting MY to idle members. Partial acceptance is reported explicitly. RTS has no motor position acknowledgement: estimates can be wrong, and a shared STOP/MY radio command cannot provide an absolute physical no-favourite guarantee. Actual RF/STOP semantics require separate approved testing. The shared canonical environment defines `ESPSOMFY_LOCAL_COMMANDS`; reduced-feature release configurations are retired.
 
 ## Build and inspect offline
 
 ```bash
-~/.cache/espsomfy-lilygo/pio-python/bin/pio run -e lilygo-t-embed-cc1101-plus-ui
+~/.cache/espsomfy-lilygo/pio-python/bin/pio run -e lilygo-t-embed-cc1101
 ~/.cache/espsomfy-lilygo/pio-python/bin/pio test -e native
 bash tools/preview-local-ui.sh
 bash tools/test-status-panel.sh
+bash tools/test-status-health.sh
 bash tools/test-board-profile.sh
 python3 -m unittest discover -s tools -p test_lcd_image.py
 ```
 
-The preview tool compiles the production renderer with the actual pinned GFX library/fonts, produces PNGs at exactly 320×170 in `build/ui-preview/`, and runs runtime/capture harnesses. Set `GFX_DIR` if library dependencies are outside the default `.pio/libdeps/lilygo-t-embed-cc1101-plus-ui/Adafruit GFX Library` directory. Only Arduino/network/heap boundaries are stubbed; the rendering, navigation, frame-copy and capture logic are production code.
+The preview tool compiles the production renderer with the actual pinned GFX library/fonts, produces PNGs at exactly 320×170 in `build/ui-preview/`, and runs runtime/capture harnesses. Set `GFX_DIR` if library dependencies are outside the default `.pio/libdeps/lilygo-t-embed-cc1101/Adafruit GFX Library` directory. Only Arduino/network/heap boundaries are stubbed; the rendering, navigation, frame-copy and capture logic are production code.
 
-On this workstation, native checks use the existing `rocm-7.2.3` container. Host firmware builds set `PLATFORMIO_BUILD_DIR=build/pio` and `PLATFORMIO_LIBDEPS_DIR=build/libdeps` to keep their artifacts separate from container-created native folders. Do not use the headless artifact packager to label this UI firmware. Headless and the original simple-status environments remain available.
+On this workstation, native checks use the existing `rocm-7.2.3` container. Host firmware builds set `PLATFORMIO_BUILD_DIR=build/pio` and `PLATFORMIO_LIBDEPS_DIR=build/libdeps` to keep their artifacts separate from container-created native folders. The packager validates the shared full-feature CC1101/Plus image. Simple status remains an allocation-failure fallback, rather than a separate release image.
 
 ## Capture the hardware framebuffer
 
-After installing the UI build, the read-only endpoint is `GET /lcd/screenshot`. The existing HTTP authentication middleware applies: supply the existing `apikey` header when security is enabled. No token is put in the URL. The route is absent in headless/simple-status builds.
+After installing the UI build, the read-only endpoint is `GET /lcd/screenshot`. The existing HTTP authentication middleware applies: supply the existing `apikey` header when security is enabled. No token is put in the URL. The shared build registers this route; allocation fallback has no full framebuffer and returns 503.
 
 ```bash
 python3 tools/capture-local-ui.py --host <controller-address>
@@ -140,3 +267,5 @@ A fresh complete 16 MiB flash image, portable export and all five settings secti
 Only the checked `firmware.bin` was posted to `/updateFirmware`; the inactive app0 slot was used and app1 retained. No filesystem/NVS/bootloader/table image or restore was uploaded. The new USB boot fingerprint matched the candidate’s embedded ELF SHA256, and the live framebuffer returned `X-LCD-Commands: enabled`. Battery diagnostics reported state ready, 100%, 4,146 mV and 0 mA; the actual status framebuffer showed Battery 100%. The installed web filesystem’s application version remains 4.0.1, separately displayed from compiled firmware v4.0.1 in Details.
 
 Read-only verification found connected Wi-Fi, radio initialized at 433.42 MHz, operation 55/groupTarget still advertised, unchanged entity configuration/counters and all five settings sections, and all three HA covers available and idle. At 118.151 seconds uptime, settings/counters still matched, no restart/crash/OTA confirmation error appeared, and the task-owned USB reader was stopped. Combined checks passed: 706 native tests plus one optional skip, 63 JavaScript tests, real renderer/runtime/capture/adapter and panel/radio/GPIO harnesses, and the enabled UI firmware build. No assistant shutter commands or HA services were sent. Private evidence is selected by `~/.local/state/espsomfy-lilygo/LATEST_UI_DETAILS_POWER_INSTALL`.
+
+See [System menu](lcd-system.md) for confirmed restart and browser file guidance.

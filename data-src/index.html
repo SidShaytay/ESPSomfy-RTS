@@ -3,12 +3,13 @@
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta charset="UTF-8">
+    <meta name="espsomfy-web-mode" content="filesystem">
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="ESPSomfy RTS App">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
 
-    <link rel="stylesheet" href="app.css?v=3.0.14d" type="text/css" />
+    <link rel="stylesheet" href="app.css?v=4.8.1c" type="text/css" />
     <link rel="icon" type="image/png" href="favicon.png" />
 
     <!-- iPad retina icon -->
@@ -112,7 +113,7 @@
           rel="apple-touch-startup-image">
 
 
-    <script type="text/javascript" src="index.js?v=3.0.14d"></script>
+    <script type="text/javascript" src="index.js?v=4.8.1c"></script>
 </head>
 <body>
     <div id="divContainer" class="container main" data-auth="false">
@@ -240,6 +241,7 @@
                                 <span id="spanUptime" style="text-align:right;width:120px;"></span>
                             </div>
                         </div>
+                        <div id="bundledWebNotice" style="display:none;padding:10px 0;"></div>
                         <div class="button-container">
                             <button id="btnUpdateFirmware" type="button" onclick="firmware.updateFirmware();">
                                 Update Firmware
@@ -250,6 +252,10 @@
                             <button id="btnReloadApplication" type="button" onclick="general.reload();">
                                 Refresh Cache
                             </button>
+                            <button id="btnSaveCurrentModel" type="button" onclick="somfy.saveCurrentModel();">
+                                Save current model
+                            </button>
+                            <p class="instructions">Saves the current model file only. Does not write rolling codes or send motor commands.</p>
                             <div class="button-container" style="text-align:center;">
                                 <button id="btnBackup" style="width:47%;display:inline-block;" type="button" onclick="firmware.backup();">
                                     Backup

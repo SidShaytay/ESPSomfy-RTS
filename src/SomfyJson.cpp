@@ -1,8 +1,11 @@
 #include "esp_log.h"
 #include "ConfigSettings.h"
 #include "Somfy.h"
+#include "CounterResults.h"
 #include <atomic>
 #include "ModelEditor.h"
+#include "EntityFields.h"
+#include "GroupMembership.h"
 #include "SomfyEditor.h"
 #include "BitLength.h"
 #include "ShadeChanges.h"
@@ -15,62 +18,6 @@ extern SomfyShadeController somfy;
 extern ConfigSettings settings;
 extern LoopQueue loopQueue;
 
-int8_t SomfyShade::validateJSON(JsonObject &obj) {
-  int8_t ret = 0;
-  shade_types type = this->shadeType;
-  if(!obj["shadeType"].isNull()) {
-    if(obj["shadeType"].is<const char *>()) {
-      if(strncmp(obj["shadeType"].as<const char *>(), "roller", 7) == 0)
-        type = shade_types::roller;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "ldrapery", 9) == 0)
-        type = shade_types::ldrapery;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "rdrapery", 9) == 0)
-        type = shade_types::rdrapery;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "cdrapery", 9) == 0)
-        type = shade_types::cdrapery;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "garage1", 7) == 0)
-        type = shade_types::garage1;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "garage3", 7) == 0)
-        type = shade_types::garage3;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "blind", 5) == 0)
-        type = shade_types::blind;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "awning", 7) == 0)
-        type = shade_types::awning;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "shutter", 8) == 0)
-        type = shade_types::shutter;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "drycontact2", 12) == 0)
-        type = shade_types::drycontact2;
-      else if(strncmp(obj["shadeType"].as<const char *>(), "drycontact", 11) == 0)
-        type = shade_types::drycontact;
-    }
-    else {
-      type = static_cast<shade_types>(obj["shadeType"].as<uint8_t>());
-    }
-  }
-  // The pins and protocol the shade is about to have.
-  const radio_proto proto = !obj["proto"].isNull() ? static_cast<radio_proto>(obj["proto"].as<uint8_t>()) : this->proto;
-  const uint8_t upPin = !obj["gpioUp"].isNull() ? obj["gpioUp"].as<uint8_t>() : this->gpioUp;
-  const uint8_t downPin = !obj["gpioDown"].isNull() ? obj["gpioDown"].as<uint8_t>() : this->gpioDown;
-  const uint8_t myPin = !obj["gpioMy"].isNull() ? obj["gpioMy"].as<uint8_t>() : this->gpioMy;
-  pin_users_t radio, ethernet, others;
-  radio.uses = [](uint8_t pin, void *) { return somfy.transceiver.usesPin(pin); };
-#if HAS_ETHERNET
-  if(settings.connType == conn_types_t::ethernet || settings.connType == conn_types_t::ethernetpref)
-    ethernet.uses = [](uint8_t pin, void *) { return settings.Ethernet.usesPin(pin); };
-#endif
-  others.ctx = this;
-  others.uses = [](uint8_t pin, void *ctx) {
-    const uint8_t self = static_cast<SomfyShade *>(ctx)->getShadeId();
-    for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
-      SomfyShade &shade = somfy.shades[i];
-      if(shade.getShadeId() == self || shade.getShadeId() == 255) continue;
-      if(shade.usesPin(pin)) return true;
-    }
-    return false;
-  };
-  ret = gpioPinConflict(type, proto, upPin, downPin, myPin, radio, ethernet, others);
-  return ret;
-}
 int8_t SomfyShade::fromJSON(JsonObject &obj) {
   int8_t err = this->validateJSON(obj);
   if(err == 0) {
@@ -158,13 +105,11 @@ int8_t SomfyShade::fromJSON(JsonObject &obj) {
     if(this->proto == radio_proto::GP_Remote || this->proto == radio_proto::GP_Relay) {
       if(!obj["gpioUp"].isNull()) this->gpioUp = obj["gpioUp"];
       if(!obj["gpioDown"].isNull()) this->gpioDown = obj["gpioDown"];
-      if(!BoardProfile::usesPin(this->gpioUp)) pinMode(this->gpioUp, OUTPUT);
-      if(!BoardProfile::usesPin(this->gpioDown)) pinMode(this->gpioDown, OUTPUT);
     }
     if(this->proto == radio_proto::GP_Remote) {
       if(!obj["gpioMy"].isNull()) this->gpioMy = obj["gpioMy"];
-      if(!BoardProfile::usesPin(this->gpioMy)) pinMode(this->gpioMy, OUTPUT);
     }
+    this->configureGPIOs();
   }
   return err;
 }
@@ -192,7 +137,7 @@ bool Transceiver::fromJSON(JsonObject& obj) {
       // Parse into a copy so the radio task never sees a half updated config.
       transceiver_config_t cfg = this->config;
       cfg.fromJSON(objConfig);
-      this->setConfig(cfg);
+      return this->setConfig(cfg).saved();
     }
     return true;
 }
@@ -248,37 +193,8 @@ bool submitModelEdit(model_edit_t *edit) {
   cancelModelEdit(edit);
   return false;
 }
-// What protocol 2 clients get after an edit (editChanges).  A shade or group
-// goes out whole from the change fan-out, by its config bit, so it is sent
-// once with whatever else changed; the rest goes out now.
-static void markEdited(const model_edit_t &edit, const edit_result_t &result) {
-  const edit_changes_t c = editChanges(edit.type, result);
-  SomfyShade *shade = c.shadeId ? somfy.getShadeById(c.shadeId) : nullptr;
-  if(shade) shade->configChanged();
-  SomfyGroup *group = c.groupId ? somfy.getGroupById(c.groupId) : nullptr;
-  if(group) group->configChanged();
-  SomfyRoom *room = c.roomId ? somfy.getRoomById(c.roomId) : nullptr;
-  if(room) protoSocket.room(*room);
-  if(c.order != sort_list_t::none) protoSocket.order(c.order);
-  if(c.repeaters) protoSocket.repeaters();
-  if(c.removedShadeId) protoSocket.shadeRemoved(c.removedShadeId);
-  if(c.removedGroupId) protoSocket.groupRemoved(c.removedGroupId);
-  if(c.removedRoomId) protoSocket.roomRemoved(c.removedRoomId);
-}
-void runModelEdit(model_edit_t *edit) {
-  const edit_result_t result = applyModelEdit(*edit);
-  if(!result.ok) ESP_LOGW(TAG, "Edit %u refused: %s", static_cast<uint8_t>(edit->type), result.desc);
-  // The reply first: the edit's events follow it (docs/PROTOCOL.md), so a
-  // client that waits for the reply doesn't read past them.
-  protoSocket.replyEdit(edit->replyTo, edit->type, result);
-  if(result.ok) markEdited(*edit, result);
-  cancelModelEdit(edit);
-}
-
-static edit_result_t done(uint8_t id = 0) {
-  edit_result_t r;
-  r.id = id;
-  return r;
+static edit_result_t done(uint8_t id,ModelCommitResult persistence) {
+  return edit_result_t::completed(id,persistence);
 }
 // Gives each id in the request the next sort order, in the order given.
 template<typename Find>
@@ -289,10 +205,33 @@ static edit_result_t applyOrder(JsonDocument &doc, Find find) {
     auto *item = find(v.as<uint8_t>());
     if(item) item->sortOrder = order++;
   }
-  somfy.commit();
-  return done();
+  return done(0,somfy.commit());
 }
-edit_result_t applyModelEdit(model_edit_t &edit) {
+static edit_result_t applyGroupMembershipEdit(model_edit_t &edit) {
+  const auto obj=edit.doc.as<JsonObjectConst>();
+  if(!validEntityValue(*entityField(edit.type,proto_field_t::groupId),obj["groupId"]))return edit_result_t::error("Invalid group id");
+  if(!validEntityValue(*entityField(edit.type,proto_field_t::shadeId),obj["shadeId"]))return edit_result_t::error("Invalid shade id");
+  const uint8_t groupId=obj["groupId"].as<uint8_t>(),shadeId=obj["shadeId"].as<uint8_t>();
+  auto *group=somfy.getGroupById(groupId);
+  if(!group)return edit_result_t::missing("Group id not found.");
+  const bool adding=edit.type==model_edit_type_t::link_to_group;
+  if(adding && !somfy.getShadeById(shadeId))return edit_result_t::missing("Shade id not found.");
+  const auto state=inspectGroupMembership(group->linkedShades,shadeId);
+  if((adding && state.occurrences) || (!adding && !state.occurrences)) {
+    auto result=edit_result_t::unchanged(groupId);result.shadeId=shadeId;return result;
+  }
+  if(adding && !state.freeSlots)return edit_result_t::error("This group already has the most shades it can.");
+  const bool changed=adding?group->linkShade(shadeId):group->unlinkShade(shadeId);
+  if(!changed)return edit_result_t::error("Group membership changed; review again.");
+  ++somfy.configurationRevision;
+  const auto persisted=somfy.commit();group->emitState();
+  auto result=done(groupId,persisted);result.shadeId=shadeId;return result;
+}
+edit_result_t mutateModelEdit(model_edit_t &edit) {
+  // Other legacy mutations can fail after changing part of the model. Checked
+  // linking advances history after verified NVS/RAM adoption; membership
+  // advances only after an actual list change, never a refusal or no-op.
+  if(edit.type!=model_edit_type_t::link_remote && edit.type!=model_edit_type_t::link_to_group && edit.type!=model_edit_type_t::unlink_from_group)++somfy.configurationRevision;
   JsonObject obj = edit.doc.as<JsonObject>();
   if(edit.type == model_edit_type_t::add_shade || edit.type == model_edit_type_t::save_shade ||
      edit.type == model_edit_type_t::add_group || edit.type == model_edit_type_t::save_group) {
@@ -305,9 +244,9 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
       SomfyRoom *room = somfy.addRoom();
       if(!room) return edit_result_t::error(EDIT_ROOMS_FULL);
       room->fromJSON(obj);
-      room->save();
+      const auto persisted=room->save();
       room->publish();
-      return done(room->roomId);
+      return done(room->roomId,persisted);
     }
     case model_edit_type_t::add_shade: {
       SomfyShade *shade = somfy.addShade();
@@ -318,25 +257,24 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
         shade->clear();
         return edit_result_t::error("Data Error.", err);
       }
-      shade->save();
-      return done(shade->getShadeId());
+      return done(shade->getShadeId(),shade->save());
     }
     case model_edit_type_t::add_group: {
       SomfyGroup *group = somfy.addGroup();
       if(!group) return edit_result_t::error(EDIT_GROUPS_FULL);
       group->fromJSON(obj);
-      group->save();
+      const auto persisted=group->save();
       group->publish();
-      return done(group->getGroupId());
+      return done(group->getGroupId(),persisted);
     }
     case model_edit_type_t::save_room: {
       if(obj["roomId"].isNull()) return edit_result_t::error("No room id was supplied.");
       SomfyRoom *room = somfy.getRoomById(obj["roomId"]);
       if(!room) return edit_result_t::missing("Room Id not found.");
       room->fromJSON(obj);
-      room->save();
+      const auto persisted=room->save();
       room->publish();
-      return done(room->roomId);
+      return done(room->roomId,persisted);
     }
     case model_edit_type_t::save_shade: {
       if(obj["shadeId"].isNull()) return edit_result_t::error("No shade id was supplied.");
@@ -344,25 +282,24 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
       if(!shade) return edit_result_t::missing("Shade Id not found.");
       const int8_t err = shade->fromJSON(obj);
       if(err != 0) return edit_result_t::error("Data Error.", err);
-      shade->save();
+      const auto persisted=shade->save();
       shade->emitState();
-      return done(shade->getShadeId());
+      return done(shade->getShadeId(),persisted);
     }
     case model_edit_type_t::save_group: {
       if(obj["groupId"].isNull()) return edit_result_t::error("No group id was supplied.");
       SomfyGroup *group = somfy.getGroupById(obj["groupId"]);
       if(!group) return edit_result_t::missing("Group Id not found.");
       group->fromJSON(obj);
-      group->save();
+      const auto persisted=group->save();
       group->emitState();
-      return done(group->getGroupId());
+      return done(group->getGroupId(),persisted);
     }
     case model_edit_type_t::delete_room: {
       if(obj["roomId"].isNull()) return edit_result_t::error("No room id was supplied.");
       const uint8_t roomId = obj["roomId"];
       if(!somfy.getRoomById(roomId)) return edit_result_t::missing("Room with the specified id not found.");
-      somfy.deleteRoom(roomId);
-      return done(roomId);
+      return done(roomId,somfy.deleteRoom(roomId));
     }
     case model_edit_type_t::delete_shade: {
       if(obj["shadeId"].isNull()) return edit_result_t::error("No shade id was supplied.");
@@ -370,15 +307,13 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
       SomfyShade *shade = somfy.getShadeById(shadeId);
       if(!shade) return edit_result_t::missing("Shade with the specified id not found.");
       if(shade->isInGroup()) return edit_result_t::error("This shade is a member of a group and cannot be deleted.");
-      somfy.deleteShade(shadeId);
-      return done(shadeId);
+      return done(shadeId,somfy.deleteShade(shadeId));
     }
     case model_edit_type_t::delete_group: {
       if(obj["groupId"].isNull()) return edit_result_t::error("No group id was supplied.");
       const uint8_t groupId = obj["groupId"];
       if(!somfy.getGroupById(groupId)) return edit_result_t::missing("Group with the specified id not found.");
-      somfy.deleteGroup(groupId);
-      return done(groupId);
+      return done(groupId,somfy.deleteGroup(groupId));
     }
     case model_edit_type_t::link_remote:
     case model_edit_type_t::unlink_remote: {
@@ -387,27 +322,14 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
       if(!shade) return edit_result_t::missing("Shade Id not found.");
       if(obj["remoteAddress"].isNull()) return edit_result_t::error("Remote address not provided.");
       const uint32_t address = obj["remoteAddress"];
-      if(edit.type == model_edit_type_t::unlink_remote) shade->unlinkRemote(address);
-      else if(!shade->linkRemote(address, obj["rollingCode"] | (uint16_t)0))
-        return edit_result_t::error("This shade already has the most linked remotes it can.");
-      return done(shade->getShadeId());
+      if(edit.type == model_edit_type_t::link_remote)
+        return counterLinkResult(shade->getShadeId(),linkExplicitRemote(shade->getShadeId(),address,obj["rollingCode"] | (uint16_t)0));
+      shade->unlinkRemote(address);
+      return done(shade->getShadeId(),somfy.commit());
     }
     case model_edit_type_t::link_to_group:
     case model_edit_type_t::unlink_from_group: {
-      const uint8_t groupId = obj["groupId"] | (uint8_t)0;
-      const uint8_t shadeId = obj["shadeId"] | (uint8_t)0;
-      if(groupId == 0) return edit_result_t::error("Group id not provided.");
-      if(shadeId == 0) return edit_result_t::error("Shade id not provided.");
-      SomfyGroup *group = somfy.getGroupById(groupId);
-      if(!group) return edit_result_t::missing("Group id not found.");
-      if(!somfy.getShadeById(shadeId)) return edit_result_t::missing("Shade id not found.");
-      if(edit.type == model_edit_type_t::unlink_from_group) group->unlinkShade(shadeId);
-      else if(!group->linkShade(shadeId)) return edit_result_t::error("This group already has the most shades it can.");
-      somfy.commit();
-      group->emitState();
-      edit_result_t r = done(groupId);
-      r.shadeId = shadeId;
-      return r;
+      return applyGroupMembershipEdit(edit);
     }
     case model_edit_type_t::link_repeater:
     case model_edit_type_t::unlink_repeater: {
@@ -415,17 +337,16 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
       if(address == 0) return edit_result_t::error("No repeater address was supplied.");
       if(edit.type == model_edit_type_t::unlink_repeater) somfy.unlinkRepeater(address);
       else if(!somfy.linkRepeater(address)) return edit_result_t::error("Maximum number of repeaters exceeded.");
-      somfy.commit();
-      return done();
+      return done(0,somfy.commit());
     }
     case model_edit_type_t::set_paired: {
       if(obj["shadeId"].isNull()) return edit_result_t::error("No shade id was supplied.");
       SomfyShade *shade = somfy.getShadeById(obj["shadeId"]);
       if(!shade) return edit_result_t::missing("Shade not found to pair");
       shade->paired = obj["paired"] | false;
-      shade->save();
+      const auto persisted=shade->save();
       shade->emitState();
-      return done(shade->getShadeId());
+      return done(shade->getShadeId(),persisted);
     }
     case model_edit_type_t::room_order:
       return applyOrder(edit.doc, [](uint8_t id) { return id != 0 ? somfy.getRoomById(id) : nullptr; });

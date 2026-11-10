@@ -45,11 +45,6 @@ static void _rtrim(char *str) {
   while(e >= 0 && (str[e] == ' ' || str[e] == '\n' || str[e] == '\r' || str[e] == '\t' || str[e] == '"')) {str[e] = '\0'; e--;}
 }
 [[maybe_unused]] static void _trim(char *str) { _ltrim(str); _rtrim(str); }
-struct rebootDelay_t {
-  bool reboot = false;
-  int rebootTime = 0;
-  bool closed = false;
-};
 [[maybe_unused]] static bool toBoolean(const char *str, bool def) {
   if(!str) return def;
   if(strlen(str) == 0) return def;
@@ -100,12 +95,14 @@ class LoopStats {
   uint32_t _startMs = 0;
   std::atomic<uint32_t> _publishedRate{0};
   std::atomic<uint32_t> _publishedMaxUs{0};
+  std::atomic<bool> _hasPublished{false};
   public:
     void record(uint32_t passUs);
     // Passes per second since the window started, 0 for an empty window.
     uint32_t rate(uint32_t nowMs) const;
     uint32_t maxUs() const { return _maxUs; }
     void publish(uint32_t nowMs);
+    bool hasPublished() const { return _hasPublished.load(std::memory_order_acquire); }
     uint32_t publishedRate() const { return _publishedRate.load(std::memory_order_relaxed); }
     uint32_t publishedMaxUs() const { return _publishedMaxUs.load(std::memory_order_relaxed); }
 };

@@ -1,7 +1,28 @@
 #include "ModelEditor.h"
+#include "ShadeGpioPolicy.h"
+
+edit_result_t edit_result_t::completed(uint8_t id,
+                                       ModelCommitResult persistence) {
+  edit_result_t result;
+  result.id = id;
+  result.applied = true;
+  result.persistence = persistence;
+  result.ok = persistence.saved();
+  if (!result.ok)
+    result.desc = modelCommitFailureDescription(persistence);
+  return result;
+}
+
+
+edit_result_t edit_result_t::unchanged(uint8_t id) {
+  edit_result_t result;
+  result.ok=true;result.noChange=true;result.id=id;
+  return result;
+}
 
 edit_changes_t editChanges(model_edit_type_t type, const edit_result_t &result) {
   edit_changes_t c;
+  if(!result.applied)return c;
   switch(type) {
     case model_edit_type_t::add_shade:
     case model_edit_type_t::save_shade:
@@ -96,22 +117,22 @@ bool addToList(uint32_t *list, size_t size, uint32_t item) { return addTo<uint32
 bool removeFromList(uint8_t *list, size_t size, uint8_t item) { return removeFrom<uint8_t>(list, size, item); }
 bool removeFromList(uint32_t *list, size_t size, uint32_t item) { return removeFrom<uint32_t>(list, size, item); }
 
-int8_t gpioPinConflict(shade_types type, radio_proto proto, uint8_t upPin, uint8_t downPin, uint8_t myPin,
-    const pin_users_t &radio, const pin_users_t &ethernet, const pin_users_t &otherShades) {
-  if(proto != radio_proto::GP_Relay && proto != radio_proto::GP_Remote) return 0;
-  // A dry contact or a single button gate driven by a remote only uses the down
-  // pin; a two way dry contact and a relay don't use My.
-  if(type == shade_types::drycontact ||
-    ((type == shade_types::garage1 || type == shade_types::lgate1 || type == shade_types::cgate1 || type == shade_types::rgate1)
-      && proto == radio_proto::GP_Remote)) upPin = myPin = 255;
-  else if(type == shade_types::drycontact2) myPin = 255;
-  if(proto == radio_proto::GP_Relay) myPin = 255;
+int8_t gpioPinConflict(radio_proto proto,uint8_t upPin,uint8_t downPin,uint8_t myPin,
+    const pin_users_t &radio,const pin_users_t &ethernet,const pin_users_t &otherShades,
+    const pin_users_t &invalidOutputs) {
+  const uint8_t mask=ShadeGpioPolicy::physicalMask(proto);
+  if(!mask)return 0;
+  if(ShadeGpioPolicy::duplicate(proto,upPin,downPin,myPin))return PIN_CONFLICT_DUPLICATE;
+  if(!(mask & ShadeGpioPolicy::up))upPin=255;
+  if(!(mask & ShadeGpioPolicy::down))downPin=255;
+  if(!(mask & ShadeGpioPolicy::my))myPin=255;
   const uint8_t pins[] = { upPin, downPin, myPin };
   auto clash = [&pins](const pin_users_t &users) {
     for(uint8_t pin : pins)
       if(pin != 255 && users.usesPin(pin)) return true;
     return false;
   };
+  if(clash(invalidOutputs)) return PIN_INVALID_OUTPUT;
   if(clash(radio)) return PIN_CONFLICT_RADIO;
   if(clash(ethernet)) return PIN_CONFLICT_ETHERNET;
   if(clash(otherShades)) return PIN_CONFLICT_SHADE;

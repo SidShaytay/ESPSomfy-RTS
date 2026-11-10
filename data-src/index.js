@@ -6,10 +6,19 @@
 var hst = '192.168.178.20';
 var _rooms = [{ roomId: 0, name: 'Home' }];
 
+// Build-bound product hint. Upload safety remains enforced by the server.
+function isBundledWeb() {
+    const mode = document.querySelector('meta[name="espsomfy-web-mode"]');
+    return mode !== null && mode.getAttribute('content') === 'bundled';
+}
+
 var errors = [
-    { code: -10, desc: "Pin setting in use for Transceiver.  Output pins cannot be re-used." },
+    { code: -10, desc: "GPIO is reserved by the board or radio. Output pins cannot be re-used." },
     { code: -11, desc: "Pin setting in use for Ethernet Adapter.  Output pins cannot be re-used." },
     { code: -12, desc: "Pin setting in use on another motor.  Output pins cannot be re-used." },
+    { code: -13, desc: "GPIO outputs must use distinct pads. None may be selected more than once." },
+    { code: -14, desc: "Choose a valid output GPIO or None." },
+    { code: -15, desc: "GPIO ownership settings are unavailable. Repair radio/Ethernet settings first." },
     { code: -21, desc: "Git Update: Flash write failed." },
     { code: -22, desc: "Git Update: Flash erase failed." },
     { code: -23, desc: "Git Update: Flash read failed." },
@@ -399,21 +408,65 @@ function editTarget(kind, idOf) {
 // An edit, with the spinner up until it is done.  Its events follow the
 // reply: with a target, cb gets the item once its event is in; without, the
 // lists redraw from the events anyway.
+var modelSaveWarning = null;
+// The edit already changed the running model. Offer only COMMIT of the current
+// model; retrying the original add/delete/link could repeat its effects.
+function showModelSaveWarning(reply, force = false) {
+    if (reply.durable === true) {
+        if (modelSaveWarning) modelSaveWarning.remove();
+        modelSaveWarning = null;
+        if (reply.desc && !reply.rebooting) {
+            const info = ui.infoMessage('Model file saved.');
+            info.querySelector('.info-text').textContent = reply.desc;
+        }
+        return;
+    }
+    if (!force && modelSaveWarning && modelSaveWarning.getAttribute('data-save-state') === String(reply.modelSaveState)) return;
+    if (modelSaveWarning) modelSaveWarning.remove();
+    const warning = ui.errorMessage('Model file is not saved.');
+    warning.querySelector('.inner-error').textContent = reply.desc || 'Model file is not saved. Retry Commit before restarting.';
+    warning.setAttribute('data-save-state', String(reply.modelSaveState));
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.textContent = 'Retry Commit';
+    retry.addEventListener('click', () => {
+        retry.disabled = true;
+        runOp('commitModel', {}, true).then((saved) => showModelSaveWarning(saved), (err) => {
+            retry.disabled = false;
+            if (err.data) showModelSaveWarning(err.data, true);
+            else ui.serviceError(err);
+        });
+    });
+    warning.appendChild(retry);
+    modelSaveWarning = warning;
+}
 function sendEdit(name, fields, target, cb) {
     let overlay = ui.waitMessage(document.getElementById('divContainer'));
     let finish = (err, item) => {
         overlay.remove();
         if (typeof cb === 'function') cb(err, item);
     };
-    runOp(name, fields, true).then((reply) => {
-        if (!target) {
-            finish(null, reply);
-            return;
-        }
+    let applied = (reply, unsaved) => {
+        let adopted = (item) => {
+            // Update the add's assigned ID or close the delete workflow BEFORE
+            // showing the separate persistence warning.
+            try { finish(null, item); }
+            finally { if (unsaved) showModelSaveWarning(reply, true); }
+        };
+        if (!target) { adopted(reply); return; }
         let id = target.idOf(reply);
-        // Without the event the reply is all there is, an add's new id in it.
-        proto.waitFor(target.event, (d) => target.match(d, id), 3000).then(() => finish(null, target.read(id) || reply));
-    }, (err) => finish(err, null));
+        proto.waitFor(target.event, (d) => target.match(d, id), 3000).then(() => adopted(target.read(id) || reply));
+    };
+    runOp(name, fields, true).then((reply) => {
+        if (reply.ok === true && reply.applied === false) {
+            // Idempotent membership already matches: no file attempt/event.
+            // Leave any earlier persistence warning intact.
+            finish(null, target ? (target.read(target.idOf(reply)) || reply) : reply);
+        } else applied(reply, false);
+    }, (err) => {
+        if (err.data && err.data.applied === true) applied(err.data, true);
+        else finish(err, null);
+    });
 }
 // A command's repeat count, when the caller gave one.
 function repeatOf(repeat) { return typeof repeat === 'number' ? repeat : undefined; }
@@ -468,7 +521,8 @@ function showVersionMismatch(v) {
     let div = document.createElement('div');
     div.id = 'divVersionMismatch';
     div.className = 'version-banner';
-    div.innerHTML = `This page speaks protocol ${v.client} but the device speaks ${v.device}.  Update the application files, or reload the page.`;
+    div.textContent = `This page speaks protocol ${v.client} but the device speaks ${v.device}. ` +
+        (isBundledWeb() ? 'Reload the page. The web UI belongs to the installed firmware; use a matching firmware package if the mismatch remains.' : 'Update the application files, or reload the page.');
     document.body.prepend(div);
 }
 // Opens the socket, or opens it again with the token a login gave.
@@ -539,6 +593,7 @@ function startSocket() {
             case 'radio': somfy.loadRadio(); break;
         }
     });
+    proto.on('modelPersistence', (result) => showModelSaveWarning(result));
     proto.on('error', (err) => console.log(err));
     showSocketWait();
     proto.connect();
@@ -1223,7 +1278,7 @@ class Security {
 }
 var security = new Security();
 
-// let appVersion = 'v4.0.0.beta'; // Default placeholder
+// let appVersion = 'v4.8.1'; // Default placeholder
 async function getAppVersion() {
     try {
         const response = await fetch('/appversion?v='+Date.now());
@@ -1236,7 +1291,7 @@ async function getAppVersion() {
         // Trigger any UI updates here
     } catch (error) {
         console.error("Error loading App version:", error);
-        appVersion = 'v4.0.0.beta'; // Default placeholder
+        appVersion = 'v4.8.1'; // Default placeholder
     }
     return appVersion;
 }
@@ -1965,9 +2020,7 @@ class Somfy {
             transceiver: { config: { proto: 0, SCKPin: 18, CSNPin: 5, MOSIPin: 23, MISOPin: 19, TXPin: 13, RXPin: 35, frequency: 433.42, rxBandwidth: 97.96, type: 56, deviation: 11.43, txPower: 10, enabled: false, noiseDetection: false } }
         });
         this.checkBootPins();
-        this.loadPins('out', document.getElementById('selShadeGPIOUp'));
-        this.loadPins('out', document.getElementById('selShadeGPIODown'));
-        this.loadPins('out', document.getElementById('selShadeGPIOMy'));
+        this.loadShadePins();
     }
     // The shade model from the sync, and the radio's settings.
     loadSomfy() {
@@ -2057,7 +2110,15 @@ class Somfy {
     }
     procFrequencyScan(scan) {
         //console.log(scan);
-        let div = this.scanFrequency();
+        let div = document.getElementById('divScanFrequency');
+        if (!div || !scan.scanToken || div.getAttribute('data-scantoken') !== scan.scanToken) return;
+        if (scan.scanning === false || scan.scanning === 0) {
+            div.setAttribute('data-initscan', false);
+            document.getElementById('btnStopScanning').style.display = 'none';
+            document.getElementById('btnRestartScanning').style.display = '';
+            document.getElementById('btnCloseScanning').style.display = '';
+            document.getElementById('btnCopyFrequency').style.display = scan.RSSI > -100 ? '' : 'none';
+        }
         let spanTestFreq = document.getElementById('spanTestFreq');
         let spanTestRSSI = document.getElementById('spanTestRSSI');
         let spanBestFreq = document.getElementById('spanBestFreq');
@@ -2083,7 +2144,7 @@ class Somfy {
             div = document.createElement('div');
             div.setAttribute('id', 'divScanFrequency');
             div.classList.add('prompt-message');
-            let html = '<div class="sub-message">Frequency Scanning has started.  Press and hold any button on your remote and ESPSomfy RTS will find the closest frequency to the remote.</div>';
+            let html = '<div class="sub-message">Radio observation requires explicit Start. RF controls pause during scanning; independent wired controls remain usable. Remote signals may also operate motors.</div>';
             html += '<hr style="width:100%;margin:0px;"></hr>';
             html += '<div style="width:100%;text-align:center;">';
             html += '<div class="" style="font-size:20px;"><label style="padding-right:7px;display:inline-block;width:87px;">Scanning</label><span id="spanTestFreq" style="display:inline-block;width:4em;text-align:right;">433.00</span><span>MHz</span><label style="padding-left:12px;padding-right:7px;">RSSI</label><span id="spanTestRSSI">----</span><span>dBm</span></div>';
@@ -2098,45 +2159,69 @@ class Somfy {
             div.innerHTML = html;
             document.getElementById('divRadioSettings').appendChild(div);
         }
-        if (initScan) {
+        if (initScan && div.getAttribute('data-initscan') !== 'true') {
             div.setAttribute('data-initscan', true);
-            sendOp('beginFrequencyScan', {}, (err) => {
-                if (err) ui.serviceError(err);
-                else {
-                    document.getElementById('btnStopScanning').style.display = '';
-                    document.getElementById('btnRestartScanning').style.display = 'none';
-                    document.getElementById('btnCopyFrequency').style.display = 'none';
-                    document.getElementById('btnCloseScanning').style.display = 'none';
+            div.setAttribute('data-scantoken', '');
+            document.getElementById('btnCopyFrequency').style.display = 'none';
+            sendOp('beginFrequencyScan', {}, (err, response) => {
+                if (document.getElementById('divScanFrequency') !== div) {
+                    if (!err && response && this.scanTokenValid(response.scanToken))
+                        sendOp('endFrequencyScan', { scanToken: response.scanToken }, () => {});
+                    return;
                 }
+                if (err || !response || !this.scanTokenValid(response.scanToken)) {
+                    div.setAttribute('data-initscan', false);
+                    document.getElementById('btnStopScanning').style.display = 'none';
+                    document.getElementById('btnRestartScanning').style.display = '';
+                    document.getElementById('btnCloseScanning').style.display = '';
+                    ui.serviceError(err || { desc: 'Scan identity unavailable; start is not confirmed.' });
+                    return;
+                }
+                div.setAttribute('data-scantoken', response.scanToken);
+                document.getElementById('btnStopScanning').style.display = '';
+                document.getElementById('btnRestartScanning').style.display = 'none';
+                document.getElementById('btnCopyFrequency').style.display = 'none';
+                document.getElementById('btnCloseScanning').style.display = 'none';
             });
         }
         return div;
     }
+    scanTokenValid(value) {
+        if (typeof value !== 'string') return false;
+        const parts = value.split('.');
+        return parts.length === 2 && parts.every(part => /^[1-9][0-9]{0,19}$/.test(part) &&
+            (part.length < 20 || part <= '18446744073709551615'));
+    }
     setScannedFrequency() {
-        let div = document.getElementById('divScanFrequency');
-        let freq = parseFloat(div.getAttribute('data-frequency'));
-        let slid = document.getElementById('slidFrequency');
-        slid.value = Math.round(freq * 1000);
-        somfy.frequencyChanged(slid);
-        div.remove();
+        const div = document.getElementById('divScanFrequency');
+        const token = div && div.getAttribute('data-scantoken');
+        if (!this.scanTokenValid(token)) return;
+        sendOp('getFrequencyScanResult', { scanToken: token }, (err, response) => {
+            if (document.getElementById('divScanFrequency') !== div || div.getAttribute('data-scantoken') !== token) return;
+            if (err) { ui.serviceError(err); return; }
+            const frequency = response && response.frequency;
+            if (!Number.isFinite(frequency) || frequency < 433 || frequency > 434) {
+                ui.serviceError({ desc: 'No current completed scan result.' }); return;
+            }
+            const slider = document.getElementById('slidFrequency');
+            slider.value = Math.round(frequency * 1000);
+            somfy.frequencyChanged(slider); // Draft only; saving remains explicit.
+            div.remove();
+        });
     }
     stopScanningFrequency(killScan) {
-        let div = document.getElementById('divScanFrequency');
-        if (div && killScan !== true) {
-            div.remove();
-        }
-        else {
-            sendOp('endFrequencyScan', {}, (err) => {
-                if (err) ui.serviceError(err);
-                else {
-                    let freq = parseFloat(div.getAttribute('data-frequency'));
-                    document.getElementById('btnStopScanning').style.display = 'none';
-                    document.getElementById('btnRestartScanning').style.display = '';
-                    if (typeof freq === 'number' && !isNaN(freq)) document.getElementById('btnCopyFrequency').style.display = '';
-                    document.getElementById('btnCloseScanning').style.display = '';
-                }
-            });
-        }
+        const div = document.getElementById('divScanFrequency');
+        if (!div) return;
+        if (killScan !== true) { div.remove(); return; }
+        const token = div.getAttribute('data-scantoken');
+        if (!this.scanTokenValid(token)) { ui.infoMessage('No owned scan identity; another session cannot be stopped.'); return; }
+        sendOp('endFrequencyScan', { scanToken: token }, err => {
+            if (document.getElementById('divScanFrequency') !== div || div.getAttribute('data-scantoken') !== token) return;
+            if (err) { ui.serviceError(err); return; }
+            document.getElementById('btnStopScanning').style.display = 'none';
+            document.getElementById('btnCopyFrequency').style.display = 'none';
+            // Matching final feed proves tuning/receive restoration completed.
+        });
     }
     btnDown = null;
     btnTimer = null;
@@ -2781,6 +2866,19 @@ class Somfy {
             sel.options[sel.options.length] = new Option(`GPIO-${i > 9 ? i.toString() : '0' + i.toString()}`, i, typeof opt !== 'undefined' && opt === i);
         }
     }
+    loadShadePins(shade = {}) {
+        // Keep legacy assignments selectable even if this chip's normal pin
+        // list excludes them, so opening the form cannot retarget an output.
+        for (const [key, id] of [['gpioUp', 'selShadeGPIOUp'], ['gpioDown', 'selShadeGPIODown'], ['gpioMy', 'selShadeGPIOMy']]) {
+            const sel = document.getElementById(id);
+            const stored = Number.isInteger(shade[key]) ? shade[key] : 255;
+            this.loadPins('out', sel, stored);
+            sel.options[sel.options.length] = new Option('None', 255);
+            if (!Array.from(sel.options).some(opt => opt.value === stored.toString()))
+                sel.options[sel.options.length] = new Option(`GPIO-${stored} (unavailable)`, stored);
+            sel.value = stored.toString();
+        }
+    }
     procGroupState(state) {
         console.log(state);
         let flags = document.querySelectorAll(`.button-sunflag[data-groupid="${state.groupId}"]`);
@@ -2958,6 +3056,7 @@ class Somfy {
                 if (!st.sun) document.getElementById('cbHasSunsensor').checked = false;
             }
         }
+        this.onShadeProtoChanged(document.getElementById('selShadeProto'));
     }
     onShadeBitLengthChanged(el) {
         document.getElementById('somfyShade').setAttribute('data-bitlength', el.value);
@@ -2965,6 +3064,14 @@ class Somfy {
     }
     onShadeProtoChanged(el) {
         document.getElementById('somfyShade').setAttribute('data-proto', el.value);
+        const protocol = parseInt(el.value, 10);
+        const gpio = protocol === 8 || protocol === 9;
+        // Setup and deassertion touch these pads regardless of the motor's
+        // logical command category. Inline visibility overrides legacy CSS.
+        document.getElementById('divGPIOControl').style.display = gpio ? 'inline-block' : 'none';
+        document.getElementById('divGPIOUp').style.display = gpio ? 'inline-block' : 'none';
+        document.getElementById('divGPIODown').style.display = gpio ? 'inline-block' : 'none';
+        document.getElementById('divGPIOMy').style.display = protocol === 9 ? 'inline-block' : 'none';
     }
     openEditRoom(roomId) {
         
@@ -3021,7 +3128,10 @@ class Somfy {
                     shade.tiltTime = 7000;
                     shade.bitLength = 56;
                     shade.flipCommands = shade.flipPosition = false;
+                    shade.gpioUp = shade.gpioDown = shade.gpioMy = 255;
+                    this.loadShadePins(shade);
                     ui.toElement(elShade, shade);
+                    this.onShadeProtoChanged(document.getElementById('selShadeProto'));
                     this.showEditShade(true);
                     elShade.setAttribute('data-bitlength', shade.bitLength);
                 }
@@ -3042,6 +3152,7 @@ class Somfy {
                 }
                 else {
                     console.log(shade);
+                    this.loadShadePins(shade);
                     ui.toElement(document.getElementById('somfyShade'), shade);
                     this.showEditShade(true);
                     document.getElementById('btnSaveShade').style.display = 'inline-block';
@@ -3222,29 +3333,12 @@ class Somfy {
             valid = false;
         }
         if (obj.proto === 8 || obj.proto === 9) {
-            switch (obj.shadeType) {
-                case 5: // Garage 1-button
-                case 14: // Gate left 1-button
-                case 15: // Gate center 1-button
-                case 16: // Gate right 1-button
-                case 10: // Two button dry contact
-                    if (obj.proto !== 9 && obj.gpioUp === obj.gpioDown) {
-                        ui.errorMessage(document.getElementById('divSomfySettings'), 'For GPIO controlled motors the up and down GPIO selections must be unique.');
-                        valid = false;
-                    }
-                    break;
-                case 9: // Dry contact.
-                    break;
-                default:
-                    if (obj.gpioUp === obj.gpioDown) {
-                        ui.errorMessage(document.getElementById('divSomfySettings'), 'For GPIO controlled motors the up and down GPIO selections must be unique.');
-                        valid = false;
-                    }
-                    else if (obj.proto === 9 && (obj.gpioMy === obj.gpioUp || obj.gpioMy === obj.gpioDown)) {
-                        ui.errorMessage(document.getElementById('divSomfySettings'), 'For GPIO controlled motors the up and down and my GPIO selections must be unique.');
-                        valid = false;
-                    }
-                    break;
+            const pins = [obj.gpioUp, obj.gpioDown];
+            if (obj.proto === 9) pins.push(obj.gpioMy);
+            const assigned = pins.filter(pin => pin !== 255);
+            if (new Set(assigned).size !== assigned.length) {
+                ui.errorMessage(document.getElementById('divSomfySettings'), 'For GPIO controlled motors all assigned physical GPIO selections must be unique.');
+                valid = false;
             }
         }
         if (valid) {
@@ -3388,12 +3482,28 @@ class Somfy {
             }
         }
     }
+    saveCurrentModel() {
+        sendOp('commitModel', {}, (err, reply) => {
+            if (err) {
+                if (err.data) showModelSaveWarning(err.data, true);
+                else ui.serviceError(document.getElementById('divFirmware'), err);
+            } else if (reply) showModelSaveWarning(reply, true);
+        }, true);
+    }
     setRollingCode(shadeId, rollingCode) {
-        sendOp('setRollingCode', { shadeId: shadeId, lastRollingCode: rollingCode }, (err) => {
-            if (err) ui.serviceError(document.getElementById('divSomfySettings'), err);
-            else {
-                let dlg = document.getElementById('divRollingCode');
+        sendOp('setRollingCode', { shadeId: shadeId, lastRollingCode: rollingCode }, (err, reply) => {
+            const close = () => {
+                const dlg = document.getElementById('divRollingCode');
                 if (dlg) dlg.remove();
+            };
+            if (err) {
+                if (err.data && err.data.applied === true) {
+                    close();
+                    showModelSaveWarning(err.data, true);
+                } else ui.serviceError(document.getElementById('divSomfySettings'), err);
+            } else {
+                close();
+                if (reply && reply.durable === true) showModelSaveWarning(reply);
             }
         }, true);
     }
@@ -3587,8 +3697,13 @@ class Somfy {
         if (typeof shadeId === 'object') return [shadeId, command];
         return [{ shadeId: shadeId, command: command, repeat: repeat }, cb];
     }
+    groupCommandArgs(groupId, command, repeat, cb) {
+        if (typeof groupId === 'object') return [groupId, command];
+        return [{ groupId: groupId, command: command, repeat: repeat }, cb];
+    }
     sendGroupRepeat(groupId, command, repeat, cb) {
-        sendOp('repeatCommand', { groupId: groupId, command: command, repeat: repeatOf(repeat) }, cb);
+        const [cmd, done] = this.groupCommandArgs(groupId, command, repeat, cb);
+        sendOp('repeatCommand', { groupId: cmd.groupId, command: cmd.command, repeat: repeatOf(cmd.repeat), stepSize: cmd.stepSize }, done);
     }
     sendVRCommand(el) {
         let pnl = document.getElementById('divVirtualRemote');
@@ -3620,7 +3735,7 @@ class Somfy {
                 if (o.cmd === 'Sensor')
                     somfy.sendSetSensor(o);
                 else if (o.type === 'group')
-                    somfy.sendGroupRepeat(o.groupId, o.cmd, null, fnRepeatCommand);
+                    somfy.sendGroupRepeat(o, fnRepeatCommand);
                 else
                     somfy.sendCommandRepeat(o, fnRepeatCommand);
             }
@@ -3630,7 +3745,7 @@ class Somfy {
             somfy.sendSetSensor(o);
         }
         else if (o.type === 'group')
-            somfy.sendGroupCommand(o.groupId, o.cmd, null, (err, group) => { fnRepeatCommand(err, group); });
+            somfy.sendGroupCommand(o, (err, group) => { fnRepeatCommand(err, group); });
         else
             somfy.sendCommand(o, (err, shade) => { fnRepeatCommand(err, shade); });
     }
@@ -3642,8 +3757,9 @@ class Somfy {
         sendOp('setSensor', fields, cb);
     }
     sendGroupCommand(groupId, command, repeat, cb) {
-        console.log(`Sending Group command ${groupId}-${command}`);
-        sendOp('groupCommand', { groupId: groupId, command: command, repeat: repeatOf(repeat) }, cb);
+        const [cmd, done] = this.groupCommandArgs(groupId, command, repeat, cb);
+        console.log(`Sending Group command ${cmd.groupId}-${cmd.command}`);
+        sendOp('groupCommand', { groupId: cmd.groupId, command: cmd.command, repeat: repeatOf(cmd.repeat), stepSize: cmd.stepSize }, done);
     }
     sendTiltCommand(shadeId, command, cb) {
         console.log(`Sending Tilt command ${shadeId}-${command}`);
@@ -4073,7 +4189,17 @@ class MQTT {
 var mqtt = new MQTT();
 class Firmware {
     initialized = false;
-    init() { this.initialized = true; }
+    init() {
+        this.initialized = true;
+        const bundled = isBundledWeb();
+        const application = document.getElementById('btnUpdateApplication');
+        if (application) application.style.display = bundled ? 'none' : '';
+        const notice = document.getElementById('bundledWebNotice');
+        if (notice) {
+            notice.textContent = bundled ? 'Firmware updates include the web UI. No separate Application image is needed.' : '';
+            notice.style.display = bundled ? 'block' : 'none';
+        }
+    }
     isMobile() {
         let agt = navigator.userAgent.toLowerCase();
         return /Android|iPhone|iPad|iPod|BlackBerry|BB|PlayBook|IEMobile|Windows Phone|Kindle|Silk|Opera Mini/i.test(navigator.userAgent);
@@ -4216,27 +4342,50 @@ class Firmware {
         div.innerHTML = `Firmware ${rel.fwVersion.name} Installed`;
         div.style.display = '';
     }
+    // Filename filtering is a picker hint, never hardware/digest admission.
+    firmwareFilenameAllowed(filename) {
+        if (typeof filename !== 'string') return false;
+        if (isBundledWeb()) {
+            const name = filename.split(/[\\/]/).pop();
+            return name === 'firmware.bin' || name === 'firmware-lilygo-t-embed-cc1101.bin';
+        }
+        return filename.indexOf('.ino.') !== -1 && filename.endsWith('.bin');
+    }
     updateFirmware() {
         let chip = chipModel();
         // Firmware from before the field leaves it out: undefined, not false.
         if (proto.model.header.hasOtaSlot === false) {
+            if (isBundledWeb()) {
+                ui.infoMessage('This firmware requires the matching A/B partition layout. No upload started. Review the validated package and current backup before a separately planned recovery.');
+                return;
+            }
             ui.infoMessage(`This device has no OTA slot, so its firmware is flashed over USB with SomfyController.onboard.esp32${chip}.bin, from the release's SomfyController.onboard.esp32${chip}.bin.zip. That image holds the web UI and an empty configuration too, so take a backup first and restore it afterwards.`);
             return;
         }
         let div = this.createFileUploader('/updateFirmware');
         let inst = div.querySelector('div[id=divInstText]');
-        let html = `<div style="font-size:14px;margin-bottom:20px;">Select a binary file [SomfyController.ino.esp32${chip}.bin] containing the device firmware then press the Upload File button.</div>`;
+        let html = isBundledWeb()
+            ? '<div style="font-size:14px;margin-bottom:20px;">Select firmware.bin from the validated shared-board package, or firmware-lilygo-t-embed-cc1101.bin from its matching release. This firmware contains the web UI too. Use the shared-board package approved for this device and its current partition layout.</div>'
+            : `<div style="font-size:14px;margin-bottom:20px;">Select a binary file [SomfyController.ino.esp32${chip}.bin] containing the device firmware then press the Upload File button.</div>`;
         if (this.isMobile()) {
             html += `<div style="width:100%;color:red;text-align:center;font-weight:bold;"><span style="margin-top:7px;width:100%;background:yellow;padding:3px;display:inline-block;border-radius:5px;background:white;">WARNING<span></div>`;
             html += '<hr/><div style="font-size:14px;margin-bottom:10px;">This browser does not support automatic backups.  It is highly recommended that you back up your configuration using the backup button before proceeding.</div>';
         }
-        else
-            html += '<hr/><div style="font-size:14px;margin-bottom:10px;">A backup file for your configuration will be downloaded to your browser.  If the firmware update process fails please restore this file using the restore button after going through the onboarding process.</div>'
+        else {
+            const guidance = isBundledWeb()
+                ? 'A fresh backup will download before upload. Keep it for recovery. If an update fails, preserve the current configuration and rolling codes and follow the shared-board recovery instructions.'
+                : 'A backup file for your configuration will be downloaded to your browser.  If the firmware update process fails please restore this file using the restore button after going through the onboarding process.';
+            html += '<hr/><div style="font-size:14px;margin-bottom:10px;">' + guidance + '</div>';
+        }
         inst.innerHTML = html;
         document.getElementById('divContainer').appendChild(div);
         if (this.isMobile()) document.getElementById('btnBackupCfg').style.display = 'inline-block';
     }
     updateApplication() {
+        if (isBundledWeb()) {
+            ui.infoMessage('The web UI is included in firmware updates. Separate Application images are retired for this board.');
+            return;
+        }
         let div = this.createFileUploader('/updateApplication');
         general.reloadApp = true;
         let inst = div.querySelector('div[id=divInstText]');
@@ -4251,7 +4400,252 @@ class Firmware {
         document.getElementById('divContainer').appendChild(div);
         if(this.isMobile()) document.getElementById('btnBackupCfg').style.display = 'inline-block';
     }
+    watchFirmware(el, identity) {
+        const instructions = el.querySelector('div[id="divInstText"]');
+        const report = text => { if (instructions) instructions.textContent = text; };
+        const operation = identity && identity.operationGeneration;
+        if (typeof operation !== 'string' || !/^[1-9][0-9]{0,19}$/.test(operation) ||
+            (operation.length === 20 && operation > '18446744073709551615')) {
+            report('Firmware completion is not confirmed. Reconnect and review the device; do not resubmit automatically.');
+            return;
+        }
+        let stopped = false, timer, request, attempts = 0;
+        const stop = () => { stopped = true; clearTimeout(timer); };
+        const unavailable = () => {
+            if (stopped) return;
+            stop(); report('Firmware completion is not confirmed. Reconnect and review the version and boot health; do not resubmit automatically.');
+        };
+        const close = el.querySelector('button[id="btnClose"]');
+        if (close) close.addEventListener('click', () => {
+            stop();
+            if (request) request.abort(); // End observation; never cancel or replay installation.
+        });
+        const poll = () => {
+            if (stopped) return;
+            if (attempts++ >= 360) { unavailable(); return; }
+            request = new XMLHttpRequest();
+            request.open('GET', `${baseUrl}/firmwareStatus?operationGeneration=${operation}`, true);
+            request.timeout = 5000;
+            request.setRequestHeader('apikey', security.apiKey);
+            request.onerror = request.ontimeout = unavailable;
+            request.onload = () => {
+                if (stopped) return;
+                if (request.status === 401) { stop(); security.tokenRefused(); return; }
+                let status;
+                try { status = JSON.parse(request.responseText); } catch (e) { unavailable(); return; }
+                if (request.status !== 200 || status.operationGeneration !== operation || status.source !== 'manual-file') {
+                    unavailable(); return;
+                }
+                if (['error', 'cancelled', 'cleanupPending'].includes(status.state)) {
+                    stop();
+                    const reason = typeof status.error === 'string' && status.error ? status.error : 'Firmware operation did not complete.';
+                    report(`${reason} ${status.busy ? 'Controls may remain paused; review the device.' : 'No automatic retry was requested.'}`);
+                    return;
+                }
+                switch (status.state) {
+                    case 'queued': report('Firmware file received; waiting for verification and admission.'); break;
+                    case 'verifying': report('Verifying the complete firmware file before writing.'); break;
+                    case 'writing':
+                        if (!Number.isInteger(status.progress) || status.progress < 0 || status.progress > 100) { unavailable(); return; }
+                        report(`Writing verified firmware to the inactive slot: ${status.progress}%.`); break;
+                    case 'written':
+                        if (status.restartScheduled === true) {
+                            stop(); report('Firmware written; restart scheduled subject to final safety checks. Reconnect and verify the version and boot health.'); return;
+                        }
+                        report('Firmware written; waiting for final save and restart checks.'); break;
+                    default: unavailable(); return;
+                }
+                if (status.busy !== true) { unavailable(); return; }
+                timer = setTimeout(poll, 500);
+            };
+            request.send();
+        };
+        report('Firmware file received; installation is not yet confirmed.');
+        poll();
+    }
+    watchRestore(el, identity) {
+        const instructions = el.querySelector('div[id="divInstText"]');
+        const report = text => { if (instructions) instructions.textContent = text; };
+        const decimal = value => typeof value === 'string' && /^[1-9][0-9]{0,19}$/.test(value) &&
+            (value.length < 20 || value <= '18446744073709551615');
+        if (!identity || !decimal(identity.bootSession) || !decimal(identity.generation)) {
+            report('Restore completion is not confirmed. Do not resubmit automatically.');
+            return;
+        }
+        let stopped = false, timer, request, attempts = 0;
+        const stop = () => { stopped = true; clearTimeout(timer); };
+        const close = el.querySelector('button[id="btnClose"]');
+        if (close) close.addEventListener('click', () => {
+            stop();
+            if (request) request.abort(); // End observation, not the owned restore.
+        });
+        const poll = () => {
+            if (stopped) return;
+            if (attempts++ >= 120) {
+                stop(); report('Restore completion is still pending or not confirmed. Do not resubmit automatically.'); return;
+            }
+            request = new XMLHttpRequest();
+            request.open('GET', `${baseUrl}/restoreStatus?bootSession=${identity.bootSession}&generation=${identity.generation}`, true);
+            request.timeout = 5000;
+            request.setRequestHeader('apikey', security.apiKey);
+            const unavailable = () => {
+                if (stopped) return;
+                stop(); report('Restore completion is not confirmed. Reconnect and review the current state; do not resubmit automatically.');
+            };
+            request.onerror = request.ontimeout = unavailable;
+            request.onload = () => {
+                if (stopped) return;
+                if (request.status === 401) { stop(); security.tokenRefused(); return; }
+                let status;
+                try { status = JSON.parse(request.responseText); } catch (e) { unavailable(); return; }
+                if (request.status !== 200 || status.bootSession !== identity.bootSession || status.generation !== identity.generation) {
+                    unavailable(); return;
+                }
+                report(typeof status.desc === 'string' ? status.desc : 'Restore status received.');
+                if (['queued', 'running', 'cleanupPending'].includes(status.phase)) {
+                    timer = setTimeout(poll, 500); return;
+                }
+                stop();
+                if (!['applied', 'partial', 'refused', 'cleanupFault'].includes(status.phase)) {
+                    report('Restore completion is not confirmed. Do not resubmit automatically.'); return;
+                }
+                // Refresh only after execution/cleanup has a terminal result.
+                // This also shows actual partial model effects, without replay.
+                if (status.modelApplied === true) somfy.init();
+            };
+            request.send();
+        };
+        report('Restore queued; waiting for loop execution and cleanup.');
+        poll();
+    }
+    validApplicationIdentity(value, bytes) {
+        const decimal = text => typeof text === 'string' && /^[1-9][0-9]{0,19}$/.test(text) &&
+            (text.length < 20 || text <= '18446744073709551615');
+        return value && decimal(value.nonce) && decimal(value.generation) && Number.isInteger(value.bytes) &&
+            value.bytes > 0 && value.bytes <= 4294967295 && (bytes === undefined || value.bytes === bytes);
+    }
+    applicationPath(identity) {
+        return `nonce=${identity.nonce}&generation=${identity.generation}`;
+    }
+    applicationRequest(method, path, control) {
+        return new Promise((resolve, reject) => {
+            const request = new XMLHttpRequest();
+            if (control) control.request = request;
+            let finished = false;
+            const finish = (callback, value) => {
+                if (finished) return;
+                finished = true;
+                if (control && control.request === request) control.request = null;
+                callback(value);
+            };
+            const fail = () => finish(reject, new Error('Application status is not confirmed. Reconnect and review it; do not resend the file automatically.'));
+            request.open(method, `${baseUrl}${path}`, true);
+            request.timeout = 5000;
+            request.setRequestHeader('apikey', security.apiKey);
+            request.onerror = request.ontimeout = request.onabort = fail;
+            request.onload = () => {
+                if (finished) return;
+                if (request.status === 401) security.tokenRefused();
+                let value;
+                try { value = JSON.parse(request.responseText); } catch (e) { fail(); return; }
+                if (request.status < 200 || request.status >= 300 || !value || typeof value !== 'object' || Array.isArray(value)) {
+                    finish(reject, new Error(value && typeof value.desc === 'string' ? value.desc : 'Application request refused.')); return;
+                }
+                finish(resolve, value);
+            };
+            request.send();
+        });
+    }
+    async prepareApplication(el, bytes) {
+        if (!Number.isInteger(bytes) || bytes < 1 || bytes > 4294967295) throw new Error('Select a nonempty filesystem image.');
+        const instructions = el.querySelector('div[id="divInstText"]');
+        const report = text => { if (instructions) instructions.textContent = text; };
+        const control = { request: null };
+        let identity, stopped = false, active = true, timer, wake;
+        const cancel = () => {
+            if (identity) this.applicationRequest('POST', `/applicationUpdate?${this.applicationPath(identity)}&action=cancel`).catch(() => {});
+        };
+        const close = el.querySelector('button[id="btnClose"]');
+        if (close) close.addEventListener('click', () => {
+            if (!active) return;
+            stopped = true; clearTimeout(timer); if (wake) wake();
+            if (control.request) control.request.abort();
+            cancel();
+        });
+        report('Preparing storage after accepted work. The file has not been sent.');
+        try {
+            let state = await this.applicationRequest('POST', `/prepareApplication?bytes=${bytes}`, control);
+            if (stopped) return null;
+            if (!this.validApplicationIdentity(state, bytes)) throw new Error('Preparation identity is not confirmed. No file was sent.');
+            identity = { nonce: state.nonce, generation: state.generation, bytes };
+            for (let attempt = 0; attempt < 60 && !stopped; ++attempt) {
+                if (!this.validApplicationIdentity(state, bytes) || state.nonce !== identity.nonce || state.generation !== identity.generation)
+                    throw new Error('Preparation identity changed. No file was sent; do not resend automatically.');
+                if (typeof state.desc === 'string') report(state.desc);
+                if (state.phase === 'ready') return identity;
+                if (['refused', 'attention'].includes(state.phase)) {
+                    if (state.phase === 'attention') this.watchApplication(el, identity, state);
+                    return null;
+                }
+                if (!['queued', 'draining'].includes(state.phase)) throw new Error('Preparation is not confirmed. No file was sent.');
+                if (attempt) await new Promise(resolve => { wake = resolve; timer = setTimeout(resolve, 500); });
+                if (stopped) return null;
+                state = await this.applicationRequest('GET', `/applicationUpdateStatus?${this.applicationPath(identity)}`, control);
+            }
+            if (!stopped) throw new Error('Preparation timed out. No file was sent; review storage status before retrying.');
+            return null;
+        } catch (error) {
+            if (stopped) return null;
+            cancel(); throw error;
+        } finally { active = false; clearTimeout(timer); }
+    }
+    watchApplication(el, identity, initial) {
+        const instructions = el.querySelector('div[id="divInstText"]');
+        const report = text => { if (instructions) instructions.textContent = text; };
+        if (!this.validApplicationIdentity(identity)) { report('Application completion is not confirmed. Do not resend automatically.'); return; }
+        const control = { request: null };
+        let stopped = false, timer, attempts = 0, retry;
+        const close = el.querySelector('button[id="btnClose"]');
+        if (close) close.addEventListener('click', () => {
+            stopped = true; clearTimeout(timer); if (control.request) control.request.abort();
+        });
+        const poll = async state => {
+            if (stopped) return;
+            try {
+                if (++attempts > 120) throw new Error('Application completion is still pending. Review status before any retry.');
+                state = state || await this.applicationRequest('GET', `/applicationUpdateStatus?${this.applicationPath(identity)}`, control);
+                if (stopped) return;
+                if (!this.validApplicationIdentity(state, identity.bytes) || state.nonce !== identity.nonce || state.generation !== identity.generation)
+                    throw new Error('Application status belongs to a different source. Do not resend automatically.');
+                report(typeof state.desc === 'string' ? state.desc : 'Application status received.');
+                if (['queued', 'draining', 'ready', 'recovering'].includes(state.phase)) { timer = setTimeout(() => poll(), 500); return; }
+                if (state.phase === 'attention') {
+                    if (!retry) {
+                        retry = document.createElement('button'); retry.type = 'button'; retry.textContent = 'Retry recovery';
+                        retry.addEventListener('click', async () => {
+                            if (stopped || retry.disabled) return;
+                            retry.disabled = true;
+                            try {
+                                await this.applicationRequest('POST', `/applicationUpdate?${this.applicationPath(identity)}&action=retry`, control);
+                                attempts = 0; poll();
+                            } catch (error) { if (!stopped) { report(error.message); retry.disabled = false; } }
+                        });
+                        el.appendChild(retry);
+                    }
+                    retry.disabled = false; return;
+                }
+                stopped = true;
+                if (retry) retry.remove();
+                if (!['completed', 'refused'].includes(state.phase)) report('Application completion is not confirmed. Do not resend automatically.');
+            } catch (error) { if (!stopped) report(error.message); stopped = true; }
+        };
+        poll(initial);
+    }
     async uploadFile(service, el, data) {
+        if (service === '/updateApplication' && isBundledWeb()) {
+            ui.infoMessage('The web UI is included in firmware updates. No separate Application image was sent.');
+            return;
+        }
         let field = el.querySelector('input[type="file"]');
         let filename = field.value;
         console.log(filename);
@@ -4284,7 +4678,7 @@ class Firmware {
                     ui.errorMessage('You must select a valid firmware binary file to proceed.');
                     return;
                 }
-                else if (filename.indexOf('.ino.') === -1 || !filename.endsWith('.bin')) {
+                else if (!this.firmwareFilenameAllowed(filename)) {
                     ui.errorMessage(el, 'This file is not a valid firmware binary file.');
                     return;
                 }
@@ -4333,8 +4727,15 @@ class Firmware {
         let prog = el.querySelector('div[id="progFileUpload"]');
         prog.style.display = '';
         btnSelectFile.style.visibility = 'hidden';
+        let prepared, uploadService = service, uploadFinished = false;
+        if (service === '/updateApplication') {
+            try { prepared = await this.prepareApplication(el, field.files[0].size); }
+            catch (error) { ui.serviceError(el, error); return; }
+            if (!prepared) return;
+            uploadService = `${service}?${this.applicationPath(prepared)}`;
+        }
         let xhr = new XMLHttpRequest();
-        xhr.open('POST', baseUrl.length > 0 ? `${baseUrl}${service}` : service, true);
+        xhr.open('POST', `${baseUrl}${uploadService}`, true);
         xhr.setRequestHeader('apikey', security.apiKey);
         xhr.upload.onprogress = function (evt) {
             let pct = evt.total ? Math.round((evt.loaded / evt.total) * 100) : 0;
@@ -4345,14 +4746,22 @@ class Firmware {
         };
         xhr.onerror = function (err) {
             console.log(err);
-            ui.serviceError(el, err);
+            if (service === '/updateApplication') firmware.watchApplication(el, prepared);
+            else ui.serviceError(el, err);
         };
         xhr.onload = function () {
+            uploadFinished = true;
             console.log('File upload load called');
             btnCancel.innerText = 'Close';
             if (xhr.status === 401) {
                 el.remove();
                 security.tokenRefused();
+                return;
+            }
+            if (service === '/updateApplication') {
+                // Observe this exact source even after a failed response: cleanup
+                // may still be running. Never turn this into another file send.
+                firmware.watchApplication(el, prepared);
                 return;
             }
             if (xhr.status < 200 || xhr.status >= 300) {
@@ -4363,11 +4772,17 @@ class Firmware {
                 return;
             }
             switch (service) {
+                case '/updateFirmware':
+                    if (isBundledWeb()) {
+                        let operation;
+                        try { operation = JSON.parse(xhr.responseText); } catch (e) { }
+                        firmware.watchFirmware(el, operation);
+                    }
+                    break;
                 case '/restore':
-                    (async () => {
-                        await somfy.init();
-                        if (document.getElementById('divUploadFile')) document.getElementById('divUploadFile').remove();
-                    })();
+                    let identity;
+                    try { identity = JSON.parse(xhr.responseText); } catch (e) { }
+                    firmware.watchRestore(el, identity);
                     break;
                 case '/updateApplication':
 
@@ -4378,6 +4793,7 @@ class Firmware {
         btnCancel.addEventListener('click', (e) => {
             console.log('Cancel clicked');
             xhr.abort();
+            if (prepared && !uploadFinished) this.applicationRequest('POST', `/applicationUpdate?${this.applicationPath(prepared)}&action=cancel`).catch(() => {});
         });
 
     }

@@ -13,6 +13,7 @@ static bool admits(uint32_t spaces, bool priority) {
 }
 uint32_t RadioScheduler::submit(somfy_tx_job_t &job, bool priority, uint16_t delayMs, uint32_t now) {
   job.ticket = 0;
+  if(restartSealed) return 0;
   if(this->suspendMask) {
     ESP_LOGW(TAG, "Radio TX suspended, dropping transmission");
     return 0;
@@ -43,8 +44,20 @@ uint32_t RadioScheduler::submit(somfy_tx_job_t &job, bool priority, uint16_t del
   this->count++;
   return job.ticket;
 }
+bool RadioScheduler::hasPendingFor(uint32_t remoteAddress) const {
+  if(this->taken && this->takenJob.frame.remoteAddress == remoteAddress) return true;
+  for(uint8_t i=0;i<this->count;++i)
+    if(this->jobs[i].frame.remoteAddress == remoteAddress) return true;
+  return false;
+}
+bool RadioScheduler::hasRepeaterWork() const {
+  if(this->taken && this->takenJob.repeater) return true;
+  for(uint8_t i=0;i<this->count;++i)
+    if(this->jobs[i].repeater) return true;
+  return false;
+}
 bool RadioScheduler::hasRoom() const {
-  return !this->suspendMask && admits(TX_JOB_QUEUE_SIZE - this->count, false) && this->outcomesFit();
+  return !restartSealed && !this->suspendMask && admits(TX_JOB_QUEUE_SIZE - this->count, false) && this->outcomesFit();
 }
 bool RadioScheduler::outcomesFit() const {
   // Each job not yet ended reports at most two outcomes: started, then how it
@@ -106,6 +119,21 @@ void RadioScheduler::ended(uint32_t ticket, bool complete, uint32_t now) {
   this->taken = 0;
   this->lastEnded = now;
   this->endedOnce = true;
+}
+bool RadioScheduler::cancel(uint32_t ticket, uint32_t now) {
+  if(ticket == 0) return false;
+  if(ticket == this->taken) {
+    // Reuse the same frame-boundary cancellation and outcome path as flush().
+    this->takenFlushed = true;
+    return true;
+  }
+  for(uint8_t i = 0; i < this->count; i++) {
+    if(this->jobs[i].ticket != ticket) continue;
+    this->post(tx_event_t::dropped, this->jobs[i], now);
+    this->remove(i);
+    return true;
+  }
+  return false;
 }
 void RadioScheduler::flush(uint32_t now) {
   // Every discarded job is reported as dropped.

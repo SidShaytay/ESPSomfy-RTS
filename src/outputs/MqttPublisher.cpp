@@ -235,6 +235,7 @@ bool SomfyGroup::publish(const char *topic, bool val, bool retain) {
   return false;
 }
 void SomfyShadeController::publish() {
+  if(!modelLoad.publishable())return;
   this->updateGroupFlags();
   char arrIds[128] = "[";
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {

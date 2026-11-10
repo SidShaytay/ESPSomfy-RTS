@@ -13,7 +13,7 @@ for file in p.glob('*.ppm'):
     file.with_suffix('.png').write_bytes(png_bytes(320, 170, head[3]))
 width, height = 984, 178
 out = bytearray(bytes([17, 23, 25]) * (width*height))
-for index, name in enumerate(['status', 'choose', 'control']):
+for index, name in enumerate(['status', 'devices', 'control']):
     for y in range(170):
         offset = ((y+4)*width+4+index*328)*3
         out[offset:offset+960] = images[name][y*960:(y+1)*960]

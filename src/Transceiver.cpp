@@ -14,6 +14,24 @@
 #include "outputs/ProtoSocket.h"
 #include "ProtoSync.h"
 #include "BitLength.h"
+#ifdef ESPSOMFY_LOCAL_UI
+#include "LocalReceive.h"
+#include "LocalControlQueue.h"
+#include <esp_timer.h>
+#endif
+#include "CounterTxPolicy.h"
+#include "CounterCommandGuard.h"
+#include "SettingsTypedValidation.h"
+#include "SettingsDurability.h"
+#include "RadioInitMarker.h"
+#include "RadioSettingsAdmission.h"
+#include "FrequencyScanAdmission.h"
+#include "FrequencyScanService.h"
+#include "LoopQueue.h"
+extern LoopQueue loopQueue;
+#include "PinOwnership.h"
+#include "GitUpdate.h"
+#include <esp_timer.h>
 
 static const char *TAG = "Somfy";
 
@@ -39,6 +57,7 @@ static SemaphoreHandle_t radioMutex = nullptr;
 // and the async web server task all use it.
 static SemaphoreHandle_t txQueueMutex = nullptr;
 static TaskHandle_t txTaskHandle = nullptr;
+static bool radioUpdateResourcesReady(){return radioMutex && txQueueMutex;}
 // Number of tasks waiting for the radio to reconfigure it.  A job in flight
 // stops after its current frame so they never wait for a whole transmission.
 static std::atomic<uint32_t> txPreemptWaiters{0};
@@ -71,8 +90,11 @@ bool Transceiver::displayStatus(bool &ready, float &frequency) const {
   return true;
 }
 struct TxQueueLock {
-  TxQueueLock() { if(txQueueMutex) xSemaphoreTake(txQueueMutex, portMAX_DELAY); }
-  ~TxQueueLock() { if(txQueueMutex) xSemaphoreGive(txQueueMutex); }
+  bool locked=true,owned=false;
+  explicit TxQueueLock(TickType_t wait=portMAX_DELAY) {
+    if(txQueueMutex)locked=owned=xSemaphoreTake(txQueueMutex,wait)==pdTRUE;
+  }
+  ~TxQueueLock() { if(owned)xSemaphoreGive(txQueueMutex); }
 };
 static int interruptPin = 0;
 static volatile bool noiseDetected = false;
@@ -92,11 +114,26 @@ void somfy_frame_t::decodeFrame(somfy_rx_t *rx) {
   this->decodeFrame(rx->payload);
 }
 // Transceiver Implementation
+// One boundary for decoder state, receive FIFO, and ISR admission. Setting
+// paused under this mux precedes detachInterrupt; an ISR already waiting on
+// the mux cannot enqueue a new frame after the installation snapshot.
+static portMUX_TYPE rxMux=portMUX_INITIALIZER_UNLOCKED;
+static bool rxPausedForInstall=false;
+struct RxTaskLock {
+  RxTaskLock(){portENTER_CRITICAL(&rxMux);}
+  ~RxTaskLock(){portEXIT_CRITICAL(&rxMux);}
+};
+struct RxInterruptLock {
+  bool held=true;
+  __attribute__((always_inline)) inline RxInterruptLock(){portENTER_CRITICAL_ISR(&rxMux);}
+  __attribute__((always_inline)) inline void release(){if(held){portEXIT_CRITICAL_ISR(&rxMux);held=false;}}
+  __attribute__((always_inline)) inline ~RxInterruptLock(){release();}
+};
+static bool rxInProgress();
 static somfy_rx_t somfy_rx;
 static somfy_rx_queue_t rx_queue;
 static somfy_tx_queue_t tx_queue;
 void somfy_rx_queue_t::init() { 
-  ESP_LOGD(TAG, "Initializing RX Queue");
   for (uint8_t i = 0; i < MAX_RX_BUFFER; i++)
     this->items[i].clear();
   memset(&this->index[0], 0xFF, MAX_RX_BUFFER);
@@ -193,9 +230,12 @@ void Transceiver::sendFrame(byte *frame, uint8_t sync, uint8_t bitLength) {
   }
 }
 void RECEIVE_ATTR Transceiver::handleReceive() {
+    const unsigned long edgeMicros=micros(),edgeMillis=millis();
+    RxInterruptLock receiveLock;
+    if(rxPausedForInstall)return;
     if (noiseDetected) return;
     if (somfy.transceiver.config.noiseDetection) {
-        unsigned long now = millis();
+        const unsigned long now=edgeMillis;
         if (noiseStart == 0) noiseStart = now;
         if (now - noiseStart >= 10000) {
             noiseStart = now;
@@ -203,13 +243,15 @@ void RECEIVE_ATTR Transceiver::handleReceive() {
         }
         noiseCount++;
         if (noiseCount > 100) {
-            gpio_intr_disable((gpio_num_t)interruptPin);
-            noiseDetected = true;
+            const int noisyPin=interruptPin;
+            noiseDetected=true;
+            receiveLock.release();
+            gpio_intr_disable((gpio_num_t)noisyPin);
             return;
         }
     }
     static unsigned long last_time = 0;
-    const long time = micros();
+    const long time=edgeMicros;
     const unsigned int duration = time - last_time;
     const PulseResult result = decodePulse(somfy_rx, duration);
     if (result == PulseResult::glitch) return;
@@ -260,7 +302,11 @@ int currRSSI = -100;
 float markFreq = 433.0f;
 int markRSSI = -100;
 uint32_t lastScan = 0;
+static std::atomic<bool> scanActive{false};
+bool frequencyScanActive(){return scanActive.load();}
 static uint32_t scanStart = 0;
+static bool scanResumeReceive = false;
+static std::atomic<bool> scanStopRequested{false};
 // Scan state changes made off loop() (the web handlers and apply() run on
 // async_tcp) are only flagged here.  The socket's frame buffer is shared, so
 // loop() sends the event.
@@ -268,30 +314,48 @@ static std::atomic<bool> scanEmitPending{false};
 // A scan nobody ended (closed browser tab) stops on its own after this long so
 // the radio doesn't stay unable to transmit.
 #define SCAN_MAX_MS 300000
-void Transceiver::beginFrequencyScan() {
-  // The scan retunes the radio so nothing may transmit until it ends.  This
-  // also aborts a transmission in flight so the lock below is never held long.
-  if(this->available()) this->suspendTx(TX_SUSPEND_SCAN);
-  RadioLock lock(portMAX_DELAY, true);
-  if(this->available()) {
-    this->disableReceive();
-    rxmode = 3;
-    scanStart = millis();
-    pinMode(this->config.RXPin, INPUT);
-    interruptPin = digitalPinToInterrupt(this->config.RXPin);
-    ELECHOUSE_cc1101.setRxBW(this->config.rxBandwidth);              // Set the Receive Bandwidth in kHz. Value from 58.03 to 812.50. Default is 812.50 kHz.
-    ELECHOUSE_cc1101.SetRx();
-    markFreq = currFreq = 433.0f;
-    markRSSI = -100;
-    ELECHOUSE_cc1101.setMHZ(currFreq);
-    ESP_LOGD(TAG, "Begin frequency scan on Pin #%d", this->config.RXPin);
-    attachInterrupt(interruptPin, handleReceive, CHANGE);
-    scanEmitPending = true;
+bool Transceiver::beginFrequencyScan() {
+  // Refuse accepted work; observation must never flush/preempt a command.
+  if(!radioUpdateResourcesReady()||!loopQueue.sealForRestart())return false;
+  struct AdmissionGuard {~AdmissionGuard(){loopQueue.reopenAfterRefusedRestart();}} admissionGuard;
+  RadioLock lock(0);if(!lock.locked)return false;
+  TxQueueLock queue(0);if(!queue.locked)return false;
+  {
+    RxTaskLock receiveLock;
+    const auto activity=this->updateActivityLocked();
+    if(!this->config.enabled || !this->available() || !activity.canPause() ||
+       !this->sched.sealForRestart())return false;
+    scanActive=true;
+    scanResumeReceive = rxmode == 1;
+    scanStopRequested = false;
+    rxPausedForInstall = true;
+    this->_administrationPaused = true;
   }
+  this->disableReceive();
+  rxmode = 3;
+  scanStart = millis();
+  pinMode(this->config.RXPin, INPUT);
+  interruptPin = digitalPinToInterrupt(this->config.RXPin);
+  ELECHOUSE_cc1101.setRxBW(this->config.rxBandwidth);              // Set the Receive Bandwidth in kHz. Value from 58.03 to 812.50. Default is 812.50 kHz.
+  ELECHOUSE_cc1101.SetRx();
+  markFreq = currFreq = 433.0f;
+  markRSSI = -100;
+  ELECHOUSE_cc1101.setMHZ(currFreq);
+  ESP_LOGD(TAG, "Begin frequency scan on Pin #%d", this->config.RXPin);
+  attachInterrupt(interruptPin, handleReceive, CHANGE);
+  { RxTaskLock receiveLock;rxPausedForInstall = false; }
+  scanEmitPending = true;
+  return true;
+}
+bool Transceiver::readFrequencyScan(FrequencyScan::Sample &out) {
+  RadioLock lock(0);if(!lock.locked)return false;
+  out={currFreq,markFreq,int16_t(currRSSI),int16_t(markRSSI)};return true;
 }
 void Transceiver::processFrequencyScan(bool received) {
-  RadioLock lock;
-  if(this->available() && rxmode == 3) {
+  if(scanStopRequested.load()) return;
+  RadioLock lock(0);
+  if(!lock.locked || scanStopRequested.load()) return;
+  if(this->_available.load() && rxmode == 3) {
     if(received) {
       currRSSI = ELECHOUSE_cc1101.getRssi();
       if((long)(markFreq * 100) == (long)(currFreq * 100)) {
@@ -318,21 +382,47 @@ void Transceiver::processFrequencyScan(bool received) {
   }
 }
 void Transceiver::endFrequencyScan() {
-  RadioLock lock;
+  if(rxmode != 3) return;
+  scanStopRequested = true;
+  RadioLock lock(0);
+  if(!lock.locked || rxmode != 3) return;
+  TxQueueLock queue(0);if(!queue.locked)return;
   if(rxmode == 3) {
+    { RxTaskLock receiveLock;rxPausedForInstall = true; }
     rxmode = 0;
     if(interruptPin > 0) detachInterrupt(interruptPin); 
     interruptPin = 0;
-    this->config.apply();
+    // Initial admission proved these buffers empty. Everything received since
+    // belongs to this observation and must not become a normal command later.
+    { RxTaskLock receiveLock;
+      rx_queue.init();somfy_rx.clear();
+      noiseDetected=false;noiseStart=0;noiseCount=0;
+    }
+    // Observation changes only tuning/RX state. Ending it must not persist,
+    // run full radio initialization or retry its persistence markers.
+    if(this->_available.load() && this->config.enabled) {
+      ELECHOUSE_cc1101.setMHZ(this->config.frequency);
+      ELECHOUSE_cc1101.setRxBW(this->config.rxBandwidth);
+      { RxTaskLock receiveLock;rxPausedForInstall=false; }
+      if(scanResumeReceive) this->enableReceive();
+      else ELECHOUSE_cc1101.setSidle();
+    }
+    { RxTaskLock receiveLock;rxPausedForInstall=false; }
+    scanResumeReceive = false;
+    scanStopRequested = false;
     scanEmitPending = true;
   }
-  // Even if something else already ended the scan, nothing may keep TX suspended.
-  this->resumeTx(TX_SUSPEND_SCAN);
+  // Restoration has completed before transmission is allowed again.
+  this->sched.reopenAfterRefusedRestart();
+  this->_administrationPaused = false;
+  scanActive=false;
 }
 void Transceiver::emitFrequencyScan() {
   if(protoSocket.subscribed(proto_feed_t::frequencyScan)) {
     ProtoWriter w = protoSocket.beginFeed(proto_type_t::frequencyScan);
     w.add(proto_field_t::scanning, rxmode == 3);
+    char scanToken[42];
+    if(formatFrequencyScanToken(FrequencyScan::status().token,scanToken,sizeof(scanToken)))w.add(proto_field_t::scanToken,scanToken);
     w.add(proto_field_t::testFreq, currFreq);
     w.add(proto_field_t::testRssi, (int32_t)currRSSI);
     w.add(proto_field_t::frequency, markFreq);
@@ -341,10 +431,9 @@ void Transceiver::emitFrequencyScan() {
   }
 }
 bool Transceiver::receive(somfy_rx_t *rx) {
-    // Check to see if there is anything in the buffer
-    if(rx_queue.length > 0) {
-      //Serial.printf("Processing receive %d\n", rx_queue.length);
-      rx_queue.pop(rx);
+    bool received;
+    { RxTaskLock receiveLock;received=rx_queue.pop(rx); }
+    if(received) {
       this->frame.decodeFrame(rx);
       if(this->frame.valid) {
         ESP_LOGI(TAG, "RX ADDR:%d CMD:%s RAW_CMD:0x%X KEY:0x%02X PROTO:%u",
@@ -357,6 +446,12 @@ bool Transceiver::receive(somfy_rx_t *rx) {
     return false;
 }
 void Transceiver::emitFrame(somfy_frame_t *frame, somfy_rx_t *rx) {
+#ifdef ESPSOMFY_LOCAL_UI
+  // This callback has a raw RX record. Never manufacture a learn candidate
+  // from a future debug/TX-only emitFrame call or a websocket subscription.
+  if(frame && rx)LocalUi::publishDecodedReceive(LocalUi::receiveHub(),*frame,*rx,
+      uint64_t(esp_timer_get_time())/1000,rxmode==3);
+#endif
   // The largest event: every pulse as up to 10 digits and a comma, plus the
   // other fields and framing.
   static_assert(MAX_TIMINGS * 11 + 512 <= PROTO_MAX_FRAME, "a frame event can outgrow the socket's frame buffer");
@@ -382,6 +477,8 @@ void Transceiver::emitFrame(somfy_frame_t *frame, somfy_rx_t *rx) {
   }
 }
 void Transceiver::clearReceived(void) {
+    RadioLock radio(0);if(!radio.locked)return;
+    { RxTaskLock receiveLock;if(rxPausedForInstall)return; }
     //packet_received = false;
     //memset(receive_buffer, 0x00, sizeof(receive_buffer));
     if(this->available())
@@ -389,9 +486,11 @@ void Transceiver::clearReceived(void) {
       attachInterrupt(interruptPin, handleReceive, CHANGE);
 }
 void Transceiver::enableReceive(void) {
+    RadioLock radio(0);if(!radio.locked)return;
+    { RxTaskLock receiveLock;if(rxPausedForInstall)return; }
     uint32_t timing = millis();
     if(rxmode > 0) return;
-    if(this->available()) {
+    if(this->_available.load()) {
       rxmode = 1;
       pinMode(this->config.RXPin, INPUT);
       interruptPin = digitalPinToInterrupt(this->config.RXPin);
@@ -424,34 +523,46 @@ void Transceiver::disableReceive(void) {
   interruptPin = 0;
   
 }
-void Transceiver::setConfig(const transceiver_config_t &cfg) {
-  // Swap the whole config in, save it and set the radio up with it once any
-  // transmission in flight has stopped, all under one lock, so the radio task
-  // never sees a half updated config or transmits before the radio is set up
-  // for the new one.  Queued jobs are kept and go out with the new settings.
-  // Saving first means a radio that locks up while applying comes back with
-  // the new config after the reboot.
+settings_save_result_t Transceiver::setConfig(const transceiver_config_t &cfg) {
+  return saveRadioConfiguration(*this,cfg);
+}
+settings_save_result_t Transceiver::setConfigWhilePaused(const transceiver_config_t &cfg,
+    const RadioInstallToken &pause,const GitUpdateOwnerToken &owner,RadioPinContext context) {
+  if((owner.kind!=GitUpdateExternalOwner::configuration && owner.kind!=GitUpdateExternalOwner::restore) ||
+     !gitUpdate.ownsExternal(owner) || !installPauseHeld(pause))
+    return {settings_save_state_t::failed,"radio admission"};
+  auto freshSource=[&](){
+    if(owner.kind!=GitUpdateExternalOwner::restore)return true;
+    const auto micros=esp_timer_get_time();const uint64_t now=micros<0?UINT64_MAX:uint64_t(micros)/1000;
+    return gitUpdate.transferRestoreClaimed(owner,now);
+  };
+  if(!freshSource())return {settings_save_state_t::failed,"restore source"};
+  context=withRetainedEthernetClaims(context);
+  if(!radioPinConfigurationAvailable(cfg,context))return {settings_save_state_t::failed,"pin ownership"};
+  // Persist before touching live pins/config. A partial NVS write is reported
+  // honestly, without applying it to the running radio or claiming rollback.
   RadioLock lock(portMAX_DELAY, true);
+  if(!lock.locked)return {settings_save_state_t::failed,"radio lock"};
   transceiver_config_t next = cfg;
   next.applyBoardPins();
-  if(this->config.enabled && this->config.TXPin != next.TXPin) pinMode(this->config.TXPin, INPUT);
-  this->config = next;
-  this->config.save();
-  this->config.apply();
-}
-bool Transceiver::usesPin(uint8_t pin) {
-  if(BoardProfile::usesPin(pin)) return true;
-  if(this->config.enabled) {
-    if(this->config.SCKPin == pin ||
-      this->config.TXPin == pin ||
-      this->config.RXPin == pin ||
-      this->config.MOSIPin == pin ||
-      this->config.MISOPin == pin ||
-      this->config.CSNPin == pin)
-      return true;
+  const auto result = next.save();
+  if(!result.saved()) return result;
+  if(!freshSource() || !gitUpdate.ownsExternal(owner) || !installPauseHeld(pause) || !radioPinConfigurationAvailable(next,context)) {
+    settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::radio));
+    return {settings_save_state_t::partial,"restore source",false,false,true};
   }
-  return false;  
+  if(radioBusInitialized && this->config.enabled && this->config.TXPin!=255 && this->config.TXPin != next.TXPin) pinMode(this->config.TXPin, INPUT);
+  ++configurationRevision;
+  this->config = next;
+  auto applied=this->config.applyWithPinContext(context);
+  applied.liveApplied=true;applied.radioNamespaceVerified=true;
+  if(!applied.saved()) {
+    applied.state=settings_save_state_t::partial;
+    settingsDurability().markUncertain(settingsNamespaceBit(SettingsNamespace::radio));
+  }
+  return applied;
 }
+bool Transceiver::usesPin(uint8_t pin) {return config.usesPin(pin) || livePinClaims.usesPin(pin);}
 bool Transceiver::end() {
     // Nothing may transmit (and re-enable receive) after this.  It is not
     // resumed since the only caller is OTA, which reboots when the upload
@@ -461,39 +572,7 @@ bool Transceiver::end() {
     this->disableReceive();
     return true;
 }
-void transceiver_config_t::save() {
-    this->applyBoardPins();
-    Preferences pref;
-    pref.begin("CC1101");
-    pref.clear();
-    pref.putUChar("type", this->type);
-    pref.putUChar("TXPin", this->TXPin);
-    pref.putUChar("RXPin", this->RXPin);
-    pref.putUChar("SCKPin", this->SCKPin);
-    pref.putUChar("MOSIPin", this->MOSIPin);
-    pref.putUChar("MISOPin", this->MISOPin);
-    pref.putUChar("CSNPin", this->CSNPin);
-    pref.putFloat("frequency", this->frequency);  // float
-    pref.putFloat("deviation", this->deviation);  // float
-    pref.putFloat("rxBandwidth", this->rxBandwidth); // float
-    pref.putBool("enabled", this->enabled);
-    pref.putBool("radioInit", true);
-    pref.putChar("txPower", this->txPower);
-    pref.putChar("proto", static_cast<uint8_t>(this->proto));
-    pref.putBool("noiseDetect", this->noiseDetection);
-
-    pref.end();
-   
-    ESP_LOGI(TAG, "Save Radio Settings SCK:%u MISO:%u MOSI:%u CSN:%u RX:%u TX:%u", this->SCKPin, this->MISOPin, this->MOSIPin, this->CSNPin, this->RXPin, this->TXPin);
-}
-void transceiver_config_t::removeNVSKey(Preferences &pref, const char *key) {
-  if(pref.isKey(key)) {
-    ESP_LOGD(TAG, "Removing NVS Key: CC1101.%s", key);
-    pref.remove(key);
-  }
-}
-void transceiver_config_t::load() {
-    Preferences pref;
+void transceiver_config_t::applyChipDefaults() {
     esp_chip_info_t ci;
     esp_chip_info(&ci);
     switch(ci.model) {
@@ -575,55 +654,7 @@ void transceiver_config_t::load() {
         this->CSNPin = 5;
         break;
     }
-    pref.begin("CC1101");
-    this->type = pref.getUChar("type", 56);
-    this->TXPin = pref.getUChar("TXPin", this->TXPin);
-    this->RXPin = pref.getUChar("RXPin", this->RXPin);
-    this->SCKPin = pref.getUChar("SCKPin", this->SCKPin);
-    this->MOSIPin = pref.getUChar("MOSIPin", this->MOSIPin);
-    this->MISOPin = pref.getUChar("MISOPin", this->MISOPin);
-    this->CSNPin = pref.getUChar("CSNPin", this->CSNPin);
-    this->frequency = pref.getFloat("frequency", this->frequency);  // float
-    this->deviation = pref.getFloat("deviation", this->deviation);  // float
-    this->enabled = pref.getBool("enabled", this->enabled);
-    this->txPower = pref.getChar("txPower", this->txPower);
-    this->rxBandwidth = pref.getFloat("rxBandwidth", this->rxBandwidth);
-    this->proto = static_cast<radio_proto>(pref.getChar("proto", static_cast<uint8_t>(this->proto)));
-    this->noiseDetection = pref.getBool("noiseDetect", false);
-    this->removeNVSKey(pref, "internalCCMode");
-    this->removeNVSKey(pref, "modulationMode");
-    this->removeNVSKey(pref, "channel");
-    this->removeNVSKey(pref, "channelSpacing");
-    this->removeNVSKey(pref, "dataRate");
-    this->removeNVSKey(pref, "syncMode");
-    this->removeNVSKey(pref, "syncWordHigh");
-    this->removeNVSKey(pref, "syncWordLow");
-    this->removeNVSKey(pref, "addrCheckMode");
-    this->removeNVSKey(pref, "checkAddr");
-    this->removeNVSKey(pref, "dataWhitening");
-    this->removeNVSKey(pref, "pktFormat");
-    this->removeNVSKey(pref, "pktLengthMode");
-    this->removeNVSKey(pref, "pktLength");
-    this->removeNVSKey(pref, "useCRC");
-    this->removeNVSKey(pref, "autoFlushCRC");
-    this->removeNVSKey(pref, "disableDCFilter");
-    this->removeNVSKey(pref, "enableManchester");
-    this->removeNVSKey(pref, "enableFEC");
-    this->removeNVSKey(pref, "minPreambleBytes");
-    this->removeNVSKey(pref, "pqtThreshold");
-    this->removeNVSKey(pref, "appendStatus");
-    pref.end();
-    //this->printBuffer = somfy.transceiver.printBuffer;
     this->applyBoardPins();
-}
-void transceiver_config_t::applyBoardPins() {
-  if(!BoardProfile::integratedRadio) return;
-  this->SCKPin = BoardProfile::sck;
-  this->MOSIPin = BoardProfile::mosi;
-  this->MISOPin = BoardProfile::miso;
-  this->CSNPin = BoardProfile::cs;
-  this->TXPin = BoardProfile::tx;
-  this->RXPin = BoardProfile::rx;
 }
 
 static void warnBootPin(const char *name, uint8_t pin) {
@@ -651,38 +682,35 @@ static bool checkBoardRadio(float frequency) {
     (modem & 0x70) == 0x30 && actual > frequency - 0.01f && actual < frequency + 0.01f;
 }
 
-void transceiver_config_t::apply() {
-    Preferences pref;
-    // A transmission in flight stops after its current frame so the radio can
-    // be reconfigured.  Queued frames are already encoded and go out with the
-    // new settings.
-    RadioLock lock(portMAX_DELAY, true);
-    // Reconfiguring the radio ends a frequency scan so TX may resume.
-    const bool wasScanning = rxmode == 3;
-    somfy.transceiver.disableReceive();
-    // Generic radios retain their enabled-based availability. The integrated
-    // radio is published ready only after its register/RX checks succeed.
-    somfy.transceiver._available = this->enabled && !BoardProfile::integratedRadio;
-    if(wasScanning) {
-      somfy.transceiver.resumeTx(TX_SUSPEND_SCAN);
-      scanEmitPending = true;
+settings_save_result_t transceiver_config_t::apply() {return applyWithPinContext(currentRadioPinContext());}
+settings_save_result_t transceiver_config_t::applyWithPinContext(RadioPinContext context) {
+    if(!loadStatus.usable() || !validSettings(*this)) {
+      if(!somfy.transceiver.radioBusInitialized){radioInit=false;somfy.transceiver._available=false;}
+      return {settings_save_state_t::failed,"radio configuration"};
     }
+    // Do not stop an already initialized bus on a later ownership/model fault.
+    if(!radioPinConfigurationAvailable(*this,context))return {settings_save_state_t::failed,"pin ownership"};
+    // Live callers already hold the exact administration pause. Startup has
+    // no traffic; never cancel or adopt another scan through config apply.
+    RadioLock lock(portMAX_DELAY, true);
+    if(!lock.locked){radioInit=false;somfy.transceiver._available=false;return {settings_save_state_t::failed,"radio configuration"};}
+    if(rxmode==3)return {settings_save_state_t::failed,"radio scan"};
+    somfy.transceiver.disableReceive();
+    // Every board withholds availability until initialization and its NVS
+    // safety marker have completed; an early failure is never radio readiness.
+    somfy.transceiver._available = false;
     this->applyBoardPins();
     radioBitLength = this->type;    
     if(this->enabled) {
+      // Claims survive marker failure, RAM reassignment and later disable.
+      somfy.transceiver.livePinClaims.retain(pinClaims());
       this->radioInit = false;
-      if(!BoardProfile::prepareRadio(this->frequency)) return;
-      bool radioInit = true;
-      pref.begin("CC1101");
-      radioInit = pref.getBool("radioInit", true);
-      // If the radio locks up then we can simply reboot and re-enable the radio.
-      pref.putBool("radioInit", false);
-      this->radioInit = false;
-      pref.end();
-      if(!radioInit) {
-        ESP_LOGW(TAG, "Radio initialization previously interrupted; save radio settings to retry");
-        return;
+      if(!startupInitAllowed) {
+        ESP_LOGW(TAG,"Radio initialization previously interrupted; save radio settings to retry");return {settings_save_state_t::failed,"radioInit"};
       }
+      const auto before=writeRadioInitMarker(false);
+      if(!before.saved()){startupInitAllowed=false;return before;}
+      if(!BoardProfile::prepareRadio(this->frequency))return {};
       ESP_LOGD(TAG, "Applying radio settings - Setting Data Pins RX:%u TX:%u", this->RXPin, this->TXPin);
       // The pins the CC1101 drives: at power-up GDO0 puts out a clock, GDO2
       // CHIP_RDYn, and SO follows CHIP_RDYn while CSN is low.  Once it is
@@ -707,6 +735,7 @@ void transceiver_config_t::apply() {
       if(BoardProfile::integratedRadio)
         SPI.begin(this->SCKPin, this->MISOPin, this->MOSIPin, this->CSNPin);
       ELECHOUSE_cc1101.Init();
+      somfy.transceiver.radioBusInitialized=true;
       ELECHOUSE_cc1101.setCCMode(0);                            // set config for internal transmission mode.
       ELECHOUSE_cc1101.setMHZ(this->frequency);                 // Here you can set your basic frequency. The lib calculates the frequency automatically (default = 433.92).The cc1101 can: 300-348 MHZ, 387-464MHZ and 779-928MHZ. Read More info from datasheet.
       ELECHOUSE_cc1101.setRxBW(this->rxBandwidth);              // Set the Receive Bandwidth in kHz. Value from 58.03 to 812.50. Default is 812.50 kHz.
@@ -746,6 +775,10 @@ void transceiver_config_t::apply() {
       if(BoardProfile::integratedRadio)
         Serial.printf("CC1101 detection=%s register validation=%s\n",
           detected ? "PASS" : "FAIL", boardRadioValid ? "PASS" : "FAIL");
+      const auto after=writeRadioInitMarker(true);
+      if(!after.saved()) {
+        radioInit=false;startupInitAllowed=false;return after;
+      }
       if (!detected || !boardRadioValid) {
           ESP_LOGE(TAG, "Error setting up the radio");
           this->radioInit = false;
@@ -756,24 +789,28 @@ void transceiver_config_t::apply() {
           somfy.transceiver._available = true;
           somfy.transceiver.enableReceive();
       }
-      pref.begin("CC1101");
-      pref.putBool("radioInit", true);
-      pref.end();
       
     }
     else {
-      if(this->radioInit) ELECHOUSE_cc1101.setSidle();
+      if(somfy.transceiver.radioBusInitialized) ELECHOUSE_cc1101.setSidle();
       somfy.transceiver.disableReceive();
       this->radioInit = false;
     }
     //somfy.transceiver.printBuffer = this->printBuffer;
+    return {};
+}
+bool Transceiver::loadReadOnly() {
+    this->config.applyChipDefaults();
+    return this->config.loadReadOnly();
 }
 bool Transceiver::begin() {
     if(!radioMutex) radioMutex = xSemaphoreCreateRecursiveMutex();
     if(!txQueueMutex) txQueueMutex = xSemaphoreCreateMutex();
-    this->config.load();
-    this->config.apply();
-    rx_queue.init();
+    if(!radioMutex || !txQueueMutex){this->_available=false;return false;}
+    if(this->config.loadStatus.usable() && somfy.modelLoad.usable())this->config.apply();
+    else if(!this->radioBusInitialized)this->_available=false;
+    ESP_LOGD(TAG,"Initializing RX Queue");
+    { RxTaskLock receiveLock;rx_queue.init(); }
     this->startTxTask();
     return true;
 }
@@ -791,6 +828,9 @@ void Transceiver::loop() {
       ESP_LOGW(TAG, "Radio TX cut short %s for %d", translateSomfyCommand(evt.cmd).c_str(), evt.remoteAddress);
     // Line the simulated shades up with what actually went on air.
     somfy.processTxEvent(evt);
+#ifdef ESPSOMFY_LOCAL_UI
+    LocalUi::localControlTxEvent(evt);
+#endif
   }
   if(scanEmitPending.exchange(false)) this->emitFrequencyScan();
   if (noiseDetected && rxmode != 3 && this->config.noiseDetection) {
@@ -801,8 +841,8 @@ void Transceiver::loop() {
       noiseCount = 0;
     }
   }
-  if(rxmode == 3 && millis() - scanStart > SCAN_MAX_MS) {
-    ESP_LOGW(TAG, "Frequency scan timed out");
+  if(rxmode == 3 && (scanStopRequested.load() || millis() - scanStart > SCAN_MAX_MS)) {
+    if(!scanStopRequested.load()) ESP_LOGW(TAG, "Frequency scan timed out");
     this->endFrequencyScan();
   }
   if(rxmode == 3) {
@@ -829,30 +869,15 @@ void Transceiver::loop() {
     // Repeater frames are handed to the radio task like any other transmission.
     // One stays here until the radio has room for it rather than being lost
     // while the radio is busy.  While TX is suspended nothing goes out anyway.
-    if(tx_queue.length > 0 && millis() > tx_queue.delay_time && somfy_rx.cpt_synchro_hw == 0 &&
+    if(tx_queue.length > 0 && millis() > tx_queue.delay_time && !rxInProgress() &&
       (this->txSuspended() || this->txHasRoom())) {
-      somfy_tx_job_t job;
-      job.repeater = true;
-      tx_queue.peek(&job.tx);
-      {
-        somfy_tx_t &tx = job.tx;
-        char frame_buf[128];
-        int fpos = snprintf(frame_buf, sizeof(frame_buf), "Sending frame %d - %d-BIT [", tx.hwsync, tx.bit_length);
-        for(uint8_t j = 0; j < 10; j++) {
-          fpos += snprintf(frame_buf + fpos, sizeof(frame_buf) - fpos, "%d%s", tx.payload[j], j < 9 ? ", " : "");
-        }
-        snprintf(frame_buf + fpos, sizeof(frame_buf) - fpos, "]");
-        ESP_LOGD(TAG, "%s", frame_buf);
-      }
-      if(this->submitTx(job) || this->txSuspended()) {
-        somfy_tx_t sent;
-        tx_queue.pop(&sent);
-      }
-      tx_queue.delay_time = millis() + TX_QUEUE_DELAY;
+      this->serviceRepeater();
     }
   }
 }
 uint32_t Transceiver::submitTx(somfy_tx_job_t &job, bool priority, uint16_t delayMs) {
+  job.ticket=0;
+  if(!somfy.modelLoad.usable())return 0;
   if(!supportedBitLength(job.tx.bit_length)) {
     ESP_LOGE(TAG, "Dropping unsupported %u-bit transmission", job.tx.bit_length);
     return 0;
@@ -867,15 +892,104 @@ uint32_t Transceiver::submitTx(somfy_tx_job_t &job, bool priority, uint16_t dela
   uint32_t ticket;
   {
     TxQueueLock lock;
+    if(counterTxBlocked(this->counterEdits.blockedAddress(),job))return 0;
     ticket = this->sched.submit(job, priority, delayMs, millis());
   }
   // The radio task may be idle, or waiting on a delayed job this one is ahead of.
   if(ticket) xTaskNotifyGive(txTaskHandle);
   return ticket;
 }
+bool Transceiver::cancelTx(uint32_t ticket) {
+  bool cancelled;
+  {
+    TxQueueLock lock;
+    cancelled = this->sched.cancel(ticket, millis());
+  }
+  // A removed delayed head may have been holding up an unrelated due job.
+  if(cancelled && txTaskHandle) xTaskNotifyGive(txTaskHandle);
+  return cancelled;
+}
+RadioUpdateActivity Transceiver::updateActivityLocked() const {
+  RadioUpdateActivity out;out.observed=true;
+  out.ready=!this->config.enabled || this->available();
+  out.schedulerIdle=!this->sched.hasWork();out.suspended=this->sched.suspended();
+  out.txSealed=this->sched.sealedForRestart();out.counterBusy=this->counterEdits.active();
+  out.receivedFrames=rx_queue.length;out.repeaterFrames=tx_queue.length;
+  out.receivingFrame=somfy_rx.cpt_synchro_hw || somfy_rx.cpt_bits || somfy_rx.status==receiving_data;
+  out.scanning=rxmode==3;out.receiverPaused=rxPausedForInstall || this->installActive;
+  return out;
+}
+bool Transceiver::updateActivity(RadioUpdateActivity &out) const {
+  if(!radioUpdateResourcesReady())return false;
+  RadioLock radio(0);if(!radio.locked)return false;
+  TxQueueLock queue(0);if(!queue.locked)return false;
+  RxTaskLock receiveLock;out=this->updateActivityLocked();return true;
+}
+bool radioInstallPaused(){return somfy.transceiver.installPaused();}
+
+bool Transceiver::pauseForInstall(RadioInstallToken &out){return pauseForAdministration(out,true);}
+bool Transceiver::pauseForRestore(RadioInstallToken &out){return pauseForAdministration(out,false);}
+void Transceiver::serviceUntrustedReceive(){
+  if(somfy.modelLoad.usable())return;
+  RxTaskLock receiveLock;
+  if(rxPausedForInstall)return;
+  // Quarantined input cannot apply identities, counters, movement or repeaters.
+  // Memory-only and bounded by MAX_RX_BUFFER/MAX_TIMINGS; no decode or driver.
+  rx_queue.init();somfy_rx.clear();
+}
+bool Transceiver::pauseForAdministration(RadioInstallToken &out,bool requireReady) {
+  if(out.generation || !radioUpdateResourcesReady())return false; // Never overwrite a retained capability.
+  RadioLock radio(0);if(!radio.locked)return false;
+  TxQueueLock queue(0);if(!queue.locked)return false;
+  {
+    RxTaskLock receiveLock;
+    const auto activity=this->updateActivityLocked();
+    if(this->installGeneration==UINT64_MAX || !activity.quiescent() || (requireReady && !activity.ready) || !this->sched.sealForRestart())return false;
+    rxPausedForInstall=true;this->_administrationPaused=true;this->installActive=true;this->installResumeReceive=rxmode==1;
+    this->installConfigurationRevision=this->configurationRevision;
+    out.generation=++this->installGeneration;
+  }
+  // No ISR critical section spans GPIO driver calls.
+  this->disableReceive();return true;
+}
+bool Transceiver::installPauseHeld(const RadioInstallToken &token) const {
+  if(!token.generation || !radioUpdateResourcesReady())return false;
+  RadioLock radio(0);if(!radio.locked)return false;
+  TxQueueLock queue(0);if(!queue.locked)return false;
+  RxTaskLock receiveLock;
+  return this->installActive && this->_administrationPaused.load() && rxPausedForInstall && this->installGeneration==token.generation && this->sched.sealedForRestart();
+}
+RadioInstallResume Transceiver::resumeAfterInstall(const RadioInstallToken &token) {
+  if(!radioUpdateResourcesReady())return RadioInstallResume::busy;
+  RadioLock radio(0);if(!radio.locked)return RadioInstallResume::busy;
+  TxQueueLock queue(0);if(!queue.locked)return RadioInstallResume::busy;
+  bool resume;
+  {
+    RxTaskLock receiveLock;
+    if(!token.generation || !this->installActive || !rxPausedForInstall || token.generation!=this->installGeneration || !this->sched.sealedForRestart())return RadioInstallResume::stale;
+    resume=this->config.enabled && (this->configurationRevision!=this->installConfigurationRevision || this->installResumeReceive);
+    rxPausedForInstall=false;
+  }
+  if(resume)this->enableReceive();
+  this->installActive=false;this->installResumeReceive=false;this->installConfigurationRevision=0;this->sched.reopenAfterRefusedRestart();
+  this->_administrationPaused=false;
+  return resume && !this->available() ? RadioInstallResume::unavailable : RadioInstallResume::resumed;
+}
+bool Transceiver::sealForRestart() {
+  TxQueueLock lock;return !tx_queue.length && this->sched.sealForRestart();
+}
+void Transceiver::reopenAfterRefusedRestart() {
+  TxQueueLock lock;this->sched.reopenAfterRefusedRestart();
+}
+bool Transceiver::restartQuiescent() {
+  TxQueueLock lock;return !tx_queue.length && !this->sched.hasWork();
+}
+bool Transceiver::counterEditUncertain() {
+  TxQueueLock lock;return this->counterEdits.uncertain();
+}
 bool Transceiver::txSuspended() {
   TxQueueLock lock;
-  return this->sched.suspended();
+  return this->sched.suspended() || this->_administrationPaused.load();
 }
 bool Transceiver::txHasRoom() {
   // Without a radio task submitTx() fails straight away so there is no point waiting.
@@ -896,7 +1010,7 @@ void Transceiver::resumeTx(uint8_t reason) {
   this->sched.resume(reason);
 }
 // cpt_synchro_hw is updated by the RX interrupt and read here from the radio task.
-static bool rxInProgress() { return *(volatile uint8_t *)&somfy_rx.cpt_synchro_hw != 0; }
+static bool rxInProgress() { RxTaskLock receiveLock;return somfy_rx.cpt_synchro_hw!=0; }
 bool Transceiver::transmitJob(somfy_tx_job_t &job) {
   somfy_tx_t &tx = job.tx;
   bool complete = true;
@@ -984,4 +1098,56 @@ void Transceiver::endTransmit() {
       //delay(100);
       this->enableReceive();
     }
+}
+
+// Loop-owned explicit counter lifecycle; locks only the scheduler/policy state.
+CounterEditAdmission Transceiver::reserveCounterEdit(uint32_t address,bool idle,uint16_t relatedGroups,bool restart) {
+  TxQueueLock lock;
+  // The raw repeater buffer is loop-owned and may not yet be in the scheduler.
+  bool pending=tx_queue.length!=0 || this->sched.suspended() || this->sched.hasPendingFor(address) || this->sched.hasRepeaterWork();
+  for(unsigned i=0;i<SOMFY_MAX_GROUPS;++i)if(relatedGroups&(uint16_t(1)<<i))
+    pending=pending || this->sched.hasPendingFor(somfy.groups[i].getRemoteAddress());
+  return this->counterEdits.reserve(address,idle,pending,restart);
+}
+void Transceiver::finishCounterEdit(CounterEditResult result,ModelCommitResult model) {
+  TxQueueLock lock;this->counterEdits.finish(result,model);
+}
+CounterEditAdmission Transceiver::reserveCounterFileRecovery(bool restart) {
+  TxQueueLock lock;return this->counterEdits.reserveFileRecovery(restart);
+}
+void Transceiver::finishCounterFileRecovery(ModelCommitResult model) {
+  TxQueueLock lock;this->counterEdits.finishFileRecovery(model);
+}
+uint32_t Transceiver::counterFileRecoveryAddress() {
+  TxQueueLock lock;return this->counterEdits.fileRecoveryAddress();
+}
+CounterQuarantine Transceiver::counterQuarantine() {
+  TxQueueLock lock;return this->counterEdits.quarantine();
+}
+bool Transceiver::counterBlocksIdentity(uint32_t address) {
+  TxQueueLock lock;return this->counterEdits.blocks(address);
+}
+
+// Loop-only raw producer. Retire only a refused head; preserve later frames.
+void Transceiver::serviceRepeater() {
+  somfy_tx_job_t job;
+  job.repeater=true;tx_queue.peek(&job.tx);
+  somfy_tx_t &tx=job.tx;
+  char frame_buf[128];
+  int fpos=snprintf(frame_buf,sizeof(frame_buf),"Sending frame %d - %d-BIT [",tx.hwsync,tx.bit_length);
+  for(uint8_t j=0;j<10;j++)
+    fpos+=snprintf(frame_buf+fpos,sizeof(frame_buf)-fpos,"%d%s",tx.payload[j],j<9?", ":"");
+  snprintf(frame_buf+fpos,sizeof(frame_buf)-fpos,"]");
+  ESP_LOGD(TAG,"%s",frame_buf);
+  somfy_frame_t decoded;
+  const bool blocked=this->blockedCounterAddress()!=0;
+  const bool counterRefused=blocked && (!decodeCounterRepeater(job,decoded) || !counterCommandAllowed(decoded.remoteAddress,decoded.cmd));
+  if(counterRefused || this->submitTx(job) || this->txSuspended()) {
+    somfy_tx_t sent;tx_queue.pop(&sent);
+  }
+  tx_queue.delay_time=millis()+TX_QUEUE_DELAY;
+}
+
+uint32_t Transceiver::blockedCounterAddress() {
+  TxQueueLock lock;return this->counterEdits.blockedAddress();
 }

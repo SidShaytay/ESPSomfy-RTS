@@ -1,7 +1,9 @@
+#include "ModelLoadTrust.h"
 #ifndef SOMFY_H
 #define SOMFY_H
 #include <Preferences.h>
 #include "ConfigSettings.h"
+#include "ModelCommitResult.h"
 
 #include "SomfyFrame.h"
 #include "TxBuffer.h"
@@ -29,7 +31,7 @@ class SomfyRoom {
     char name[21] = "";
     int8_t sortOrder = 0;
     void clear();
-    bool save();
+    ModelCommitResult save();
     bool fromJSON(JsonObject &obj);
     void publish();
     void unpublish();
@@ -59,9 +61,14 @@ class SomfyRemote : public RemoteSettings {
     char *getRemotePrefId() {return m_remotePrefId;}
     virtual void setRemoteAddress(uint32_t address);
     virtual uint32_t getRemoteAddress();
-    uint16_t peekNextRollingCode();
+    // Read-only; false leaves code unchanged and must refuse before dispatch.
+    // A successful zero is the existing 16-bit rollover, not a failure.
+    bool peekNextRollingCode(uint16_t &code);
     void commitRollingCode(uint16_t code);
+    // Automatic RX only; explicit corrections/linking use the checked domain.
     virtual uint16_t setRollingCode(uint16_t code);
+    // Only the checked explicit domain calls this AFTER verified NVS. No I/O.
+    void adoptExplicitCounter(uint16_t code);
     // The flags byte (somfy_flags_t) as it is saved and sent.
     virtual uint8_t getFlags() { return 0; }
     // The send functions return false only when the radio could not take the
@@ -73,8 +80,12 @@ class SomfyRemote : public RemoteSettings {
     send_result_t sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority = false, bool hearsItself = false);
     bool sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repeat);
     bool repeatFrame(uint8_t repeat);
+    send_result_t repeatFrameReceipt(uint8_t repeat);
     virtual uint16_t p_lastRollingCode(uint16_t code);
     somfy_commands transformCommand(somfy_commands cmd);
+    // GPIO admission precedes counter reads and frame/model mutation. Base
+    // remotes/groups have no GPIO actuator; RF dispatch is unaffected.
+    virtual bool gpioCommandAllowed(somfy_commands wireCommand) { (void)wireCommand; return false; }
     virtual void triggerGPIOs(somfy_frame_t &frame);
    
 };
@@ -94,6 +105,13 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     bool light = false;
     SomfyLinkedRemote linkedRemotes[SOMFY_MAX_LINKED_REMOTES];
     bool paired = false;
+    uint64_t configurationRevision = 1;
+    // Read-only admission; shared by projected edits and all live GPIO paths.
+    int8_t validateGPIOs(radio_proto protocol,uint8_t upPin,uint8_t downPin,uint8_t myPin);
+    bool gpioCommandAllowed(somfy_commands wireCommand) override;
+    bool canGpioCommand(somfy_commands logicalCommand);
+    bool canGpioSeek(bool tilt = false);
+    bool canGpioTilt(somfy_commands logicalCommand);
     int8_t validateJSON(JsonObject &obj);
     int8_t fromJSON(JsonObject &obj);
     
@@ -103,16 +121,19 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     // Where the shade is and where it is going.
     const ShadeBehaviour::State &state() const { return this->behaviour.state(); }
     bool isIdle() const { return this->behaviour.isIdle(); }
+    uint64_t favouriteObservationRevision() const { return this->behaviour.favouriteObservationRevision(); }
+    // Wait for actual GPIO pulse release observation, even past its deadline.
+    bool idleForAdministration() const { return this->behaviour.idleForAdministration() && this->gpioRelease==0; }
     uint8_t getFlags() override;
     // Sets the setting and state bits from a saved or sent flags byte.
     void setFlags(uint8_t flags);
-    bool save();
+    ModelCommitResult save();
     bool isInGroup();
     void checkMovement();
     void processFrame(somfy_frame_t &frame, bool internal = false);
     // The shade itself or the linked remote with this address, else nullptr.
     SomfyRemote *findRemote(uint32_t address);
-    void processInternalCommand(somfy_commands cmd, uint8_t repeat = 1);
+    void processInternalCommand(somfy_commands cmd, uint8_t repeat = 1, uint8_t stepSize = 0);
     void markTxPending(uint32_t ticket);
     void processTxEvent(const somfy_tx_event_t &evt);
     bool isToggle() { return isToggleShade(this->shadeType); }
@@ -122,13 +143,14 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     bool sendTiltCommand(somfy_commands cmd);
     bool sendCommand(somfy_commands cmd);
     bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
+    send_result_t sendCommandReceipt(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
     // Puts the shade at pos and tilt (-1 leaves one alone) without moving it.
     void setPosition(float pos, float tilt);
     // Where the config file says the shade was.
     void restore(float pos, float tiltPos, float myPos, float myTiltPos) { this->behaviour.restore(pos, tiltPos, myPos, myTiltPos); }
     // Forgets the tilt of a shade that has none.
     void clearTilt() { this->behaviour.clearTilt(); }
-    bool linkRemote(uint32_t remoteAddress, uint16_t rollingCode = 0);
+    // Linking uses the shared checked received-counter domain; never an unchecked setter.
     bool unlinkRemote(uint32_t remoteAddress);
     // Marks the shade as changed; the change fan-out sends shadeState once per
     // loop() pass.
@@ -136,10 +158,11 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     // What changed since the fan-out last sent the shade (SHADE_CHANGED_* bits).
     uint16_t changed = 0;
     // A setting changed: protocol 2 clients get the whole shade.
-    void configChanged() { this->changed |= SHADE_CHANGED_CONFIG; }
+    void configChanged() { ++configurationRevision; this->changed |= SHADE_CHANGED_CONFIG; }
     void emitCommand(somfy_commands cmd, const char *source, uint32_t sourceAddress);
     // False when the radio refused a command it sent.
     bool setMyPosition(int8_t pos, int8_t tilt = -1);
+    bool programMyPositionHere(bool clear);
     bool moveToMyPosition();
     void processWaitingFrame();
     void publish();
@@ -149,9 +172,10 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     void publishState();
     // Publishes the MQTT topics of the SHADE_CHANGED_* bits in changed.
     void publishTopics(uint16_t changed);
-    void commit();
+    ModelCommitResult commit();
     void clear();
     int8_t transformPosition(float fpos);
+    void configureGPIOs();
     void setGPIOs();
     void triggerGPIOs(somfy_frame_t &frame);
     bool usesPin(uint8_t pin);
@@ -168,7 +192,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     // MotorLink: the radio or GPIO path every remote sends through.
     send_result_t send(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority) override;
     // ShadeEvents
-    void onChanged(uint16_t bits) override { this->changed |= bits; }
+    void onChanged(uint16_t bits) override;
     void onCommand(somfy_commands cmd, const char *source, uint32_t sourceAddress) override { this->emitCommand(cmd, source, sourceAddress); }
     void onSaveWanted() override;
     void onSensorFlags() override;
@@ -178,6 +202,7 @@ class SomfyGroup : public SomfyRemote {
   protected:
     uint8_t groupId = 255;
   public:
+    uint64_t configurationRevision = 1;
     uint8_t roomId = 0;
     int8_t sortOrder = 0;
     group_types groupType = group_types::channel;
@@ -190,7 +215,7 @@ class SomfyGroup : public SomfyRemote {
     uint8_t linkedShades[SOMFY_MAX_GROUPED_SHADES];
     void setGroupId(uint8_t id) { groupId = id; }
     uint8_t getGroupId() { return groupId; }
-    bool save();
+    ModelCommitResult save();
     void clear();
     bool fromJSON(JsonObject &obj);
     bool linkShade(uint8_t shadeId);
@@ -209,9 +234,10 @@ class SomfyGroup : public SomfyRemote {
     // What changed since the fan-out last sent the group (GROUP_CHANGED_* bits).
     uint8_t changed = 0;
     // A setting or its shades changed: protocol 2 clients get the whole group.
-    void configChanged() { this->changed |= GROUP_CHANGED_CONFIG; }
+    void configChanged() { ++configurationRevision; this->changed |= GROUP_CHANGED_CONFIG; }
     bool sendCommand(somfy_commands cmd);
     bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
+    send_result_t sendCommandReceipt(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
     int8_t p_direction(int8_t dir);
     bool publish(const char *topic, uint8_t val, bool retain = false);
     bool publish(const char *topic, int8_t val, bool retain = false);
@@ -225,6 +251,12 @@ class SomfyShadeController {
     uint32_t lastCommit = 0;
   public:
     bool isDirty = false;
+    ModelLoadTrust modelLoad;
+    ModelCommitResult lastModelCommit;
+    // Loop-owned configuration history. Reusing an ID/address after an edit
+    // must invalidate older client intentions; ordinary motion does not.
+    uint64_t configurationRevision = 1;
+    uint64_t restoreRevision = 1;
     uint32_t startingAddress;
     uint8_t getNextRoomId();
     uint8_t getNextShadeId();
@@ -240,9 +272,10 @@ class SomfyShadeController {
     SomfyRoom *addRoom();
     SomfyShade *addShade();
     SomfyGroup *addGroup();
-    bool deleteRoom(uint8_t roomId);
-    bool deleteShade(uint8_t shadeId);
-    bool deleteGroup(uint8_t groupId);
+    ModelCommitResult deleteRoom(uint8_t roomId);
+    ModelCommitResult deleteShade(uint8_t shadeId);
+    ModelCommitResult deleteGroup(uint8_t groupId);
+    void configureGPIOs();
     bool begin();
     void loop();
     void end();
@@ -273,7 +306,7 @@ class SomfyShadeController {
     void sendChanges();
     void publish();
     void processWaitingFrame();
-    void commit();
+    ModelCommitResult commit();
     void writeBackup();
     String backupData;
 };

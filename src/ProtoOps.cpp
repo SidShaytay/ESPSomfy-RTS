@@ -1,13 +1,14 @@
 #include <stdio.h>
 #include <strings.h>
 #include "ProtoOps.h"
+#include "CounterResults.h"
 
 // An op reads only the fields that were sent: unlike what the device sends, a
 // left-out field is not its schema default but not given, so a client can
 // leave a shade's tilt or its sun flag as they are.
 class OpReader {
   public:
-    explicit OpReader(JsonObjectConst d) : d(d) {}
+    OpReader(JsonObjectConst d, proto_error_buffer_t &buffer) : d(d), why(buffer) { why[0] = '\0'; }
     bool has(proto_field_t field) const { return !this->d[protoField(field).key].isNull(); }
     // The field when it was sent, as an integer in lo..hi.  False when it
     // wasn't; error is set when it was but isn't one.
@@ -58,21 +59,12 @@ class OpReader {
     const char *error = nullptr;
   private:
     JsonObjectConst d;
-    char why[64];
+    proto_error_buffer_t &why;
     const char *protoString(proto_field_t field) const {
       JsonVariantConst v = this->d[protoField(field).key];
       return v.is<const char *>() ? v.as<const char *>() : nullptr;
     }
 };
-// The reader's problem, kept once the reader has gone so the reply can send
-// it.  One buffer for every parse: they all run on async_tcp, one at a time.
-static char lastError[64];
-static const char *errorOf(OpReader &r) {
-  if(!r.error) return nullptr;
-  snprintf(lastError, sizeof(lastError), "%s", r.error);
-  return lastError;
-}
-
 struct command_name_t {
   const char *name;
   somfy_commands cmd;
@@ -144,9 +136,9 @@ static void readOneOrBoth(OpReader &r, proto_field_t a, proto_field_t b, int32_t
   if(r.get(b, lo, hi, n)) bOut = static_cast<int8_t>(n);
 }
 
-const char *parseShadeOp(uint8_t type, JsonObjectConst d, shade_request_t &req) {
+const char *parseShadeOp(uint8_t type, JsonObjectConst d, shade_request_t &req, proto_error_buffer_t &error) {
   req = shade_request_t();
-  OpReader r(d);
+  OpReader r(d, error);
   int32_t n;
   switch(static_cast<proto_type_t>(type)) {
     case proto_type_t::shadeCommand:
@@ -202,13 +194,13 @@ const char *parseShadeOp(uint8_t type, JsonObjectConst d, shade_request_t &req) 
       r.fail("Not a shade op");
       break;
   }
-  return errorOf(r);
+  return r.error;
 }
 
-const char *parseRemoteCommandOp(JsonObjectConst d, somfy_frame_t &frame, uint8_t &repeats) {
+const char *parseRemoteCommandOp(JsonObjectConst d, somfy_frame_t &frame, uint8_t &repeats, proto_error_buffer_t &error) {
   frame = somfy_frame_t();
   repeats = 0;
-  OpReader r(d);
+  OpReader r(d, error);
   int32_t n;
   // A remote address is 24 bits, and 0 is no remote.
   if(r.need(proto_field_t::remoteAddress, 1, 0xFFFFFF, n)) frame.remoteAddress = static_cast<uint32_t>(n);
@@ -216,7 +208,7 @@ const char *parseRemoteCommandOp(JsonObjectConst d, somfy_frame_t &frame, uint8_
   if(r.need(proto_field_t::lastRollingCode, 1, UINT16_MAX, n)) frame.rollingCode = static_cast<uint16_t>(n);
   if(r.get(proto_field_t::encKey, 0, UINT8_MAX, n)) frame.encKey = static_cast<uint8_t>(n);
   if(r.get(proto_field_t::repeats, 0, UINT8_MAX, n)) repeats = static_cast<uint8_t>(n);
-  return errorOf(r);
+  return r.error;
 }
 
 proto_error_t protoRequestError(shade_request_result_t result) {
@@ -226,7 +218,12 @@ proto_error_t protoRequestError(shade_request_result_t result) {
     // At rest it would take it: the client may try again.
     case shade_request_result_t::shade_moving: return proto_error_t::busy;
     case shade_request_result_t::no_tilt: return proto_error_t::badRequest;
-    default: return proto_error_t::none;
+    case shade_request_result_t::counter_busy:
+    case shade_request_result_t::counter_blocked:return proto_error_t::busy;
+    case shade_request_result_t::counter_stale:
+    case shade_request_result_t::counter_invalid:return proto_error_t::badRequest;
+    case shade_request_result_t::done:return proto_error_t::none;
+    default:return proto_error_t::internal;
   }
 }
 const char *protoRequestErrorDesc(const shade_request_t &req, shade_request_result_t result) {
@@ -235,6 +232,29 @@ const char *protoRequestErrorDesc(const shade_request_t &req, shade_request_resu
     case shade_request_result_t::radio_refused: return PROTO_RADIO_REFUSED;
     case shade_request_result_t::shade_moving: return "The shade is moving";
     case shade_request_result_t::no_tilt: return "The shade has no tilt";
-    default: return nullptr;
+    case shade_request_result_t::counter_busy:return counterDomainDescription(CounterDomainState::busy);
+    case shade_request_result_t::counter_blocked:return counterDomainDescription(CounterDomainState::quarantined);
+    case shade_request_result_t::counter_uncertain:return counterDomainDescription(CounterDomainState::nvsUncertain);
+    case shade_request_result_t::counter_file_failed:return counterDomainDescription(CounterDomainState::modelFailed);
+    case shade_request_result_t::counter_file_uncertain:return counterDomainDescription(CounterDomainState::modelUncertain);
+    case shade_request_result_t::counter_stale:return counterDomainDescription(CounterDomainState::stale);
+    case shade_request_result_t::counter_invalid:return counterDomainDescription(CounterDomainState::invalid);
+    case shade_request_result_t::counter_failed:return counterDomainDescription(CounterDomainState::nvsFailed);
+    case shade_request_result_t::done:return nullptr;
+    default:return "Command outcome unavailable; no success was reported.";
+  }
+}
+
+void writeShadeRequestResult(ProtoWriter &writer,const shade_request_t &request,shade_request_result_t result) {
+  const auto error=protoRequestError(result);
+  writer.add(proto_field_t::ok,error==proto_error_t::none);
+  if(request.type==shade_request_type_t::set_rolling_code) {
+    const bool applied=result==shade_request_result_t::done || result==shade_request_result_t::counter_file_failed || result==shade_request_result_t::counter_file_uncertain;
+    writer.add(proto_field_t::applied,applied);writer.add(proto_field_t::durable,result==shade_request_result_t::done);
+    if(applied)writer.add(proto_field_t::modelSaveState,int(result==shade_request_result_t::done ? ModelCommitState::saved : result==shade_request_result_t::counter_file_uncertain ? ModelCommitState::uncertain : ModelCommitState::failed));
+  }
+  if(error!=proto_error_t::none) {
+    writer.add(proto_field_t::code,uint8_t(error));
+    writer.add(proto_field_t::desc,protoRequestErrorDesc(request,result));
   }
 }

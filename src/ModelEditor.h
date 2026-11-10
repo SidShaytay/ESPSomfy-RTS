@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include "SomfyFrame.h"
 #include "ShadeTypes.h"
+#include "ModelCommitResult.h"
+#include "ExplicitCounter.h"
 
 // The rules ModelEditor applies when the shade model is edited: which id, sort
 // order and remote address a new room, shade or group gets, how ids go into
@@ -27,13 +29,28 @@ enum class model_edit_type_t : uint8_t {
 // shade or group it added or changed, 0 when none.  shadeId is the shade a
 // group gained or lost.  code is the validation error of a shade that wasn't
 // saved, 0 otherwise.  notFound: it was refused for an id that doesn't exist.
+enum class edit_failure_t : uint8_t { badRequest, busy, internal };
 struct edit_result_t {
-  bool ok = true;
+  // ok certifies an applied/verified model file OR explicit noChange success.
+  // Neither qualifies separate NVS writes; noChange attempts no persistence.
+  // Applied persistence failure retains IDs; retry COMMIT, never the edit.
+  bool ok = false;
+  bool applied = false;
+  ModelCommitResult persistence;
   bool notFound = false;
   uint8_t id = 0;
   uint8_t shadeId = 0;
   int8_t code = 0;
   const char *desc = "";
+  edit_failure_t failure = edit_failure_t::badRequest;
+  // Preserve checked counter/link outcomes for local callers; descriptions
+  // remain presentation only, never a machine-readable failure discriminator.
+  bool hasCounterResult = false;
+  CounterDomainState counterState = CounterDomainState::invalid;
+  bool noChange = false;
+  bool durable() const { return applied && persistence.saved(); }
+  static edit_result_t completed(uint8_t id,ModelCommitResult persistence);
+  static edit_result_t unchanged(uint8_t id);
   static edit_result_t error(const char *desc, int8_t code = 0) {
     edit_result_t r;
     r.ok = false;
@@ -47,6 +64,7 @@ struct edit_result_t {
     return r;
   }
 };
+static_assert(sizeof(edit_result_t)<=(sizeof(void*)==8?24:16),"Keep typed edit outcomes within their existing caller budget");
 // Why an add, or the read that offers one, is refused when every slot of its
 // kind is taken.
 #define EDIT_ROOMS_FULL "Maximum number of rooms exceeded."
@@ -103,9 +121,12 @@ struct pin_users_t {
 #define PIN_CONFLICT_RADIO -10
 #define PIN_CONFLICT_ETHERNET -11
 #define PIN_CONFLICT_SHADE -12
-// Whether a shade of type driven over proto may use these pins (255 for none):
-// 0, or which of the radio, the Ethernet PHY or another shade already uses one.
-// Only the pins the shade type and protocol actually drive are checked.
-int8_t gpioPinConflict(shade_types type, radio_proto proto, uint8_t upPin, uint8_t downPin, uint8_t myPin,
-    const pin_users_t &radio, const pin_users_t &ethernet, const pin_users_t &otherShades);
+#define PIN_CONFLICT_DUPLICATE -13
+#define PIN_INVALID_OUTPUT -14
+#define PIN_STORAGE_UNAVAILABLE -15
+// Every physically touched pad is checked, including setup/deassertion pads
+// omitted by logical commands. 255 means unset and is never an SDK GPIO call.
+int8_t gpioPinConflict(radio_proto proto,uint8_t upPin,uint8_t downPin,uint8_t myPin,
+    const pin_users_t &radio,const pin_users_t &ethernet,const pin_users_t &otherShades,
+    const pin_users_t &invalidOutputs);
 #endif

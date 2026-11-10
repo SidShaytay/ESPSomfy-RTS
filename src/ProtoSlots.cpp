@@ -10,6 +10,19 @@ proto_slot_t *claimSlot(proto_slot_t *slots, uint8_t count, uint32_t clientId, b
   }
   return nullptr;
 }
+void retireSlot(proto_slot_t &slot,uint32_t capturedClientId) {
+  if(capturedClientId)slot.retiredForClientId.store(capturedClientId);
+}
+bool clientMayMutate(const proto_slot_t *slots,uint8_t count,uint32_t clientId) {
+  if(!clientId)return false;
+  for(uint8_t i=0;i<count;++i){
+    const auto &slot=slots[i];
+    if(slot.clientId.load()!=clientId)continue;
+    const bool retired=slot.retiredForClientId.load()==clientId;
+    return !retired && slot.clientId.load()==clientId;
+  }
+  return false;
+}
 void startSync(proto_slot_t &slot) { slot.wants.fetch_or(WANTS_SYNC); }
 proto_slot_t *slotOf(proto_slot_t *slots, uint8_t count, uint32_t clientId) {
   for(uint8_t i = 0; i < count; i++)

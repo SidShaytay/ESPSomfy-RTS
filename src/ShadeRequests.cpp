@@ -85,6 +85,10 @@ shade_request_result_t ShadeRequests::run(const shade_request_t &req) {
       if(!inRange(pos)) pos = displayPosition(shade.myPos >= 0.0f ? shade.myPos : shade.currentPos, flip);
       return sent(this->ops.setMyPosition(req.id, storedPosition(pos, flip), storedPosition(tilt, flip)));
     }
+    case shade_request_type_t::set_favorite_here:
+    case shade_request_type_t::clear_favorite_here:
+      if(!shade.idle) return shade_request_result_t::shade_moving;
+      return sent(this->ops.programMyPositionHere(req.id, req.type == shade_request_type_t::clear_favorite_here));
     case shade_request_type_t::unpair: {
       // A 56-bit motor needs a longer Prog press than an 80-bit one.
       const bool taken = this->ops.sendCommand(req.id, somfy_commands::Prog, shade.bitLength == 56 ? 7 : 1, 0);
@@ -92,8 +96,28 @@ shade_request_result_t ShadeRequests::run(const shade_request_t &req) {
       return sent(taken);
     }
     case shade_request_type_t::set_rolling_code:
-      this->ops.setRollingCode(req.id, req.rollingCode);
-      return shade_request_result_t::done;
+      return this->ops.setRollingCode(req.id, req.rollingCode);
   }
   return shade_request_result_t::done;
+}
+
+bool validOwnedRepeatRequest(const shade_request_t &req) {
+  if((req.type != shade_request_type_t::shade_repeat && req.type != shade_request_type_t::group_repeat &&
+      req.type != shade_request_type_t::shade_command && req.type != shade_request_type_t::group_command) ||
+     req.id == 0 || req.id == 255 || req.repeat < 1 || req.target != -1 ||
+     req.position != -1 || req.tiltPosition != -1 || req.sunny != -1 || req.windy != -1 || req.rollingCode)
+    return false;
+  switch(req.command) {
+    case somfy_commands::Up: case somfy_commands::Down: case somfy_commands::Favorite:
+    case somfy_commands::Toggle: case somfy_commands::StepUp: case somfy_commands::StepDown:
+    case somfy_commands::SunFlag: case somfy_commands::Flag: break;
+    default: return false;
+  }
+  return true;
+}
+shade_request_result_t ShadeRequests::runOwnedRepeat(const shade_request_t &req, owned_repeat_receipt_t &receipt) {
+  receipt = {};
+  if(!validOwnedRepeatRequest(req)) return shade_request_result_t::radio_refused;
+  receipt.ticket = this->ops.sendOwnedRepeat(req);
+  return sent(receipt.ticket != 0);
 }

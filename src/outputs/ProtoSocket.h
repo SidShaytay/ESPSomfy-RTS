@@ -9,6 +9,7 @@
 class SomfyShade;
 class SomfyGroup;
 class SomfyRoom;
+struct loop_item_t;
 
 // The socket protocol 2 endpoint, ws://host/ws on port 80 (docs/PROTOCOL.md,
 // docs/adr/0005-one-websocket-protocol.md).
@@ -27,10 +28,20 @@ class ProtoSocket {
     // without a word, so clients wouldn't know they had gone.
     void end();
     bool hasClients() const;
+    // Retire old model sessions before producer admission reopens. Credentials
+    // are unchanged; reconnect establishes a fresh initial model context.
+    void retireModelSessions();
+    // Any task, atomics only. Called inside the queue's producer barrier.
+    bool acceptsClientMutation(uint32_t clientId) const;
+    bool acceptsMutation(const loop_item_t &) const;
+    // loop() owns/free payloads of accepted items refused during execution.
+    void discardRetiredMutation(const loop_item_t &);
     // The reply to a command op once loop() has run its shade request.
     void replyRequest(const proto_reply_to_t &to, const shade_request_t &req, shade_request_result_t result);
     // The reply to an edit op once loop() has applied it.
     void replyEdit(const proto_reply_to_t &to, model_edit_type_t type, const edit_result_t &result);
+    void replyModelCommit(const proto_reply_to_t &to,ModelCommitReport report);
+    void modelPersistence(ModelCommitReport report,uint32_t exceptClient=0);
     // The reply to a read op, from the shade model.  loop() only.
     void replyRead(const proto_reply_to_t &to, uint8_t op, uint8_t groupId);
     // Any other reply formatted on loop(): ok, and the fields written between

@@ -9,6 +9,14 @@
 #include "RadioScheduler.h"
 #include "PulseDecoder.h"
 #include "BoardProfile.h"
+#include "SettingsSaveResult.h"
+#include "SettingsLoadState.h"
+#include "CounterEdit.h"
+#include "RadioUpdateActivity.h"
+#include "GitUpdateOwner.h"
+#include "LivePinClaims.h"
+#include "PinOwnership.h"
+#include "FrequencyScanSample.h"
 
 // The CC1101 radio: receive decoding, the radio task that transmits radio
 // jobs, the frequency scan and the radio config.
@@ -26,6 +34,8 @@ struct somfy_rx_queue_t {
   bool pop(somfy_rx_t *rx);
 };
 struct transceiver_config_t {
+    SettingsLoadStatus loadStatus;
+    bool startupInitAllowed=true;
     bool printBuffer = false;
     bool enabled = BoardProfile::integratedRadio;
     uint8_t type = 56;                // 56 or 80 bit protocol.
@@ -43,37 +53,63 @@ struct transceiver_config_t {
     int8_t txPower = 10;              // Transmission power {-30, -20, -15, -10, -6, 0, 5, 7, 10, 11, 12}.  Default is 12.
     bool noiseDetection = false;      // Disable RX interrupt when RF noise is detected (>100 pulses/10s)
     void fromJSON(JsonObject& obj);
-    void save();
-    void load();
-    void apply();
+    settings_save_result_t save();
+    // Persistence-only reconciliation: preserve the stored init safety marker.
+    settings_save_result_t savePreservingInit();
+    bool loadReadOnly();
+    void applyChipDefaults();
+    settings_save_result_t apply();
+    settings_save_result_t applyWithPinContext(RadioPinContext);
     void applyBoardPins();
-    // Removes a key no longer used from the open CC1101 namespace.
-    void removeNVSKey(Preferences &pref, const char *key);
+    uint64_t pinClaims()const {uint64_t pins=0;for(uint8_t pin=0;pin<64;++pin)if(usesPin(pin))pins|=LivePinClaims::pinMask(pin);return pins;}
+    bool usesPin(uint8_t pin)const {
+      return BoardProfile::usesPin(pin) || (enabled &&
+        (SCKPin==pin || TXPin==pin || RXPin==pin || MOSIPin==pin || MISOPin==pin || CSNPin==pin));
+    }
 };
 class Transceiver {
   private:
     friend struct transceiver_config_t;
     // Published under the radio lock; queue producers never wait on SPI.
     std::atomic<bool> _available{false};
+    std::atomic<bool> _administrationPaused{false};
     static void handleReceive();
     static void txTask(void *arg);
     bool _received = false;
+    bool radioBusInitialized=false;
     somfy_frame_t frame;
     // Only touched under the TX queue lock.
     RadioScheduler sched;
+    CounterEditSafety counterEdits;
+    uint64_t installGeneration=0,installConfigurationRevision=0;
+    LivePinClaims livePinClaims;
+    std::atomic<bool> installActive{false};
+    bool installResumeReceive=false;
+    RadioUpdateActivity updateActivityLocked() const;
+    bool pauseForAdministration(RadioInstallToken &,bool requireReady);
     void startTxTask();
     bool transmitJob(somfy_tx_job_t &job);
+    // Loop only: process one raw repeater head, never flush/reorder its tail.
+    void serviceRepeater();
     // Sends a job taken off the queue and leaves a frame beat after it.
     void runJob(somfy_tx_job_t &job);
   public:
+    uint64_t configurationRevision = 1;
     transceiver_config_t config;
     // Nonblocking read-only LCD snapshot; outputs are unchanged if busy.
     bool displayStatus(bool &ready, float &frequency) const;
-    bool available() const { return _available.load(); }
+    uint64_t retainedPinClaims()const{return livePinClaims.snapshot();}
+    bool installPaused() const {return installActive.load();}
+    bool available() const { return _available.load() && !_administrationPaused.load(); }
     bool printBuffer = false;
     bool fromJSON(JsonObject& obj);
-    // Swaps in, saves and applies the config.
-    void setConfig(const transceiver_config_t &cfg);
+    // Persists a prepared config before swapping/applying it. Failed or partial
+    // persistence leaves the live config and hardware unchanged.
+    settings_save_result_t setConfig(const transceiver_config_t &cfg);
+    // Already-owned restore/configuration path: exact radio and owner capability.
+    settings_save_result_t setConfigWhilePaused(const transceiver_config_t &,const RadioInstallToken &,
+        const GitUpdateOwnerToken &,RadioPinContext);
+    bool loadReadOnly();
     bool begin();
     void loop();
     bool end();
@@ -86,14 +122,44 @@ class Transceiver {
     // Hands a job to the radio task, see RadioScheduler::submit().  Returns its
     // ticket, 0 when the radio can't take it.  Safe from any task.
     uint32_t submitTx(somfy_tx_job_t &job, bool priority = false, uint16_t delayMs = 0);
+    // Cancels only an owned ticket, without sending STOP or waiting for the
+    // radio lock. A frame already committed to air finishes normally.
+    bool cancelTx(uint32_t ticket);
     void suspendTx(uint8_t reason);
     void resumeTx(uint8_t reason);
     bool txSuspended();
     bool txHasRoom();
+    bool counterEditUncertain();
+    // Loop only: includes raw repeater frames and radio-task scheduler work.
+    bool restartQuiescent();
+    // Loop-only updater pause. Output remains unchanged when locks are busy;
+    // callers provide an empty token and retain it through resume/adoption.
+    bool updateActivity(RadioUpdateActivity &) const;
+    bool pauseForInstall(RadioInstallToken &);
+    // Same exact pause token/seal; permits idle unavailable radio config repair.
+    bool pauseForRestore(RadioInstallToken &);
+    // Quarantined model only: discard bounded RX memory, never model/repeater/
+    // RF/NVS work. Trusted callers and a retained pause leave buffers untouched.
+    void serviceUntrustedReceive();
+    RadioInstallResume resumeAfterInstall(const RadioInstallToken &);
+    bool installPauseHeld(const RadioInstallToken &) const;
+
+    bool sealForRestart();
+    void reopenAfterRefusedRestart();
+    CounterEditAdmission reserveCounterEdit(uint32_t address,bool idle,uint16_t relatedGroups,bool restart);
+    void finishCounterEdit(CounterEditResult,ModelCommitResult);
+    CounterEditAdmission reserveCounterFileRecovery(bool restart);
+    void finishCounterFileRecovery(ModelCommitResult);
+    uint32_t counterFileRecoveryAddress();
+    CounterQuarantine counterQuarantine();
+    bool counterBlocksIdentity(uint32_t address);
+    uint32_t blockedCounterAddress();
     void beginTransmit();
     void endTransmit();
     void emitFrame(somfy_frame_t *frame, somfy_rx_t *rx = nullptr);
-    void beginFrequencyScan();
+    // Loop-only, nonblocking: true only after scan actually owns paused RF.
+    bool beginFrequencyScan();
+    bool readFrequencyScan(FrequencyScan::Sample &);
     void endFrequencyScan();
     void processFrequencyScan(bool received = false);
     void emitFrequencyScan();

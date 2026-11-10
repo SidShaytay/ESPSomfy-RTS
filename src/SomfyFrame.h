@@ -33,12 +33,14 @@ enum class somfy_commands : byte {
     Favorite = 0xC1,
     Stop = 0xF1
 };
+// Static known-command label; nullptr means preserve/report the raw opcode.
+const char *somfyCommandLabel(somfy_commands cmd);
 String translateSomfyCommand(const somfy_commands cmd);
 somfy_commands translateSomfyCommand(const String& string);
 // The command with up and down swapped, for motors wired the other way round.
 somfy_commands flipCommand(somfy_commands cmd);
 // The command that turns the sun flag on (SunFlag) or off (Flag).
-somfy_commands sunFlagCommand(bool on);
+inline somfy_commands sunFlagCommand(bool on) { return on ? somfy_commands::SunFlag : somfy_commands::Flag; }
 // Whether cmd can set a shade moving.
 bool startsMovement(somfy_commands cmd);
 

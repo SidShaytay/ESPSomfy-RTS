@@ -9,6 +9,7 @@ class FakeShadeOps : public ShadeOps {
     std::map<uint8_t, shade_info_t> shades;
     std::map<uint8_t, uint8_t> groups;      // group id -> its repeats
     bool radioTakes = true;                 // false: the radio refuses everything
+    shade_request_result_t counterOutcome=shade_request_result_t::done;
     bool lastCommand = false;               // what isLastCommand answers
     std::string calls;
 
@@ -36,9 +37,10 @@ class FakeShadeOps : public ShadeOps {
       return log("sendSensorCommand %u windy=%d sunny=%d repeat=%u", id, windy, sunny, repeat);
     }
     bool setMyPosition(uint8_t id, int8_t pos, int8_t tilt) override { return log("setMyPosition %u %d %d", id, pos, tilt); }
+    bool programMyPositionHere(uint8_t id, bool clear) override { return log("programMyPositionHere %u clear=%u", id, unsigned(clear)); }
     void setPositions(uint8_t id, float pos, float tilt) override { log("setPositions %u %g %g", id, pos, tilt); }
     void setUnpaired(uint8_t id) override { log("setUnpaired %u", id); }
-    void setRollingCode(uint8_t id, uint16_t code) override { log("setRollingCode %u %u", id, code); }
+    shade_request_result_t setRollingCode(uint8_t id, uint16_t code) override { log("setRollingCode %u %u", id, code);return counterOutcome; }
     bool sendGroupCommand(uint8_t id, somfy_commands cmd, uint8_t repeat, uint8_t stepSize) override {
       return log("sendGroupCommand %u %s repeat=%u step=%u", id, name(cmd), repeat, stepSize);
     }
@@ -229,6 +231,12 @@ static void test_no_repeat_means_the_groups_own() {
   req.command = somfy_commands::Down;
   requests.run(req);
   TEST_ASSERT_EQUAL_STRING("sendGroupCommand 2 Down repeat=3 step=0", ops.calls.c_str());
+  for(unsigned step:{1u,127u})for(auto type:{shade_request_type_t::group_command,shade_request_type_t::group_repeat}){
+    ops.calls.clear();req.type=type;req.command=somfy_commands::StepUp;req.stepSize=step;
+    TEST_ASSERT_EQUAL(shade_request_result_t::done,requests.run(req));
+    const std::string expected="sendGroupCommand 2 Step Up repeat=3 step="+std::to_string(step);
+    TEST_ASSERT_EQUAL_STRING(expected.c_str(),ops.calls.c_str());
+  }
 }
 
 /*********************************************************************
@@ -382,10 +390,67 @@ static void test_a_refused_command_is_reported() {
   TEST_ASSERT_EQUAL(shade_request_result_t::radio_refused, requests.run(req));
 }
 
+static void checked_counter_outcome_is_returned_without_claiming_success() {
+  FakeShadeOps ops;ops.shades[4]={};ShadeRequests requests(ops);
+  shade_request_t req;req.type=shade_request_type_t::set_rolling_code;req.id=4;req.rollingCode=1234;
+  for(auto result:{shade_request_result_t::counter_busy,shade_request_result_t::counter_uncertain,shade_request_result_t::counter_file_failed}) {
+    ops.counterOutcome=result;TEST_ASSERT_EQUAL(result,requests.run(req));
+  }
+}
+static void explicit_favorite_requests_keep_actions_distinct_and_ignore_position_fields() {
+  ops.shades[4]=flippedShade();
+  for(auto type:{shade_request_type_t::set_favorite_here,shade_request_type_t::clear_favorite_here}) {
+    ops.calls.clear();auto req=request(type);req.position=90;req.tiltPosition=20;req.target=40;
+    TEST_ASSERT_TRUE(shadeRequestUsesRadio(type));TEST_ASSERT_FALSE(shadeRequestIsForGroup(type));
+    TEST_ASSERT_EQUAL(shade_request_result_t::done,requests.run(req));
+    TEST_ASSERT_EQUAL_STRING(type==shade_request_type_t::set_favorite_here?"programMyPositionHere 4 clear=0":"programMyPositionHere 4 clear=1",ops.calls.c_str());
+    ops.shades[4].idle=false;ops.calls.clear();
+    TEST_ASSERT_EQUAL(shade_request_result_t::shade_moving,requests.run(req));TEST_ASSERT_EQUAL_STRING("",ops.calls.c_str());
+    ops.shades[4].idle=true;ops.radioTakes=false;
+    TEST_ASSERT_EQUAL(shade_request_result_t::radio_refused,requests.run(req));ops.radioTakes=true;
+  }
+}
+static void test_owned_repeat_receipt_comes_from_this_backend_call() {
+  struct OwnedOps:FakeShadeOps {
+    unsigned n=600;
+    uint32_t sendOwnedRepeat(const shade_request_t &) override { return ++n; }
+  } ops;
+  ShadeRequests service(ops);owned_repeat_receipt_t receipt;
+  shade_request_t req;req.id=1;req.type=shade_request_type_t::shade_repeat;req.command=somfy_commands::Up;req.repeat=12;
+  TEST_ASSERT_EQUAL_UINT8((uint8_t)shade_request_result_t::done,(uint8_t)service.runOwnedRepeat(req,receipt));
+  TEST_ASSERT_EQUAL_UINT32(601,receipt.ticket);
+  req.type=shade_request_type_t::group_repeat;
+  TEST_ASSERT_EQUAL_UINT8((uint8_t)shade_request_result_t::done,(uint8_t)service.runOwnedRepeat(req,receipt));
+  TEST_ASSERT_EQUAL_UINT32(602,receipt.ticket);
+  req.command=somfy_commands::My;
+  TEST_ASSERT_EQUAL_UINT8((uint8_t)shade_request_result_t::radio_refused,(uint8_t)service.runOwnedRepeat(req,receipt));
+  TEST_ASSERT_EQUAL_UINT32(0,receipt.ticket);TEST_ASSERT_EQUAL_UINT32(602,ops.n);
+}
+
+static void test_owned_repeat_receipt_is_explicit_and_rejects_other_requests() {
+  FakeShadeOps ops;ShadeRequests service(ops);shade_request_t req;
+  owned_repeat_receipt_t receipt;receipt.ticket=999;
+  req.type=shade_request_type_t::set_favorite;req.id=1;req.repeat=20;
+  TEST_ASSERT_EQUAL_UINT8((uint8_t)shade_request_result_t::radio_refused,(uint8_t)service.runOwnedRepeat(req,receipt));
+  TEST_ASSERT_EQUAL_UINT32(0,receipt.ticket);
+  TEST_ASSERT_TRUE(ops.calls.empty());
+  req.type=shade_request_type_t::shade_repeat;req.command=somfy_commands::Up;
+  // Legacy/fake backends default-refuse owned dispatch, never fall back to an
+  // untracked bool send or guess a receipt from a prior operation.
+  receipt.ticket=999;
+  TEST_ASSERT_EQUAL_UINT8((uint8_t)shade_request_result_t::radio_refused,(uint8_t)service.runOwnedRepeat(req,receipt));
+  TEST_ASSERT_EQUAL_UINT32(0,receipt.ticket);
+  TEST_ASSERT_TRUE(ops.calls.empty());
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_owned_repeat_receipt_comes_from_this_backend_call);
+  RUN_TEST(test_owned_repeat_receipt_is_explicit_and_rejects_other_requests);
+  RUN_TEST(explicit_favorite_requests_keep_actions_distinct_and_ignore_position_fields);
+  RUN_TEST(checked_counter_outcome_is_returned_without_claiming_success);
   RUN_TEST(test_a_missing_shade_is_not_found);
   RUN_TEST(test_a_missing_group_is_not_found);
   RUN_TEST(test_a_shade_id_is_not_a_group_id);

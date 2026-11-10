@@ -27,7 +27,9 @@ class ProtoViews {
     }
     static scan(schema, d) {
         const s = schema.fill(Object.assign({}, d), ['scanning', 'testFreq', 'testRssi', 'frequency', 'rssi']);
-        return { scanning: s.scanning, testFreq: s.testFreq, testRSSI: s.testRssi, frequency: s.frequency, RSSI: s.rssi };
+        const view = { scanning: s.scanning, testFreq: s.testFreq, testRSSI: s.testRssi, frequency: s.frequency, RSSI: s.rssi };
+        if (typeof d.scanToken === 'string') view.scanToken = d.scanToken;
+        return view;
     }
     // The network section as the panel binds it: WiFi, Ethernet and the
     // address each in an object of their own, the connection as connType.
@@ -61,6 +63,11 @@ class ProtoViews {
     static opError(name, err) {
         const e = { htmlError: err.code, service: name, desc: err.desc };
         if (err.data && typeof err.data.validation === 'number' && err.data.validation !== 0) e.code = err.data.validation;
+        if (err.data && (err.data.applied === true || typeof err.data.modelSaveState === 'number')) {
+            e.data = { desc: err.desc };
+            for (const field of ['applied', 'durable']) if (typeof err.data[field] === 'boolean') e.data[field] = err.data[field];
+            for (const field of ['modelSaveState', 'roomId', 'shadeId', 'groupId']) if (Number.isInteger(err.data[field])) e.data[field] = err.data[field];
+        }
         return e;
     }
 }

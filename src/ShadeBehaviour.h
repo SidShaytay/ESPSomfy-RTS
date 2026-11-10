@@ -68,6 +68,14 @@ class ShadeBehaviour {
     ShadeBehaviour &operator=(const ShadeBehaviour &) = delete;
     const State &state() const { return this->s; }
     bool isIdle() const;
+    uint64_t favouriteObservationRevision() const { return observationRevision; }
+    // Read-only admission for configuration/persistence/shutdown operations.
+    // An idle position estimate can still have held input or unresolved TX.
+    bool idleForAdministration() const {
+      return isIdle() && !settingMyPos && !settingPos && !settingTiltPos && !awaitMy &&
+        !tx.hold.held() && !tx.stopTicket && !tx.myTicket &&
+        (!lastFrame.await || lastFrame.processed);
+    }
     bool isAtTarget() const;
 
     // A frame from a remote, sensor or linked remote, or one the shade or
@@ -77,7 +85,7 @@ class ShadeBehaviour {
     // whether the press was short or long.
     void onWaitingFrame(uint32_t now);
     // A group the shade belongs to sent cmd.
-    void onGroupCommand(somfy_commands cmd, uint8_t repeat, uint32_t now);
+    void onGroupCommand(somfy_commands cmd, uint8_t repeat, uint32_t now, uint8_t stepSize = 0);
     // Every loop() pass: moves the simulated position, stops at the target and
     // stores the favorite.
     void tick(uint32_t now);
@@ -88,11 +96,14 @@ class ShadeBehaviour {
 
     // Commands from the web, MQTT and Home Assistant.  False when the radio
     // refused a command they sent.
-    bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint32_t now);
+    bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint32_t now, uint32_t *ticket = nullptr);
     bool sendTiltCommand(somfy_commands cmd, uint32_t now);
     bool moveToTarget(float pos, float tilt, uint32_t now);
     bool moveToTiltTarget(float target, uint32_t now);
     bool setMyPosition(int8_t pos, int8_t tilt, uint32_t now);
+    // Explicit programming only: never moves to a target or toggles Set into Clear.
+    // Clear requires the exact current favourite; caller obtains human observation.
+    bool programMyPositionHere(bool clear, uint32_t now);
     bool moveToMyPosition(uint32_t now);
 
     // Puts the shade at pos and tilt (-1 leaves one alone) without moving it.
@@ -114,6 +125,8 @@ class ShadeBehaviour {
     const uint8_t &shadeId;
     const char *name;
     State s;
+    uint64_t observationRevision = 1;
+    void invalidateFavouriteObservation() { if(observationRevision) ++observationRevision; }
     uint32_t moveStart = 0;
     uint32_t tiltStart = 0;
     ShadeSensors sensors;

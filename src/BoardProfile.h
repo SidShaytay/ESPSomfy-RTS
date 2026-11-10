@@ -1,14 +1,20 @@
 #pragma once
 #include <Arduino.h>
+#include <math.h>
 
+#ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS
+#error "Retired Plus-only macro: use ESPSOMFY_LILYGO_T_EMBED_CC1101 for CC1101 and Plus"
+#endif
 namespace BoardProfile {
-#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS)
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
 #if !defined(CONFIG_IDF_TARGET_ESP32S3)
-#error "The LILYGO T-Embed CC1101 Plus profile requires an ESP32-S3 target"
+#error "The shared LILYGO T-Embed CC1101 profile requires an ESP32-S3 target"
 #endif
 constexpr bool integratedRadio = true;
+constexpr const char *name = "CC1101 / Plus";
 #else
 constexpr bool integratedRadio = false;
+constexpr const char *name = "Generic";
 #endif
 
 // LILYGO utilities.h and CC1101 schematics: see LILYGO.md for pinned sources.
@@ -35,6 +41,13 @@ constexpr uint8_t nrfCE = 43;
 constexpr uint8_t backlight = 21;
 
 void begin();
+// Match the pinned driver's PA/calibration branches; the integrated board is 433 MHz only.
+inline bool radioFrequencyAllowed(float frequency) {
+  if(!isfinite(frequency))return false;
+  if(integratedRadio)return frequency>=387.0f && frequency<=464.0f;
+  return (frequency>=300.0f && frequency<=348.0f) ||
+    (frequency>=378.0f && frequency<=464.0f) || (frequency>=779.0f && frequency<=928.0f);
+}
 bool prepareRadio(float frequency);
 bool usesPin(uint8_t pin);
 }

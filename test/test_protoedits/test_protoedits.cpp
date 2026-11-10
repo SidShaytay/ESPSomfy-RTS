@@ -11,11 +11,12 @@ void tearDown() {}
 
 static JsonDocument payload;
 static JsonDocument doc;
+static proto_error_buffer_t error;
 
 static const char *expand(model_edit_type_t type, const char *json) {
   payload.clear();
   TEST_ASSERT_EQUAL(DeserializationError::Ok, deserializeJson(payload, json).code());
-  return expandEditPayload(type, payload.as<JsonObjectConst>(), doc);
+  return expandEditPayload(type, payload.as<JsonObjectConst>(), doc, error);
 }
 static std::string written() {
   std::string out;
@@ -154,10 +155,54 @@ static void test_shade_and_group_edits_require_supported_bit_lengths() {
   }
 }
 
+static void test_independent_edit_errors_survive_interleaved_parses() {
+  JsonDocument firstPayload, secondPayload, firstOut, secondOut;
+  proto_error_buffer_t firstBuffer, secondBuffer;
+  deserializeJson(firstPayload, R"({"unknown":1})");
+  deserializeJson(secondPayload, R"({"n":true})");
+  const char *firstError = expandEditPayload(model_edit_type_t::add_room, firstPayload.as<JsonObjectConst>(), firstOut, firstBuffer);
+  const char *secondError = expandEditPayload(model_edit_type_t::add_room, secondPayload.as<JsonObjectConst>(), secondOut, secondBuffer);
+  TEST_ASSERT_EQUAL_STRING("Unknown field unknown", firstError);
+  TEST_ASSERT_EQUAL_STRING("name is not a string", secondError);
+}
+
+static void test_room_fields_use_destination_bounds_without_touching_omitted_legacy_values() {
+  TEST_ASSERT_GOOD(expand(model_edit_type_t::save_room, R"({"r":4,"n":"12345678901234567890","o":127})"));
+  TEST_ASSERT_NOT_NULL(expand(model_edit_type_t::save_room, R"({"r":4,"n":"123456789012345678901"})"));
+  TEST_ASSERT_NOT_NULL(expand(model_edit_type_t::save_room, R"({"r":4,"o":128})"));
+  TEST_ASSERT_NOT_NULL(expand(model_edit_type_t::save_room, R"({"r":4,"o":-129})"));
+  TEST_ASSERT_GOOD(expand(model_edit_type_t::save_room, R"({"r":4,"o":-128})"));
+  TEST_ASSERT_GOOD(expand(model_edit_type_t::save_room, R"({"r":4})"));
+}
+static void test_entity_names_reject_embedded_nul_without_changing_omitted_names() {
+  TEST_ASSERT_NOT_NULL(expand(model_edit_type_t::save_room, R"({"r":4,"n":"a\u0000b"})"));
+  TEST_ASSERT_NOT_NULL(expand(model_edit_type_t::save_room, R"({"r":4,"n":"a\u00001234567890123456789012345"})"));
+  TEST_ASSERT_NOT_NULL(expand(model_edit_type_t::save_shade, R"({"s":4,"n":"\u0000"})"));
+  TEST_ASSERT_GOOD(expand(model_edit_type_t::save_room, R"({"r":4,"o":1})"));
+  TEST_ASSERT_TRUE(doc["name"].isNull());
+}
+static void test_membership_ids_have_literal_operation_bounds_without_uint8_wrap() {
+  for(auto type:{model_edit_type_t::link_to_group,model_edit_type_t::unlink_from_group}) {
+    TEST_ASSERT_GOOD(expand(type,R"({"g":16,"s":32})"));
+    for(const char *json:{R"({"g":0,"s":1})",R"({"g":17,"s":1})",R"({"g":-1,"s":1})",R"({"g":256,"s":1})",R"({"g":257,"s":1})",R"({"g":18446744073709551615,"s":1})",R"({"g":1,"s":0})",R"({"g":1,"s":-1})",R"({"g":1,"s":256})",R"({"g":1,"s":257})",R"({"g":1,"s":18446744073709551615})",R"({"g":1})",R"({"s":1})"})
+      TEST_ASSERT_NOT_NULL_MESSAGE(expand(type,json),json);
+  }
+  for(const char *json:{R"({"g":1,"s":33})",R"({"g":1,"s":88})",R"({"g":1,"s":254})",R"({"g":1,"s":255})"})
+    TEST_ASSERT_NOT_NULL_MESSAGE(expand(model_edit_type_t::link_to_group,json),json);
+  for(unsigned id:{1u,32u,88u,254u,255u}) {
+    char json[32];snprintf(json,sizeof(json),"{\"g\":16,\"s\":%u}",id);
+    TEST_ASSERT_GOOD(expand(model_edit_type_t::unlink_from_group,json));
+    TEST_ASSERT_EQUAL(id,doc["shadeId"].as<unsigned>());
+  }
+}
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_membership_ids_have_literal_operation_bounds_without_uint8_wrap);
+  RUN_TEST(test_entity_names_reject_embedded_nul_without_changing_omitted_names);
+  RUN_TEST(test_room_fields_use_destination_bounds_without_touching_omitted_legacy_values);
+  RUN_TEST(test_independent_edit_errors_survive_interleaved_parses);
   RUN_TEST(test_every_edit_op_is_an_edit);
   RUN_TEST(test_other_types_are_not_edits);
   RUN_TEST(test_the_edit_ops_are_the_schemas_edit_ops);

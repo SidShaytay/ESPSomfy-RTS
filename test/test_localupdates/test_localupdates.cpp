@@ -1,0 +1,132 @@
+#include "LocalUpdates.h"
+#include "LocalJsonAllocator.h"
+#include <unity.h>
+#include <cstdlib>
+#include <cstring>
+using namespace LocalUi;
+struct Backend:Updates::Backend {
+  SecuritySnapshot auth{AuthMode::pin,true,false,3,5};
+  GitUpdateSnapshot value;
+  GitUpdateBootStatus bootValue;
+  unsigned checks=0,installs=0,cancels=0,activityCount=0;
+  uint64_t cancelled=0,expectedCandidate=0;
+  Backend(){value.supported=true;value.phase=GitUpdatePhase::idle;value.reason=GitUpdateReason::none;strcpy(value.installed,"v4.0.2");}
+  SecuritySnapshot authorization()override{return auth;}
+  void activity()override{++activityCount;}
+  GitUpdateSnapshot status()override{return value;}
+  GitUpdateBootStatus boot()override{return bootValue;}
+  GitUpdateRequest check(uint32_t session,uint32_t security,uint64_t &operation)override{
+    TEST_ASSERT_EQUAL(3,session);TEST_ASSERT_EQUAL(5,security);++checks;
+    value.busy=value.cancellable=true;value.phase=GitUpdatePhase::checking;operation=value.operation=91;return GitUpdateRequest::accepted;
+  }
+  GitUpdateRequest install(uint64_t candidate,uint32_t session,uint32_t security,uint64_t &operation)override{
+    TEST_ASSERT_EQUAL(3,session);TEST_ASSERT_EQUAL(5,security);++installs;expectedCandidate=candidate;
+    if(candidate!=value.candidate.generation)return GitUpdateRequest::invalidCandidate;
+    value.installContinuation=true;value.installRemainingMs=gitUpdateInstallDurationMs;operation=value.operation=93;value.busy=value.cancellable=true;value.canInstall=false;value.phase=GitUpdatePhase::downloading;return GitUpdateRequest::accepted;
+  }
+  bool cancel(uint64_t operation,uint32_t,uint32_t)override{++cancels;cancelled=operation;return operation==value.operation && value.cancellable;}
+  void available(){value.busy=false;value.cancellable=false;value.phase=GitUpdatePhase::available;value.canInstall=true;value.candidate.generation=92;strcpy(value.candidate.version,"v4294967295.4294967295.4294967295");}
+};
+void setUp(){}void tearDown(){}
+static void check_is_explicit_and_progress_does_not_extend_authority(){
+  Backend b;JsonAllocator pool(4096,malloc,free);Updates::Form form(b,pool);EntityAdmin::FormView view;
+  TEST_ASSERT_TRUE(form.open(0));form.render(view);TEST_ASSERT_EQUAL(0,b.checks);TEST_ASSERT_TRUE(view.protectedFrame);
+  form.activate(1);TEST_ASSERT_EQUAL(1,b.checks);const auto count=b.activityCount;
+  form.tick(500);form.tick(1000);TEST_ASSERT_EQUAL(count,b.activityCount);
+  b.available();form.tick(1001);form.render(view);TEST_ASSERT_NOT_NULL(strstr(view.rows[2].value,"4294967295"));
+  form.back(1002);form.back(1003);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(0,b.cancels);TEST_ASSERT_EQUAL(0,pool.used());
+}
+static void confirmation_defaults_cancel_and_installs_exact_candidate_once(){
+  Backend b;b.available();JsonAllocator pool(4096,malloc,free);Updates::Form form(b,pool);EntityAdmin::FormView view;
+  form.open(0);form.turn(1,1);form.activate(2);form.render(view);
+  TEST_ASSERT_EQUAL_STRING("Cancel",view.rows[0].label);TEST_ASSERT_EQUAL_STRING(b.value.candidate.version,view.rows[2].value);
+  form.activate(3);TEST_ASSERT_EQUAL(0,b.installs);
+  form.turn(1,4);form.activate(5);form.turn(1,6);form.activate(7);
+  TEST_ASSERT_EQUAL(1,b.installs);TEST_ASSERT_EQUAL(92,b.expectedCandidate);
+  b.value.cancellable=false;b.value.phase=GitUpdatePhase::written;form.tick(8);form.activate(9);TEST_ASSERT_EQUAL(1,b.installs);
+  b.value.phase=GitUpdatePhase::error;b.value.reason=GitUpdateReason::activationFailed;form.render(view);TEST_ASSERT_NOT_NULL(strstr(view.hint,"Controls paused"));
+  form.back(10);TEST_ASSERT_EQUAL(93,b.cancelled);TEST_ASSERT_EQUAL(0,pool.used());
+}
+static void changed_same_version_candidate_requires_a_new_review(){
+  Backend b;b.available();JsonAllocator pool(4096,malloc,free);Updates::Form form(b,pool);
+  form.open(0);form.turn(1,1);form.activate(2);form.turn(1,3);++b.value.candidate.generation;form.activate(4);
+  TEST_ASSERT_EQUAL(0,b.installs);EntityAdmin::FormView view;form.render(view);TEST_ASSERT_EQUAL(EntityAdmin::Notice::changed,view.notice);
+}
+static void expiry_clock_lock_and_configuration_wipe_and_cancel_only_owned_operation(){
+  for(unsigned reason=0;reason<4;++reason){
+    Backend b;JsonAllocator pool(4096,malloc,free);Updates::Form form(b,pool);form.open(100);form.activate(101);
+    uint64_t now=102;if(reason==0)b.auth.allowed=false;if(reason==1)++b.auth.configurationGeneration;
+    if(reason==2)now=120101;if(reason==3)now=100;form.tick(now);
+    TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(1,b.cancels);TEST_ASSERT_EQUAL(91,b.cancelled);TEST_ASSERT_EQUAL(0,pool.used());
+  }
+}
+static void foreign_operation_is_not_cancelled_or_adopted(){
+  Backend b;JsonAllocator pool(4096,malloc,free);Updates::Form form(b,pool);form.open(0);form.activate(1);
+  b.value.operation=999;form.tick(2);form.back(3);TEST_ASSERT_EQUAL(0,b.cancels);TEST_ASSERT_EQUAL(0,b.installs);
+}
+static void unsupported_pending_boot_and_oom_never_start_work(){
+  for(unsigned reason=0;reason<3;++reason){
+    Backend b;if(reason==0)b.value.supported=false;if(reason==1)b.bootValue.pending=true;
+    JsonAllocator pool(reason==2?1:4096,malloc,free);Updates::Form form(b,pool);
+    const bool opened=form.open(0);if(reason==2)TEST_ASSERT_FALSE(opened);else{TEST_ASSERT_TRUE(opened);form.activate(1);}
+    TEST_ASSERT_EQUAL(0,b.checks);TEST_ASSERT_EQUAL(0,b.installs);form.discard();TEST_ASSERT_EQUAL(0,pool.used());
+  }
+}
+static void empty_latest_is_hidden_and_metadata_check_is_indeterminate(){
+  Backend b;JsonAllocator pool(4096,malloc,free);Updates::Form form(b,pool);EntityAdmin::FormView view;
+  form.open(0);form.render(view);TEST_ASSERT_EQUAL(2,view.rowCount);TEST_ASSERT_EQUAL(2,view.total);
+  form.activate(1);form.render(view);TEST_ASSERT_EQUAL_STRING("Checking GitHub...",view.rows[0].label);TEST_ASSERT_NULL(strchr(view.rows[0].label,'%'));
+}
+static void own_successful_check_opens_only_default_cancel_review(){
+  Backend b;JsonAllocator pool(4096,malloc,free);Updates::Form form(b,pool);EntityAdmin::FormView view;
+  form.open(0);form.activate(1);b.available();form.tick(2);form.render(view);
+  TEST_ASSERT_EQUAL(EntityAdmin::Mode::updateReview,view.mode);TEST_ASSERT_EQUAL(0,view.selected);
+  TEST_ASSERT_EQUAL_STRING("Cancel",view.rows[0].label);TEST_ASSERT_EQUAL_STRING(b.value.candidate.version,view.rows[2].value);
+  TEST_ASSERT_EQUAL(0,b.installs);TEST_ASSERT_TRUE(view.protectedFrame);form.activate(3);TEST_ASSERT_EQUAL(0,b.installs);
+}
+static void unsuccessful_foreign_stale_or_cancelled_checks_never_auto_review(){
+  for(unsigned cause=0;cause<11;++cause){
+    Backend b;JsonAllocator pool(4096,malloc,free);Updates::Form form(b,pool);EntityAdmin::FormView view;
+    form.open(100);if(cause==0)b.value.candidate.generation=92;form.activate(101);
+    if(cause==1)form.activate(102); // Explicit cancellation suppresses later stale success.
+    b.available();
+    if(cause==2)b.value.reason=GitUpdateReason::transport;
+    if(cause==3)b.value.phase=GitUpdatePhase::current;
+    if(cause==4)b.value.phase=GitUpdatePhase::cancelled;
+    if(cause==5)++b.value.operation;
+    if(cause==6)b.bootValue.pending=true;
+    if(cause==7)b.value.canInstall=false;
+    if(cause==8)b.value.candidate.generation=0;
+    if(cause==9)b.auth.configurationGeneration++;
+    form.tick(cause==10?120101:103);form.render(view);
+    TEST_ASSERT_NOT_EQUAL(EntityAdmin::Mode::updateReview,view.mode);TEST_ASSERT_EQUAL(0,b.installs);
+  }
+  // A pre-existing/external result and a completed installation never auto-open review.
+  Backend b;b.available();JsonAllocator pool(4096,malloc,free);Updates::Form form(b,pool);EntityAdmin::FormView view;
+  form.open(0);form.tick(1);form.render(view);TEST_ASSERT_EQUAL(EntityAdmin::Mode::updateStatus,view.mode);
+  form.turn(1,2);form.activate(3);form.turn(1,4);form.activate(5);b.available();form.tick(6);form.render(view);
+  TEST_ASSERT_EQUAL(EntityAdmin::Mode::updateStatus,view.mode);TEST_ASSERT_EQUAL(1,b.installs);
+}
+static void confirmed_install_outlives_menu_inactivity_without_renewing_it(){
+ Backend b;b.available();JsonAllocator pool(4096,malloc,free);Updates::Form form(b,pool);EntityAdmin::FormView v;
+ form.open(0);form.turn(1,1);form.activate(2);form.turn(1,3);form.activate(4);const auto activity=b.activityCount;
+ b.auth.allowed=false;++b.auth.generation;form.tick(120005);TEST_ASSERT_FALSE(form.closed());TEST_ASSERT_EQUAL(0,b.cancels);TEST_ASSERT_EQUAL(activity,b.activityCount);
+ form.tick(900000);TEST_ASSERT_FALSE(form.closed());form.render(v);TEST_ASSERT_EQUAL(EntityAdmin::Mode::updateStatus,v.mode);TEST_ASSERT_NOT_NULL(strstr(v.hint,"Install continues"));TEST_ASSERT_NULL(strstr(v.hint,"Back cancels"));
+ form.tick(gitUpdateInstallDurationMs+4);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(1,b.cancels);
+}
+static void continuation_does_not_survive_config_or_foreign_operation(){
+ for(unsigned cause=0;cause<3;++cause){Backend b;b.available();JsonAllocator pool(4096,malloc,free);Updates::Form form(b,pool);
+ form.open(0);form.turn(1,1);form.activate(2);form.turn(1,3);form.activate(4);b.auth.allowed=false;++b.auth.generation;
+ if(cause==0)++b.auth.configurationGeneration;if(cause==1)++b.value.operation;if(cause==2)b.value.installContinuation=false;
+ form.tick(120005);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(1,b.cancels);TEST_ASSERT_EQUAL(1,b.installs);}
+}
+static void locked_install_can_only_be_cancelled_after_fresh_unlock_resume(){
+ Backend b;b.available();JsonAllocator pool(4096,malloc,free);Updates::Form form(b,pool);EntityAdmin::FormView v;
+ form.open(0);form.turn(1,1);form.activate(2);form.turn(1,3);form.activate(4);
+ b.auth.allowed=false;++b.auth.generation;form.tick(120005);const auto activity=b.activityCount;form.activate(120006);TEST_ASSERT_EQUAL(0,b.cancels);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(activity,b.activityCount);
+ form.back(120007);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(0,b.cancels);
+ b.auth.allowed=true;b.value.installRemainingMs=gitUpdateInstallDurationMs-120004;
+ TEST_ASSERT_TRUE(form.open(120008));form.render(v);TEST_ASSERT_EQUAL(EntityAdmin::Mode::updateStatus,v.mode);TEST_ASSERT_EQUAL(1,b.installs);TEST_ASSERT_EQUAL(0,b.checks);
+ form.activate(120009);TEST_ASSERT_EQUAL(1,b.cancels);TEST_ASSERT_EQUAL(93,b.cancelled);
+}
+int main(){UNITY_BEGIN();RUN_TEST(locked_install_can_only_be_cancelled_after_fresh_unlock_resume);RUN_TEST(confirmed_install_outlives_menu_inactivity_without_renewing_it);RUN_TEST(continuation_does_not_survive_config_or_foreign_operation);RUN_TEST(empty_latest_is_hidden_and_metadata_check_is_indeterminate);RUN_TEST(own_successful_check_opens_only_default_cancel_review);RUN_TEST(unsuccessful_foreign_stale_or_cancelled_checks_never_auto_review);RUN_TEST(check_is_explicit_and_progress_does_not_extend_authority);RUN_TEST(confirmation_defaults_cancel_and_installs_exact_candidate_once);RUN_TEST(changed_same_version_candidate_requires_a_new_review);RUN_TEST(expiry_clock_lock_and_configuration_wipe_and_cancel_only_owned_operation);RUN_TEST(foreign_operation_is_not_cancelled_or_adopted);RUN_TEST(unsupported_pending_boot_and_oom_never_start_work);return UNITY_END();}

@@ -1,5 +1,6 @@
 #include "esp_log.h"
 #include "ShadeBehaviour.h"
+#include <cmath>
 
 static const char *TAG = "Somfy";
 
@@ -14,6 +15,7 @@ ShadeBehaviour::ShadeBehaviour(const ShadeSettings &settings, const RemoteSettin
     MotorLink &link, ShadeEvents &events, const uint8_t &shadeId, const char *name)
   : settings(settings), remote(remote), lastFrame(lastFrame), link(link), events(events), shadeId(shadeId), name(name) {}
 void ShadeBehaviour::clear() {
+  invalidateFavouriteObservation();
   this->moveStart = 0;
   this->tiltStart = 0;
   this->sensors.clear();
@@ -44,6 +46,7 @@ void ShadeBehaviour::setPosition(float pos, float tilt) {
   }
 }
 void ShadeBehaviour::restore(float pos, float tiltPos, float myPos, float myTiltPos) {
+  invalidateFavouriteObservation();
   this->s.currentPos = pos;
   this->s.currentTiltPos = tiltPos;
   this->s.myPos = myPos;
@@ -52,6 +55,7 @@ void ShadeBehaviour::restore(float pos, float tiltPos, float myPos, float myTilt
   this->s.tiltTarget = floor(tiltPos);
 }
 void ShadeBehaviour::clearTilt() {
+  invalidateFavouriteObservation();
   this->s.myTiltPos = -1;
   this->s.currentTiltPos = 0;
 }
@@ -267,12 +271,14 @@ void ShadeBehaviour::tick(uint32_t now) {
 float ShadeBehaviour::p_currentPos(float pos) {
   float old = this->s.currentPos;
   this->s.currentPos = pos;
+  if(old != pos) invalidateFavouriteObservation();
   if(floor(old) != floor(pos)) this->events.onChanged(SHADE_CHANGED_POSITION);
   return old;
 }
 float ShadeBehaviour::p_currentTiltPos(float pos) {
   float old = this->s.currentTiltPos;
   this->s.currentTiltPos = pos;
+  if(old != pos) invalidateFavouriteObservation();
   if(floor(old) != floor(pos)) this->events.onChanged(SHADE_CHANGED_TILT_POSITION);
   return old;
 }
@@ -302,6 +308,7 @@ bool ShadeBehaviour::p_sunny(bool val) {
 int8_t ShadeBehaviour::p_direction(int8_t dir) {
   int8_t old = this->s.direction;
   if(old != dir) {
+    invalidateFavouriteObservation();
     this->s.direction = dir;
     this->events.onChanged(SHADE_CHANGED_DIRECTION);
   }
@@ -310,6 +317,7 @@ int8_t ShadeBehaviour::p_direction(int8_t dir) {
 int8_t ShadeBehaviour::p_tiltDirection(int8_t dir) {
   int8_t old = this->s.tiltDirection;
   if(old != dir) {
+    invalidateFavouriteObservation();
     this->s.tiltDirection = dir;
     this->events.onChanged(SHADE_CHANGED_TILT_DIRECTION);
   }
@@ -318,6 +326,7 @@ int8_t ShadeBehaviour::p_tiltDirection(int8_t dir) {
 float ShadeBehaviour::p_target(float target) {
   float old = this->s.target;
   if(old != target) {
+    invalidateFavouriteObservation();
     this->s.target = target;
     if(this->transformPosition(old) != this->transformPosition(target))
       this->events.onChanged(SHADE_CHANGED_TARGET);
@@ -327,6 +336,7 @@ float ShadeBehaviour::p_target(float target) {
 float ShadeBehaviour::p_tiltTarget(float target) {
   float old = this->s.tiltTarget;
   if(old != target) {
+    invalidateFavouriteObservation();
     this->s.tiltTarget = target;
     if(this->transformPosition(old) != this->transformPosition(target))
       this->events.onChanged(SHADE_CHANGED_TILT_TARGET);
@@ -336,6 +346,7 @@ float ShadeBehaviour::p_tiltTarget(float target) {
 float ShadeBehaviour::p_myPos(float pos) {
   float old = this->s.myPos;
   if(old != pos) {
+    invalidateFavouriteObservation();
     this->s.myPos = pos;
     if(this->transformPosition(old) != this->transformPosition(pos))
       this->events.onChanged(SHADE_CHANGED_MY_POS);
@@ -345,6 +356,7 @@ float ShadeBehaviour::p_myPos(float pos) {
 float ShadeBehaviour::p_myTiltPos(float pos) {
   float old = this->s.myTiltPos;
   if(old != pos) {
+    invalidateFavouriteObservation();
     this->s.myTiltPos = pos;
     if(this->transformPosition(old) != this->transformPosition(pos))
       this->events.onChanged(SHADE_CHANGED_MY_TILT_POS);
@@ -459,6 +471,7 @@ void ShadeBehaviour::onFrame(somfy_frame_t &frame, bool internal, uint32_t now) 
   // any linked remotes that may happen to be on the same ESPSomfy RTS
   // device can trigger the appropriate actions.
   if(this->shadeId == 255) return; 
+  invalidateFavouriteObservation();
   const uint32_t curTime = now;
   this->lastFrame.copy(frame);
   int8_t dir = 0;
@@ -699,11 +712,12 @@ void ShadeBehaviour::onFrame(somfy_frame_t &frame, bool internal, uint32_t now) 
   //if(dir == 0 && this->settings.tiltType == tilt_types::tiltmotor && this->s.tiltDirection != 0) this->setTiltMovement(0, now);
   this->setMovement(dir, now);
 }
-void ShadeBehaviour::onGroupCommand(somfy_commands cmd, uint8_t repeat, uint32_t now) {
+void ShadeBehaviour::onGroupCommand(somfy_commands cmd, uint8_t repeat, uint32_t now, uint8_t stepSize) {
   // The reason why we are processing all frames here is so
   // any linked remotes that may happen to be on the same ESPSomfy RTS
   // device can trigger the appropriate actions.
   if(this->shadeId == 255) return; 
+  invalidateFavouriteObservation();
   const uint32_t curTime = now;
   int8_t dir = 0;
   this->moveStart = this->tiltStart = curTime;
@@ -765,13 +779,26 @@ void ShadeBehaviour::onGroupCommand(somfy_commands cmd, uint8_t repeat, uint32_t
         this->p_tiltTarget(this->s.currentTiltPos);
       }
       break;
+    case somfy_commands::Favorite:
+      // The physical 80-bit group frame already commands the native favourite.
+      // Mirror it locally without simMy issuing member-addressed movement.
+      // Displace unfinished local positioning/programming and delayed button
+      // handling; otherwise tick/onWaitingFrame could append a member STOP or
+      // long MY. Keep accepted TX tickets: their actual outcomes still matter.
+      this->settingPos = this->settingTiltPos = this->settingMyPos = false;
+      this->awaitMy = this->lastFrame.await = 0;
+      this->lastFrame.processed = true;
+      if(this->s.myTiltPos >= 0.0f && this->s.myTiltPos <= 100.0f) this->p_tiltTarget(this->s.myTiltPos);
+      if(this->s.myPos >= 0.0f && this->s.myPos <= 100.0f && this->settings.tiltType != tilt_types::tiltonly) this->p_target(this->s.myPos);
+      this->pinTiltOnlyLift();
+      break;
     case somfy_commands::StepUp:
-      // A group step is always one step.
-      if(!this->applyStep(-1, 1)) return;
+      // Match the transmitted frame; zero retains the protocol default of one.
+      if(!this->applyStep(-1, stepSize == 0 ? 1 : stepSize)) return;
       break;
     case somfy_commands::StepDown:
       dir = 1;
-      if(!this->applyStep(1, 1)) return;
+      if(!this->applyStep(1, stepSize == 0 ? 1 : stepSize)) return;
       break;
     case somfy_commands::Flag:
       this->p_sunFlag(false);
@@ -1011,6 +1038,20 @@ bool ShadeBehaviour::setMyPosition(int8_t pos, int8_t tilt, uint32_t now) {
   }
   return sent;
 }
+bool ShadeBehaviour::programMyPositionHere(bool clear, uint32_t now) {
+  if(this->isToggle() || this->settings.shadeType == shade_types::drycontact ||
+     this->settings.shadeType == shade_types::drycontact2 || !this->idleForAdministration()) return false;
+  const bool lift = this->settings.tiltType != tilt_types::tiltonly;
+  const bool tilt = this->settings.tiltType != tilt_types::none;
+  const auto valid = [](float value) { return std::isfinite(value) && value >= 0 && value <= 100; };
+  if((lift && !valid(this->s.currentPos)) || (tilt && !valid(this->s.currentTiltPos))) return false;
+  const bool same = (!lift || this->s.myPos == this->s.currentPos) &&
+                    (!tilt || this->s.myTiltPos == this->s.currentTiltPos);
+  if(clear && !same) return false; // Never move to an old favourite implicitly.
+  if(!clear && same) return true;  // Setting it again must not clear it.
+  return this->storeMyPosition(clear || !lift ? -1.0f : this->s.currentPos,
+                               clear || !tilt ? -1.0f : this->s.currentTiltPos, now);
+}
 bool ShadeBehaviour::storeMyPosition(float pos, float tiltPos, uint32_t now) {
   // Set it before sending so processFrame doesn't head for the old one.  It is
   // only committed once the motor was told about it.
@@ -1047,7 +1088,13 @@ bool ShadeBehaviour::moveToMyPosition(uint32_t now) {
   if(this->s.myTiltPos >= 0.0f && this->s.myTiltPos <= 100.0f) this->p_tiltTarget(this->s.myTiltPos);
   return true;
 }
-bool ShadeBehaviour::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint32_t now) {
+bool ShadeBehaviour::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint32_t now, uint32_t *ticket) {
+  if(ticket) *ticket=0;
+  const auto send = [&](somfy_commands command,uint8_t count,uint8_t step,uint16_t delay,bool priority,uint32_t at) {
+    const auto result=this->transmit(command,count,step,delay,priority,at);
+    if(ticket) *ticket=result.ticket;
+    return result;
+  };
   ESP_LOGD(TAG, "Send command start");
   // This sendCommand function will always be called externally. sendCommand at the remote level
   // is expected to be called internally when the motor needs commanded.
@@ -1056,7 +1103,7 @@ bool ShadeBehaviour::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t ste
   if((cmd == somfy_commands::Up && this->s.direction == -1) ||
      (cmd == somfy_commands::Down && this->s.direction == 1)) {
     ESP_LOGD(TAG, "Same command as dir");
-    if(!this->transmit(cmd, repeat, 0, 0, false, now).sent) return false;
+    if(!send(cmd, repeat, 0, 0, false, now).sent) return false;
     this->p_target(this->s.currentPos);
     this->p_tiltTarget(this->s.currentTiltPos);
     this->setMovement(0, now);
@@ -1067,11 +1114,11 @@ bool ShadeBehaviour::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t ste
     if(this->settings.tiltType == tilt_types::euromode) {
       // In euromode we need to long press for 2 seconds on the
       // up command.
-      if(!this->transmit(cmd, TILT_REPEATS, 0, 0, false, now).sent) return false;
+      if(!send(cmd, TILT_REPEATS, 0, 0, false, now).sent) return false;
       this->p_target(0.0f);
     }
     else {
-      if(!this->transmit(cmd, repeat, 0, 0, false, now).sent) return false;
+      if(!send(cmd, repeat, 0, 0, false, now).sent) return false;
       if(this->settings.tiltType == tilt_types::tiltonly) {
         this->p_target(100.0f);
         this->p_tiltTarget(0.0f);
@@ -1085,11 +1132,11 @@ bool ShadeBehaviour::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t ste
     if(this->settings.tiltType == tilt_types::euromode) {
       // In euromode we need to long press for 2 seconds on the
       // down command.
-      if(!this->transmit(cmd, TILT_REPEATS, 0, 0, false, now).sent) return false;
+      if(!send(cmd, TILT_REPEATS, 0, 0, false, now).sent) return false;
       this->p_target(100.0f);
     }
     else {
-      if(!this->transmit(cmd, repeat, 0, 0, false, now).sent) return false;
+      if(!send(cmd, repeat, 0, 0, false, now).sent) return false;
       if(this->settings.tiltType == tilt_types::tiltonly) {
         this->p_target(100.0f);
         this->p_tiltTarget(100.0f);
@@ -1101,7 +1148,7 @@ bool ShadeBehaviour::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t ste
   }
   else if(cmd == somfy_commands::My) {
     if(this->isToggle() || this->settings.shadeType == shade_types::drycontact) {
-      if(!this->transmit(cmd, repeat, 0, 0, false, now).sent) return false;
+      if(!send(cmd, repeat, 0, 0, false, now).sent) return false;
     }
     else if(this->settings.shadeType == shade_types::drycontact2){
         ESP_LOGD(TAG, "Send command start 1");
@@ -1113,21 +1160,21 @@ bool ShadeBehaviour::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t ste
       return sent;
     }
     else {
-      if(!this->transmit(cmd, repeat, 0, 0, false, now).sent) return false;
+      if(!send(cmd, repeat, 0, 0, false, now).sent) return false;
       if(this->settings.tiltType != tilt_types::tiltonly) this->p_target(this->s.currentPos);
       this->p_tiltTarget(this->s.currentTiltPos);
       this->pinTiltOnlyLift();
     }
   }
   else if(cmd == somfy_commands::Toggle) {
-    if(this->remote.bitLength != 80) { if(!this->transmit(somfy_commands::My, repeat, stepSize, 0, false, now).sent) return false; }
-    else if(!this->transmit(somfy_commands::Toggle, repeat, 0, 0, false, now).sent) return false;
+    if(this->remote.bitLength != 80) { if(!send(somfy_commands::My, repeat, stepSize, 0, false, now).sent) return false; }
+    else if(!send(somfy_commands::Toggle, repeat, 0, 0, false, now).sent) return false;
   }
   else if(this->isToggle() && cmd == somfy_commands::Prog) {
-    if(!this->transmit(somfy_commands::Toggle, repeat, stepSize, 0, false, now).sent) return false;
+    if(!send(somfy_commands::Toggle, repeat, stepSize, 0, false, now).sent) return false;
   }
   else {
-    if(!this->transmit(cmd, repeat, stepSize, 0, false, now).sent) return false;
+    if(!send(cmd, repeat, stepSize, 0, false, now).sent) return false;
   }
   ESP_LOGD(TAG, "Send command end");
   return true;

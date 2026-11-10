@@ -1,15 +1,36 @@
-# ESPSomfy RTS with LILYGO Plus support
+# ESPSomfy RTS for LILYGO CC1101 and CC1101 Plus
 
-This repository retains SidShaytay’s headless LILYGO T-Embed CC1101 Plus profile on the maintained cjkas v4.0.2 baseline, pinned at `07bffdec6b540cc99f31d02d7e6de6d3d1e7f8f3`. The Plus build is opt-in; generic build environments keep their upstream hardware settings.
+**ENGINEERING BUILD — INCOMPLETE. Applies to all builds currently produced by this fork.**
 
-Start with [LILYGO.md](LILYGO.md) for the build, state compatibility, matching HA integration, and migration limits. The standard-layout build at `6842f0a` was installed on the original Plus on November 6, 2026. Read-only runtime and persistent-state checks passed; the firmware-fork choice remains open. See the [verification record](docs/lilygo-standard-layout.md#installed-layout-verification).
+> WARNING: Please do not load these builds, these are still a preview of the final approach.
+
+An actual controller GitHub download and installation has **never yet completed**.
+Host/offline tests and successful desktop asset downloads do not prove that path.
+See the [remaining qualification](docs/lcd-completion-qualification.md).
+
+Control and administer Somfy shutters from the LILYGO display or browser. One
+shared firmware includes the LCD controls, administration, web interface and
+verified GitHub updater for both supported boards.
+
+Start with the [LCD quick start and workflow index](docs/lilygo-local-ui.md).
+Use [LILYGO.md](LILYGO.md) for hardware, builds and compatibility, and the
+[state-preserving flashing guide](docs/flashing.md) for installation or recovery.
+The [83-row capability audit](docs/lcd-capability-audit.md) distinguishes implemented
+features, browser-owned files, unsupported controls and unverified physical behaviour.
+These documents describe current source; they do not establish what is installed
+on a particular controller or available as a published GitHub release.
+
+To build local artifacts without connecting a device:
 
 ```bash
 bash tools/setup-lilygo.sh
 bash tools/build-lilygo.sh
 ```
 
-The build scripts only produce local artifacts. The new partition layout requires separately reviewed provisioning and restoration; uploading this firmware alone to the installed v2.4.7 layout is not a migration path. Device-side GitHub pull updates remain a requirement for this repository under [issue #12](https://github.com/SidShaytay/ESPSomfy-RTS/issues/12). They are not implemented by this baseline port.
+From supported firmware, **System → GitHub updates** can check and install an
+eligible verified release without a computer. Controller/LCD/web software updates
+and rolls back together. Backup, restore and manual files remain browser-owned.
+Read [the update guide](docs/lcd-github-updates.md) before installing.
 
 The following upstream introduction describes ESPSomfy’s general functionality. Its original wiki, update, and HA links are historical references; use the Plus guide above for this build.
 

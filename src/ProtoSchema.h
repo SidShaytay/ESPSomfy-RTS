@@ -64,6 +64,8 @@
   TYPE(beginFrequencyScan, 52, 'c', 'd') \
   TYPE(endFrequencyScan, 53, 'c', 'd') \
   TYPE(reboot, 54, 'c', 'd') \
+  TYPE(commitModel, 55, 'c', 'd') \
+  TYPE(getFrequencyScanResult, 56, 'c', 'd') \
   TYPE(shadeState, 128, 'd', '-') \
   TYPE(shade, 129, 'd', '-') \
   TYPE(shadeRemoved, 130, 'd', '-') \
@@ -83,7 +85,8 @@
   TYPE(frequencyScan, 144, 'd', '-') \
   TYPE(repeaters, 145, 'd', '-') \
   TYPE(settingsChanged, 146, 'd', '-') \
-  TYPE(wifiNetworks, 147, 'd', '-')
+  TYPE(wifiNetworks, 147, 'd', '-') \
+  TYPE(modelPersistence, 148, 'd', '-')
 
 // Fields, in one dictionary for every type.  FIELD(name, key, kind, default):
 // kind is b bool (sent as 1/0), i integer, n number with a fraction, s string,
@@ -106,6 +109,9 @@
   FIELD(schemaHash, "sh", 's', 0) \
   /* replies and control */ \
   FIELD(ok, "k", 'b', 0) \
+  FIELD(applied, "ap", 'b', 0) \
+  FIELD(durable, "du", 'b', 0) \
+  FIELD(modelSaveState, "ds", 'i', -1) \
   FIELD(code, "e", 'i', 0) \
   FIELD(desc, "x", 's', 0) \
   FIELD(feed, "fe", 'i', 0) \
@@ -194,6 +200,7 @@
   FIELD(hwsync, "hs", 'i', 0) \
   FIELD(pulses, "pu", 'l', 0) \
   FIELD(scanning, "sc", 'b', 0) \
+  FIELD(scanToken, "zs", 's', 0) \
   FIELD(testFreq, "tf", 'n', 0) \
   FIELD(testRssi, "tr", 'i', 0) \
   FIELD(frequency, "fq", 'n', 0) \

@@ -196,4 +196,5 @@ void LoopStats::publish(uint32_t nowMs) {
   _passes = 0;
   _maxUs = 0;
   _startMs = nowMs;
+  _hasPublished.store(true,std::memory_order_release);
 }

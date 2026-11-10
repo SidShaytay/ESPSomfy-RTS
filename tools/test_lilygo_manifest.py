@@ -1,5 +1,8 @@
 """Offline artifact rejection tests; no device or installed toolchain required."""
 import hashlib
+import gzip
+import bundled_web_assets
+import update_assets
 import json
 import os
 import subprocess
@@ -36,12 +39,19 @@ class ManifestTests(unittest.TestCase):
                          for name, (kind, sub, offset, size) in STANDARD_PARTITIONS.items())
         table += b'\xeb\xeb' + b'\xff' * 14 + hashlib.md5(table).digest()
         (self.out / 'partitions.bin').write_bytes(table.ljust(0xc00, b'\xff'))
+        self.webtmp=tempfile.TemporaryDirectory();self.addCleanup(self.webtmp.cleanup)
+        web=Path(self.webtmp.name)
+        for name,text in [('index.html','<html><meta name="espsomfy-web-mode" content="bundled"></html>'),('index.js','window.test=1;'),('app.css','body{}')]:
+            (web/(name+'.gz')).write_bytes(gzip.compress(text.encode(),mtime=0))
+        (web/'appversion').write_bytes(b'4.0.1\n');update_assets.write_manifest(web)
+        self.bundleBlob=bundled_web_assets.build_blob(web)
+        self.bundleCompat=bundled_web_assets.extract(self.bundleBlob)['compatibility']
         for name in ('bootloader.bin', 'firmware.bin'):
             header = bytearray(24)
             header[0:4] = bytes([0xe9, 1, 2, 0x4f])
             header[23] = 1
             struct.pack_into('<H', header, 12, 9)
-            payload = b'payload'
+            payload = b'payload'+(self.bundleBlob if name=='firmware.bin' else b'')
             image = header + struct.pack('<II', 0x3c000000, len(payload)) + payload
             checksum = 0xef
             for byte in payload:
@@ -54,11 +64,10 @@ class ManifestTests(unittest.TestCase):
         ota[28:32] = bytes.fromhex('9a984347')
         ota[4096:4100] = b'\x00' * 4
         (self.out / 'boot_app0.bin').write_bytes(ota)
-        (self.out / 'littlefs.bin').write_bytes(b'\xff' * 0x180000)
         (self.out / 'firmware.elf').write_bytes(b'ELF-symbols')
-        profile = dict(m.BUILD_SETTINGS, platform=m.PLATFORM, framework=['arduino'])
+        profile = dict(m.BUILD_SETTINGS, lib_deps=list(m.DISPLAY_LIBRARIES), platform=m.PLATFORM, framework=['arduino'], build_flags=list(m.REQUIRED_FLAGS))
         compiler = {'env_name': m.ENV, 'build_type': 'release',
-                    'defines': [f[2:] for f in m.REQUIRED_FLAGS] + ['BOARD_HAS_PSRAM', 'IDF_VER="v5.5.5"'],
+                    'defines': [f[2:] for f in m.REQUIRED_FLAGS] + ['BOARD_HAS_PSRAM', 'IDF_VER="v5.5.5"', 'MBEDTLS_CONFIG_FILE="mbedtls/esp_config.h"', 'FW_VERSION="v4.0.1"', 'ESPSOMFY_APP_COMPAT="'+self.bundleCompat+'"'],
                     'cc_flags': [], 'cxx_flags': [],
                     'includes': {'build': ['/sdk/esp32s3/qio_opi/include']}}
         (self.out / 'resolved-config.json').write_text(json.dumps([['env:' + m.ENV, list(profile.items())]]))
@@ -66,6 +75,117 @@ class ManifestTests(unittest.TestCase):
         self.manifest = m.artifact_manifest(self.out)
         self.manifest['source'] = {'revision': m.BASELINE['revision'], 'dirty': False,
                                    'input_sha256': {'platformio.ini': '0' * 64}}
+
+    def test_crypto_feature_overrides_cannot_change_prebuilt_sdk_abi(self):
+        import copy
+        for macro in ('MBEDTLS_SSL_DTLS_CONNECTION_ID','CONFIG_MBEDTLS_SSL_DTLS_CONNECTION_ID','MBEDTLS_USER_CONFIG_FILE'):
+            for field in ('defines','cc_flags','cxx_flags'):
+                evidence=copy.deepcopy(self.manifest['effective_build'])
+                evidence['compiler'][field].append(('' if field=='defines' else '-D')+macro+'=1')
+                with self.subTest(macro=macro,field=field), self.assertRaises(ValueError):
+                    m.build_configuration(evidence['resolved'],evidence['compiler'])
+            evidence=copy.deepcopy(self.manifest['effective_build'])
+            evidence['resolved']['build_flags'].extend(['-D',macro+'=1'])
+            with self.subTest(macro=macro,field='resolved'), self.assertRaises(ValueError):
+                m.build_configuration(evidence['resolved'],evidence['compiler'])
+
+    def test_canonical_bundle_has_no_separate_filesystem_payload(self):
+        self.assertEqual(self.manifest['web']['mode'],'bundled')
+        self.assertEqual(self.manifest['usage']['filesystem_update'],[])
+        self.assertNotIn('littlefs.bin',[segment['file'] for segment in self.manifest['segments']])
+    def test_compiled_bundle_digest_and_source_version_cannot_disagree(self):
+        import copy
+        path=self.out/'compiler-metadata.json';original=json.loads(path.read_text())
+        for name,bad in [('FW_VERSION','"v9.9.9"'),('ESPSOMFY_APP_COMPAT','"sha256:'+'a'*64+'"')]:
+            data=copy.deepcopy(original);values=data[m.ENV]['defines']
+            values[:]=[v for v in values if not v.startswith(name+'=')];values.append(name+'='+bad)
+            path.write_text(json.dumps(data))
+            with self.subTest(name=name),self.assertRaisesRegex(ValueError,'bundled web'):m.artifact_manifest(self.out)
+        path.write_text(json.dumps(original))
+    def test_stale_separate_web_image_is_refused(self):
+        (self.out/'littlefs.bin').write_bytes(b'old web image')
+        with self.assertRaisesRegex(ValueError,'unexpected artifact'):m.artifact_manifest(self.out)
+    def test_canonical_package_includes_full_interface(self):
+        self.assertFalse(self.manifest['target']['headless'])
+        for feature in ('ESPSOMFY_STATUS_DISPLAY', 'ESPSOMFY_LOCAL_UI', 'ESPSOMFY_LOCAL_COMMANDS', 'ESPSOMFY_BUNDLED_WEB'):
+            self.assertIn('-D' + feature, self.manifest['profile_build_flags'])
+
+    def test_required_interface_cannot_be_removed_or_conflicted(self):
+        import copy
+        original = self.manifest['effective_build']
+        for feature in ('ESPSOMFY_STATUS_DISPLAY', 'ESPSOMFY_LOCAL_UI', 'ESPSOMFY_LOCAL_COMMANDS', 'ESPSOMFY_BUNDLED_WEB'):
+            for field in ('defines', 'cc_flags', 'cxx_flags'):
+                evidence = copy.deepcopy(original)
+                if field == 'defines':
+                    evidence['compiler'][field] = [x for x in evidence['compiler'][field] if x != feature]
+                else:
+                    evidence['compiler'][field].append('-U' + feature)
+                with self.subTest(feature=feature, field=field), self.assertRaises(ValueError):
+                    m.build_configuration(evidence['resolved'], evidence['compiler'])
+            for flags in (['-U', feature], ['-D' + feature + '=0']):
+                evidence = copy.deepcopy(original)
+                evidence['resolved']['build_flags'].extend(flags)
+                with self.subTest(feature=feature, flags=flags), self.assertRaises(ValueError):
+                    m.build_configuration(evidence['resolved'], evidence['compiler'])
+
+    def test_retired_plus_macro_cannot_be_added(self):
+        import copy
+        original = self.manifest['effective_build']
+        for field in ('defines', 'cc_flags', 'cxx_flags'):
+            evidence = copy.deepcopy(original)
+            evidence['compiler'][field].append(('' if field == 'defines' else '-D') + 'ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS')
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                m.build_configuration(evidence['resolved'], evidence['compiler'])
+
+    def test_retired_profile_names_are_rejected(self):
+        for suffix in ('-display', '-ui', '-ui-preview', '-plus', '-plus-display', '-plus-ui', '-plus-ui-preview'):
+            compiler = self.manifest['effective_build']['compiler'].copy()
+            compiler['env_name'] = m.ENV + suffix
+            with self.subTest(suffix=suffix), self.assertRaises(ValueError):
+                m.build_configuration(self.manifest['effective_build']['resolved'], compiler)
+
+    def test_shared_image_names_both_supported_physical_boards(self):
+        self.assertEqual(m.ENV, 'lilygo-t-embed-cc1101')
+        self.assertEqual(self.manifest['target']['board'], 'LILYGO T-Embed CC1101 / Plus')
+        self.assertEqual(self.manifest['target']['compatible_boards'],
+                         ['lilygo-t-embed-cc1101', 'lilygo-t-embed-cc1101-plus'])
+        self.assertEqual(self.manifest['target']['profile_macro'], 'ESPSOMFY_LILYGO_T_EMBED_CC1101')
+        self.assertFalse(self.manifest['target']['headless'])
+
+    def test_unknown_or_generic_hardware_membership_is_rejected(self):
+        for boards in (['esp32s3'], ['lilygo-t-embed-cc1101'],
+                       ['lilygo-t-embed-cc1101', 'lilygo-t-embed-cc1101-plus', 'unknown']):
+            self.manifest['target']['compatible_boards'] = boards
+            with self.subTest(boards=boards), self.assertRaises(ValueError):
+                m.validate(self.manifest, self.out)
+
+    def test_append_cannot_extend_the_hardware_allowlist(self):
+        # In-place caller edits must not mutate the validator's expected list.
+        self.manifest['target']['compatible_boards'].append('esp32s3')
+        with self.assertRaises(ValueError):
+            m.validate(self.manifest, self.out)
+
+    def test_missing_pinned_display_dependency_is_rejected(self):
+        evidence = self.manifest['effective_build']
+        evidence['resolved']['lib_deps'] = m.DISPLAY_LIBRARIES[:-1]
+        with self.assertRaises(ValueError):
+            m.build_configuration(evidence['resolved'], evidence['compiler'])
+
+    def test_only_one_shared_full_feature_lilygo_environment(self):
+        import configparser
+        config = configparser.ConfigParser(interpolation=None)
+        config.read(Path(__file__).resolve().parent.parent / 'platformio.ini')
+        lilygo = {name for name in config.sections() if name.startswith('env:lilygo-')}
+        self.assertEqual(lilygo, {'env:lilygo-t-embed-cc1101'})
+        for name in [m.ENV]:
+            flags = config['env:' + name]['build_flags'].split()
+            self.assertIn('-D' + 'ESPSOMFY_LILYGO_T_EMBED_CC1101', flags)
+            for feature in ('ESPSOMFY_STATUS_DISPLAY', 'ESPSOMFY_LOCAL_UI', 'ESPSOMFY_LOCAL_COMMANDS', 'ESPSOMFY_BUNDLED_WEB'):
+                self.assertIn('-D' + feature, flags)
+        for name in config.sections():
+            if name.startswith('env:') and not name.startswith('env:lilygo-'):
+                self.assertNotIn('ESPSOMFY_LOCAL_UI', config[name].get('build_flags', ''))
+                self.assertNotIn('Adafruit', config[name].get('lib_deps', ''))
 
     def test_rejects_previous_custom_plus_layout(self):
         old = dict(STANDARD_PARTITIONS,
@@ -206,6 +326,19 @@ class ManifestTests(unittest.TestCase):
 
 
 class BuildScriptTests(unittest.TestCase):
+    def test_retired_environment_is_refused_before_touching_package(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'artifacts').mkdir()
+            marker = root / 'artifacts' / 'caller-owned'
+            marker.write_text('preserve')
+            repo = Path(__file__).resolve().parent.parent
+            result = subprocess.run(['bash', str(repo / 'tools/build-lilygo.sh'), str(repo), str(root),
+                                     'lilygo-t-embed-cc1101-plus'], capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Unsupported or retired', result.stderr)
+            self.assertEqual(marker.read_text(), 'preserve')
+
     def test_failed_build_preserves_old_files_without_current_package(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

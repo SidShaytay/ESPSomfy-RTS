@@ -19,7 +19,9 @@ enum class shade_request_type_t : uint8_t {
   group_sensor,     // send a sensor frame as the group
   set_favorite,     // set or clear the shade's favorite
   unpair,           // send Prog and clear paired
-  set_rolling_code  // set the shade's rolling code; sends nothing
+  set_rolling_code, // set the shade's rolling code; sends nothing
+  set_favorite_here, // program at the observed current position; no positioning
+  clear_favorite_here // clear only at the exact current favourite; no positioning
 };
 
 // Positions are as the client sees them: 0-100, counted from the other end on
@@ -63,9 +65,16 @@ struct shade_info_t {
 // The seam between ShadeRequests and the shades and groups it acts on.  On the
 // device it is the shade model (SomfyShadeOps); the tests record the calls.
 // Positions are stored ones, so already turned round for a flipped shade.
+enum class shade_request_result_t : uint8_t;
+bool validOwnedRepeatRequest(const shade_request_t &);
+
+struct owned_repeat_receipt_t { uint32_t ticket = 0; };
+
 class ShadeOps {
   public:
     virtual ~ShadeOps() {}
+    // Explicit opt-in: legacy backends must never fall back to untracked send.
+    virtual uint32_t sendOwnedRepeat(const shade_request_t &) { return 0; }
     virtual bool findShade(uint8_t shadeId, shade_info_t &info) = 0;
     // repeats is the group's own repeat count.
     virtual bool findGroup(uint8_t groupId, uint8_t &repeats) = 0;
@@ -78,10 +87,11 @@ class ShadeOps {
     virtual bool repeatFrame(uint8_t shadeId, uint8_t repeat) = 0;
     virtual bool sendSensorCommand(uint8_t shadeId, int8_t windy, int8_t sunny, uint8_t repeat) = 0;
     virtual bool setMyPosition(uint8_t shadeId, int8_t pos, int8_t tilt) = 0;
+    virtual bool programMyPositionHere(uint8_t shadeId, bool clear) = 0;
     // A negative position leaves that one as it is.
     virtual void setPositions(uint8_t shadeId, float pos, float tilt) = 0;
     virtual void setUnpaired(uint8_t shadeId) = 0;
-    virtual void setRollingCode(uint8_t shadeId, uint16_t code) = 0;
+    virtual shade_request_result_t setRollingCode(uint8_t shadeId, uint16_t code) = 0;
     virtual bool sendGroupCommand(uint8_t groupId, somfy_commands cmd, uint8_t repeat, uint8_t stepSize) = 0;
     virtual bool isLastGroupCommand(uint8_t groupId, somfy_commands cmd) = 0;
     virtual bool repeatGroupFrame(uint8_t groupId, uint8_t repeat) = 0;
@@ -94,7 +104,9 @@ enum class shade_request_result_t : uint8_t {
   not_found,      // no shade or group with that id; nothing was done
   radio_refused,  // the radio didn't take a command it sent
   shade_moving,   // a favorite is only set on a shade at rest; nothing was done
-  no_tilt         // only a tilt was given, for a shade without one; nothing was done
+  no_tilt,        // only a tilt was given, for a shade without one; nothing was done
+  counter_busy, counter_blocked, counter_failed, counter_uncertain,
+  counter_file_failed, counter_file_uncertain, counter_stale, counter_invalid
 };
 
 // Carries out shade requests, whichever entry point they came from: finds
@@ -104,6 +116,9 @@ class ShadeRequests {
   public:
     explicit ShadeRequests(ShadeOps &ops) : ops(ops) {}
     shade_request_result_t run(const shade_request_t &req);
+    // Explicit-count command variants always start a fresh intent/counter;
+    // repeat variants may reuse the matching current wire frame.
+    shade_request_result_t runOwnedRepeat(const shade_request_t &, owned_repeat_receipt_t &);
   private:
     ShadeOps &ops;
 };
