@@ -41,13 +41,13 @@ void Form::discard() {
   observedAt=activityAt=restartGeneration=0;cursor=file=0;
   reason=RestartReason::none;notice=EntityAdmin::Notice::none;admitted=stopped=statusUnknown=false;
 }
-bool Form::open(uint64_t now) {
+bool Form::open(uint64_t now,Menu requested) {
   discard();const auto auth=backend.authorization();
   if(!auth.allowed || !auth.generation || !auth.configurationGeneration) {
     notice=EntityAdmin::Notice::locked;return false;
   }
   generation=auth.generation;configurationGeneration=auth.configurationGeneration;
-  observedAt=activityAt=now;page=Page::menu;return true;
+  observedAt=activityAt=now;menu=requested;page=menu==Menu::wifiScan?Page::wifi:Page::menu;return true;
 }
 bool Form::guard(uint64_t now) {
   if(closed())return false;
@@ -72,7 +72,7 @@ void Form::tick(uint64_t now) {
 void Form::turn(int direction,uint64_t now) {
   if(!direction || !guard(now))return;
   touch(now);
-  const uint8_t last=page==Page::menu?6:page==Page::network?networkDetailRows-1:page==Page::confirm?1:page==Page::files?4:0;
+  const uint8_t last=page==Page::menu?(menu==Menu::maintenance?2:menu==Menu::diagnostics?3:6):page==Page::network?networkDetailRows-1:page==Page::confirm?1:page==Page::files?(menu==Menu::maintenance?3:4):0;
   if(direction>0 && cursor<last)++cursor;
   if(direction<0 && cursor)--cursor;
 }
@@ -80,9 +80,12 @@ void Form::activate(uint64_t now) {
   if(!guard(now))return;
   touch(now);
   switch(page) {
-  case Page::menu:page=cursor==6?Page::updates:cursor==5?Page::radio:cursor==4?Page::network:cursor==3?Page::diagnostics:cursor==2?Page::wifi:cursor?Page::files:Page::confirm;cursor=0;break;
+  case Page::menu:
+    if(menu==Menu::maintenance)page=cursor==0?Page::updates:cursor==1?Page::confirm:Page::files;
+    else if(menu==Menu::diagnostics){if(cursor==3){file=4;page=Page::guidance;}else page=cursor==0?Page::network:cursor==1?Page::diagnostics:Page::radio;}
+    else page=cursor==6?Page::updates:cursor==5?Page::radio:cursor==4?Page::network:cursor==3?Page::diagnostics:cursor==2?Page::wifi:cursor?Page::files:Page::confirm;cursor=0;break;
   case Page::confirm:
-    if(!cursor){page=Page::menu;break;}
+    if(!cursor){page=Page::menu;cursor=menu==Menu::maintenance?1:0;break;}
     {const auto result=backend.restart(generation,configurationGeneration);admitted=result.admitted;reason=result.reason;
       restartGeneration=0;stopped=statusUnknown=false;
       if(admitted) {
@@ -94,9 +97,9 @@ void Form::activate(uint64_t now) {
       }
       page=Page::result;cursor=0;}
     break;
-  case Page::network:if(cursor==networkDetailRows-1){page=Page::menu;cursor=4;}break;
+  case Page::network:if(cursor==networkDetailRows-1){page=Page::menu;cursor=menu==Menu::diagnostics?0:4;}break;
   case Page::files:file=cursor;page=Page::guidance;cursor=0;break;
-  case Page::guidance:page=Page::files;cursor=file;break;
+  case Page::guidance:page=menu==Menu::diagnostics?Page::menu:Page::files;cursor=menu==Menu::diagnostics?3:file;break;
   case Page::result:break; // A completion is never a second restart/retry action.
   case Page::wifi:case Page::radio:
   case Page::diagnostics:case Page::updates:break;
@@ -107,9 +110,9 @@ void Form::back(uint64_t now) {
   if(!guard(now))return;
   touch(now);
   if(page==Page::menu)discard();
-  else if(page==Page::guidance){page=Page::files;cursor=file;}
-  else if(page==Page::network){page=Page::menu;cursor=4;}
-  else {page=Page::menu;cursor=0;}
+  else if(page==Page::guidance){page=menu==Menu::diagnostics?Page::menu:Page::files;cursor=menu==Menu::diagnostics?3:file;}
+  else if(page==Page::network){page=Page::menu;cursor=menu==Menu::diagnostics?0:4;}
+  else {const auto old=page;page=Page::menu;cursor=menu==Menu::maintenance?(old==Page::files?2:old==Page::confirm || old==Page::result?1:0):0;}
 }
 void Form::render(EntityAdmin::FormView &out) const {
   out={};out.notice=notice;
@@ -127,8 +130,8 @@ void Form::render(EntityAdmin::FormView &out) const {
       if(!backend.networkRow(i,row)){strcpy(row.label,"Network status unavailable");row.value[0]=0;}
     }
   } else if(page==Page::files) {
-    title="Browser files";out.total=5;out.offset=cursor/3*3;
-    for(uint8_t i=out.offset;i<5 && out.rowCount<3;++i)strcpy(out.rows[out.rowCount++].label,files[i]);
+    title="Browser files";out.total=menu==Menu::maintenance?4:5;out.offset=cursor/3*3;
+    for(uint8_t i=out.offset;i<out.total && out.rowCount<3;++i)strcpy(out.rows[out.rowCount++].label,files[i]);
   } else {
     out.mode=EntityAdmin::Mode::validation;
     if(page==Page::confirm) {
