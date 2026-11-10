@@ -5,8 +5,9 @@
 namespace LocalUi {
 enum class ControlAction : uint8_t {
   up = 0, stop = 1, down = 2, position, tiltUp, tiltStop, tiltDown,
-  tiltPosition, my, favourite, toggle, stepUp, stepDown, sunOn, sunOff, count
+  tiltPosition, my, favourite, toggle, stepUp, stepDown, sunOn, sunOff, setFavouriteHere, clearFavouriteHere, count
 };
+inline bool favouriteProgramming(ControlAction action) { return action==ControlAction::setFavouriteHere || action==ControlAction::clearFavouriteHere; }
 using ControlMask = uint32_t;
 constexpr ControlMask controlActionBit(ControlAction action) {
   return uint8_t(action) < uint8_t(ControlAction::count) ? ControlMask(1) << uint8_t(action) : 0;

@@ -71,7 +71,7 @@ void Controller::goBack() {
     else { state.screen=Screen::home; state.selected=state.catalogue==CatalogueKind::rooms?0:state.catalogue==CatalogueKind::devices?1:2; }
   } else if(state.screen==Screen::roomKinds) openCatalogue(CatalogueKind::rooms,allRooms);
   else if(state.screen==Screen::settings || state.screen==Screen::administration || state.screen==Screen::system) formInput.back=true;
-  else if(state.screen==Screen::actions || state.screen==Screen::value || state.screen==Screen::repeatActions || state.screen==Screen::repeatValue) {cancelValue();state.screen=Screen::control;}
+  else if(state.screen==Screen::actions || state.screen==Screen::value || state.screen==Screen::repeatActions || state.screen==Screen::repeatValue || state.screen==Screen::favouriteObserve || state.screen==Screen::favouriteConfirm) {cancelValue();state.screen=Screen::control;}
   else state.screen=Screen::status;
 }
 void Controller::touch(uint32_t now) {
@@ -94,7 +94,7 @@ void Controller::valueView() {
   state.draftValue=int16_t(strtol(text,nullptr,10));
 }
 void Controller::cancelValue() {
-  valueEditor.cancel();state.draftValue=0;state.valueChoice=0;state.repeating=false;state.repeatStep=0;
+  valueEditor.cancel();state.draftValue=0;state.valueChoice=0;state.repeating=false;state.repeatStep=0;state.favouriteRevision=0;
 }
 void Controller::submitControl(uint32_t now,const Model &m,bool visible,Action action,int8_t value,uint8_t step,int8_t repeat) {
   const auto &t=m.target;
@@ -108,6 +108,7 @@ void Controller::submitControl(uint32_t now,const Model &m,bool visible,Action a
   else if(!m.ready) state.notice=Notice::refused;
   else {
     pending={state.entity,state.openedToken,action,value,step,m.authorized?m.authGeneration:m.expiredSessionGeneration,repeat};
+    if(favouriteProgramming(action)) pending.favouriteRevision=state.favouriteRevision;
     hasCommand=true;state.notice=Notice::queued;
   }
   if(state.screen!=Screen::unlock) state.screen=Screen::control;
@@ -198,7 +199,12 @@ void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
         state.screen=Screen::repeatValue;state.repeating=true;state.valueChoice=0;state.repeatStep=0;valueView();
         valueAuthorizationGeneration=m.authGeneration;valueConfigurationGeneration=m.authConfigurationGeneration;
       }
-    } else if(controlNeedsValue(state.action)) {
+    } else if(favouriteProgramming(state.action)) {
+      state.screen=Screen::favouriteObserve;state.valueChoice=0;state.favouriteRevision=0;
+      valueAuthorizationGeneration=m.authGeneration;valueConfigurationGeneration=m.authConfigurationGeneration;
+    }
+    else if(controlNeedsValue(state.action)) {
+
       const bool step=controlIsStep(state.action);
       const int initial=step?1:state.action==Action::position?m.target.position:m.target.tiltPosition;
       if(initial<0 || !valueEditor.beginInteger(initial,step?1:0,step?127:100,1,now)) state.notice=Notice::valueUnavailable;
@@ -209,6 +215,19 @@ void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
     } else submitControl(now,m,visible,state.action);
     break;
   }
+  case Screen::favouriteObserve:
+    if(!visible) state.notice=Notice::wait;
+    else if(!state.valueChoice) {cancelValue();state.screen=Screen::control;state.action=Action::stop;}
+    else if(m.controlPending || m.anyMoving || !m.target.favouriteReady) state.notice=Notice::busy;
+    else if(!m.target.favouriteRevision ||
+            (state.action==Action::clearFavouriteHere && !m.target.favouriteClearReady)) state.notice=Notice::refused;
+    else {state.favouriteRevision=m.target.favouriteRevision;state.screen=Screen::favouriteConfirm;state.valueChoice=0;state.notice=Notice::none;}
+    break;
+  case Screen::favouriteConfirm:
+    if(!visible) state.notice=Notice::wait;
+    else if(!state.valueChoice) {cancelValue();state.screen=Screen::control;state.action=Action::stop;}
+    else {submitControl(now,m,visible,state.action);cancelValue();}
+    break;
   case Screen::value:
   case Screen::repeatValue:
     if(!visible) state.notice=Notice::wait;
@@ -270,6 +289,17 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
       state.authorizedSelection=true; state.selectionAuthGeneration=m.authGeneration;
     }
     authorizeAfterUnlock=false;
+  }
+  if(state.screen==Screen::favouriteObserve || state.screen==Screen::favouriteConfirm) {
+    const bool changed=m.target.ref!=state.entity || m.target.token!=state.openedToken ||
+      !(m.target.capabilities&controlActionBit(state.action)) ||
+      (state.screen==Screen::favouriteConfirm && (!m.target.favouriteReady || m.controlPending || m.anyMoving ||
+       !state.favouriteRevision || state.favouriteRevision!=m.target.favouriteRevision));
+    if(changed || !m.authorized || m.authGeneration!=valueAuthorizationGeneration ||
+       m.authConfigurationGeneration!=valueConfigurationGeneration) {
+      cancelValue();state.screen=Screen::control;state.action=Action::stop;
+      state.notice=changed?Notice::changed:Notice::unlockRequired;noticeSince=now;consumed=true;
+    }
   }
   if(state.screen==Screen::value || state.screen==Screen::repeatValue) {
     valueEditor.tick(now);
@@ -417,6 +447,8 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
       int index=menu.index(state.action);if(index<0) index=0;
       index+=turn>0?1:-1;if(index<0) index=0;if(index>=menu.count) index=menu.count?menu.count-1:0;
       if(menu.count) {state.action=menu.actions[index];if(state.screen==Screen::actions || state.screen==Screen::repeatActions) state.selected=uint8_t(index);}
+    } else if(state.screen==Screen::favouriteObserve || state.screen==Screen::favouriteConfirm) {
+      state.valueChoice=turn>0?1:0;
     } else if(state.screen==Screen::value || state.screen==Screen::repeatValue) {
       if(!state.valueChoice) {valueEditor.rotate(turn,now);valueView();}
       else {state.valueChoice=turn>0?2:1;valueEditor.setStep(1,now);}

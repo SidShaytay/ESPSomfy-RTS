@@ -186,6 +186,41 @@ static void openMore(Drive &d) {
   d.devices(); d.tick(1);d.tick(1);d.click();
   TEST_ASSERT_EQUAL(int(Screen::actions),int(d.c.view().screen));
 }
+static void openFavourite(Drive &d,Action action=Action::setFavouriteHere) {
+  d.f.base.target.favouriteRevision=71;d.f.base.target.favouriteReady=true;d.f.base.target.favouriteClearReady=true;
+  d.f.base.target.moving=false;d.f.base.anyMoving=false;
+  openMore(d);for(unsigned i=0;i<unsigned(Action::count)&&d.c.view().action!=action;++i)d.tick(1);
+  TEST_ASSERT_EQUAL(action,d.c.view().action);d.click();
+  TEST_ASSERT_EQUAL(Screen::favouriteObserve,d.c.view().screen);
+}
+static void favourite_requires_human_observation_then_separate_displayed_confirmation() {
+  Drive d;openFavourite(d);Command out;
+  TEST_ASSERT_EQUAL(0,d.c.view().valueChoice);TEST_ASSERT_FALSE(d.c.take(out));
+  d.tick(1);d.click(false);TEST_ASSERT_EQUAL(Screen::favouriteObserve,d.c.view().screen);
+  d.click();TEST_ASSERT_EQUAL(Screen::favouriteConfirm,d.c.view().screen);
+  TEST_ASSERT_EQUAL(0,d.c.view().valueChoice);TEST_ASSERT_FALSE(d.c.take(out));
+  d.tick(1);d.click(false);TEST_ASSERT_FALSE(d.c.take(out));
+  d.click();TEST_ASSERT_TRUE(d.c.take(out));TEST_ASSERT_EQUAL(Action::setFavouriteHere,out.action);
+  TEST_ASSERT_EQUAL(71,out.favouriteRevision);TEST_ASSERT_EQUAL(Screen::control,d.c.view().screen);
+  TEST_ASSERT_EQUAL(Action::stop,d.c.view().action);
+  Drive cancel;openFavourite(cancel,Action::clearFavouriteHere);cancel.tick(1);cancel.click();cancel.click();
+  TEST_ASSERT_FALSE(cancel.c.take(out));TEST_ASSERT_EQUAL(Screen::control,cancel.c.view().screen);
+}
+static void favourite_observation_cannot_survive_motion_expiry_or_context_change() {
+  for(unsigned failure=0;failure<5;++failure) {
+    Drive d;openFavourite(d);d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::favouriteConfirm,d.c.view().screen);
+    if(failure==0)++d.f.base.target.favouriteRevision;
+    if(failure==1)d.f.base.authorized=false;
+    if(failure==2)++d.f.base.authConfigurationGeneration;
+    if(failure==3)d.f.base.target.favouriteReady=false;
+    if(failure==4)++d.f.base.target.token;
+    d.tick();TEST_ASSERT_EQUAL(Screen::control,d.c.view().screen);TEST_ASSERT_EQUAL(Action::stop,d.c.view().action);
+    Command out;TEST_ASSERT_FALSE(d.c.take(out));
+  }
+  Drive moving;openFavourite(moving);moving.f.base.target.favouriteReady=false;
+  moving.tick(1);moving.click();TEST_ASSERT_EQUAL(Screen::favouriteObserve,moving.c.view().screen);
+  Command out;TEST_ASSERT_FALSE(moving.c.take(out));moving.back();TEST_ASSERT_EQUAL(Screen::control,moving.c.view().screen);
+}
 static void numeric_control_draft_requires_displayed_apply_and_cancel_never_emits() {
   Drive d;openMore(d);d.click();
   TEST_ASSERT_EQUAL(int(Screen::value),int(d.c.view().screen));
@@ -351,6 +386,8 @@ int main() {
   RUN_TEST(privileged_brightness_draft_reverts_on_expiry_or_configuration_change);
   RUN_TEST(settings_receives_logical_events_and_closes_explicitly);
   RUN_TEST(encoder_detents_bounce_and_memory_failures_remain_bounded);
+  RUN_TEST(favourite_requires_human_observation_then_separate_displayed_confirmation);
+  RUN_TEST(favourite_observation_cannot_survive_motion_expiry_or_context_change);
   RUN_TEST(numeric_control_draft_requires_displayed_apply_and_cancel_never_emits);
   RUN_TEST(numeric_control_drafts_discard_on_context_authorization_and_timeout);
   RUN_TEST(toggle_and_capability_menus_have_no_invisible_fallback);

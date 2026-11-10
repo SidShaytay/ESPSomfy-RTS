@@ -120,6 +120,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     // Where the shade is and where it is going.
     const ShadeBehaviour::State &state() const { return this->behaviour.state(); }
     bool isIdle() const { return this->behaviour.isIdle(); }
+    uint64_t favouriteObservationRevision() const { return this->behaviour.favouriteObservationRevision(); }
     // Wait for actual GPIO pulse release observation, even past its deadline.
     bool idleForAdministration() const { return this->behaviour.idleForAdministration() && this->gpioRelease==0; }
     uint8_t getFlags() override;
@@ -159,6 +160,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     void emitCommand(somfy_commands cmd, const char *source, uint32_t sourceAddress);
     // False when the radio refused a command it sent.
     bool setMyPosition(int8_t pos, int8_t tilt = -1);
+    bool programMyPositionHere(bool clear);
     bool moveToMyPosition();
     void processWaitingFrame();
     void publish();

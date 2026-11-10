@@ -13,12 +13,13 @@ struct SomfyShade : ShadeSettings,RemoteSettings {
   radio_proto proto=radio_proto::RTS;
   uint32_t address=100,gpioRelease=0;
   uint16_t lastRollingCode=1;
-  uint64_t configurationRevision=1;
+  uint64_t configurationRevision=1,observationRevision=1;
   struct Remote { uint16_t lastRollingCode=0;uint32_t address=0; uint32_t getRemoteAddress() const{return address;} } linkedRemotes[7];
   struct State { float currentPos=35,currentTiltPos=20,target=50,tiltTarget=30,myPos=-1,myTiltPos=-1; int8_t direction=0,tiltDirection=0; } value;
   uint8_t getShadeId() const{return id;} uint32_t getRemoteAddress() const{return address;}
   const State &state() const{return value;} bool isIdle() const{return idle;} bool idleForAdministration() const{return idle && !gpioRelease;}
   uint8_t getFlags()const{return statusFlags;}uint8_t statusFlags=0;
+  uint64_t favouriteObservationRevision() const{return observationRevision;}
   bool isInGroup();
   bool isToggle(){return isToggleShade(shadeType);}
   somfy_commands transformCommand(somfy_commands cmd){return flipCommands?flipCommand(cmd):cmd;}
@@ -30,6 +31,12 @@ struct SomfyShade : ShadeSettings,RemoteSettings {
   bool sendCommand(somfy_commands,uint8_t,uint8_t){++lastRollingCode;return true;}
   bool sendTiltCommand(somfy_commands){return true;} bool isLastCommand(somfy_commands){return false;}
   bool repeatFrame(uint8_t){return true;} bool sendSensorCommand(int8_t,int8_t,uint8_t){return true;}
+  // Fake motor boundary only; real programming semantics have native coverage.
+  bool programMyPositionHere(bool clear){
+    if(!idle)return false;
+    value.myPos=clear||tiltType==tilt_types::tiltonly?-1:value.currentPos;
+    value.myTiltPos=clear||tiltType==tilt_types::none?-1:value.currentTiltPos;return true;
+  }
   bool setMyPosition(int8_t pos,int8_t tilt){value.myPos=pos;value.myTiltPos=tilt;return true;}
   void setPosition(float pos,float tilt){if(pos>=0)value.currentPos=pos;if(tilt>=0)value.currentTiltPos=tilt;}
   void emitState(){} bool save(){return true;} void configChanged(){++configurationRevision;}

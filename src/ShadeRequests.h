@@ -19,7 +19,9 @@ enum class shade_request_type_t : uint8_t {
   group_sensor,     // send a sensor frame as the group
   set_favorite,     // set or clear the shade's favorite
   unpair,           // send Prog and clear paired
-  set_rolling_code  // set the shade's rolling code; sends nothing
+  set_rolling_code, // set the shade's rolling code; sends nothing
+  set_favorite_here, // program at the observed current position; no positioning
+  clear_favorite_here // clear only at the exact current favourite; no positioning
 };
 
 // Positions are as the client sees them: 0-100, counted from the other end on
@@ -79,6 +81,7 @@ class ShadeOps {
     virtual bool repeatFrame(uint8_t shadeId, uint8_t repeat) = 0;
     virtual bool sendSensorCommand(uint8_t shadeId, int8_t windy, int8_t sunny, uint8_t repeat) = 0;
     virtual bool setMyPosition(uint8_t shadeId, int8_t pos, int8_t tilt) = 0;
+    virtual bool programMyPositionHere(uint8_t shadeId, bool clear) = 0;
     // A negative position leaves that one as it is.
     virtual void setPositions(uint8_t shadeId, float pos, float tilt) = 0;
     virtual void setUnpaired(uint8_t shadeId) = 0;

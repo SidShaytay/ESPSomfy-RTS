@@ -602,6 +602,67 @@ static void test_group_sun_flag_needs_a_sensor() {
 /*********************************************************************
  * The favorite
  ********************************************************************/
+// The LCD's programming stage must never start a positioning sequence.
+static void favorite_observation_revision_catches_fractional_changes_and_return_to_same_position() {
+  Rig r;r.b.restore(30,0,70,-1);const auto before=r.b.favouriteObservationRevision();
+  r.b.setPosition(30.1f,-1);const auto away=r.b.favouriteObservationRevision();TEST_ASSERT_TRUE(away>before);
+  r.b.setPosition(30,-1);TEST_ASSERT_TRUE(r.b.favouriteObservationRevision()>away);
+  const auto same=r.b.favouriteObservationRevision();r.b.setPosition(30,-1);TEST_ASSERT_EQUAL(same,r.b.favouriteObservationRevision());
+  r.press(somfy_commands::My);TEST_ASSERT_TRUE(r.b.favouriteObservationRevision()>same);
+}
+static void test_explicit_favorite_set_and_clear_never_implicitly_move() {
+  Rig r;r.b.restore(30,0,70,-1);
+  TEST_ASSERT_TRUE(r.b.programMyPositionHere(false,r.now));
+  TEST_ASSERT_EQUAL(1,r.link.sent.size());ASSERT_CMD(somfy_commands::My,r.lastSent().cmd);
+  TEST_ASSERT_EQUAL(35,r.lastSent().repeat);TEST_ASSERT_EQUAL(0,r.lastSent().delayMs);
+  TEST_ASSERT_EQUAL_FLOAT(30,r.st().target);TEST_ASSERT_EQUAL_FLOAT(30,r.st().myPos);
+  TEST_ASSERT_FALSE(r.b.programMyPositionHere(true,r.now)); // First transmission unresolved.
+  const int saves=r.events.saves;r.event(tx_event_t::finished,r.lastSent().ticket);
+  TEST_ASSERT_EQUAL(saves+1,r.events.saves);
+  TEST_ASSERT_TRUE(r.b.programMyPositionHere(false,r.now)); // Set is not toggle/clear.
+  TEST_ASSERT_EQUAL(1,r.link.sent.size());
+  TEST_ASSERT_TRUE(r.b.programMyPositionHere(true,r.now));
+  TEST_ASSERT_EQUAL(2,r.link.sent.size());TEST_ASSERT_EQUAL(35,r.lastSent().repeat);
+  TEST_ASSERT_EQUAL_FLOAT(-1,r.st().myPos);TEST_ASSERT_EQUAL_FLOAT(30,r.st().target);
+  r.event(tx_event_t::dropped,r.lastSent().ticket);TEST_ASSERT_EQUAL_FLOAT(30,r.st().myPos);
+  TEST_ASSERT_EQUAL(saves+1,r.events.saves);
+}
+static void test_explicit_favorite_clear_elsewhere_refuses_without_move_or_program() {
+  Rig r;r.b.restore(30,0,70,-1);
+  TEST_ASSERT_FALSE(r.b.programMyPositionHere(true,r.now));
+  TEST_ASSERT_EQUAL(0,r.link.sent.size());TEST_ASSERT_EQUAL_FLOAT(30,r.st().target);
+  TEST_ASSERT_EQUAL_FLOAT(70,r.st().myPos);
+  r.b.moveToTarget(40,-1,r.now);const auto sent=r.link.sent.size();
+  TEST_ASSERT_FALSE(r.b.programMyPositionHere(false,r.now));TEST_ASSERT_EQUAL(sent,r.link.sent.size());
+}
+static void test_explicit_favorite_tilt_uses_exact_observed_positions() {
+  for(auto tilt:{tilt_types::integrated,tilt_types::tiltmotor,tilt_types::euromode,tilt_types::tiltonly}) {
+    Rig r;r.settings.tiltType=tilt;r.b.restore(100,42,70,70);r.b.setPosition(100,42.5f);
+    TEST_ASSERT_TRUE(r.b.programMyPositionHere(false,r.now));
+    TEST_ASSERT_EQUAL_FLOAT(42.5f,r.st().myTiltPos);
+    TEST_ASSERT_EQUAL_FLOAT(tilt==tilt_types::tiltonly?-1:100,r.st().myPos);
+    r.event(tx_event_t::finished,r.lastSent().ticket);
+    r.b.setPosition(100,42.6f);TEST_ASSERT_FALSE(r.b.programMyPositionHere(true,r.now));
+    TEST_ASSERT_EQUAL(1,r.link.sent.size());
+    r.b.setPosition(100,42.5f);TEST_ASSERT_TRUE(r.b.programMyPositionHere(true,r.now));
+    TEST_ASSERT_EQUAL_FLOAT(-1,r.st().myPos);TEST_ASSERT_EQUAL_FLOAT(-1,r.st().myTiltPos);
+    TEST_ASSERT_EQUAL(2,r.link.sent.size());
+  }
+}
+static void test_explicit_favorite_rejects_toggle_and_drycontact_commands() {
+  for(auto type:{shade_types::garage1,shade_types::lgate1,shade_types::cgate1,shade_types::rgate1,shade_types::drycontact,shade_types::drycontact2}) {
+    Rig r;r.settings.shadeType=type;r.b.restore(30,0,70,-1);
+    TEST_ASSERT_FALSE(r.b.programMyPositionHere(false,r.now));
+    TEST_ASSERT_FALSE(r.b.programMyPositionHere(true,r.now));
+    TEST_ASSERT_EQUAL(0,r.link.sent.size());TEST_ASSERT_EQUAL_FLOAT(30,r.st().target);
+  }
+}
+static void test_explicit_favorite_refused_program_restores_previous_values() {
+  Rig r;r.b.restore(30,0,70,-1);r.link.refuseNext=true;
+  TEST_ASSERT_FALSE(r.b.programMyPositionHere(false,r.now));
+  TEST_ASSERT_EQUAL_FLOAT(70,r.st().myPos);TEST_ASSERT_EQUAL(0,r.link.sent.size());
+  TEST_ASSERT_EQUAL(0,r.events.saves);
+}
 static void test_set_favorite_here_is_committed_when_all_on_air() {
   Rig r;
   r.b.restore(30, 0, -1, -1);
@@ -802,6 +863,12 @@ int main(int argc, char **argv) {
   RUN_TEST(test_group_down_and_step);
   RUN_TEST(test_group_step_preserves_transmitted_size_for_member_estimates);
   RUN_TEST(test_group_sun_flag_needs_a_sensor);
+  RUN_TEST(favorite_observation_revision_catches_fractional_changes_and_return_to_same_position);
+  RUN_TEST(test_explicit_favorite_set_and_clear_never_implicitly_move);
+  RUN_TEST(test_explicit_favorite_clear_elsewhere_refuses_without_move_or_program);
+  RUN_TEST(test_explicit_favorite_tilt_uses_exact_observed_positions);
+  RUN_TEST(test_explicit_favorite_rejects_toggle_and_drycontact_commands);
+  RUN_TEST(test_explicit_favorite_refused_program_restores_previous_values);
   RUN_TEST(test_set_favorite_here_is_committed_when_all_on_air);
   RUN_TEST(test_set_favorite_dropped_keeps_the_old_one);
   RUN_TEST(test_set_favorite_elsewhere_moves_there_first);

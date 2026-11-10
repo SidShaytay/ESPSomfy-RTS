@@ -68,6 +68,7 @@ class ShadeBehaviour {
     ShadeBehaviour &operator=(const ShadeBehaviour &) = delete;
     const State &state() const { return this->s; }
     bool isIdle() const;
+    uint64_t favouriteObservationRevision() const { return observationRevision; }
     // Read-only admission for configuration/persistence/shutdown operations.
     // An idle position estimate can still have held input or unresolved TX.
     bool idleForAdministration() const {
@@ -100,6 +101,9 @@ class ShadeBehaviour {
     bool moveToTarget(float pos, float tilt, uint32_t now);
     bool moveToTiltTarget(float target, uint32_t now);
     bool setMyPosition(int8_t pos, int8_t tilt, uint32_t now);
+    // Explicit programming only: never moves to a target or toggles Set into Clear.
+    // Clear requires the exact current favourite; caller obtains human observation.
+    bool programMyPositionHere(bool clear, uint32_t now);
     bool moveToMyPosition(uint32_t now);
 
     // Puts the shade at pos and tilt (-1 leaves one alone) without moving it.
@@ -121,6 +125,8 @@ class ShadeBehaviour {
     const uint8_t &shadeId;
     const char *name;
     State s;
+    uint64_t observationRevision = 1;
+    void invalidateFavouriteObservation() { if(observationRevision) ++observationRevision; }
     uint32_t moveStart = 0;
     uint32_t tiltStart = 0;
     ShadeSensors sensors;
