@@ -16,6 +16,7 @@
 #include "GitUpdateOwner.h"
 #include "LivePinClaims.h"
 #include "PinOwnership.h"
+#include "FrequencyScanSample.h"
 
 // The CC1101 radio: receive decoding, the radio task that transmits radio
 // jobs, the frequency scan and the radio config.
@@ -153,6 +154,7 @@ class Transceiver {
     void emitFrame(somfy_frame_t *frame, somfy_rx_t *rx = nullptr);
     // Loop-only, nonblocking: true only after scan actually owns paused RF.
     bool beginFrequencyScan();
+    bool readFrequencyScan(FrequencyScan::Sample &);
     void endFrequencyScan();
     void processFrequencyScan(bool received = false);
     void emitFrequencyScan();

@@ -25,6 +25,7 @@
 #include "RadioInitMarker.h"
 #include "RadioSettingsAdmission.h"
 #include "FrequencyScanAdmission.h"
+#include "FrequencyScanService.h"
 #include "LoopQueue.h"
 extern LoopQueue loopQueue;
 #include "PinOwnership.h"
@@ -345,6 +346,10 @@ bool Transceiver::beginFrequencyScan() {
   scanEmitPending = true;
   return true;
 }
+bool Transceiver::readFrequencyScan(FrequencyScan::Sample &out) {
+  RadioLock lock(0);if(!lock.locked)return false;
+  out={currFreq,markFreq,int16_t(currRSSI),int16_t(markRSSI)};return true;
+}
 void Transceiver::processFrequencyScan(bool received) {
   if(scanStopRequested.load()) return;
   RadioLock lock(0);
@@ -415,6 +420,8 @@ void Transceiver::emitFrequencyScan() {
   if(protoSocket.subscribed(proto_feed_t::frequencyScan)) {
     ProtoWriter w = protoSocket.beginFeed(proto_type_t::frequencyScan);
     w.add(proto_field_t::scanning, rxmode == 3);
+    char scanToken[42];
+    if(formatFrequencyScanToken(FrequencyScan::status().token,scanToken,sizeof(scanToken)))w.add(proto_field_t::scanToken,scanToken);
     w.add(proto_field_t::testFreq, currFreq);
     w.add(proto_field_t::testRssi, (int32_t)currRSSI);
     w.add(proto_field_t::frequency, markFreq);
