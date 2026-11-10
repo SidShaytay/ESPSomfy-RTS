@@ -117,6 +117,24 @@ struct GroupProgrammingSendResult {
   shade_request_result_t result=shade_request_result_t::radio_refused;
   EntityAdmin::Admission admission=EntityAdmin::Admission::accepted;
 };
+struct SensorSimulation {
+  int8_t windy=-1,sunny=-1; // Keep, Off, On; both Keep cannot send.
+  uint8_t repeats=1;
+};
+inline bool prepareSensorSimulation(radio_proto protocol,uint8_t bits,bool group,int id,
+                                    const SensorSimulation &draft,shade_request_t &out){
+  if((protocol!=radio_proto::RTS&&protocol!=radio_proto::RTW&&protocol!=radio_proto::RTV)||
+     (bits!=56&&bits!=80)||id<1||id>254||draft.repeats<1||draft.repeats>127||
+     draft.windy< -1||draft.windy>1||draft.sunny< -1||draft.sunny>1||
+     (draft.windy==-1&&draft.sunny==-1))return false;
+  shade_request_t request;request.type=group?shade_request_type_t::group_sensor:shade_request_type_t::shade_sensor;
+  request.id=uint8_t(id);request.command=somfy_commands::Sensor;request.windy=draft.windy;request.sunny=draft.sunny;
+  request.repeat=int8_t(draft.repeats);out=request;return true;
+}
+struct SensorResult {
+  shade_request_result_t result=shade_request_result_t::radio_refused;
+  EntityAdmin::Admission admission=EntityAdmin::Admission::accepted;
+};
 class Backend {
 public:
   virtual ~Backend() = default;
@@ -151,6 +169,10 @@ public:
   virtual LearnApplyResult saveProgrammingMembership(Target,const Context &,EntityAdmin::Authorization,
       uint64_t,const GroupProgrammingSelection &,LearnPending &,ArduinoJson::Allocator &){return {{},EntityAdmin::Admission::stale};}
 
+  virtual bool supportsSensor(Target){return false;}
+  virtual EntityAdmin::Admission checkSensorContext(Target,const Context &,EntityAdmin::Authorization,uint64_t){return EntityAdmin::Admission::stale;}
+  virtual SensorResult sendSensor(Target,const Context &,EntityAdmin::Authorization,uint64_t,
+                                   const SensorSimulation &,LearnPending &){return {shade_request_result_t::radio_refused,EntityAdmin::Admission::invalid};}
   virtual PrimaryReadResult readPrimary(Target, const Context &,
       EntityAdmin::Authorization, uint64_t, PrimaryCounterReview &) = 0;
   // Live aliases/quarantine only; no NVS/owner/allocation. Safe in a final

@@ -254,11 +254,16 @@ static void accepted_mutation_history_follows_actual_queue_result() {
 struct LearnedIntent final:LearnPending {
   LearnQueueReason validity=LearnQueueReason::ready,last=LearnQueueReason::ready;
   uint64_t token=0;unsigned effects=0,cancellations=0,readsBefore=0;
+  bool radio=false;bool usesRadio()const override{return radio;}
   LearnQueueReason current(uint64_t)override{return validity;}
   void execute(uint64_t)override{assert(!localLearnTokenActive(token));++effects;readsBefore=loopReads;}
   void cancelled(LearnQueueReason reason)override{assert(!localLearnTokenActive(token));++cancellations;last=reason;}
 };
 static void learned_intents_share_real_fifo_age_and_exact_cancellation() {
+  reset();LearnedIntent radio;radio.radio=true;somfy.transceiver.room=false;
+  auto rf=submitLocalLearn(radio,authTestNow);radio.token=rf.token;assert(rf.reason==LearnQueueReason::ready);
+  loopQueue.drain();assert(!radio.effects&&loopQueue.pending()==1);
+  somfy.transceiver.room=true;loopQueue.drain();assert(radio.effects==1&&!loopQueue.pending());
   reset();LearnedIntent source;loop_item_t read;read.type=loop_item_type_t::proto_read;
   assert(loopQueue.submit(read));auto admission=submitLocalLearn(source,authTestNow);source.token=admission.token;
   assert(admission.reason==LearnQueueReason::ready && loopQueue.submit(read));loopQueue.drain();

@@ -27,6 +27,8 @@ struct Form::Session final : LearnPending {
   bool groupGuideMode=false,programmingAdding=false;
   GroupProgrammingGuide groupGuide;
   GroupProgrammingSelection programming;
+  bool sensorMode=false;
+  SensorSimulation sensor;
   uint64_t ticket = 0, queuedAt = 0;
   bool listening = false, fileOnly = false, canRetryFile = false,
        linkApplied = false, fileVerified = false;
@@ -42,7 +44,7 @@ struct Form::Session final : LearnPending {
   LearnQueueReason current(uint64_t now) override {
     return owner.learnCurrent(now);
   }
-  bool usesRadio() const override { return programMode||guideMode||(groupGuideMode&&groupGuide.pendingEffect()!=GroupProgrammingEffect::saveList); }
+  bool usesRadio() const override { return sensorMode||programMode||guideMode||(groupGuideMode&&groupGuide.pendingEffect()!=GroupProgrammingEffect::saveList); }
   void execute(uint64_t now) override { owner.runLearn(now); }
   void cancelled(LearnQueueReason reason) override {
     owner.learnCancelled(reason);
@@ -66,7 +68,8 @@ struct Form::Session final : LearnPending {
     details,
     remoteMenu,remoteRepeat,remoteConfirm,remotePending,remoteResult,
     groupIntent,
-    groupPick
+    groupPick,
+    sensorDraft, sensorRepeat, sensorReview, sensorPending, sensorResult
   };
   Context context;
   OrderIds ids{}, slots{};
@@ -259,10 +262,10 @@ void Form::turn(int direction, uint64_t now) {
     s.primary.turn(direction,now);return;
   case Session::Page::membership:
     s.membership.turn(direction);return;
-  case Session::Page::groupMenu:count=4;break;
+  case Session::Page::groupMenu:count=5;break;
   case Session::Page::details:count=entityStatusRows;break;
   case Session::Page::menu:
-    count = 7;
+    count = 8;
     break;
   case Session::Page::remoteMenu:
     count=6;
@@ -277,6 +280,13 @@ void Form::turn(int direction, uint64_t now) {
   case Session::Page::remotePending:
   case Session::Page::remoteResult:
     count=1;
+    break;
+  case Session::Page::sensorRepeat:
+    s.sensor.repeats=uint8_t(direction>0?(s.sensor.repeats<127?s.sensor.repeats+1:127):(s.sensor.repeats>1?s.sensor.repeats-1:1));return;
+  case Session::Page::sensorDraft:count=5;break;
+  case Session::Page::sensorReview:count=2;break;
+  case Session::Page::sensorPending:
+  case Session::Page::sensorResult:count=1;break;
     break;
   case Session::Page::learnList:
     count = s.learned.candidates.count();
@@ -365,21 +375,22 @@ LearnQueueReason Form::learnCurrent(uint64_t now) {
   if (!session)
     return LearnQueueReason::stale;
   const auto &s = *session;
-  if ((s.page == Session::Page::learnPending || s.page==Session::Page::remotePending || (s.primaryMode && s.primary.pending()) || (s.membershipMode && s.membership.pending())) &&
+  if ((s.page == Session::Page::learnPending || s.page==Session::Page::sensorPending || s.page==Session::Page::remotePending || (s.primaryMode && s.primary.pending()) || (s.membershipMode && s.membership.pending())) &&
       (now < s.queuedAt || now - s.queuedAt >= LearnQueue::maxAgeMs))
     return LearnQueueReason::expired;
   if (now < s.observedAt || now < s.activityAt ||
       now - s.activityAt >= timeoutMs)
     return LearnQueueReason::expired;
-  const auto admission = s.groupGuideMode?backend.groupProgrammingCurrent(s.target,s.context,s.auth,s.revision,s.programming):s.guideMode?backend.checkPairingContext(s.target,s.context,s.auth,s.revision):s.programMode
+  const auto admission = s.sensorMode?backend.checkSensorContext(s.target,s.context,s.auth,s.revision):s.groupGuideMode?backend.groupProgrammingCurrent(s.target,s.context,s.auth,s.revision,s.programming):s.guideMode?backend.checkPairingContext(s.target,s.context,s.auth,s.revision):s.programMode
       ? backend.checkProgrammingContext(s.target,s.context,s.auth,s.revision)
       : backend.checkLearnContext(s.target, s.context, s.auth, s.revision);
   if (admission == Admission::locked)
     return LearnQueueReason::locked;
   if(s.guideMode&&admission==Admission::busy)return LearnQueueReason::busy;
+  if(s.sensorMode&&admission==Admission::busy)return LearnQueueReason::busy;
   if (admission != Admission::accepted)
     return LearnQueueReason::stale;
-  if(s.programMode||s.groupGuideMode)return LearnQueueReason::ready;
+  if(s.sensorMode||s.programMode||s.groupGuideMode)return LearnQueueReason::ready;
   if (s.fileOnly || s.guideMode)
     return LearnQueueReason::ready;
   if(s.membershipMode) {
@@ -422,6 +433,7 @@ void Form::learnCancelled(LearnQueueReason reason) {
   if(session->membershipMode){session->membership.busy();return;}
   if(session->guideMode){session->guide.complete(false);return;}
   if(session->groupGuideMode){session->groupGuide.complete(false);return;}
+  if(session->sensorMode){session->page=Session::Page::sensorResult;session->cursor=0;strcpy(session->refusal,"Queue refused; nothing sent");return;}
   if(session->primaryMode){session->primary.busy();return;}
   if(session->programMode){session->programSent=false;session->page=Session::Page::remoteResult;return;}
   if (session->fileOnly) {
@@ -436,7 +448,7 @@ void Form::queueLearn(uint64_t now, bool fileOnly) {
   auto &s = *session;
   s.fileOnly = fileOnly;
   s.queuedAt = now;
-  s.page = Session::Page::learnPending;
+  s.page = s.sensorMode?Session::Page::sensorPending:Session::Page::learnPending;
   s.cursor = 0;
   const auto queued = backend.queueLearn(s, now);
   if (queued.reason == LearnQueueReason::ready) {
@@ -453,6 +465,7 @@ void Form::queueLearn(uint64_t now, bool fileOnly) {
     }
     if(s.guideMode){learnCancelled(queued.reason);return;}
     if(s.groupGuideMode){learnCancelled(queued.reason);return;}
+    if(s.sensorMode){learnCancelled(queued.reason);return;}
     learnFault("Queue unavailable/full. Wait, then review explicitly.");
     return;
   }
@@ -485,6 +498,17 @@ void Form::runLearn(uint64_t) {
     if(result.admission==Admission::locked){close(Notice::locked);return;}
     if(result.admission==Admission::stale){close(Notice::changed);return;}
     s.groupGuide.complete(result.admission==Admission::accepted&&result.result==shade_request_result_t::done);return;
+  }
+  if(session->sensorMode){
+    auto &s=*session;s.ticket=0;
+    const auto result=backend.sendSensor(s.target,s.context,s.auth,s.revision,s.sensor,s);
+    if(result.admission==Admission::locked){close(Notice::locked);return;}
+    if(result.admission==Admission::stale){close(Notice::changed);return;}
+    s.page=Session::Page::sensorResult;s.cursor=0;
+    strcpy(s.refusal,result.admission==Admission::busy?"Busy; request not sent":
+      result.admission==Admission::accepted&&result.result==shade_request_result_t::done?"Request accepted":
+      result.result==shade_request_result_t::radio_refused?"Radio refused; no retry":"Request refused; no retry");
+    return;
   }
   if(session->primaryMode){runPrimary();return;}
   auto &s = *session;
@@ -760,13 +784,29 @@ void Form::activate(uint64_t now) {
     s.groupGuide.begin(s.programmingAdding,isToggleShade(shade_types(s.programming.shadeType)));return;
   case Session::Page::primaryCounter:
     primaryEffect(s.primary.activate(now),now);return;
+  case Session::Page::sensorRepeat:s.page=Session::Page::sensorDraft;s.cursor=2;break;
+  case Session::Page::sensorDraft:
+    if(s.cursor<2){auto &flag=s.cursor==0?s.sensor.sunny:s.sensor.windy;flag=int8_t((flag+2)%3-1);}
+    else if(s.cursor==2)s.page=Session::Page::sensorRepeat;
+    else if(s.cursor==3){
+      if(s.sensor.sunny==-1&&s.sensor.windy==-1){status=Notice::invalid;return;}
+      s.page=Session::Page::sensorReview;s.cursor=0;status=Notice::none;
+    }else close(Notice::none);
+    break;
+  case Session::Page::sensorReview:
+    if(!s.cursor){s.page=Session::Page::sensorDraft;s.cursor=3;}
+    else queueLearn(now,false);
+    break;
+  case Session::Page::sensorPending:
+  case Session::Page::sensorResult:close(Notice::none);return;
   case Session::Page::membership:
     membershipEffect(s.membership.activate(),now);return;
   case Session::Page::groupMenu:
     if(!s.cursor){if(!openMembership(false))close(Notice::changed);}
     else if(s.cursor==1){s.page=Session::Page::details;s.cursor=0;}
     else if(s.cursor==2){if(!backend.supportsProgramming(s.target)){status=Notice::invalid;return;}endLearning();s.programMode=true;s.program={};s.page=Session::Page::remoteMenu;s.cursor=0;}
-    else{s.page=Session::Page::groupIntent;s.cursor=0;}return;
+    else if(s.cursor==3){s.page=Session::Page::groupIntent;s.cursor=0;}
+    else{if(!backend.supportsSensor(s.target)){status=Notice::invalid;return;}endLearning();s.sensorMode=true;s.sensor={};s.page=Session::Page::sensorDraft;s.cursor=0;status=Notice::none;}return;
   case Session::Page::details:
     if(s.cursor==entityStatusRows-1){s.page=s.target.scope==Scope::groups?Session::Page::groupMenu:Session::Page::menu;s.cursor=s.target.scope==Scope::groups?1:4;}return;
   case Session::Page::menu:
@@ -779,6 +819,10 @@ void Form::activate(uint64_t now) {
       bool oneButton=false;
       if(!backend.pairingAvailable(s.target,oneButton)){status=Notice::invalid;return;}
       endLearning();s.guideMode=true;s.guide.begin(s.paired,oneButton);status=Notice::none;return;
+    }
+    if(s.cursor==7){
+      if(!backend.supportsSensor(s.target)){status=Notice::invalid;return;}
+      endLearning();s.sensorMode=true;s.sensor={};s.page=Session::Page::sensorDraft;s.cursor=0;status=Notice::none;return;
     }
     if(s.cursor==3) {
       PrimaryCounterReview reviewed;
@@ -967,6 +1011,11 @@ void Form::back(uint64_t now) {
   if(s.page==Session::Page::details){s.page=s.target.scope==Scope::groups?Session::Page::groupMenu:Session::Page::menu;s.cursor=s.target.scope==Scope::groups?1:4;return;}
   if(s.guideMode){if(s.guide.back()==ProgrammingEffect::close)close(Notice::none);return;}
   if(s.groupGuideMode){if(s.groupGuide.back()==GroupProgrammingEffect::close)close(Notice::none);return;}
+  if(s.sensorMode){
+    if(s.page==Session::Page::sensorReview){s.page=Session::Page::sensorDraft;s.cursor=3;return;}
+    if(s.page==Session::Page::sensorRepeat){s.page=Session::Page::sensorDraft;s.cursor=2;return;}
+    close(Notice::none);return;
+  }
   if (s.page == Session::Page::learnPending ||
       s.page == Session::Page::learnResult) {
     close(Notice::none);
@@ -996,7 +1045,7 @@ void Form::back(uint64_t now) {
   } else if (s.page == Session::Page::list &&
              (s.target.scope == Scope::devices||backend.supportsProgramming(s.target))) {
     s.page = Session::Page::menu;
-    s.cursor = 1;
+    s.cursor = s.target.scope==Scope::devices?1:0;
     status = Notice::none;
   } else
     close(Notice::none);
@@ -1061,10 +1110,38 @@ void Form::render(FormView &out) {
     for(uint8_t i=0;i<out.rowCount;++i)out.rows[i].selected=out.offset+i==out.selected;
     return;
   }
+  if(s.sensorMode){
+    const auto flag=[](int8_t value){return value<0?"Keep":value?"On":"Off";};
+    strcpy(out.hint,"May trigger motor automation. Back cancels.");
+    if(s.page==Session::Page::sensorDraft){
+      out.total=5;out.offset=s.cursor/3*3;
+      for(uint8_t i=out.offset;i<5&&out.rowCount<3;++i){auto &row=out.rows[out.rowCount++];
+        strcpy(row.label,i==0?"Sunny":i==1?"Windy":i==2?"Repeats":i==3?"Review and send":"Close");
+        if(i<2)strcpy(row.value,flag(i==0?s.sensor.sunny:s.sensor.windy));
+        else if(i==2)snprintf(row.value,sizeof(row.value),"%u",unsigned(s.sensor.repeats));
+      }
+      if(status==Notice::invalid)strcpy(out.hint,"Choose Sunny or Windy before review. No request sent.");
+    }else if(s.page==Session::Page::sensorRepeat){
+      out.total=out.rowCount=1;out.selected=0;strcpy(out.rows[0].label,"Repeats (1-127)");
+      snprintf(out.rows[0].value,sizeof(out.rows[0].value),"%u",unsigned(s.sensor.repeats));strcpy(out.hint,"Turn: adjust   Press/Back: return to draft");
+    }else if(s.page==Session::Page::sensorReview){
+      out.mode=Mode::sensorReview;out.total=out.rowCount=2;strcpy(out.rows[0].label,"Cancel");strcpy(out.rows[1].label,"Send sensor status");
+      snprintf(out.rows[2].label,sizeof(out.rows[2].label),"Sunny: %s Windy: %s",flag(s.sensor.sunny),flag(s.sensor.windy));
+      snprintf(out.rows[2].value,sizeof(out.rows[2].value),"Repeat frames: %u",unsigned(s.sensor.repeats));
+    }else if(s.page==Session::Page::sensorPending){
+      out.mode=Mode::validation;out.total=out.rowCount=1;strcpy(out.rows[0].label,"Cancel queued request");strcpy(out.hint,"FIFO; expires after 5s. No automatic retry.");
+    }else{
+      out.mode=Mode::stackedRows;out.total=out.rowCount=1;out.selected=0;strcpy(out.rows[0].label,"Close");
+      snprintf(out.rows[0].value,sizeof(out.rows[0].value),"%s",s.refusal);
+      strcpy(out.hint,"Physical result is not confirmed. No automatic retry.");
+    }
+    for(uint8_t i=0;i<out.rowCount;++i)out.rows[i].selected=out.offset+i==out.selected;
+    return;
+  }
   if(s.page==Session::Page::groupMenu){
-    static const char *labels[]={"Member links","Status details","Advanced remote","Motor programming"};
-    out.total=4;out.offset=s.cursor/3*3;
-    for(uint8_t i=out.offset;i<4&&out.rowCount<3;++i){auto &row=out.rows[out.rowCount++];strcpy(row.label,labels[i]);row.selected=i==s.cursor;}
+    static const char *labels[]={"Member links","Status details","Advanced remote","Motor programming","Sensor simulation"};
+    out.total=5;out.offset=s.cursor/3*3;
+    for(uint8_t i=out.offset;i<5&&out.rowCount<3;++i){auto &row=out.rows[out.rowCount++];strcpy(row.label,labels[i]);row.selected=i==s.cursor;}
     strcpy(out.hint,"Review status, controller list or motor programming.");return;
   }
   if(s.page==Session::Page::details){
@@ -1255,16 +1332,20 @@ void Form::render(FormView &out) {
     strcpy(out.rows[1].label, "Close");
     strcpy(out.hint, "Applied already. Retry saves the model file only.");
   } else if (s.page == Session::Page::menu) {
-    out.total=7;out.offset=s.cursor/3*3;
-    for(uint8_t i=out.offset;i<7 && out.rowCount<3;++i) {
+    out.total=8;out.offset=s.cursor/3*3;
+    for(uint8_t i=out.offset;i<8 && out.rowCount<3;++i) {
       auto &row=out.rows[out.rowCount++];
       if(i==5)strcpy(row.label,"Advanced remote");
       else if(i==4)strcpy(row.label,"Status details");
       else if(i==6){bool oneButton=false;strcpy(row.label,"Pair/unpair guide");strcpy(row.value,backend.pairingAvailable(s.target,oneButton)?"Motor procedure":"Unavailable");}
+      else if(i==7)strcpy(row.label,"Sensor simulation");
       else if(i==0){strcpy(row.label,"Paired marker");strcpy(row.value,s.paired?"Paired":"Unpaired");}
       else strcpy(row.label,i==1?"Linked remotes":i==2?"Learn received remote":"Primary rolling code");
+      if(i==7)
+        strcpy(row.value,backend.supportsSensor(s.target)?"RF status":"Unavailable");
     }
-    if(status==Notice::invalid&&s.cursor==4)strcpy(out.hint,"Programming needs a supported RF target. Nothing sent.");
+    if(status==Notice::invalid&&s.cursor==6)strcpy(out.hint,"Programming needs a supported RF target. Nothing sent.");
+    if(status==Notice::invalid&&s.cursor==7)strcpy(out.hint,"Sensor simulation requires a supported RF target.");
   } else {
     out.total =
         s.page == Session::Page::picker ? s.count : backend.itemCount(s.target)+(s.target.scope==Scope::repeaters?1:0);
