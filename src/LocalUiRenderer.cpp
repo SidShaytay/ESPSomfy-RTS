@@ -22,7 +22,7 @@ const char *notices[] = {"",
                          "Unlock required", "Invalid credentials", "Too many attempts - wait",
                          "Local unlock unavailable", "Unlocked - select action again",
                          "Command accepted", "Partially accepted - review",
-                         "Busy - retry", "Pending action cancelled", "Estimate unavailable - no draft", "Action expired - retry", "Cancelled; STOP not queued"};
+                         "Busy - retry", "Pending action cancelled", "Estimate unavailable - no draft", "Action expired - retry", "Cancelled; STOP not queued", "Hold to send; release ends repeats"};
 } // namespace
 void Canvas::drawPixel(int16_t x, int16_t y, uint16_t color) {
   if(pixels && x >= 0 && x < screenWidth && y >= 0 && y < screenHeight)
@@ -285,15 +285,15 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
     snprintf(label,sizeof(label),v.screen==Screen::repeatValue?"Repeats: %d":controlIsStep(v.action)?"%d steps":"%d%%",int(v.draftValue));
     text(22,94,label,true,white);
     if(v.valueChoice) {
-      const char *choices[]={v.repeating && v.screen==Screen::value?"Next":"Apply","Cancel"};
+      const char *choices[]={v.screen==Screen::repeatValue?"Hold to send":v.repeating && v.screen==Screen::value?"Next":"Apply","Cancel"};
       for(unsigned i=0;i<2;i++) {
         const int x=12+i*152;const bool active=v.valueChoice==i+1;
         fillRoundRect(x,114,144,30,4,active?selected:bg);
         drawRoundRect(x,114,144,30,4,active?teal:line);
-        text(x+35,136,choices[i],false,active?teal:white,108);
+        text(x+(v.screen==Screen::repeatValue && i==0?16:35),136,choices[i],false,active?teal:white,126);
       }
     } else text(12,135,"Turn: adjust   Push: review",false,teal);
-    text(12,164,m.controlPending?"Active; Back cancels remaining":v.notice!=Notice::none?notices[int(v.notice)]:v.repeating && v.screen==Screen::value?"Next: choose repeats; Back cancels":"Back: cancel   Apply sends",false,m.controlPending||v.notice!=Notice::none?amber:muted);
+    text(12,164,m.controlPending?"Active; Back cancels remaining":v.notice!=Notice::none?notices[int(v.notice)]:v.repeating && v.screen==Screen::value?"Next: choose repeats; Back cancels":v.screen==Screen::repeatValue?"Hold to send; release ends repeats":"Back: cancel   Apply sends",false,m.controlPending||v.notice!=Notice::none?amber:muted);
   } else {
     const auto &t=m.target;
     snprintf(label,sizeof(label),"#%s%u %s",v.entity.kind==EntityKind::group?"G":"",unsigned(v.entity.id),t.exists?t.name:"Not configured");
@@ -327,6 +327,7 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
       text(x+8,127,controlLabel(action),false,color,width-12);
     }
     if(v.notice==Notice::cancelled || v.notice==Notice::stopNotQueued) text(12,163,notices[int(v.notice)],false,amber);
+    else if(v.repeatHeld) text(12,163,"Release ends repeats; then STOP",false,amber);
     else if(m.controlPending) text(12,163,v.notice==Notice::busy?"Busy; Back cancels remaining":"Active; Back cancels remaining",false,amber);
     else if(v.notice!=Notice::none) text(12,163,notices[int(v.notice)],false,amber);
     else if(!m.authorized) text(12,163,t.stopLease?"STOP only; unlock other actions":"Press: unlock   Back: return",false,amber);

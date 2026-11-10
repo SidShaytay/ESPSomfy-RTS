@@ -27,7 +27,9 @@ void Controller::discardTransient() {
   // a reported persistence failure still leaves those live values applied.
   const auto keep=state.screen==Screen::brightness || savePending?brightnessBefore:preferences();
   editor.cancel();valueEditor.cancel();
-  state=View{};pending=Command{};formInput={};
+  state=View{};pending=repeatWitness=Command{};formInput={};
+  repeatPress=repeatArmed=false;repeatObserved=repeatConfiguration=0;
+  repeatModel=repeatRestore=0;
   editorMode=AuthMode::none;afterUnlock=Screen::control;
   valueAuthorizationGeneration=valueConfigurationGeneration=0;
   brightnessConfigurationGeneration=editorActivity=editorConfigurationGeneration=0;
@@ -61,6 +63,7 @@ void Controller::unlockResult(uint32_t now, AuthResult result) {
   editorView();
 }
 void Controller::goBack() {
+  repeatArmed=false;state.repeatHeld=false;
   cancelPending=true;
   hasCommand=false; state.notice=Notice::none; state.action=Action::stop;
   if(state.screen==Screen::unlock) { editor.cancel(); editorView(); state.screen=afterUnlock; }
@@ -233,7 +236,9 @@ void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
     if(!visible) state.notice=Notice::wait;
     else if(state.valueChoice==0) { state.valueChoice=2;valueEditor.setStep(1,now); }
     else if(state.valueChoice==2) {cancelValue();state.screen=Screen::control;state.action=Action::stop;}
-    else {
+    else if(state.screen==Screen::repeatValue) {
+      state.notice=Notice::holdToSend;
+    } else {
       int64_t number=0;valueEditor.apply(now);
       if(valueEditor.takeNumber(number)) {
         const auto action=state.action;
@@ -251,6 +256,13 @@ void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
     break;
   }
   if(state.notice!=Notice::none) noticeSince=now;
+}
+bool Controller::repeatCurrent(const Model &m) const {
+  return m.ready && m.controlsEnabled && m.authorized && m.authGeneration==repeatWitness.authGeneration &&
+    m.authConfigurationGeneration==repeatConfiguration && m.modelRevision==repeatModel &&
+    m.restoreRevision==repeatRestore && m.target.exists && m.target.ref==repeatWitness.ref &&
+    m.target.token==repeatWitness.token && state.entity==repeatWitness.ref &&
+    state.openedToken==repeatWitness.token;
 }
 void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, bool visible,
                       bool backPressed) {
@@ -339,6 +351,25 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
     dimmed = true;
   if(state.notice != Notice::none && uint32_t(now - noticeSince) >= 2500)
     state.notice = Notice::none;
+  if(repeatPress) {
+    const bool changed=!repeatCurrent(m) || int32_t(now-repeatObserved)<0;
+    const bool draftChanged=repeatArmed && (state.screen!=Screen::repeatValue ||
+      state.valueChoice!=1 || state.action!=repeatWitness.action ||
+      state.draftValue!=repeatWitness.repeat || state.repeatStep!=repeatWitness.step || !visible || m.controlPending);
+    if(changed || draftChanged || turn || backPressed || asleep || dimmed) {
+      repeatArmed=false;consumed=true;hasCommand=false;
+      if(state.repeatHeld) cancelPending=true;
+      state.repeatHeld=false;
+    }
+    repeatObserved=now;
+    // Release is observed before debounce: bounce can only cancel early.
+    // Keep the gesture consumed through stable release, even after completion.
+    if(!pressed) {
+      if(repeatArmed && !state.repeatHeld) {state.notice=Notice::holdToSend;noticeSince=now;}
+      if(state.repeatHeld) cancelPending=true;
+      repeatArmed=false;state.repeatHeld=false;consumed=true;held=true;
+    }
+  }
   if(backPressed != backRaw) {
     backRaw = backPressed;
     backSince = now;
@@ -366,6 +397,18 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
   if(turn && (stable || raw || pressed))
     consumed = true;
   if(pressed != raw) {
+    if(pressed && state.screen==Screen::repeatValue && state.valueChoice==1) {
+      repeatPress=true;repeatObserved=now;repeatArmed=false;
+      const bool allowed=!consumed && !stable && !asleep && !dimmed && visible &&
+        m.authorized && m.controlsEnabled && m.ready && !m.controlPending &&
+        m.target.exists && m.target.ref==state.entity && m.target.token==state.openedToken &&
+        (m.target.capabilities&controlActionBit(state.action)) && state.draftValue>=1 && state.draftValue<=127;
+      if(allowed) {
+        repeatWitness={state.entity,state.openedToken,state.action,-1,state.repeatStep,m.authGeneration,int8_t(state.draftValue)};
+        repeatConfiguration=m.authConfigurationGeneration;repeatModel=m.modelRevision;repeatRestore=m.restoreRevision;
+        repeatArmed=true;
+      } else {consumed=true;state.notice=visible?Notice::refused:Notice::wait;noticeSince=now;}
+    }
     raw = pressed;
     rawSince = now;
   }
@@ -382,12 +425,22 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
     } else {
       if(!consumed && !held)
         shortPress(now, m, visible);
-      consumed = held = false;
+      consumed = held = false;repeatPress=repeatArmed=false;
     }
   }
   if(stable && !consumed && !held && uint32_t(now - pressedSince) >= 800) {
     held = true;
-    if(state.screen == Screen::status) {
+    if(repeatPress) {
+      consumed=true;
+      if(repeatArmed && repeatCurrent(m) && visible && state.screen==Screen::repeatValue &&
+         state.valueChoice==1 && state.action==repeatWitness.action &&
+         state.draftValue==repeatWitness.repeat && state.repeatStep==repeatWitness.step) {
+        const auto request=repeatWitness;
+        cancelValue();
+        submitControl(now,m,true,request.action,-1,request.step,request.repeat);
+        state.repeatHeld=hasCommand;repeatArmed=false;
+      }
+    } else if(state.screen == Screen::status) {
       state.screen = Screen::details;
       state.detailsOffset = 0;
     } else

@@ -12,7 +12,7 @@ constexpr uint8_t homeRows=8, administrationHomeIndex=6, systemHomeIndex=7;
 enum class Screen : uint8_t { status, home, catalogue, roomKinds, control, actions, value, repeatActions, repeatValue, details, brightness, unlock, settings, administration, system, favouriteObserve, favouriteConfirm };
 using Action=ControlAction;
 enum class Notice : uint8_t { none, preview, queued, refused, idle, changed, wait, saved, saveFailed,
-  unlockRequired, unlockWrong, unlockWait, unlockUnavailable, unlocked, done, partial, busy, cancelled, valueUnavailable, expired, stopNotQueued };
+  unlockRequired, unlockWrong, unlockWait, unlockUnavailable, unlocked, done, partial, busy, cancelled, valueUnavailable, expired, stopNotQueued, holdToSend };
 enum class DispatchResult : uint8_t { queued, done, partial, refused, stale, busy, denied, idle, cancelled, expired, cancelledBusy };
 struct Target {
   EntityRef ref;
@@ -58,7 +58,7 @@ struct View {
   Action action=Action::stop;
   int16_t draftValue=0;
   uint8_t valueChoice=0, repeatStep=0;
-  bool repeating=false;
+  bool repeating=false, repeatHeld=false;
   Notice notice=Notice::none;
   uint16_t credentialChoice=0;
   uint8_t credentialLength=0, credentialMaximum=0;
@@ -78,7 +78,11 @@ struct Command {
 };
 class Controller {
   View state;
-  Command pending;
+  Command pending, repeatWitness;
+  bool repeatPress=false, repeatArmed=false;
+  uint32_t repeatObserved=0, repeatConfiguration=0;
+  uint64_t repeatModel=0, repeatRestore=0;
+  bool repeatCurrent(const Model &) const;
   CredentialEditor editor;
   ValueEditor valueEditor;
   uint32_t valueAuthorizationGeneration=0, valueConfigurationGeneration=0;
