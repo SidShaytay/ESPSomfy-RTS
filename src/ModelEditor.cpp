@@ -14,6 +14,12 @@ edit_result_t edit_result_t::completed(uint8_t id,
 }
 
 
+edit_result_t edit_result_t::unchanged(uint8_t id) {
+  edit_result_t result;
+  result.ok=true;result.noChange=true;result.id=id;
+  return result;
+}
+
 edit_changes_t editChanges(model_edit_type_t type, const edit_result_t &result) {
   edit_changes_t c;
   if(!result.applied)return c;

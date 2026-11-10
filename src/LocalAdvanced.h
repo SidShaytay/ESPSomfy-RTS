@@ -2,6 +2,7 @@
 #include "LocalEntityForm.h"
 #include "LocalLearnCandidates.h"
 #include "LocalLearnQueue.h"
+#include "LocalMembership.h"
 #include "LocalTargetRead.h"
 namespace LocalUi {
 enum class PrimaryCounterEffect : uint8_t;
@@ -69,9 +70,25 @@ struct PrimaryApplyResult {
   EntityAdmin::Admission admission = EntityAdmin::Admission::accepted;
   LearnQueueReason freshness = LearnQueueReason::ready;
 };
+struct MembershipApplyResult {
+  EntityAdmin::ApplyResult result;
+  LearnQueueReason freshness=LearnQueueReason::ready;
+};
 class Backend {
 public:
   virtual ~Backend() = default;
+  virtual bool membershipRows(Target,bool candidates,MembershipRows &) = 0;
+  virtual bool membershipLabel(Target,bool candidates,const MembershipRows &,uint8_t,
+      EntityAdmin::Choice &,char (&detail)[48]) = 0;
+  virtual bool selectMembership(Target,const Context &,bool candidates,
+      const MembershipRows &,uint8_t,MembershipSelection &) = 0;
+  virtual EntityAdmin::Admission membershipCurrent(Target,const Context &,
+      EntityAdmin::Authorization,uint64_t,const MembershipSelection &) = 0;
+  virtual MembershipApplyResult applyMembership(Target,const Context &,
+      EntityAdmin::Authorization,uint64_t,const MembershipSelection &,
+      LearnPending &,ArduinoJson::Allocator &) = 0;
+  virtual LearnFileResult retryMembershipFile(Target,const Context &,
+      EntityAdmin::Authorization,uint64_t,LearnPending &) = 0;
   virtual PrimaryReadResult readPrimary(Target, const Context &,
       EntityAdmin::Authorization, uint64_t, PrimaryCounterReview &) = 0;
   // Live aliases/quarantine only; no NVS/owner/allocation. Safe in a final
@@ -135,6 +152,9 @@ class Form {
   void learnFault(const char *, bool chooseFrame = false);
   void primaryEffect(PrimaryCounterEffect effect, uint64_t now);
   void runPrimary();
+  bool openMembership(bool);
+  void membershipEffect(MembershipEffect,uint64_t);
+  void runMembership();
 
 public:
   static constexpr uint64_t timeoutMs = 120000;

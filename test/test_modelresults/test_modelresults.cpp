@@ -122,8 +122,19 @@ static void expired_upload_recovery_uses_existing_wire_fields_without_a_save_cla
   TEST_ASSERT_NOT_NULL(strstr(protoString(payload,proto_field_t::desc),"no file save or restart"));
   TEST_ASSERT_EQUAL(3,payload.size());
 }
+static void typed_unchanged_success_reports_no_persistence_attempt_or_fanout() {
+  const auto result=edit_result_t::unchanged(9);
+  TEST_ASSERT_TRUE(result.noChange);TEST_ASSERT_TRUE(result.ok);TEST_ASSERT_FALSE(result.applied);TEST_ASSERT_FALSE(result.durable());
+  TEST_ASSERT_EQUAL(9,result.id);const auto changes=editChanges(model_edit_type_t::link_to_group,result);
+  TEST_ASSERT_EQUAL(0,changes.groupId);TEST_ASSERT_EQUAL(0,changes.shadeId);
+  char text[256];BufferedJsonFormatter json;json.setBuffer(text,sizeof(text));beginFrame(json,proto_type_t::reply,7);ProtoWriter writer(json);
+  writeModelEditResult(writer,model_edit_type_t::link_to_group,result);endFrame(json);JsonDocument doc;TEST_ASSERT_FALSE(deserializeJson(doc,text));const auto payload=doc["d"].as<JsonObject>();
+  TEST_ASSERT_TRUE(protoBool(payload,proto_field_t::ok));TEST_ASSERT_FALSE(protoBool(payload,proto_field_t::applied));TEST_ASSERT_FALSE(protoBool(payload,proto_field_t::durable));
+  TEST_ASSERT_FALSE(protoHas(payload,proto_field_t::modelSaveState));TEST_ASSERT_FALSE(protoHas(payload,proto_field_t::desc));TEST_ASSERT_FALSE(protoHas(payload,proto_field_t::code));
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(typed_unchanged_success_reports_no_persistence_attempt_or_fanout);
   RUN_TEST(expired_upload_recovery_uses_existing_wire_fields_without_a_save_claim);
   RUN_TEST(applied_failure_retains_id_and_actual_change_fanout);
   RUN_TEST(

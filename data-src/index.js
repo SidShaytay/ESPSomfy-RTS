@@ -457,7 +457,13 @@ function sendEdit(name, fields, target, cb) {
         let id = target.idOf(reply);
         proto.waitFor(target.event, (d) => target.match(d, id), 3000).then(() => adopted(target.read(id) || reply));
     };
-    runOp(name, fields, true).then((reply) => applied(reply, false), (err) => {
+    runOp(name, fields, true).then((reply) => {
+        if (reply.ok === true && reply.applied === false) {
+            // Idempotent membership already matches: no file attempt/event.
+            // Leave any earlier persistence warning intact.
+            finish(null, target ? (target.read(target.idOf(reply)) || reply) : reply);
+        } else applied(reply, false);
+    }, (err) => {
         if (err.data && err.data.applied === true) applied(err.data, true);
         else finish(err, null);
     });
@@ -3659,8 +3665,13 @@ class Somfy {
         if (typeof shadeId === 'object') return [shadeId, command];
         return [{ shadeId: shadeId, command: command, repeat: repeat }, cb];
     }
+    groupCommandArgs(groupId, command, repeat, cb) {
+        if (typeof groupId === 'object') return [groupId, command];
+        return [{ groupId: groupId, command: command, repeat: repeat }, cb];
+    }
     sendGroupRepeat(groupId, command, repeat, cb) {
-        sendOp('repeatCommand', { groupId: groupId, command: command, repeat: repeatOf(repeat) }, cb);
+        const [cmd, done] = this.groupCommandArgs(groupId, command, repeat, cb);
+        sendOp('repeatCommand', { groupId: cmd.groupId, command: cmd.command, repeat: repeatOf(cmd.repeat), stepSize: cmd.stepSize }, done);
     }
     sendVRCommand(el) {
         let pnl = document.getElementById('divVirtualRemote');
@@ -3692,7 +3703,7 @@ class Somfy {
                 if (o.cmd === 'Sensor')
                     somfy.sendSetSensor(o);
                 else if (o.type === 'group')
-                    somfy.sendGroupRepeat(o.groupId, o.cmd, null, fnRepeatCommand);
+                    somfy.sendGroupRepeat(o, fnRepeatCommand);
                 else
                     somfy.sendCommandRepeat(o, fnRepeatCommand);
             }
@@ -3702,7 +3713,7 @@ class Somfy {
             somfy.sendSetSensor(o);
         }
         else if (o.type === 'group')
-            somfy.sendGroupCommand(o.groupId, o.cmd, null, (err, group) => { fnRepeatCommand(err, group); });
+            somfy.sendGroupCommand(o, (err, group) => { fnRepeatCommand(err, group); });
         else
             somfy.sendCommand(o, (err, shade) => { fnRepeatCommand(err, shade); });
     }
@@ -3714,8 +3725,9 @@ class Somfy {
         sendOp('setSensor', fields, cb);
     }
     sendGroupCommand(groupId, command, repeat, cb) {
-        console.log(`Sending Group command ${groupId}-${command}`);
-        sendOp('groupCommand', { groupId: groupId, command: command, repeat: repeatOf(repeat) }, cb);
+        const [cmd, done] = this.groupCommandArgs(groupId, command, repeat, cb);
+        console.log(`Sending Group command ${cmd.groupId}-${cmd.command}`);
+        sendOp('groupCommand', { groupId: cmd.groupId, command: cmd.command, repeat: repeatOf(cmd.repeat), stepSize: cmd.stepSize }, done);
     }
     sendTiltCommand(shadeId, command, cb) {
         console.log(`Sending Tilt command ${shadeId}-${command}`);

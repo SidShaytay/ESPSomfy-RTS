@@ -181,10 +181,25 @@ static void test_entity_names_reject_embedded_nul_without_changing_omitted_names
   TEST_ASSERT_GOOD(expand(model_edit_type_t::save_room, R"({"r":4,"o":1})"));
   TEST_ASSERT_TRUE(doc["name"].isNull());
 }
+static void test_membership_ids_have_literal_operation_bounds_without_uint8_wrap() {
+  for(auto type:{model_edit_type_t::link_to_group,model_edit_type_t::unlink_from_group}) {
+    TEST_ASSERT_GOOD(expand(type,R"({"g":16,"s":32})"));
+    for(const char *json:{R"({"g":0,"s":1})",R"({"g":17,"s":1})",R"({"g":-1,"s":1})",R"({"g":256,"s":1})",R"({"g":257,"s":1})",R"({"g":18446744073709551615,"s":1})",R"({"g":1,"s":0})",R"({"g":1,"s":-1})",R"({"g":1,"s":256})",R"({"g":1,"s":257})",R"({"g":1,"s":18446744073709551615})",R"({"g":1})",R"({"s":1})"})
+      TEST_ASSERT_NOT_NULL_MESSAGE(expand(type,json),json);
+  }
+  for(const char *json:{R"({"g":1,"s":33})",R"({"g":1,"s":88})",R"({"g":1,"s":254})",R"({"g":1,"s":255})"})
+    TEST_ASSERT_NOT_NULL_MESSAGE(expand(model_edit_type_t::link_to_group,json),json);
+  for(unsigned id:{1u,32u,88u,254u,255u}) {
+    char json[32];snprintf(json,sizeof(json),"{\"g\":16,\"s\":%u}",id);
+    TEST_ASSERT_GOOD(expand(model_edit_type_t::unlink_from_group,json));
+    TEST_ASSERT_EQUAL(id,doc["shadeId"].as<unsigned>());
+  }
+}
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_membership_ids_have_literal_operation_bounds_without_uint8_wrap);
   RUN_TEST(test_entity_names_reject_embedded_nul_without_changing_omitted_names);
   RUN_TEST(test_room_fields_use_destination_bounds_without_touching_omitted_legacy_values);
   RUN_TEST(test_independent_edit_errors_survive_interleaved_parses);

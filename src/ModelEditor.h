@@ -31,7 +31,8 @@ enum class model_edit_type_t : uint8_t {
 // saved, 0 otherwise.  notFound: it was refused for an id that doesn't exist.
 enum class edit_failure_t : uint8_t { badRequest, busy, internal };
 struct edit_result_t {
-  // ok certifies application plus the model file, not separate NVS writes.
+  // ok certifies an applied/verified model file OR explicit noChange success.
+  // Neither qualifies separate NVS writes; noChange attempts no persistence.
   // Applied persistence failure retains IDs; retry COMMIT, never the edit.
   bool ok = false;
   bool applied = false;
@@ -46,8 +47,10 @@ struct edit_result_t {
   // remain presentation only, never a machine-readable failure discriminator.
   bool hasCounterResult = false;
   CounterDomainState counterState = CounterDomainState::invalid;
+  bool noChange = false;
   bool durable() const { return applied && persistence.saved(); }
   static edit_result_t completed(uint8_t id,ModelCommitResult persistence);
+  static edit_result_t unchanged(uint8_t id);
   static edit_result_t error(const char *desc, int8_t code = 0) {
     edit_result_t r;
     r.ok = false;
@@ -61,6 +64,7 @@ struct edit_result_t {
     return r;
   }
 };
+static_assert(sizeof(edit_result_t)<=(sizeof(void*)==8?24:16),"Keep typed edit outcomes within their existing caller budget");
 // Why an add, or the read that offers one, is refused when every slot of its
 // kind is taken.
 #define EDIT_ROOMS_FULL "Maximum number of rooms exceeded."

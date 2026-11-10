@@ -30,6 +30,14 @@ constexpr entity_choice_t tilts[] = {{0, "None"},
                                      {4, "Euro mode"}};
 } // namespace
 const entity_field_t *entityField(model_edit_type_t type, proto_field_t field) {
+  if(type==model_edit_type_t::link_to_group || type==model_edit_type_t::unlink_from_group) {
+    static const entity_field_t groupId{proto_field_t::groupId,1,SOMFY_MAX_GROUPS};
+    static const entity_field_t addId{proto_field_t::shadeId,1,SOMFY_MAX_SHADES};
+    static const entity_field_t removeId{proto_field_t::shadeId,1,UINT8_MAX};
+    if(field==proto_field_t::groupId)return &groupId;
+    if(field==proto_field_t::shadeId)return type==model_edit_type_t::link_to_group?&addId:&removeId;
+    return nullptr;
+  }
   const auto *form = editForm(type);
   if (!form)
     return nullptr;

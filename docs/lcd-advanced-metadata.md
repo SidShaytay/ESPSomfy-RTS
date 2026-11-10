@@ -14,15 +14,14 @@ You can:
 - Change the paired marker, without claiming the motor paired or unpaired.
 - Remove a linked remote association.
 - Remove a repeater association, after already accepted repeater work completes.
-- Remove dangling group-member references. This cannot unpair a missing device
-  from a physical motor. Duplicate references to the selected ID are removed
-  together; other members remain.
+- [Add or remove group controller entries](lcd-group-membership.md), including
+  missing references, duplicates and unused placeholders. This leaves physical
+  pairing unchanged.
 
 Every operation opens a confirmation with Cancel selected. Turning the encoder,
 entering a screen, waking, pressing Back or timing out never applies an edit.
-Removing an association does not transmit a physical unpair command. Present
-members in the initial group screen are read only; their physical programming
-workflow is a later increment.
+Removing an association does not transmit a physical unpair command. The group controller-list editor has a separate review for present, missing and
+unused entries; it does not perform physical programming.
 
 If a change is applied but its model file cannot be verified, the action is
 forgotten. The result offers a separate model-file retry and Close. Retrying

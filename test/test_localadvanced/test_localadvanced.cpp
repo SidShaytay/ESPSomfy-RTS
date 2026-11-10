@@ -46,6 +46,33 @@ struct Model : Advanced::Backend {
   uint16_t primaryCode=1000,storedPrimary=1000,aliasCode=1000;
   bool storedPresent=true,primaryFresh=true;
   unsigned corrections=0;
+  unsigned membershipEdits=0;
+  bool membershipStale=false;
+  bool membershipRows(Target,bool adding,MembershipRows &out) override {
+    out={};out.groupSlot=2;memset(out.devices,255,sizeof(out.devices));
+    if(adding){out.count=1;out.ids[0]=9;out.slots[0]=255;out.devices[0]=30;}
+    else {out.count=32;for(unsigned i=0;i<32;++i)out.slots[i]=i;out.ids[0]=7;out.devices[0]=31;}
+    return true;
+  }
+  bool membershipLabel(Target,bool,const MembershipRows &rows,uint8_t i,Choice &out,char (&detail)[48]) override {
+    if(i>=rows.count)return false;out.value=rows.ids[i];
+    snprintf(out.label,sizeof(out.label),"#%u Motor",unsigned(rows.ids[i]));strcpy(detail,"Controller list only");return true;
+  }
+  bool selectMembership(Target target,const Context &,bool adding,const MembershipRows &rows,uint8_t i,MembershipSelection &out) override {
+    if(i>=rows.count || !rows.ids[i])return false;out={};out.id=rows.ids[i];out.slot=rows.slots[i];out.deviceSlot=rows.devices[i];out.groupSlot=rows.groupSlot;out.adding=adding;out.occurrences=adding?0:1;out.hasCandidate=true;
+    Context candidate;capture({Scope::devices,out.id},candidate);out.candidate=candidate.raw;
+    strcpy(out.label,"Motor device");strcpy(out.groupIdentity,"Group #27 RTS 56 address100");strcpy(out.deviceIdentity,"Device #7 RTW 80 address100");return true;
+  }
+  Admission membershipCurrent(Target target,const Context &context,Authorization admitted,uint64_t rev,const MembershipSelection &) override {
+    if(membershipStale)return Admission::stale;return checkLearnContext(target,context,admitted,rev);
+  }
+  MembershipApplyResult applyMembership(Target target,const Context &,Authorization,uint64_t,const MembershipSelection &,LearnPending &witness,ArduinoJson::Allocator &) override {
+    const auto fresh=witness.current(40);if(fresh!=LearnQueueReason::ready)return {{},fresh};
+    ++membershipEdits;++history;return {{edit_result_t::completed(target.id,{file,ModelCommitStage::write})}};
+  }
+  LearnFileResult retryMembershipFile(Target target,const Context &context,Authorization auth,uint64_t rev,LearnPending &witness) override {
+    return retryLearnFile(target,context,auth,rev,witness);
+  }
   PrimaryReadResult readPrimary(Target target,const Context &,Authorization,uint64_t,PrimaryCounterReview &out) override {
     out={};if(refusal!=Admission::accepted)return {CounterDomainState::invalid,refusal};
     out.shadeId=target.id;out.address=100;out.primary=primaryCode;out.stored={storedPrimary,storedPresent};out.matching[0]=3;out.codes[0]=primaryCode;out.codes[1]=aliasCode;
@@ -378,6 +405,13 @@ static void confirmation_names_exact_association_and_configuration_effect() {
     form.activate(14);
     FormView view;
     form.render(view);
+    if(scope==Scope::groups){
+      TEST_ASSERT_EQUAL(Mode::membershipReview,view.mode);
+      TEST_ASSERT_NOT_NULL(strstr(view.rows[0].value,"Group #27"));
+      TEST_ASSERT_NOT_NULL(strstr(view.rows[1].value,"Device #7"));
+      TEST_ASSERT_NOT_NULL(strstr(view.hint,"still respond"));
+      TEST_ASSERT_EQUAL(0,view.selected);form.discard();continue;
+    }
     TEST_ASSERT_EQUAL(Mode::confirm, view.mode);
     TEST_ASSERT_NOT_NULL(strstr(view.rows[1].label, "1234"));
     TEST_ASSERT_EQUAL_STRING(
@@ -746,8 +780,46 @@ static void primary_editor_expiry_and_old_ticket_cannot_execute_reopened_session
   TEST_ASSERT_NOT_EQUAL(old,replacement);model.learnedQueue.run(old,40);TEST_ASSERT_EQUAL(0,model.corrections);TEST_ASSERT_TRUE(model.learnedQueue.active(replacement));
   model.learnedQueue.run(replacement,40);TEST_ASSERT_EQUAL(1,model.corrections);form.discard();TEST_ASSERT_EQUAL(0,memory.used());
 }
+static void group_membership_parent_reviews_then_queues_and_only_retries_file() {
+  Model model;model.file=ModelCommitState::failed;
+  JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);FormView view;
+  TEST_ASSERT_TRUE(form.open(Scope::groups,0));form.activate(1);form.render(view);
+  TEST_ASSERT_EQUAL_UINT8(33,view.total); // All 32 physical slots plus Add.
+  form.activate(2);form.render(view);TEST_ASSERT_EQUAL(Mode::membershipReview,view.mode);
+  TEST_ASSERT_EQUAL_UINT8(0,view.selected);TEST_ASSERT_NOT_NULL(strstr(view.hint,"still respond"));
+  TEST_ASSERT_EQUAL(0,model.membershipEdits);form.turn(1,3);form.activate(4);
+  TEST_ASSERT_NOT_EQUAL(0,model.learnedToken);TEST_ASSERT_EQUAL(0,model.membershipEdits);
+  model.learnedQueue.run(model.learnedToken,40);form.render(view);
+  TEST_ASSERT_EQUAL(1,model.membershipEdits);TEST_ASSERT_EQUAL_STRING("File save failed",view.title);
+  form.turn(-1,41);form.activate(42);model.learnedQueue.run(model.learnedToken,43);form.render(view);
+  TEST_ASSERT_EQUAL(1,model.membershipEdits);TEST_ASSERT_EQUAL(1,model.retries);TEST_ASSERT_EQUAL_STRING("Membership saved",view.title);
+  form.discard();TEST_ASSERT_EQUAL(0,memory.used());
+}
+static void group_membership_parent_revalidates_candidate_at_fifo_execution() {
+  Model model;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);
+  TEST_ASSERT_TRUE(form.open(Scope::groups,0));form.activate(1);form.activate(2);form.turn(1,3);form.activate(4);
+  const auto token=model.learnedToken;TEST_ASSERT_NOT_EQUAL(0,token);model.membershipStale=true;
+  model.learnedQueue.run(token,40);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(0,model.membershipEdits);
+  TEST_ASSERT_EQUAL(0,memory.used());
+}
+static void membership_pending_cancel_expiry_and_lock_wipe_without_edits() {
+  for(unsigned cause=0;cause<4;++cause){
+    Model model;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);
+    TEST_ASSERT_TRUE(form.open(Scope::groups,0));form.activate(1);form.activate(2);form.turn(1,3);form.activate(4);
+    const auto token=model.learnedToken;TEST_ASSERT_NOT_EQUAL(0,token);
+    if(cause==0)form.back(5);
+    if(cause==1)form.tick(120005);
+    if(cause==2){model.auth.allowed=false;form.tick(5);}
+    if(cause==3){++model.history;form.tick(5);}
+    model.learnedQueue.run(token,120006);TEST_ASSERT_TRUE(form.closed());
+    TEST_ASSERT_EQUAL(0,model.membershipEdits);TEST_ASSERT_EQUAL(0,memory.used());
+  }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(membership_pending_cancel_expiry_and_lock_wipe_without_edits);
+  RUN_TEST(group_membership_parent_reviews_then_queues_and_only_retries_file);
+  RUN_TEST(group_membership_parent_revalidates_candidate_at_fifo_execution);
   RUN_TEST(primary_queue_back_age_auth_and_unknown_storage_never_replay);
   RUN_TEST(primary_editor_expiry_and_old_ticket_cannot_execute_reopened_session);
   RUN_TEST(primary_correction_requires_explicit_draft_apply_confirm_and_file_only_recovery);
