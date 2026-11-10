@@ -211,12 +211,13 @@ DispatchResult validateControl(Target &target,uint32_t &moving) {
   if(security.configurationGeneration!=pendingControl.securityGeneration || (!session && !grace)) return DispatchResult::denied;
   if(!(target.capabilities&controlActionBit(cmd.action))) return DispatchResult::refused;
   if(rf(target.descriptor.proto) && (!somfy.transceiver.available() || somfy.transceiver.txSuspended())) return DispatchResult::refused;
+  if(cmd.action==Action::stop && cmd.repeat!=-1) return DispatchResult::refused;
   if(cmd.action==Action::stop) {
     pendingControl.eligible &= moving;
     if(!pendingControl.eligible) return DispatchResult::idle;
   } else {
     shade_request_t request;
-    const auto prepared=prepareControlRequest(cmd.action,target.descriptor,cmd.ref.id,cmd.value,cmd.step,request);
+    const auto prepared=prepareControlRequest(cmd.action,target.descriptor,cmd.ref.id,cmd.value,cmd.step,request,cmd.repeat);
     if(prepared!=ControlResult::done) return prepared==ControlResult::idle?DispatchResult::idle:DispatchResult::refused;
   }
   return DispatchResult::queued;
@@ -335,11 +336,12 @@ DispatchResult dispatch(const Command &cmd) {
     return DispatchResult::refused;
   if(!(target.capabilities & controlActionBit(cmd.action))) return DispatchResult::refused;
   uint32_t eligible=0;
+  if(cmd.action==Action::stop && cmd.repeat!=-1) return DispatchResult::refused;
   if(cmd.action==Action::stop) {
     eligible=session?moving:moving&leasedMoving;
   } else {
     shade_request_t request;
-    const auto prepared=prepareControlRequest(cmd.action,target.descriptor,cmd.ref.id,cmd.value,cmd.step,request);
+    const auto prepared=prepareControlRequest(cmd.action,target.descriptor,cmd.ref.id,cmd.value,cmd.step,request,cmd.repeat);
     if(prepared!=ControlResult::done) return prepared==ControlResult::idle?DispatchResult::idle:DispatchResult::refused;
   }
   bool superseded=false;
@@ -371,7 +373,7 @@ void runLocalControl(uint64_t token) {
   const auto cmd=pendingControl.command;
   shade_request_t request;
   if(cmd.action!=Action::stop) {
-    if(prepareControlRequest(cmd.action,target.descriptor,cmd.ref.id,cmd.value,cmd.step,request)!=ControlResult::done)
+    if(prepareControlRequest(cmd.action,target.descriptor,cmd.ref.id,cmd.value,cmd.step,request,cmd.repeat)!=ControlResult::done)
       {finishControl(DispatchResult::refused);return;}
     const auto result=shadeRequests.run(request);
     finishControl(result==shade_request_result_t::done?DispatchResult::done:DispatchResult::refused);return;

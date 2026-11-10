@@ -418,6 +418,18 @@ int main(int argc,char **argv){
   busBusy=true;rotate(-1);click();assert(submitted.size()==beforeDraft);
   busBusy=false;idle();click();assert(submitted.size()==beforeDraft+1);
   assert(submitted.back().target==expected && submitted.back().type==shade_request_type_t::shade_command);
+  // Explicit repeat confirmation must itself reach the physical GFX frame.
+  const auto beforeRepeats=submitted.size();rotate(1);idle();rotate(1);idle();click();idle();
+  assert(lastQuery.screen==Screen::actions);
+  for(unsigned i=0;i<20 && lastQuery.action!=repeatsNavigation;i++){rotate(1);idle();}
+  click();idle();assert(lastQuery.screen==Screen::repeatActions && lastQuery.action==Action::up);
+  click();idle();assert(lastQuery.screen==Screen::repeatValue);rotate(1);idle();
+  assert(lastQuery.draftValue==2 && submitted.size()==beforeRepeats);
+  click();idle();assert(lastQuery.valueChoice==2);
+  busBusy=true;rotate(-1);click();assert(submitted.size()==beforeRepeats);
+  busBusy=false;idle();click();idle();assert(submitted.size()==beforeRepeats+1);
+  assert(submitted.back().repeat==2 && submitted.back().id==7 && submitted.back().command==somfy_commands::Up && submitted.back().type==shade_request_type_t::shade_command);
+  assert(lastQuery.screen==Screen::control && lastQuery.action==Action::stop);
   // Back retracts an unsubmitted intent; no request or MY is generated.
   const auto beforePending=submitted.size();somfy.transceiver.room=false;
   idle();rotate(-1);idle();click();assert(localControlPending() && submitted.size()==beforePending);

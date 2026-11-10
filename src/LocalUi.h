@@ -9,7 +9,7 @@
 namespace LocalUi {
 constexpr uint8_t detailsRowCount=14, detailsVisibleRows=6;
 constexpr uint8_t homeRows=8, administrationHomeIndex=6, systemHomeIndex=7;
-enum class Screen : uint8_t { status, home, catalogue, roomKinds, control, actions, value, details, brightness, unlock, settings, administration, system };
+enum class Screen : uint8_t { status, home, catalogue, roomKinds, control, actions, value, repeatActions, repeatValue, details, brightness, unlock, settings, administration, system };
 using Action=ControlAction;
 enum class Notice : uint8_t { none, preview, queued, refused, idle, changed, wait, saved, saveFailed,
   unlockRequired, unlockWrong, unlockWait, unlockUnavailable, unlocked, done, partial, busy, cancelled, valueUnavailable, expired, stopNotQueued };
@@ -57,7 +57,8 @@ struct View {
   uint16_t dimSeconds=10, offSeconds=20;
   Action action=Action::stop;
   int16_t draftValue=0;
-  uint8_t valueChoice=0;
+  uint8_t valueChoice=0, repeatStep=0;
+  bool repeating=false;
   Notice notice=Notice::none;
   uint16_t credentialChoice=0;
   uint8_t credentialLength=0, credentialMaximum=0;
@@ -72,6 +73,7 @@ struct Command {
   uint8_t step=0;
   // Active session source, or the original expired source for scoped STOP.
   uint32_t authGeneration=0;
+  int8_t repeat=-1;
 };
 class Controller {
   View state;
@@ -91,7 +93,7 @@ class Controller {
   void valueView();
   void cancelValue();
   void beginUnlock(uint32_t,const Model &,Screen);
-  void submitControl(uint32_t,const Model &,bool,Action,int8_t value=-1,uint8_t step=0);
+  void submitControl(uint32_t,const Model &,bool,Action,int8_t value=-1,uint8_t step=0,int8_t repeat=-1);
   bool hasCommand=false, started=false, raw=false, stable=false;
   bool consumed=false, held=false, asleep=false, dimmed=false, savePending=false;
   bool backRaw=false, backStable=false, backConsumed=false;

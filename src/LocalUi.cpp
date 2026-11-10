@@ -71,7 +71,7 @@ void Controller::goBack() {
     else { state.screen=Screen::home; state.selected=state.catalogue==CatalogueKind::rooms?0:state.catalogue==CatalogueKind::devices?1:2; }
   } else if(state.screen==Screen::roomKinds) openCatalogue(CatalogueKind::rooms,allRooms);
   else if(state.screen==Screen::settings || state.screen==Screen::administration || state.screen==Screen::system) formInput.back=true;
-  else if(state.screen==Screen::actions || state.screen==Screen::value) {cancelValue();state.screen=Screen::control;}
+  else if(state.screen==Screen::actions || state.screen==Screen::value || state.screen==Screen::repeatActions || state.screen==Screen::repeatValue) {cancelValue();state.screen=Screen::control;}
   else state.screen=Screen::status;
 }
 void Controller::touch(uint32_t now) {
@@ -94,9 +94,9 @@ void Controller::valueView() {
   state.draftValue=int16_t(strtol(text,nullptr,10));
 }
 void Controller::cancelValue() {
-  valueEditor.cancel();state.draftValue=0;state.valueChoice=0;
+  valueEditor.cancel();state.draftValue=0;state.valueChoice=0;state.repeating=false;state.repeatStep=0;
 }
-void Controller::submitControl(uint32_t now,const Model &m,bool visible,Action action,int8_t value,uint8_t step) {
+void Controller::submitControl(uint32_t now,const Model &m,bool visible,Action action,int8_t value,uint8_t step,int8_t repeat) {
   const auto &t=m.target;
   if(!t.exists || t.ref!=state.entity || !state.openedToken || t.token!=state.openedToken)
     state.notice=Notice::changed;
@@ -107,7 +107,7 @@ void Controller::submitControl(uint32_t now,const Model &m,bool visible,Action a
   else if(!m.controlsEnabled) state.notice=Notice::preview;
   else if(!m.ready) state.notice=Notice::refused;
   else {
-    pending={state.entity,state.openedToken,action,value,step,m.authorized?m.authGeneration:m.expiredSessionGeneration};
+    pending={state.entity,state.openedToken,action,value,step,m.authorized?m.authGeneration:m.expiredSessionGeneration,repeat};
     hasCommand=true;state.notice=Notice::queued;
   }
   if(state.screen!=Screen::unlock) state.screen=Screen::control;
@@ -177,37 +177,56 @@ void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
     if(state.action==Action::count) {
       if(!m.target.exists || m.target.ref!=state.entity || !state.openedToken || m.target.token!=state.openedToken) state.notice=Notice::changed;
       else if(!visible) state.notice=Notice::wait;
-      else { const auto menu=controlMenu(m.target.capabilities,false);
+      else { const auto menu=controlMenu(m.target.capabilities,false,repeatableControls(m.target.descriptor)!=0);
         if(menu.count) {state.screen=Screen::actions;state.selected=0;state.action=menu.actions[0];}
       }
     } else submitControl(now,m,visible,state.action);
     break;
-  case Screen::actions: {
-    const auto menu=controlMenu(m.target.capabilities,false);
+  case Screen::actions:
+  case Screen::repeatActions: {
+    const bool repeating=state.screen==Screen::repeatActions;
+    const auto menu=repeating?repeatMenu(m.target.descriptor):controlMenu(m.target.capabilities,false,repeatableControls(m.target.descriptor)!=0);
     if(!m.target.exists || m.target.token!=state.openedToken || m.target.ref!=state.entity) state.notice=Notice::changed;
     else if(!visible) state.notice=Notice::wait;
     else if(state.selected>=menu.count || menu.actions[state.selected]!=state.action) state.notice=Notice::changed;
     else if(!m.authorized) beginUnlock(now,m,Screen::control);
-    else if(controlNeedsValue(state.action)) {
+    else if(state.action==repeatsNavigation) {
+      const auto repeated=repeatMenu(m.target.descriptor);
+      if(repeated.count) {state.screen=Screen::repeatActions;state.selected=0;state.action=repeated.actions[0];}
+    } else if(repeating && !controlIsStep(state.action)) {
+      if(valueEditor.beginInteger(1,1,127,1,now)) {
+        state.screen=Screen::repeatValue;state.repeating=true;state.valueChoice=0;state.repeatStep=0;valueView();
+        valueAuthorizationGeneration=m.authGeneration;valueConfigurationGeneration=m.authConfigurationGeneration;
+      }
+    } else if(controlNeedsValue(state.action)) {
       const bool step=controlIsStep(state.action);
       const int initial=step?1:state.action==Action::position?m.target.position:m.target.tiltPosition;
       if(initial<0 || !valueEditor.beginInteger(initial,step?1:0,step?127:100,1,now)) state.notice=Notice::valueUnavailable;
       else {
-        state.screen=Screen::value;state.valueChoice=0;valueView();
+        state.screen=Screen::value;state.repeating=repeating;state.valueChoice=0;valueView();
         valueAuthorizationGeneration=m.authGeneration;valueConfigurationGeneration=m.authConfigurationGeneration;
       }
     } else submitControl(now,m,visible,state.action);
     break;
   }
   case Screen::value:
+  case Screen::repeatValue:
     if(!visible) state.notice=Notice::wait;
     else if(state.valueChoice==0) { state.valueChoice=2;valueEditor.setStep(1,now); }
     else if(state.valueChoice==2) {cancelValue();state.screen=Screen::control;state.action=Action::stop;}
     else {
       int64_t number=0;valueEditor.apply(now);
       if(valueEditor.takeNumber(number)) {
-        const auto action=state.action;cancelValue();
-        submitControl(now,m,visible,action,controlIsStep(action)?-1:int8_t(number),controlIsStep(action)?uint8_t(number):0);
+        const auto action=state.action;
+        if(state.repeating && state.screen==Screen::value) {
+          state.repeatStep=uint8_t(number);
+          valueEditor.beginInteger(1,1,127,1,now);state.screen=Screen::repeatValue;state.valueChoice=0;valueView();
+        } else {
+          const bool repeated=state.screen==Screen::repeatValue;const auto step=state.repeatStep;
+          cancelValue();
+          submitControl(now,m,visible,action,repeated?-1:controlIsStep(action)?-1:int8_t(number),
+            repeated?step:controlIsStep(action)?uint8_t(number):0,repeated?int8_t(number):-1);
+        }
       } else {cancelValue();state.screen=Screen::control;state.action=Action::stop;state.notice=Notice::changed;}
     }
     break;
@@ -238,12 +257,12 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
        m.modelRevision==chosenModelRevision && m.restoreRevision==chosenRestoreRevision)
       state.openedToken=m.target.token;
     else state.notice=Notice::changed;
-    const auto primary=controlMenu(m.target.capabilities,true);
+    const auto primary=controlMenu(m.target.capabilities,true,repeatableControls(m.target.descriptor)!=0);
     if(primary.index(state.action)<0 && primary.count) state.action=primary.actions[0];
     bindTarget=false;
   }
   if(state.screen==Screen::control && m.target.ref==state.entity && m.target.token==state.openedToken) {
-    const auto menu=controlMenu(m.target.capabilities,true);
+    const auto menu=controlMenu(m.target.capabilities,true,repeatableControls(m.target.descriptor)!=0);
     if(menu.index(state.action)<0) state.action=defaultControlAction(m.target.capabilities);
   }
   if(authorizeAfterUnlock && m.authorized) {
@@ -252,7 +271,7 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
     }
     authorizeAfterUnlock=false;
   }
-  if(state.screen==Screen::value) {
+  if(state.screen==Screen::value || state.screen==Screen::repeatValue) {
     valueEditor.tick(now);
     const bool changed=m.target.ref!=state.entity || m.target.token!=state.openedToken;
     if(changed || !m.authorized || m.authGeneration!=valueAuthorizationGeneration ||
@@ -393,12 +412,12 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
         index += turn > 0 ? 1 : -1;
         value = delays[index < 0 ? 0 : index > 8 ? 8 : index];
       }
-    } else if(state.screen==Screen::control || state.screen==Screen::actions) {
-      const auto menu=controlMenu(m.target.capabilities,state.screen==Screen::control);
+    } else if(state.screen==Screen::control || state.screen==Screen::actions || state.screen==Screen::repeatActions) {
+      const auto menu=state.screen==Screen::repeatActions?repeatMenu(m.target.descriptor):controlMenu(m.target.capabilities,state.screen==Screen::control,repeatableControls(m.target.descriptor)!=0);
       int index=menu.index(state.action);if(index<0) index=0;
       index+=turn>0?1:-1;if(index<0) index=0;if(index>=menu.count) index=menu.count?menu.count-1:0;
-      if(menu.count) {state.action=menu.actions[index];if(state.screen==Screen::actions) state.selected=uint8_t(index);}
-    } else if(state.screen==Screen::value) {
+      if(menu.count) {state.action=menu.actions[index];if(state.screen==Screen::actions || state.screen==Screen::repeatActions) state.selected=uint8_t(index);}
+    } else if(state.screen==Screen::value || state.screen==Screen::repeatValue) {
       if(!state.valueChoice) {valueEditor.rotate(turn,now);valueView();}
       else {state.valueChoice=turn>0?2:1;valueEditor.setStep(1,now);}
     }
