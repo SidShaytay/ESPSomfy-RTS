@@ -18,7 +18,7 @@ void setUp(){} void tearDown(){}
 static void navigation_and_cancel_never_restart() {
   State state;System::Form form(state);EntityAdmin::FormView view;
   TEST_ASSERT_TRUE(form.open(1));form.render(view);
-  TEST_ASSERT_EQUAL_STRING("System",view.title);TEST_ASSERT_EQUAL(5,view.total);
+  TEST_ASSERT_EQUAL_STRING("System",view.title);TEST_ASSERT_EQUAL(6,view.total);
   form.activate(2);form.render(view);TEST_ASSERT_EQUAL_STRING("Cancel",view.rows[0].label);
   form.activate(3);TEST_ASSERT_EQUAL(0,state.restarts); // default Cancel
   form.turn(1,4);form.activate(5);form.render(view);
@@ -101,7 +101,7 @@ static void untrusted_settings_have_distinct_repair_message_without_replay() {
 static void diagnostics_is_explicit_and_returns_to_its_system_row() {
  State b;System::Form f(b);EntityAdmin::FormView view;f.open(0);
  for(unsigned i=0;i<3;++i)f.turn(1,1);
- f.render(view);TEST_ASSERT_EQUAL(5,view.total);TEST_ASSERT_EQUAL_STRING("Receive diagnostics",view.rows[0].label);
+ f.render(view);TEST_ASSERT_EQUAL(6,view.total);TEST_ASSERT_EQUAL_STRING("Receive diagnostics",view.rows[0].label);
  f.activate(2);TEST_ASSERT_TRUE(f.wantsDiagnostics());TEST_ASSERT_EQUAL(0,b.restarts);
  f.finishChild();f.render(view);TEST_ASSERT_EQUAL(3,view.selected);TEST_ASSERT_FALSE(f.wantsDiagnostics());
 }

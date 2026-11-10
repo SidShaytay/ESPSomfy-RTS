@@ -84,7 +84,7 @@ bool sameMeaning(const View &a,const View &b,uint64_t page,uint64_t framePage,ui
   if(a.screen==Screen::control || a.screen==Screen::actions || a.screen==Screen::value || a.screen==Screen::repeatActions || a.screen==Screen::repeatValue || a.screen==Screen::favouriteObserve || a.screen==Screen::favouriteConfirm) {
     const bool sameTarget=a.entity==b.entity && a.openedToken==b.openedToken && target==frameTarget && a.action==b.action;
     if(a.screen==Screen::actions || a.screen==Screen::repeatActions) return sameTarget && a.selected==b.selected;
-    if(a.screen==Screen::value || a.screen==Screen::repeatValue || a.screen==Screen::favouriteObserve || a.screen==Screen::favouriteConfirm) return sameTarget && a.valueChoice==b.valueChoice && a.draftValue==b.draftValue && a.repeatStep==b.repeatStep && a.repeating==b.repeating;
+    if(a.screen==Screen::value || a.screen==Screen::repeatValue) return sameTarget && a.valueChoice==b.valueChoice && a.draftValue==b.draftValue && a.repeatStep==b.repeatStep && a.repeating==b.repeating;
     if(a.screen==Screen::favouriteObserve || a.screen==Screen::favouriteConfirm) return sameTarget && a.valueChoice==b.valueChoice && a.favouriteRevision==b.favouriteRevision;
     return sameTarget;
   }
