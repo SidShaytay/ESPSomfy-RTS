@@ -39,7 +39,9 @@ jobs:
         run: pio test -e coverage
 
       - name: Test the release scripts
-        run: bash test/scripts/test_set_version.sh
+        run: |
+          bash test/scripts/test_set_version.sh
+          bash test/scripts/test_release_version_step.sh
 
       # gcovr.cfg picks the files; the table goes to the run's summary page.
       - name: Coverage report
@@ -399,6 +401,10 @@ jobs:
           TARGET: ${{ github.event.release.target_commitish }}
         run: |
           bash .github/set_version.sh "$TAG"
+          if git diff --quiet; then
+            echo "Version already matches $TAG"
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git commit -am "chore: bump version to $TAG"
