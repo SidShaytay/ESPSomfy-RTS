@@ -30,12 +30,16 @@ struct GitUpdateTransport {
   int32_t sdkError=0,httpStatus=0,socketError=0,tlsSdkError=0,tlsError=0,tlsFlags=0;
 };
 static_assert(sizeof(GitUpdateTransport)<=32,"Bound updater transport diagnostics");
+constexpr uint32_t gitUpdateInstallDurationMs=30u*60u*1000u;
 struct GitUpdateSnapshot {
   GitUpdatePhase phase=GitUpdatePhase::unavailable;
   GitUpdateReason reason=GitUpdateReason::notStarted;
   bool supported=false, busy=false, compatible=false, cancellable=false, canPrepare=false,manual=false;
   // Metadata-only prepared state never claims installation is available.
   bool canInstall=false;
+  bool installContinuation=false;
+  uint16_t retryCount=0;
+  uint32_t retryDelayMs=0,installRemainingMs=0;
   uint8_t progress=0;
   uint64_t operation=0;
   char installed[48]={};

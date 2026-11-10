@@ -153,26 +153,29 @@ int main(int argc,char **argv){
   if(controllerScenario=="radioWork")somfy.transceiver.work=true;
   if(controllerScenario=="pauseFailure")pauseOkay=false;
   if(controllerScenario=="saveFailure")saveOkay=false;
-  if(controllerScenario=="sourceSave")onModelSave=[](){++localSecurity.generation;};
+  if(controllerScenario=="sourceSave")onModelSave=[](){++localSecurity.configurationGeneration;};
   if(controllerScenario=="configSave")onModelSave=[](){++somfy.configurationRevision;};
   if(controllerScenario=="activationFailure")Fake::failActivate=true;
   if(controllerScenario=="cancelWrite" || controllerScenario=="cleanupBusy" || controllerScenario=="staleCleanup"){
     resumeBusy=controllerScenario=="cleanupBusy";
     Fake::onWrite=[](){CHECK(cancelLocalGitUpdate(3,5,controllerOperation));loopGitUpdateController();CHECK(gitUpdateControllerPaused() && !resumeCalls);if(controllerScenario=="staleCleanup")somfy.transceiver.held=false;};
   }
-  if(controllerScenario=="sourceWrite")Fake::onWrite=[](){localSecurity.allowed=false;loopGitUpdateController();CHECK(gitUpdateControllerPaused() && !resumeCalls);};
+  if(controllerScenario=="sourceWrite")Fake::onWrite=[](){++localSecurity.configurationGeneration;loopGitUpdateController();CHECK(gitUpdateControllerPaused() && !resumeCalls);};
+  if(controllerScenario=="inactivityStage" || controllerScenario=="deadlineStage"){
+    Fake::onRead=[](){Fake::onRead=nullptr;Fake::now+=controllerScenario=="deadlineStage"?gitUpdateInstallDurationMs+1:120005;localSecurity.allowed=false;++localSecurity.generation;loopGitUpdateController();};
+  }
   for(unsigned i=0;i<5;++i)controllerPump();
   CHECK(!shutdownCalls && !Fake::otaActivations);
-  if(controllerScenario=="valid" || controllerScenario=="activationFailure" || controllerScenario=="expireFinal" || controllerScenario=="cancelFinal"){
+  if(controllerScenario=="valid" || controllerScenario=="inactivityStage" || controllerScenario=="activationFailure" || controllerScenario=="expireFinal" || controllerScenario=="cancelFinal"){
     CHECK(modelSaves==1 && gitUpdateControllerPaused() && restartPending());
-    if(controllerScenario=="expireFinal")localSecurity.allowed=false;
+    if(controllerScenario=="expireFinal")++localSecurity.configurationGeneration;
     if(controllerScenario=="cancelFinal")cancelRestart();
     Fake::now+=500;controllerPump();
     if(controllerScenario=="expireFinal" || controllerScenario=="cancelFinal"){
       for(unsigned i=0;i<3;++i)controllerPump();
       CHECK(!Fake::otaActivations && !shutdownCalls && !gitUpdate.busy() && !gitUpdateControllerPaused());return 0;
     }
-    if(controllerScenario=="valid")CHECK(shutdownCalls==1 && Fake::otaActivations==1 && modelSaves==2);
+    if(controllerScenario=="valid" || controllerScenario=="inactivityStage")CHECK(shutdownCalls==1 && Fake::otaActivations==1 && modelSaves==2);
     else{CHECK(!shutdownCalls && Fake::otaActivations==1 && gitUpdateControllerPaused() && gitUpdate.busy());for(unsigned i=0;i<3;++i)controllerPump();CHECK(Fake::otaActivations==1 && !resumeCalls);}
     return 0;
   }

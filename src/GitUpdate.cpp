@@ -45,6 +45,9 @@ enum class Owner : uint8_t { none,check,prepare,manual,restore,counter,restart,c
 Owner owner=Owner::none;
 uint64_t ownerGeneration=0;
 GitUpdateSnapshot view;
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+std::atomic<uint32_t> operationStart{0},operationBudget{180000};
+#endif
 ManualUpdateLifecycle manualTransfer;
 GitUpdateInstallHooks installHooks;
 uint64_t installLease=0;
@@ -209,7 +212,10 @@ bool GitUpdateClass::closeTransfer(const GitUpdateOwnerToken &token) {
 bool GitUpdateClass::busy() const { Guard guard;return owner!=Owner::none; }
 GitUpdateSnapshot GitUpdateClass::snapshot() const {
   Guard guard;
-  auto copy=view;copy.busy=owner!=Owner::none;
+  auto copy=view;copy.busy=owner!=Owner::none;copy.installContinuation=copy.busy && view.installContinuation;
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  if(copy.installContinuation){const uint32_t elapsed=uint32_t(millis()-operationStart);copy.installRemainingMs=elapsed<gitUpdateInstallDurationMs?gitUpdateInstallDurationMs-elapsed:0;}
+#endif
 #ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101
   copy.supported=true;
   copy.canInstall=!copy.busy && copy.compatible && copy.canPrepare && installHooks.current && installHooks.prepare && installHooks.cleanup && installHooks.written;
@@ -270,7 +276,7 @@ constexpr size_t API_LIMIT=65536,MANIFEST_LIMIT=4096,JSON_BUDGET=192u*1024;
 constexpr size_t INTERNAL_FREE=48u*1024,INTERNAL_LARGEST=16u*1024;
 std::atomic<TaskHandle_t> workerTask{nullptr};
 std::atomic<bool> cancelled{false};
-std::atomic<uint32_t> operationStart{0};
+
 bool startingWorker=false;
 uint8_t admissionPending=0;
 uint64_t runningLease=0,candidateGeneration=0;
@@ -280,7 +286,7 @@ void *jsonAcquire(size_t size) { return heap_caps_aligned_alloc(alignof(max_alig
 void jsonRelease(void *p) { heap_caps_free(p); }
 GitUpdateReason stoppedReason() {
   if(cancelled.load()) return GitUpdateReason::cancelled;
-  return uint32_t(millis()-operationStart)>OPERATION_MS ? GitUpdateReason::timeout : GitUpdateReason::none;
+  return uint32_t(millis()-operationStart)>=operationBudget.load() ? GitUpdateReason::timeout : GitUpdateReason::none;
 }
 bool stopped() { return stoppedReason()!=GitUpdateReason::none; }
 void cooperate() { vTaskDelay(1); }
@@ -631,7 +637,7 @@ GitUpdateRequest queue(bool prepare,const GitUpdateCandidate &expected,uint64_t 
   if(prepare && (!view.compatible || !view.canPrepare || !expected.generation || !matches(view.candidate,expected))) return GitUpdateRequest::invalidCandidate;
   if(candidateGeneration==UINT64_MAX){terminalLocked(GitUpdateReason::freshness);return GitUpdateRequest::unavailable;}
   if(!acquire(prepare ? Owner::prepare : Owner::check)) return GitUpdateRequest::unavailable;
-  view.operation=++candidateGeneration;view.manual=false;view.transport={};if(operation)*operation=view.operation;
+  view.operation=++candidateGeneration;view.manual=false;view.installContinuation=false;view.retryCount=0;view.retryDelayMs=0;operationBudget=OPERATION_MS;view.transport={};if(operation)*operation=view.operation;
   operationExpected=expected;runningLease=ownerGeneration;
   cancelled.store(false);admissionPending=prepare ? 2 : 1;
   view.phase=GitUpdatePhase::queued;view.reason=GitUpdateReason::none;view.cancellable=true;view.progress=0;
@@ -721,7 +727,7 @@ GitUpdateRequest GitUpdateClass::requestInstall(const GitUpdateCandidate &expect
   if(!view.compatible || !view.canPrepare || !matches(expected,view.candidate))return GitUpdateRequest::invalidCandidate;
   if(candidateGeneration==UINT64_MAX){terminalLocked(GitUpdateReason::freshness);return GitUpdateRequest::unavailable;}
   if(!acquire(Owner::install))return GitUpdateRequest::unavailable;
-  installLease=runningLease=ownerGeneration;operationExpected=expected;cancelled=false;admissionPending=1;operationStart=millis();
+  installLease=runningLease=ownerGeneration;operationExpected=expected;cancelled=false;admissionPending=1;operationStart=millis();operationBudget=gitUpdateInstallDurationMs;view.installContinuation=true;view.retryCount=0;view.retryDelayMs=0;
   operation=view.operation=++candidateGeneration;view.manual=false;view.transport={};view.phase=GitUpdatePhase::queued;view.reason=GitUpdateReason::none;view.progress=0;view.cancellable=true;
   return GitUpdateRequest::accepted;
 }
@@ -732,7 +738,7 @@ bool GitUpdateClass::reserveManualInstall(const GitUpdateOwnerToken &source,uint
      !workerTask.load() || !installHooks.manual || !candidateGeneration || candidateGeneration==UINT64_MAX ||
      !manualTransfer.firmwareQueuedClaimed(source,now))return false;
   reservedManualLease=source.generation;operation=view.operation=++candidateGeneration;view.transport={};
-  view.manual=true;view.compatible=view.canPrepare=view.cancellable=false;view.candidate={};
+  view.manual=true;view.installContinuation=false;view.retryCount=0;view.retryDelayMs=0;view.compatible=view.canPrepare=view.cancellable=false;view.candidate={};
   view.phase=GitUpdatePhase::queued;view.reason=GitUpdateReason::none;view.progress=0;
   return true;
 }
@@ -757,7 +763,7 @@ GitUpdateRequest GitUpdateClass::requestManualInstall(const GitUpdateOwnerToken 
     reservedManualLease=0;
     staged->data=bytes;bytes=nullptr;installImage=std::move(staged);
     installLease=runningLease=source.generation;installSource=source;operationExpected={};
-    operation=view.operation=ticket;view.manual=true;view.transport={};view.compatible=view.canPrepare=false;view.candidate={};
+    operation=view.operation=ticket;view.manual=true;view.installContinuation=false;operationBudget=OPERATION_MS;view.transport={};view.compatible=view.canPrepare=false;view.candidate={};
     view.phase=GitUpdatePhase::verifying;view.reason=GitUpdateReason::none;view.progress=0;view.cancellable=true;
     cancelled=false;operationStart=millis();installWorkerActive=true;
   }
