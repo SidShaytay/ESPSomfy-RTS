@@ -8,6 +8,7 @@
 #include "Somfy.h"
 #include "ShadeRequests.h"
 #include "TxBuffer.h"
+#include "GitUpdate.h"
 #include "LoopQueue.h"
 #include "Utils.h"
 #include <esp_timer.h>
@@ -31,6 +32,10 @@ CatalogueKind previousKind=CatalogueKind::devices;
 uint8_t previousRoom=allRooms;
 uint64_t previousModelRevision=0, previousRestore=0, pageToken=0;
 bool pageCached=false, controlsFrozen=false;
+QuickAccess quickPreferences,previousQuickBindings;
+QuickAccessLoad quickStatus=QuickAccessLoad::unreadable;
+uint64_t quickRevision=0;
+bool quickInitialized=false,quickSeeded=false,previousQuickPage=false;
 struct PendingControl {
   TargetContext guard;
   Command command;
@@ -187,6 +192,37 @@ public:
     out.available=rf(group.proto) && out.identity!=0; out.moving=group.direction!=0; return true;
   }
 };
+bool sameQuick(const QuickAccess &a,const QuickAccess &b) {
+ for(size_t i=0;i<quickAccessSlots;i++)if(a.at(i)->ref!=b.at(i)->ref || a.at(i)->identity!=b.at(i)->identity)return false;
+ return true;
+}
+void quickRow(const QuickAccessEntry &binding,CatalogueEntry &out) {
+ out={};out.id=binding.ref.id;out.identity=binding.identity;
+ if(binding.empty()){strcpy(out.name,"Unassigned");return;}
+ strcpy(out.name,"Unavailable");
+ RuntimeCatalogue source;const auto kind=binding.ref.kind==EntityKind::group?CatalogueKind::groups:CatalogueKind::devices;
+ const uint8_t capacity=kind==CatalogueKind::groups?SOMFY_MAX_GROUPS:SOMFY_MAX_SHADES;
+ for(uint8_t slot=0;slot<capacity;slot++) {
+  CatalogueEntry entry;if(!source.read(kind,slot,entry) || entry.id!=binding.ref.id)continue;
+  if(entry.identity==binding.identity)out=entry;
+  return;
+ }
+}
+void seedQuickPreferences() {
+ quickSeeded=true;
+ if(quickStatus!=QuickAccessLoad::missing)return;
+ const EntityRef defaults[]={{EntityKind::group,1},{EntityKind::device,1},{EntityKind::device,2}};
+ RuntimeCatalogue source;
+ for(size_t i=0;i<quickAccessSlots;i++) {
+  const auto kind=defaults[i].kind==EntityKind::group?CatalogueKind::groups:CatalogueKind::devices;
+  const uint8_t capacity=kind==CatalogueKind::groups?SOMFY_MAX_GROUPS:SOMFY_MAX_SHADES;
+  for(uint8_t slot=0;slot<capacity;slot++) {
+   CatalogueEntry entry;if(source.read(kind,slot,entry) && entry.id==defaults[i].id) {
+    quickPreferences.assign(i,defaults[i],entry.identity);break;
+   }
+  }
+ }
+}
 bool samePage(const CataloguePage &a,const CataloguePage &b) {
   if(a.offset!=b.offset || a.cursor!=b.cursor || a.count!=b.count || a.total!=b.total) return false;
   for(uint8_t i=0;i<a.count;i++) {
@@ -251,6 +287,37 @@ DispatchResult validateControl(Target &target,uint32_t &moving) {
   return DispatchResult::queued;
 }
 } // namespace
+void initializeQuickPreferences() {
+ quickStatus=readQuickAccessPreferences(quickPreferences);quickInitialized=true;quickSeeded=false;
+ quickRevision=nextToken();pageCached=false;
+}
+QuickPreferenceSave saveQuickPreferences(const QuickPreferenceRequest &request) {
+ GitUpdateOwnerToken owner;
+ if(!gitUpdate.acquireExternal(GitUpdateExternalOwner::configuration,owner))return QuickPreferenceSave::failed;
+ class Witness final:public QuickPreferenceWitness {
+   const QuickPreferenceRequest &request;const GitUpdateOwnerToken &owner;
+ public:
+   Witness(const QuickPreferenceRequest &r,const GitUpdateOwnerToken &o):request(r),owner(o){}
+   bool current()override {
+    const auto auth=pollAuthorization();
+    if(!gitUpdate.ownsExternal(owner) || !auth.allowed || !request.authGeneration ||
+       auth.generation!=request.authGeneration || auth.configurationGeneration!=request.authConfigurationGeneration ||
+       !quickInitialized || !quickRevision || request.quickRevision!=quickRevision ||
+       !somfy.modelLoad.usable() || request.modelRevision!=somfy.configurationRevision || request.restoreRevision!=somfy.restoreRevision ||
+       controlsFrozen || restartPending() || loopQueue.pending() || localControlPending() ||
+       !modelIdleForAdministration(somfy) || !somfy.transceiver.restartQuiescent())return false;
+    for(size_t i=0;i<quickAccessSlots;i++) {
+     const auto &binding=*request.value.at(i);if(binding.empty())continue;
+     CatalogueEntry row;quickRow(binding,row);
+     if(row.id!=binding.ref.id || row.identity!=binding.identity || !row.revision)return false;
+    }
+    return true;
+   }
+ } witness(request,owner);
+ const auto result=writeQuickAccessPreferences(request.value,witness);
+ if(result==QuickPreferenceSave::saved){quickPreferences=request.value;quickStatus=QuickAccessLoad::valid;quickSeeded=true;quickRevision=nextToken();pageCached=false;}
+ gitUpdate.releaseExternal(owner);return result;
+}
 bool localControlsFrozen() { return controlsFrozen; }
 CatalogueSource &runtimeCatalogue() {static RuntimeCatalogue source;return source;}
 void invalidateControlPresentation() {
@@ -332,15 +399,26 @@ Model snapshotModel(bool running,const View &view) {
   m.authConfigurationGeneration=security.configurationGeneration; m.retryAfterMs=security.retryAfterMs;
   m.expiredSessionGeneration=security.expiredSessionGeneration;
   m.modelRevision=somfy.configurationRevision; m.restoreRevision=somfy.restoreRevision;
+  if(quickInitialized && somfy.modelLoad.usable() && !quickSeeded)seedQuickPreferences();
+  m.quickAccess=quickPreferences;m.quickStatus=quickStatus;m.quickRevision=quickRevision;
+  m.quickReady=quickInitialized && quickRevision && somfy.modelLoad.usable();
   m.catalogue=view.catalogue; m.room=view.room;
   for(auto &shade:somfy.shades) if(shade.getShadeId()!=255 && !shade.isIdle()) m.anyMoving=true;
   RuntimeCatalogue source;
-  if(view.catalogue==CatalogueKind::rooms) m.pageValid=roomCataloguePage(source,view.cursor,m.page,view.anchorId,view.anchored);
+  const bool quickPage=view.screen==Screen::quickHome || view.screen==Screen::quickManage || view.screen==Screen::quickActions || view.screen==Screen::quickSave;
+  const auto &bindings=view.quickEditing?view.quickDraft:quickPreferences;
+  if(quickPage) {
+    m.page={};m.page.count=3;m.page.total=5;m.page.cursor=0;
+    for(size_t i=0;i<quickAccessSlots;i++)quickRow(*bindings.at(i),m.page.rows[i]);
+    m.pageValid=m.quickReady;
+  } else if(view.catalogue==CatalogueKind::rooms) m.pageValid=roomCataloguePage(source,view.cursor,m.page,view.anchorId,view.anchored);
   else if(view.room==0 || view.room==allRooms || somfy.getRoomById(view.room))
     m.pageValid=cataloguePage(source,view.catalogue,view.cursor,view.room,m.page,view.anchorId,view.anchored);
-  if(m.pageValid && (!pageCached || previousKind!=m.catalogue || previousRoom!=m.room ||
+  if(m.pageValid && (!pageCached || previousQuickPage!=quickPage ||
+      (quickPage && !sameQuick(previousQuickBindings,bindings)) || previousKind!=m.catalogue || previousRoom!=m.room ||
       previousModelRevision!=m.modelRevision || previousRestore!=m.restoreRevision || !samePage(previousPage,m.page))) {
-    previousPage=m.page; previousKind=m.catalogue; previousRoom=m.room;
+    previousPage=m.page; previousKind=m.catalogue; previousRoom=m.room;previousQuickPage=quickPage;
+    if(quickPage)previousQuickBindings=bindings;
     previousModelRevision=m.modelRevision; previousRestore=m.restoreRevision;
     pageToken=nextToken(); pageCached=true;
   }

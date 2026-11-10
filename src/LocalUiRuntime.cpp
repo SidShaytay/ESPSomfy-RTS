@@ -16,7 +16,7 @@ uint32_t hash(const void *p,size_t n,uint32_t h=2166136261u) {
 }
 uint32_t sceneHash(const Model &m,const View &v,const StatusDisplay::Snapshot &s) {
   const uint32_t values[]={uint32_t(v.screen),v.selected,v.cursor,uint32_t(v.catalogue),v.room,
-    uint32_t(v.entity.kind),v.entity.id,uint32_t(v.openedToken),uint32_t(v.openedToken>>32),uint32_t(v.action),
+    uint32_t(v.entity.kind),v.entity.id,v.quickEditing,v.quickPicking,v.quickOrigin,v.quickSlot,uint32_t(m.quickStatus),uint32_t(m.quickRevision),uint32_t(m.quickRevision>>32),uint32_t(v.openedToken),uint32_t(v.openedToken>>32),uint32_t(v.action),
     uint32_t(v.favouriteRevision),uint32_t(v.favouriteRevision>>32),
     uint32_t(m.target.favouriteRevision),uint32_t(m.target.favouriteRevision>>32),m.target.favouriteReady,m.target.favouriteClearReady,
     v.valueChoice,uint32_t(v.draftValue),uint32_t(v.notice),v.level,v.setting,v.detailsOffset,v.dimSeconds,v.offSeconds,
@@ -29,6 +29,9 @@ uint32_t sceneHash(const Model &m,const View &v,const StatusDisplay::Snapshot &s
     s.running,uint32_t(s.battery.state),s.battery.percent,s.battery.millivolts,uint32_t(s.link),uint32_t(s.web),
     uint32_t(s.radio),uint32_t(s.frequency*100),uint32_t(v.screen==Screen::details?s.uptimeSeconds:s.uptimeSeconds/60)};
   uint32_t h=hash(values,sizeof(values));
+  for(size_t i=0;i<quickAccessSlots;i++) {
+    const auto &binding=*v.quickDraft.at(i);const uint32_t fields[]={uint32_t(binding.ref.kind),binding.ref.id,binding.identity};h=hash(fields,sizeof(fields),h);
+  }
   for(const auto &entry:m.page.rows) {
     const int32_t values[]={entry.id,entry.position,entry.available,entry.moving};
     h=hash(values,sizeof(values),h);h=hash(entry.name,strlen(entry.name),h);
@@ -76,10 +79,18 @@ uint32_t administrationHash(const EntityAdmin::FormView &view,uint64_t epoch) {
   }
   return h;
 }
+bool quickEqual(const QuickAccess &a,const QuickAccess &b) {
+ for(size_t i=0;i<quickAccessSlots;i++)if(a.at(i)->ref!=b.at(i)->ref || a.at(i)->identity!=b.at(i)->identity)return false;
+ return true;
+}
 // Motion/estimate repainting is coalesced until a frame finishes. Structural
 // page, target, action, editor and authorization changes supersede it promptly.
 bool sameMeaning(const View &a,const View &b,uint64_t page,uint64_t framePage,uint64_t target,uint64_t frameTarget) {
-  if(a.screen!=b.screen || a.notice!=b.notice || a.repeatHeld!=b.repeatHeld) return false;
+  if(a.screen!=b.screen || a.notice!=b.notice || a.repeatHeld!=b.repeatHeld ||
+     a.quickEditing!=b.quickEditing || a.quickPicking!=b.quickPicking || a.quickOrigin!=b.quickOrigin ||
+     a.quickSlot!=b.quickSlot || !quickEqual(a.quickDraft,b.quickDraft)) return false;
+  if(a.screen==Screen::quickHome || a.screen==Screen::quickManage || a.screen==Screen::quickActions || a.screen==Screen::quickSave)
+    return page==framePage && a.selected==b.selected && a.valueChoice==b.valueChoice;
   if(a.screen==Screen::catalogue) return page==framePage && a.catalogue==b.catalogue && a.room==b.room && a.cursor==b.cursor;
   if(a.screen==Screen::control || a.screen==Screen::actions || a.screen==Screen::value || a.screen==Screen::repeatActions || a.screen==Screen::repeatValue || a.screen==Screen::favouriteObserve || a.screen==Screen::favouriteConfirm) {
     const bool sameTarget=a.entity==b.entity && a.openedToken==b.openedToken && target==frameTarget && a.action==b.action;
@@ -99,7 +110,7 @@ uint16_t transfer[screenWidth*bandHeight];
 }
 Runtime::Runtime():administration(EntityAdmin::runtimeBackend(),runtimeCatalogue(),Settings::runtimeMemory(),Advanced::runtimeBackend()) {}
 void Runtime::begin() {
-  setCaptureProtected(true);controller.setPreferences(loadPreferences());
+  setCaptureProtected(true);controller.setPreferences(loadPreferences());initializeQuickPreferences();
   pinMode(BoardProfile::backButton,INPUT_PULLUP);
   memory.begin(heap_caps_get_total_size(MALLOC_CAP_SPIRAM)>0,allocate);
   if(memory.pixels) {canvas.attach(memory.pixels);pinMode(BoardProfile::encoderA,INPUT_PULLUP);pinMode(BoardProfile::encoderB,INPUT_PULLUP);}
@@ -137,7 +148,10 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
   if(systemActive)renderSystem(systemView);
   const View &before=controller.view();
   bool visible=hasPresented && presentedView.screen==before.screen;
-  if(before.screen==Screen::home)visible &= before.selected==presentedView.selected;
+  if(before.screen==Screen::quickHome || before.screen==Screen::quickManage || before.screen==Screen::quickActions || before.screen==Screen::quickSave)
+    visible &= model.pageToken && model.pageToken==presentedPageToken && before.selected==presentedView.selected &&
+      before.valueChoice==presentedView.valueChoice && quickEqual(before.quickDraft,presentedView.quickDraft);
+  else if(before.screen==Screen::home)visible &= before.selected==presentedView.selected;
   else if(before.screen==Screen::administration)
     visible &= administrationActive && presentedAdministrationValid &&
       presentedAdministrationEpoch==administration.epoch() && sameAdministration(administration.view(),presentedAdministration);
@@ -163,16 +177,27 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
   else if(before.screen==Screen::brightness)
     visible &= before.setting==presentedView.setting && before.level==presentedView.level &&
       before.dimSeconds==presentedView.dimSeconds && before.offSeconds==presentedView.offSeconds;
+  visible &= before.quickEditing==presentedView.quickEditing && before.quickPicking==presentedView.quickPicking &&
+    before.quickSlot==presentedView.quickSlot;
   const int8_t turn=encoder.sample((digitalRead(BoardProfile::encoderA)<<1)|digitalRead(BoardProfile::encoderB));
   controller.tick(now,model,turn,pressed,visible,digitalRead(BoardProfile::backButton)==0);
   if(controller.takeCancellation()) cancelUnsubmittedLocalControl();
+  if(!controller.view().quickEditing) {frameView.quickDraft={};presentedView.quickDraft={};}
+  QuickPreferenceRequest quickSave;
+  if(controller.takeQuickSave(quickSave)) {
+    const auto &view=controller.view();
+    const bool proof=hasPresented && presentedView.screen==Screen::quickSave && view.screen==Screen::quickSave &&
+      presentedView.quickEditing && presentedView.valueChoice==1 && view.valueChoice==1 &&
+      model.pageToken==presentedPageToken && quickEqual(view.quickDraft,presentedView.quickDraft);
+    controller.quickSaveResult(now,proof?saveQuickPreferences(quickSave):QuickPreferenceSave::failed);
+  }
   DisplayPreferences preferences;
   if(controller.takePreferences(preferences)) controller.brightnessResult(now,model.authorized && savePreferences(preferences));
   if(controller.takeActivity()) authorizationActivity();
   Credentials credentials;
   if(controller.takeCredentials(credentials)) controller.unlockResult(now,unlockAuthorization(credentials));
   credentials.clear();
-  if(controller.view().screen==Screen::unlock || controller.view().screen==Screen::settings ||
+  if(controller.view().quickEditing || controller.view().quickPicking || controller.view().screen==Screen::unlock || controller.view().screen==Screen::settings ||
      controller.view().screen==Screen::administration || controller.view().screen==Screen::system ||
      controller.view().screen==Screen::favouriteObserve || controller.view().screen==Screen::favouriteConfirm) setCaptureProtected(true);
   Command command;
@@ -363,7 +388,7 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
       stopPresentedRef=frameView.entity;stopPresentedToken=frameTargetToken;
       markControlPresented(frameView.entity,frameTargetToken,frameView.authorizedSelection,frameView.selectionAuthGeneration);
     }
-    if(frameView.screen!=Screen::unlock && frameView.screen!=Screen::settings && frameView.screen!=Screen::administration && frameView.screen!=Screen::system &&
+    if(!frameView.quickEditing && !frameView.quickPicking && frameView.screen!=Screen::unlock && frameView.screen!=Screen::settings && frameView.screen!=Screen::administration && frameView.screen!=Screen::system &&
        frameView.screen!=Screen::favouriteObserve && frameView.screen!=Screen::favouriteConfirm) setCaptureProtected(false);
   }
   return true;
