@@ -5,6 +5,7 @@
 #include "LocalMembership.h"
 #include "LocalTargetRead.h"
 #include "LocalEntityStatus.h"
+#include "LocalProgrammingGuide.h"
 #include "ShadeRequests.h"
 namespace LocalUi {
 enum class PrimaryCounterEffect : uint8_t;
@@ -96,6 +97,10 @@ struct ProgrammingResult {
   shade_request_result_t result=shade_request_result_t::radio_refused;
   EntityAdmin::Admission admission=EntityAdmin::Admission::accepted;
 };
+struct PairingSendResult {
+  shade_request_result_t result=shade_request_result_t::radio_refused;
+  EntityAdmin::Admission admission=EntityAdmin::Admission::accepted;
+};
 class Backend {
 public:
   virtual ~Backend() = default;
@@ -117,6 +122,11 @@ public:
       EntityAdmin::Authorization,uint64_t) { return EntityAdmin::Admission::stale; }
   virtual ProgrammingResult sendProgramming(Target,const Context &,EntityAdmin::Authorization,
       uint64_t,const RemoteProgram &,LearnPending &) { return {shade_request_result_t::radio_refused,EntityAdmin::Admission::invalid}; }
+  virtual bool pairingAvailable(Target,bool &oneButton){oneButton=false;return false;}
+  virtual EntityAdmin::Admission checkPairingContext(Target,const Context &,EntityAdmin::Authorization,uint64_t){return EntityAdmin::Admission::stale;}
+  virtual PairingSendResult sendPairing(Target,const Context &,EntityAdmin::Authorization,uint64_t,uint8_t,LearnPending &){
+    return {shade_request_result_t::radio_refused,EntityAdmin::Admission::invalid};
+  }
   virtual PrimaryReadResult readPrimary(Target, const Context &,
       EntityAdmin::Authorization, uint64_t, PrimaryCounterReview &) = 0;
   // Live aliases/quarantine only; no NVS/owner/allocation. Safe in a final
