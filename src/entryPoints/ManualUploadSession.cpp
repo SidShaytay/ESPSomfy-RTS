@@ -1,4 +1,5 @@
 #include "RestoreExecution.h"
+#include "ApplicationFilesystem.h"
 #include "SettingsRevisions.h"
 #include "Web.h"
 #include "ManualUploadSession.h"
@@ -203,6 +204,8 @@ void receiveManualRestore(AsyncWebServerRequest *request,size_t index,uint8_t *d
   gitUpdate.finishTransfer(state->owner,now(),len!=0 || final);
 }
 void manualUploadLoop() {
+  // Physical mount/radio cleanup holds its exact source before generic abort.
+  serviceApplicationFilesystem();
   serviceRestoreCleanup();
   const auto cleanup=gitUpdate.claimTransferCleanup(now());
   if(!cleanup.token.generation) return;
