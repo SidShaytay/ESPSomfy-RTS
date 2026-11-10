@@ -7,6 +7,8 @@ struct State : System::Backend {
   RestartSnapshot current;
   RestartResult result{true,RestartReason::none};
   unsigned restarts=0;bool immediateCancel=false,zeroGeneration=false;
+  unsigned networkReads=0;
+  bool networkRow(uint8_t index,EntityAdmin::FormRow &out)override{++networkReads;out={};strcpy(out.label,index==1?"WiFi SSID":"Connection");strcpy(out.value,index==1?"Office network":"WiFi connected");return true;}
   SecuritySnapshot authorization() override {return auth;}
   void activity() override {}
   RestartResult restart(uint32_t session,uint32_t configuration) override {TEST_ASSERT_EQUAL(auth.generation,session);TEST_ASSERT_EQUAL(auth.configurationGeneration,configuration);++restarts;if(result.admitted){current.generation=zeroGeneration?0:1;current.phase=immediateCancel?RestartPhase::cancelled:RestartPhase::admitted;current.reason=immediateCancel?RestartReason::cancelled:RestartReason::none;}return result;}
@@ -16,11 +18,11 @@ void setUp(){} void tearDown(){}
 static void navigation_and_cancel_never_restart() {
   State state;System::Form form(state);EntityAdmin::FormView view;
   TEST_ASSERT_TRUE(form.open(1));form.render(view);
-  TEST_ASSERT_EQUAL_STRING("System",view.title);TEST_ASSERT_EQUAL(4,view.total);
+  TEST_ASSERT_EQUAL_STRING("System",view.title);TEST_ASSERT_EQUAL(5,view.total);
   form.activate(2);form.render(view);TEST_ASSERT_EQUAL_STRING("Cancel",view.rows[0].label);
   form.activate(3);TEST_ASSERT_EQUAL(0,state.restarts); // default Cancel
   form.turn(1,4);form.activate(5);form.render(view);
-  TEST_ASSERT_EQUAL_STRING("Browser files",view.title);TEST_ASSERT_EQUAL(4,view.total);
+  TEST_ASSERT_EQUAL_STRING("Browser files",view.title);TEST_ASSERT_EQUAL(5,view.total);
   form.activate(6);form.back(7);form.back(8);form.back(9);
   TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(0,state.restarts);
 }
@@ -99,9 +101,19 @@ static void untrusted_settings_have_distinct_repair_message_without_replay() {
 static void diagnostics_is_explicit_and_returns_to_its_system_row() {
  State b;System::Form f(b);EntityAdmin::FormView view;f.open(0);
  for(unsigned i=0;i<3;++i)f.turn(1,1);
- f.render(view);TEST_ASSERT_EQUAL(4,view.total);TEST_ASSERT_EQUAL_STRING("Receive diagnostics",view.rows[0].label);
+ f.render(view);TEST_ASSERT_EQUAL(5,view.total);TEST_ASSERT_EQUAL_STRING("Receive diagnostics",view.rows[0].label);
  f.activate(2);TEST_ASSERT_TRUE(f.wantsDiagnostics());TEST_ASSERT_EQUAL(0,b.restarts);
  f.finishChild();f.render(view);TEST_ASSERT_EQUAL(3,view.selected);TEST_ASSERT_FALSE(f.wantsDiagnostics());
 }
-int main(int,char**) {UNITY_BEGIN();RUN_TEST(diagnostics_is_explicit_and_returns_to_its_system_row);RUN_TEST(untrusted_settings_have_distinct_repair_message_without_replay);RUN_TEST(child_input_refreshes_inactivity_but_completion_does_not);RUN_TEST(unreadable_security_never_suggests_credentials_were_reset);RUN_TEST(unreadable_model_requires_verified_restore_guidance);RUN_TEST(immediate_cancel_and_invalid_binding_never_claim_scheduled);RUN_TEST(superseded_generation_never_borrows_another_result);RUN_TEST(navigation_and_cancel_never_restart);RUN_TEST(explicit_restart_is_once_and_tracks_its_result);RUN_TEST(auth_change_expiry_and_backward_clock_discard_confirmation);RUN_TEST(refusal_does_not_claim_saved_or_replay);return UNITY_END();}
+static void protected_network_and_copy_guidance_never_restart_or_scan(){
+  State state;System::Form form(state);EntityAdmin::FormView view;form.open(1);
+  for(unsigned i=0;i<4;++i)form.turn(1,2+i);form.activate(6);form.render(view);
+  TEST_ASSERT_EQUAL_STRING("Network details",view.title);TEST_ASSERT_EQUAL(networkDetailRows,view.total);TEST_ASSERT_TRUE(view.protectedFrame);
+  TEST_ASSERT_EQUAL_STRING("Office network",view.rows[1].value);form.activate(7);TEST_ASSERT_FALSE(form.closed());TEST_ASSERT_EQUAL(0,state.restarts);
+  form.back(8);form.render(view);TEST_ASSERT_EQUAL(4,view.selected);form.turn(-1,9);form.turn(-1,10);form.turn(-1,11);form.activate(12);
+  for(unsigned i=0;i<4;++i)form.turn(1,13+i);form.activate(17);form.render(view);
+  TEST_ASSERT_EQUAL_STRING("Copy receive log",view.title);TEST_ASSERT_NOT_NULL(strstr(view.hint,"Browser:"));TEST_ASSERT_NOT_NULL(strstr(view.hint,"private"));TEST_ASSERT_EQUAL(0,state.restarts);
+  state.auth.allowed=false;form.tick(18);TEST_ASSERT_TRUE(form.closed());form.render(view);TEST_ASSERT_EQUAL(0,view.rowCount);
+}
+int main(int,char**) {UNITY_BEGIN();RUN_TEST(protected_network_and_copy_guidance_never_restart_or_scan);RUN_TEST(diagnostics_is_explicit_and_returns_to_its_system_row);RUN_TEST(untrusted_settings_have_distinct_repair_message_without_replay);RUN_TEST(child_input_refreshes_inactivity_but_completion_does_not);RUN_TEST(unreadable_security_never_suggests_credentials_were_reset);RUN_TEST(unreadable_model_requires_verified_restore_guidance);RUN_TEST(immediate_cancel_and_invalid_binding_never_claim_scheduled);RUN_TEST(superseded_generation_never_borrows_another_result);RUN_TEST(navigation_and_cancel_never_restart);RUN_TEST(explicit_restart_is_once_and_tracks_its_result);RUN_TEST(auth_change_expiry_and_backward_clock_discard_confirmation);RUN_TEST(refusal_does_not_claim_saved_or_replay);return UNITY_END();}
 

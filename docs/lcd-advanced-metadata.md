@@ -9,6 +9,18 @@ Advanced follows Reorder, preserving existing list entry positions. More is the
 fourth paginated Administration entry. Select the target explicitly by its stable
 ID; the ID appears before its name. All these screens are protected from capture.
 
+Select **Status details** for room, category, protocol, controller radio
+availability, estimated lift/tilt positions and targets, favourites, movement,
+sun/wind flags and the configured paired marker. Turn to scroll; pressing a
+status row does nothing. Use Back to return. Group entries first offer
+**Member links** or **Status details**.
+
+Positions and movement are controller estimates, not physical feedback. Group
+positions and favourites show **Varies by member**; group movement counts active
+configured members or reports untracked members as unknown. Member counts include
+missing references. Radio readiness describes the controller, not whether a motor
+is reachable. The paired marker likewise does not verify physical pairing.
+
 You can:
 
 - Change the paired marker, without claiming the motor paired or unpaired.

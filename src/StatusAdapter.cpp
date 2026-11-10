@@ -1,7 +1,11 @@
 #ifdef ESPSOMFY_STATUS_DISPLAY
 #include "StatusDisplay.h"
+#include "LocalSystem.h"
 #include "Somfy.h"
 #include "ESPNetwork.h"
+#if HAS_ETHERNET
+#include <ETH.h>
+#endif
 #include "entryPoints/Web.h"
 #include <esp_timer.h>
 #include <esp_ota_ops.h>
@@ -63,6 +67,12 @@ StatusDisplay::Snapshot snapshot(bool running) {
   snprintf(s.firmwareVersion, sizeof(s.firmwareVersion), "%s", FW_VERSION);
   snprintf(s.applicationVersion, sizeof(s.applicationVersion), "%s", settings.appVersion.name);
   s.uptimeSeconds = esp_timer_get_time() / 1000000;
+#if HAS_ETHERNET
+  if(net.connType==conn_types_t::ethernet&&net.connected()){
+    s.link=Link::connected;
+    if(uint32_t(ETH.localIP())!=0)ETH.localIP().toString().toCharArray(s.address,sizeof(s.address));
+  }else
+#endif
   if(WiFi.status() == WL_CONNECTED) {
     s.link = Link::connected;
     if(uint32_t(WiFi.localIP()) != 0) WiFi.localIP().toString().toCharArray(s.address, sizeof(s.address));
@@ -85,4 +95,45 @@ StatusDisplay::Snapshot snapshot(bool running) {
   return s;
 }
 }
+#ifdef ESPSOMFY_LOCAL_UI
+namespace LocalUi {
+bool readLocalNetworkRow(uint8_t index,EntityAdmin::FormRow &out){
+  out={};if(index>=networkDetailRows)return false;
+  static const char *labels[]={"Connection","WiFi SSID","WiFi channel","WiFi signal","IP address","Ethernet link","Ethernet speed","Ethernet duplex","Back"};
+  snprintf(out.label,sizeof(out.label),"%s",labels[index]);
+  const bool wifi=WiFi.status()==WL_CONNECTED;
+#if HAS_ETHERNET
+  const bool ethernet=net.connType==conn_types_t::ethernet&&net.connected();
+#else
+  const bool ethernet=false;
+#endif
+  switch(index){
+    case 0:snprintf(out.value,sizeof(out.value),"%s",ethernet?"Ethernet connected":wifi?"WiFi connected":net.softAPOpened?"WiFi access point":net.connected()?net.connTypeName():net.connecting()?"Connecting":"Disconnected");break;
+    case 1:if(wifi)snprintf(out.value,sizeof(out.value),"%s",WiFi.SSID().c_str());else strcpy(out.value,"Unavailable");break;
+    case 2:if(wifi&&net.channel>0)snprintf(out.value,sizeof(out.value),"%d",net.channel);else strcpy(out.value,"Unavailable");break;
+    case 3:if(wifi)snprintf(out.value,sizeof(out.value),"%ld dBm",static_cast<long>(WiFi.RSSI()));else strcpy(out.value,"Unavailable");break;
+    case 4:
+#if HAS_ETHERNET
+      if(ethernet&&uint32_t(ETH.localIP())!=0)ETH.localIP().toString().toCharArray(out.value,sizeof(out.value));
+      else
+#endif
+      if(wifi&&uint32_t(WiFi.localIP())!=0)WiFi.localIP().toString().toCharArray(out.value,sizeof(out.value));
+      else if(net.softAPOpened&&uint32_t(WiFi.softAPIP())!=0)WiFi.softAPIP().toString().toCharArray(out.value,sizeof(out.value));
+      else strcpy(out.value,"Unavailable");
+      break;
+    case 5:case 6:case 7:
+#if HAS_ETHERNET
+      if(net.connType==conn_types_t::ethernet&&net.connected()){
+        if(index==5)strcpy(out.value,"Connected");else if(index==6)snprintf(out.value,sizeof(out.value),"%u Mbps",unsigned(ETH.linkSpeed()));else strcpy(out.value,ETH.fullDuplex()?"Full":"Half");
+      }else strcpy(out.value,index==5?"Down / not selected":"Unavailable");
+#else
+      strcpy(out.value,"Not supported on this build");
+#endif
+      break;
+    default:break;
+  }
+  return true;
+}
+}
+#endif
 #endif

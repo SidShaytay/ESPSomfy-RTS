@@ -144,6 +144,23 @@ class RuntimeBackend final : public Backend {
     return Admission::accepted;
   }
 public:
+  bool statusRow(Target target,uint8_t index,FormRow &row)override{
+    row={};if(!authorization().allowed||!somfy.modelLoad.usable()||target.scope==Scope::repeaters||!validTarget(target))return false;
+    EntityStatus state;state.group=target.scope==Scope::groups;state.radioReady=somfy.transceiver.available()&&!somfy.transceiver.txSuspended();
+    if(state.group){auto *group=somfy.getGroupById(target.id);state.roomId=group->roomId;state.protocol=group->proto;
+      state.bits=group->bitLength?group->bitLength:somfy.transceiver.config.type;state.flags=group->getFlags();state.sunSensor=state.flags&2;
+      state.unknownMotion=readGroupReadiness(somfy,*group).unknownMovement();
+      for(const auto id:group->linkedShades)if(id&&id!=255){auto *member=somfy.getShadeById(id);if(member){++state.members;if(!member->idleForAdministration())++state.activeMembers;}else ++state.missing;}
+    }else{auto *shade=somfy.getShadeById(target.id);const auto &live=shade->state();
+      state.roomId=shade->roomId;state.shadeType=shade->shadeType;state.tiltType=shade->tiltType;state.protocol=shade->proto;
+      state.bits=shade->bitLength?shade->bitLength:somfy.transceiver.config.type;state.flags=shade->getFlags();state.sunSensor=shade->sunSensor;
+      state.paired=shade->paired;state.flip=shade->flipPosition;state.lift=live.currentPos;state.liftTarget=live.target;
+      state.tilt=live.currentTiltPos;state.tiltTarget=live.tiltTarget;state.favourite=live.myPos;state.tiltFavourite=live.myTiltPos;
+      state.direction=live.direction;state.tiltDirection=live.tiltDirection;
+    }
+    if(state.roomId){auto *room=somfy.getRoomById(state.roomId);if(room)snprintf(state.room,sizeof(state.room),"%s",room->name);}
+    return entityStatusRow(state,index,row);
+  }
   bool membershipRows(Target target,bool candidates,MembershipRows &out) override {
     out={};
     if(!authorization().allowed||target.scope!=Scope::groups||!somfy.modelLoad.usable())return false;
