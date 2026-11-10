@@ -230,6 +230,12 @@ static void test_no_repeat_means_the_groups_own() {
   req.command = somfy_commands::Down;
   requests.run(req);
   TEST_ASSERT_EQUAL_STRING("sendGroupCommand 2 Down repeat=3 step=0", ops.calls.c_str());
+  for(unsigned step:{1u,127u})for(auto type:{shade_request_type_t::group_command,shade_request_type_t::group_repeat}){
+    ops.calls.clear();req.type=type;req.command=somfy_commands::StepUp;req.stepSize=step;
+    TEST_ASSERT_EQUAL(shade_request_result_t::done,requests.run(req));
+    const std::string expected="sendGroupCommand 2 Step Up repeat=3 step="+std::to_string(step);
+    TEST_ASSERT_EQUAL_STRING(expected.c_str(),ops.calls.c_str());
+  }
 }
 
 /*********************************************************************

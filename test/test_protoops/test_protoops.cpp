@@ -85,6 +85,12 @@ static void test_tilt_command() {
   TEST_ASSERT_EQUAL_INT8(40, req.target);
 }
 static void test_group_command_needs_a_command() {
+  for(unsigned step:{1u,127u})for(auto operation:{proto_type_t::groupCommand,proto_type_t::repeatCommand}){
+    char payload[96];snprintf(payload,sizeof(payload),"{\"g\":2,\"cm\":\"StepUp\",\"re\":3,\"z\":%u}",step);
+    TEST_ASSERT_GOOD(parse(operation,payload));TEST_ASSERT_EQUAL(step,req.stepSize);TEST_ASSERT_EQUAL(3,req.repeat);
+    TEST_ASSERT_EQUAL(somfy_commands::StepUp,req.command);
+    TEST_ASSERT_EQUAL(operation==proto_type_t::groupCommand?shade_request_type_t::group_command:shade_request_type_t::group_repeat,req.type);
+  }
   TEST_ASSERT_GOOD(parse(proto_type_t::groupCommand, R"({"g":1,"cm":"my","re":4})"));
   TEST_ASSERT_EQUAL(shade_request_type_t::group_command, req.type);
   TEST_ASSERT_EQUAL_UINT8(1, req.id);

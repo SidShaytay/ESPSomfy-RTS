@@ -3659,8 +3659,13 @@ class Somfy {
         if (typeof shadeId === 'object') return [shadeId, command];
         return [{ shadeId: shadeId, command: command, repeat: repeat }, cb];
     }
+    groupCommandArgs(groupId, command, repeat, cb) {
+        if (typeof groupId === 'object') return [groupId, command];
+        return [{ groupId: groupId, command: command, repeat: repeat }, cb];
+    }
     sendGroupRepeat(groupId, command, repeat, cb) {
-        sendOp('repeatCommand', { groupId: groupId, command: command, repeat: repeatOf(repeat) }, cb);
+        const [cmd, done] = this.groupCommandArgs(groupId, command, repeat, cb);
+        sendOp('repeatCommand', { groupId: cmd.groupId, command: cmd.command, repeat: repeatOf(cmd.repeat), stepSize: cmd.stepSize }, done);
     }
     sendVRCommand(el) {
         let pnl = document.getElementById('divVirtualRemote');
@@ -3692,7 +3697,7 @@ class Somfy {
                 if (o.cmd === 'Sensor')
                     somfy.sendSetSensor(o);
                 else if (o.type === 'group')
-                    somfy.sendGroupRepeat(o.groupId, o.cmd, null, fnRepeatCommand);
+                    somfy.sendGroupRepeat(o, fnRepeatCommand);
                 else
                     somfy.sendCommandRepeat(o, fnRepeatCommand);
             }
@@ -3702,7 +3707,7 @@ class Somfy {
             somfy.sendSetSensor(o);
         }
         else if (o.type === 'group')
-            somfy.sendGroupCommand(o.groupId, o.cmd, null, (err, group) => { fnRepeatCommand(err, group); });
+            somfy.sendGroupCommand(o, (err, group) => { fnRepeatCommand(err, group); });
         else
             somfy.sendCommand(o, (err, shade) => { fnRepeatCommand(err, shade); });
     }
@@ -3714,8 +3719,9 @@ class Somfy {
         sendOp('setSensor', fields, cb);
     }
     sendGroupCommand(groupId, command, repeat, cb) {
-        console.log(`Sending Group command ${groupId}-${command}`);
-        sendOp('groupCommand', { groupId: groupId, command: command, repeat: repeatOf(repeat) }, cb);
+        const [cmd, done] = this.groupCommandArgs(groupId, command, repeat, cb);
+        console.log(`Sending Group command ${cmd.groupId}-${cmd.command}`);
+        sendOp('groupCommand', { groupId: cmd.groupId, command: cmd.command, repeat: repeatOf(cmd.repeat), stepSize: cmd.stepSize }, done);
     }
     sendTiltCommand(shadeId, command, cb) {
         console.log(`Sending Tilt command ${shadeId}-${command}`);
