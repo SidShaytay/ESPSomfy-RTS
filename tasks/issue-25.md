@@ -1,3 +1,22 @@
+# Issue25 — ACTIVE: completion audit found unmet acceptance
+
+The prior COMPLETE claim was too broad. Current controller4.5.0 remainshealthy/VALID16 with exactdcdb588image, unchangedconfig/counters and4.4fallback; NO reflash/reset/RF/motor/GPIO/HAactionsfor this audit. Existingimplementation/read-onlydeployment factsbelow remainvalid; they do NOT provefull normative acceptance.
+
+## Requirements still unresolved (2026-11-10 audit)
+Authoritative specification: GitHub25comment6753845395, cached /tmp/i25-goal-normative.json. GoalfullLCD/buttons/rotaryfunctionality remainsACTIVE; doNOTmarkcompleteuntilthesearemet/explicitlychangedbySid.
+1. R3/E14: normative saysrelease/Back/timeout stop FUTURErepeats. CurrentUI submitsfinite1–127batch andlosesactiveRFticketafterdispatch; existingtestsproveonlypre-admissioncancel. Notanacceptedalternativeyet. Agentphase2_statusreactivated,newtreefrommaindcdb: design+REDper-ticketcancelregression(inexistingRadioScheduler, no globalflush, preserveunrelatedjobs+outcomes), UIproposalexplicitmaxthenhold/release. NoUIimplementationwhileSidchoicepending. DedicatedSetFav/Pairprogrammingbatchesarenotseamlesslytruncated.
+2. R4: normative explicitlyretainsseparate/Eurorelaytiltinscope. CurrentKnownUnsupportedpreservesconfigbutnotworkingtilt; useronlysaiddoesn'tuse/don'tremove, notexplicitwaiver. Asynctextquestionpending: acceptsavedmodes+unavailabletiltorrequireworkingdriver/wiring. Noinventedwiring/noGPIOtests.
+3. Physicalqualificationrequired: combinedTLS/fullstaging/screenshots/reconnects/repeatededits/fragmentation/longidle, internalfree/min/largest+loop/SPImeasurement. Existinghost/idle/flashproofnotmatchingfullscope. RootNONACTUATINGreadonlypartialloadcurrentlyrun /tmp/i25-readonly-qual.py session51114,60s concurrent12screenshots+12schema/settingsreconnects; privatepointer ISSUE25_QUAL_CURRENT. No configuration/serial/RFcommands. Collectreport, classifypartialnotfullqualification. Otherloadneedsconcreteplan; noRF/HA/publicationbyimplication.
+4. Actualinstalled4.5artifactidentity is dev-dcdb588eea14 (update-source.json identity.version), despiteFW/web4.5.0 labels. GitUpdateworkerproperlyrefuseschecksfromdevelopmentidentityBEFOREnetwork. ThusstandaloneGitHubfunctionnotusableoncurrentbuild; need release-taggedcanonicalartifact afterremainingcodechoices. LocalcandidatepreparationvsGitHubreleasepublicationseparate; publishingnotauthorizedimplicitly. Verifytag/metadata/eligibility, don'tbypassguardfortests.
+
+Rootasked2asyncquestions(firstrequestedsemantics,secondrelayscope); awaitexplicitanswers, elapsedtimeNOTconsent. Userstillpossiblysleeping; allno-RFlimitspersist. No pendingpublicationaskyet; prepareconcretereleasestagebeforeaskingifnecessary.
+
+Independentcompletionauditphase2_independent_reviewconfirmedthreeexplicitgaps(items1–3), retractedfullacceptanceapprovalwhilekeepingsoftwareintegration/readinessapproval. Itdidnotinspectitem4untilrootfoundartifactdevelopmentidentity. Goalpreviouslastturnwasprogress(stateimplementation+deployment), butgoalcompletionwasnotproved. DoNOTcallupdate_goalcompletebasedoldreports.
+
+Nextcompletedmilestone: finishreadonlypartialmeasurement+recordquantitativeresults, exactrepeatRED/design, correctGitHubmisleadingcompleteclaim (rootneedsdo now). Sourcechangesmustisolatedlatestmain/review/tests; no currentcontrollerwritesneeded.
+
+## Prior implementation/deployment record (evidence, NOT full goal completion)
+
 # Issue25 — COMPLETE authorized implementation and deployment
 
 ## Result
