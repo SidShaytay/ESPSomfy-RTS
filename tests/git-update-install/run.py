@@ -58,7 +58,7 @@ with tempfile.TemporaryDirectory(prefix='espsomfy-install-') as scratch:
     coupled = command[:len(compiler)] + ['-DGIT_UPDATE_CONTROLLER_TEST', '-DESPSOMFY_LOCAL_UI', '-I'+str(root/'tests/git-update-controller')] + command[len(compiler):]
     coupled += [str(root/'src'/name) for name in ('RestartCoordinator.cpp', 'RestartPolicy.cpp', 'SettingsDurability.cpp', 'SomfyFrame.cpp')]
     subprocess.run(coupled + ['-Wl,--wrap=time', '-l:libcrypto.so.3', '-o', str(binary)], check=True)
-    for mode in ('valid', 'moving', 'queued', 'localPending', 'radioWork', 'pauseFailure', 'saveFailure', 'sourceSave', 'configSave', 'cancelWrite', 'sourceWrite', 'cleanupBusy', 'activationFailure', 'expireFinal', 'cancelFinal', 'staleCleanup',
+    for mode in ('inactivityStage','deadlineStage','valid', 'moving', 'queued', 'localPending', 'radioWork', 'pauseFailure', 'saveFailure', 'sourceSave', 'configSave', 'cancelWrite', 'sourceWrite', 'cleanupBusy', 'activationFailure', 'expireFinal', 'cancelFinal', 'staleCleanup',
                  'manualValid', 'manualReserved', 'manualReservationFailure', 'manualInvalid', 'manualOldAssets', 'manualWrongGrant', 'manualExpiredGrant', 'manualWriteFailure', 'manualBadMemory', 'manualNoClaim', 'manualLateAdoption', 'manualNotifyFailure'):
         subprocess.run([str(binary), mode, str(firmware), compat], check=True)
         print('PASS controller ' + mode, flush=True)

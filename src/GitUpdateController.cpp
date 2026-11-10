@@ -1,4 +1,5 @@
 #include "GitUpdateController.h"
+#include <esp_timer.h>
 #if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101) && defined(ESPSOMFY_LOCAL_UI)
 #include "Somfy.h"
 #include "ConfigSettings.h"
@@ -20,7 +21,8 @@ struct Source {
   uint32_t session=0,security=0;
   GitUpdateOwnerToken owner;
   RadioInstallToken radio;
-  bool queueHeld=false,cleanupFault=false,restartRequested=false;
+  bool queueHeld=false,cleanupFault=false,restartRequested=false,confirmedInstall=false,installRevoked=false;
+  uint64_t installAccepted=0,installObserved=0;
 } source;
 bool authorized(uint32_t session,uint32_t security) {
   const auto current=LocalUi::pollAuthorization();
@@ -32,7 +34,15 @@ bool modelReady() {
       !somfy.transceiver.counterEditUncertain();
 }
 bool current(uint64_t operation) {
-  const bool credential=source.browserSecurityRevision?source.browserSecurityRevision==securityConfigurationRevision():authorized(source.session,source.security);
+  bool credential=source.browserSecurityRevision?source.browserSecurityRevision==securityConfigurationRevision():authorized(source.session,source.security);
+  if(source.confirmedInstall){
+    const auto micros=esp_timer_get_time();const uint64_t now=micros<0?UINT64_MAX:uint64_t(micros)/1000;
+    const auto auth=LocalUi::pollAuthorization();
+    credential=!source.installRevoked && now!=UINT64_MAX && now>=source.installObserved && now>=source.installAccepted &&
+      now-source.installAccepted<gitUpdateInstallDurationMs && auth.mode!=LocalUi::AuthMode::unavailable &&
+      auth.configurationGeneration==source.security;
+    if(!credential)source.installRevoked=true;else source.installObserved=now;
+  }
   return operation && operation==source.operation && credential && modelReady() &&
       source.modelRevision && somfy.configurationRevision==source.modelRevision &&
       settingsDurability().status().epoch==source.settingsEpoch;
@@ -113,14 +123,15 @@ GitUpdateRequest requestLocalGitUpdateInstall(const GitUpdateCandidate &candidat
   if(source.queueHeld || source.radio.generation || source.cleanupFault)return GitUpdateRequest::busy;
   const auto result=gitUpdate.requestInstall(candidate,operation);
   if(result==GitUpdateRequest::accepted) {
-    capture(operation,session,security);
+    capture(operation,session,security);source.confirmedInstall=true;
+    const auto now=esp_timer_get_time();source.installAccepted=source.installObserved=now<0?UINT64_MAX:uint64_t(now)/1000;
   }
   return result;
 }
 bool cancelLocalGitUpdate(uint32_t session,uint32_t security,uint64_t operation) {
   const auto &source=GitUpdateControllerDetail::source;
   // Reducing an exact previously authorized operation remains safe on expiry.
-  return operation && source.operation==operation && source.session==session && source.security==security && gitUpdate.requestCancel(operation);
+  return operation && source.operation==operation && source.security==security && GitUpdateControllerDetail::authorized(session,security) && gitUpdate.requestCancel(operation);
 }
 #else
 void beginGitUpdateController(){}

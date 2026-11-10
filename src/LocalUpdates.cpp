@@ -47,7 +47,8 @@ struct Form::Session {
   enum class Page:uint8_t {menu,confirm,progress,result}page=Page::menu;
   GitUpdateReason reason=GitUpdateReason::none;
   uint8_t cursor=1;
-  bool checking=false;
+  bool checking=false,installing=false;
+  uint64_t installAccepted=0;
 };
 void Form::close(Notice reason){
   if(session){
@@ -60,14 +61,25 @@ bool Form::open(uint64_t now){
   discard();const auto auth=backend.authorization();
   if(!auth.allowed || !auth.generation || !auth.configurationGeneration){notice=Notice::locked;return false;}
   auto *memory=allocator.allocate(sizeof(Session));if(!memory){notice=Notice::noMemory;return false;}
-  session=new(memory)Session{};session->auth=auth;session->observed=session->activity=now;return true;
+  session=new(memory)Session{};session->auth=auth;session->observed=session->activity=now;
+  const auto value=backend.status();
+  if(value.busy && value.installContinuation && !value.manual && value.operation && value.installRemainingMs && value.installRemainingMs<=gitUpdateInstallDurationMs && !backend.boot().pending){
+    const uint64_t elapsed=gitUpdateInstallDurationMs-value.installRemainingMs;
+    if(now>=elapsed){session->installing=true;session->operation=value.operation;session->candidate=value.candidate.generation;session->installAccepted=now-elapsed;session->page=Session::Page::progress;}
+  }
+  return true;
 }
 bool Form::guard(uint64_t now){
   if(!session)return false;
   const auto auth=backend.authorization();Notice reason=Notice::none;
-  if(now<session->observed || now<session->activity || now-session->activity>=120000)reason=Notice::expired;
-  else if(!auth.allowed)reason=Notice::locked;
-  else if(auth.generation!=session->auth.generation || auth.configurationGeneration!=session->auth.configurationGeneration)reason=Notice::changed;
+  const auto value=backend.status();
+  const bool continuation=session->installing && session->operation && value.operation==session->operation &&
+    value.busy && value.installContinuation && now>=session->installAccepted && now-session->installAccepted<gitUpdateInstallDurationMs;
+  if(now<session->observed || now<session->activity || (session->installing && (now<session->installAccepted || now-session->installAccepted>=gitUpdateInstallDurationMs)))reason=Notice::expired;
+  else if(auth.configurationGeneration!=session->auth.configurationGeneration)reason=Notice::changed;
+  else if(!continuation && now-session->activity>=120000)reason=Notice::expired;
+  else if(!continuation && !auth.allowed)reason=Notice::locked;
+  else if(!continuation && auth.generation!=session->auth.generation)reason=Notice::changed;
   if(reason!=Notice::none){close(reason);return false;}
   session->observed=now;return true;
 }
@@ -78,6 +90,7 @@ void Form::tick(uint64_t now){
   if(s.page==Session::Page::confirm && (s.candidate!=value.candidate.generation || !value.canInstall || value.busy || backend.boot().pending)){
     s.candidate=0;s.page=Session::Page::menu;s.cursor=1;notice=Notice::changed;
   }else if(s.page==Session::Page::progress){
+    if(s.installing && !backend.authorization().allowed){notice=Notice::locked;return;}
     if(s.operation!=value.operation){s.operation=0;s.page=Session::Page::result;s.reason=GitUpdateReason::invalidCandidate;notice=Notice::changed;}
     else if(!value.busy){
       const bool review=s.checking && value.phase==GitUpdatePhase::available && value.reason==GitUpdateReason::none &&
@@ -99,6 +112,7 @@ void Form::activate(uint64_t now){
   if(!guard(now))return;touch(now);auto &s=*session;
   const auto value=backend.status();const auto boot=backend.boot();
   if(s.page==Session::Page::progress){
+    if(s.installing && !backend.authorization().allowed){notice=Notice::locked;return;}
     if(s.operation==value.operation && value.cancellable){s.checking=false;backend.cancel(s.operation,s.auth.generation,s.auth.configurationGeneration);}
     return;
   }
@@ -116,11 +130,12 @@ void Form::activate(uint64_t now){
     if(!checkable(value,boot)){discard();return;}
     result=backend.check(s.auth.generation,s.auth.configurationGeneration,operation);
   }
-  if(result==GitUpdateRequest::accepted && operation){s.checking=s.page!=Session::Page::confirm;if(s.checking)s.candidate=value.candidate.generation;s.operation=operation;s.page=Session::Page::progress;s.cursor=0;notice=Notice::none;}
+  if(result==GitUpdateRequest::accepted && operation){s.checking=s.page!=Session::Page::confirm;s.installing=!s.checking;if(s.installing)s.installAccepted=now;if(s.checking)s.candidate=value.candidate.generation;s.operation=operation;s.page=Session::Page::progress;s.cursor=0;notice=Notice::none;}
   else{s.page=Session::Page::result;s.reason=result==GitUpdateRequest::invalidCandidate?GitUpdateReason::invalidCandidate:GitUpdateReason::admission;}
 }
 void Form::back(uint64_t now){
   if(!guard(now))return;touch(now);
+  if(session->installing && !backend.authorization().allowed){session->operation=0;close(Notice::locked);return;}
   if(session->page==Session::Page::confirm){session->page=Session::Page::menu;session->cursor=1;session->candidate=0;}
   else discard();
 }
@@ -148,7 +163,7 @@ void Form::render(FormView &out)const{
     out.rowCount=out.total=2;
     if(s.checking)strcpy(out.rows[0].label,"Checking GitHub...");
     else snprintf(out.rows[0].label,sizeof(out.rows[0].label),"Progress: %u%%",unsigned(value.progress));
-    strcpy(out.rows[1].label,value.cancellable?"Cancel update":"Final checks; please wait");out.selected=1;
+    strcpy(out.rows[1].label,s.installing && !backend.authorization().allowed?"Back to unlock menus":value.cancellable?"Cancel update":"Final checks; please wait");out.selected=1;
     if(value.phase==GitUpdatePhase::error){title="Update needs recovery";hint=message(value.reason);strcpy(out.rows[0].label,"Controls paused");strcpy(out.rows[1].label,"Back: System");}
   }else if(s.page==Session::Page::result){
     title="Update refused";hint=message(s.reason);out.rowCount=out.total=1;strcpy(out.rows[0].label,"Back: System");
