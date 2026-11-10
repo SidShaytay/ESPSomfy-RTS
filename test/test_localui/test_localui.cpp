@@ -35,6 +35,7 @@ struct Drive {
   void tick(int8_t turn=0,bool pressed=false,bool visible=true,bool back=false,uint32_t advance=50) {
     now+=advance; auto m=f.snapshot(c.view()); c.tick(now,m,turn,pressed,visible,back);
   }
+  void holdSend() {tick(0,true);tick(0,true);tick(0,true,true,false,800);}
   void click(bool visible=true) { tick(0,true,visible);tick(0,true,visible);tick(0,false,visible);tick(0,false,visible); }
   void back() { tick(0,false,true,true);tick(0,false,true,true);tick();tick(); }
   void home() { tick(); tick(1); }
@@ -345,17 +346,63 @@ static void openRepeats(Drive &d,Action action) {
   for(unsigned i=0;i<20 && d.c.view().action!=action;i++) d.tick(1);
   TEST_ASSERT_EQUAL(action,d.c.view().action);d.click();
 }
+static void repeat_final_apply_tap_never_transmits() {
+ Drive d;openRepeats(d,Action::up);d.click();d.tick(-1);
+ TEST_ASSERT_EQUAL(1,d.c.view().valueChoice);
+ d.click();Command out;TEST_ASSERT_FALSE(d.c.take(out));
+ TEST_ASSERT_EQUAL(Screen::repeatValue,d.c.view().screen);
+}
+static void repeat_hold_binds_raw_press_and_release_never_becomes_stop() {
+ Command out;
+ Drive d;openRepeats(d,Action::up);d.click();d.tick(-1);
+ d.tick(0,true);d.tick(0,true);d.tick(0,true,true,false,799);
+ TEST_ASSERT_FALSE(d.c.take(out));
+ d.tick(0,true,true,false,1);TEST_ASSERT_TRUE(d.c.take(out));
+ TEST_ASSERT_EQUAL(1,out.repeat);TEST_ASSERT_TRUE(d.c.view().repeatHeld);
+ d.c.result(d.now,DispatchResult::done);d.tick(0,true,true,false,1500);
+ TEST_ASSERT_FALSE(d.c.take(out)); // finite maximum completed while held
+ d.tick(0,false);TEST_ASSERT_TRUE(d.c.takeCancellation());TEST_ASSERT_FALSE(d.c.take(out));
+ d.tick();TEST_ASSERT_FALSE(d.c.take(out));TEST_ASSERT_FALSE(d.c.view().repeatHeld);
+ TEST_ASSERT_EQUAL(Action::stop,d.c.view().action);
+ // Even failed admission consumes the physical hold through release.
+ Drive refused;openRepeats(refused,Action::up);refused.click();refused.tick(-1);refused.holdSend();
+ TEST_ASSERT_TRUE(refused.c.take(out));refused.c.result(refused.now,DispatchResult::refused);
+ refused.tick(0,true,true,false,1000);TEST_ASSERT_FALSE(refused.c.take(out));
+ refused.tick();refused.tick();TEST_ASSERT_FALSE(refused.c.take(out));
+ for(unsigned changed=0;changed<12;++changed) {
+  Drive x;openRepeats(x,Action::stepDown);x.click();x.tick(-1);x.click(); // step editor -> count
+  x.click();x.tick(-1);TEST_ASSERT_EQUAL(Screen::repeatValue,x.c.view().screen);
+  x.tick(0,true,changed!=0);
+  if(changed==1)++x.f.base.target.token;
+  if(changed==2)x.f.base.authorized=false;
+  if(changed==3)++x.f.base.authGeneration;
+  if(changed==4)++x.f.base.authConfigurationGeneration;
+  if(changed==5)++x.f.base.modelRevision;
+  if(changed==6)++x.f.base.restoreRevision;
+  if(changed==7)x.f.base.ready=false;
+  if(changed==8)x.f.base.controlsEnabled=false;
+  if(changed==9)x.f.base.controlPending=true;
+  if(changed==10)x.now-=1000;
+  x.tick(changed==11?1:0,true,changed!=0);
+  // A busy SPI finishing after an ineligible raw press cannot arm it later.
+  x.tick(0,true,true,false,1000);TEST_ASSERT_FALSE(x.c.take(out));
+  x.tick();x.tick();TEST_ASSERT_FALSE(x.c.take(out));
+ }
+ Drive obscured;openRepeats(obscured,Action::up);obscured.click();obscured.tick(-1);
+ obscured.tick(0,true);obscured.tick(0,true,false);obscured.tick(0,true,true,false,1000);
+ TEST_ASSERT_FALSE(obscured.c.take(out));
+}
 static void repeats_are_bounded_explicit_presented_and_cancel_without_effects() {
   Drive d;openRepeats(d,Action::up);TEST_ASSERT_EQUAL(Screen::repeatValue,d.c.view().screen);
   Command out;for(unsigned i=0;i<140;i++) d.tick(1);
   TEST_ASSERT_EQUAL(127,d.c.view().draftValue);TEST_ASSERT_FALSE(d.c.take(out));
   d.click();TEST_ASSERT_EQUAL(2,d.c.view().valueChoice);d.tick(-1);d.click(false);TEST_ASSERT_FALSE(d.c.take(out));
-  d.click();TEST_ASSERT_TRUE(d.c.take(out));TEST_ASSERT_EQUAL(127,out.repeat);TEST_ASSERT_EQUAL(Action::up,out.action);
+  d.holdSend();TEST_ASSERT_TRUE(d.c.take(out));TEST_ASSERT_EQUAL(127,out.repeat);TEST_ASSERT_EQUAL(Action::up,out.action);
   TEST_ASSERT_EQUAL(99,out.token);TEST_ASSERT_EQUAL(Action::stop,d.c.view().action);
   Drive step;openRepeats(step,Action::stepDown);TEST_ASSERT_EQUAL(Screen::value,step.c.view().screen);
   step.tick(1);step.tick(1);step.click();step.tick(-1);step.click();
   TEST_ASSERT_EQUAL(Screen::repeatValue,step.c.view().screen);TEST_ASSERT_FALSE(step.c.take(out));
-  step.tick(1);step.click();step.tick(-1);step.click();TEST_ASSERT_TRUE(step.c.take(out));
+  step.tick(1);step.click();step.tick(-1);step.holdSend();TEST_ASSERT_TRUE(step.c.take(out));
   TEST_ASSERT_EQUAL(3,out.step);TEST_ASSERT_EQUAL(2,out.repeat);TEST_ASSERT_EQUAL(Action::stepDown,out.action);
   for(unsigned reason=0;reason<5;reason++) {
     Drive cancelled;openRepeats(cancelled,Action::up);cancelled.tick(1);
@@ -370,6 +417,8 @@ static void repeats_are_bounded_explicit_presented_and_cancel_without_effects() 
 }
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(repeat_hold_binds_raw_press_and_release_never_becomes_stop);
+  RUN_TEST(repeat_final_apply_tap_never_transmits);
   RUN_TEST(repeats_are_bounded_explicit_presented_and_cancel_without_effects);
   RUN_TEST(administration_requires_unlock_and_forwards_only_presented_form_press);
   RUN_TEST(status_hold_details_scroll_reaches_health_bottom_without_commands);
