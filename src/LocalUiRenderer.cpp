@@ -22,7 +22,7 @@ const char *notices[] = {"",
                          "Unlock required", "Invalid credentials", "Too many attempts - wait",
                          "Local unlock unavailable", "Unlocked - select action again",
                          "Command accepted", "Partially accepted - review",
-                         "Busy - retry", "Pending action cancelled", "Estimate unavailable - no draft", "Queued action expired - retry", "Cancelled; STOP not queued"};
+                         "Busy - retry", "Pending action cancelled", "Estimate unavailable - no draft", "Action expired - retry", "Cancelled; STOP not queued"};
 } // namespace
 void Canvas::drawPixel(int16_t x, int16_t y, uint16_t color) {
   if(pixels && x >= 0 && x < screenWidth && y >= 0 && y < screenHeight)
