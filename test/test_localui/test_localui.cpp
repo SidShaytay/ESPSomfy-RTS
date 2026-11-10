@@ -466,8 +466,25 @@ static void quick_home_only_navigates_and_keeps_browse_and_drafts_separate() {
  d.back();d.back();TEST_ASSERT_FALSE(d.c.view().quickEditing);TEST_ASSERT_FALSE(d.c.view().quickPicking);
  TEST_ASSERT_TRUE(d.c.view().quickDraft.at(0)->empty());
 }
+static void quick_revocation_consumes_only_an_existing_press() {
+ for(bool held:{false,true}) {
+  Drive d;d.f.base.anyMoving=false;d.f.base.quickReady=true;d.f.base.quickRevision=3;d.tick();
+  for(unsigned i=0;i<4;i++)d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::quickManage,d.c.view().screen);
+  if(held){d.tick(0,true);d.tick(0,true);}
+  ++d.f.base.modelRevision;d.tick(0,held);
+  TEST_ASSERT_EQUAL(Screen::quickHome,d.c.view().screen);TEST_ASSERT_FALSE(d.c.view().quickEditing);
+  QuickPreferenceRequest save;Command command;
+  if(held) {
+   d.tick(0,true,true,false,900);TEST_ASSERT_EQUAL(Screen::quickHome,d.c.view().screen);
+   d.tick();d.tick();TEST_ASSERT_EQUAL(Screen::quickHome,d.c.view().screen);
+  }
+  TEST_ASSERT_FALSE(d.c.takeQuickSave(save));TEST_ASSERT_FALSE(d.c.take(command));
+  d.click();TEST_ASSERT_EQUAL(Screen::quickManage,d.c.view().screen);TEST_ASSERT_TRUE(d.c.view().quickEditing);
+ }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(quick_revocation_consumes_only_an_existing_press);
   RUN_TEST(quick_home_only_navigates_and_keeps_browse_and_drafts_separate);
   RUN_TEST(repeat_hold_binds_raw_press_and_release_never_becomes_stop);
   RUN_TEST(repeat_final_apply_tap_never_transmits);
