@@ -4,17 +4,19 @@ Objective: complete LCD parity and agreed standalone workflows with tests, docum
 
 ## Current milestone
 
-[-] Deliver approved updater fixes as engineering 4.7.3. Next: finish SDK/package review, resolve cancelled-attempt activation uncertainty, then prepare the exact authorized deployment/recovery plan. Broader navigation is FROZEN pending final approval.
+[-] Deliver approved updater fixes as engineering 4.7.3. Next: await fresh Checkrow availability (required reset prerequisite), then prepare the exact authorized deployment/recovery plan. Broader navigation is FROZEN pending final approval.
 
 Installed: 4.7.1, source5e1657d, app1 previously VALID/sequence20. Sid reports EXACT “Update cancelled; controls resume after cleanup”. HTTPversion and passive logs still471; no new boot/SDK confirmation. Actual GitHub firmware HTTPS download DID complete (http200/TLS flags0/cert3). Installation did NOT complete. Inactive app0 contents/boot selection remain UNKNOWN after cancellation: no retry/reset/USB handoff or old bootback helper until resolved. Pending guards remain intact.
 
-Root integrated independently reviewed60bdcf8 (hide empty release row; indeterminate Checking GitHub; own successful check opens review with Cancel selected) and0bfaf48 (DIM-only update context retention, no idle return/cancellation). Reproduced old actualRuntime failure at21s; full UI/native9 tests green, independent retention mutation killed. Security120s expiry/cancellation/privacy/pool cleanup remain active; no fake activity or extended authority. Author checkpoint_review adding explicit expired Back-row Runtime press test; no identified source bug.
+Root integrated independently reviewed60bdcf8 (hide empty release row; indeterminate Checking GitHub; own successful check opens review with Cancel selected) and0bfaf48 (DIM-only update context retention, no idle return/cancellation). Reproduced old actualRuntime failure at21s; full UI/native9 tests green, independent retention mutation killed. Security120s expiry/cancellation/privacy/pool cleanup remain active; no fake activity or extended authority. Author checkpoint_review completed explicit expired Back-row Runtime press test c050586/fullUIgreen; no production change or identified bug.
 
-4.7.3 isolated worktree issue-25-engineering-v473 at1fb7abc, local immutabletagv4.7.3. Version/cache4files+docs only atop0bf. SDK session73707, log /tmp/i25-v473-sdk.log, package build/v473-tagged-package/artifacts. Peer phase2_independent_review assigned package/version audit. Not published/deployed. Main currently0bfaf48. Last public main/tagv4.7.2 e43cc14; never retag/overwrite.
+4.7.3 isolated worktree issue-25-engineering-v473 at1fb7abc, local immutabletagv4.7.3. Version/cache4files+docs only atop0bf. SDK session73707 TERMINAL0 PASS48.773s, log /tmp/i25-v473-sdk.log, package build/v473-tagged-package/artifacts and build/v473-release-assets. Peer phase2_independent_review APPROVED package/version audit. Published normaleligible engineering4.7.3; public assets readback hashes match; NOT deployed. Independent audit /tmp/i25-v473-package-review.json copied into p473. Main currentlyc050586 (extra TESTONLY expiredBackack fullUIgreen). Last public main/tagv4.7.2 e43cc14; never retag/overwrite.
 
 ## Private evidence / live observers
 
 State root ~/.local/state/espsomfy-lilygo. Current p472=phase472-preflight-cgcoagua (PHASE472_PREFLIGHT_CURRENT). Full16 configured-16mb.bin and independent-full-backup-verification.json approve both471postread and pre472recovery, all16NVS/ALLLittleFS/entities/counters. p471=phase471-preflight-00gygl2c; final-deployment-verification.json, LATEST_VERIFIED_DEPLOYMENT/ISSUE25_FINAL_DEPLOYMENT identify471. Preserve raw backups privately.
+
+New473 fresh read-only before capture+portablebackup complete in phase473-preflight-llv_kko3; no resets/devicewrites.
 
 p472/new-image-may-be-pending.json and firmware-write-started.json created BEFORE userInstall; not themselves proof of writes. Existing passive O_RDONLY USBlogger remains attached; no root serialoperations since guards. Read its files only.
 
@@ -24,7 +26,7 @@ Download sampled extrema: minInternal109640, minLargest65524, maxPSRAM2167520, w
 
 ## Authority and ownership
 
-Root sole live operator. Agents no serial/controller/RF/service actions. phase2_status investigating whether cancelled/checkable can coexist with newly selected OTA slot before reset; also updates GitHub status. checkpoint_review authored retention; phase2_independent_review approved source and auditing473package.
+Root sole live operator. Agents no serial/controller/RF/service actions. phase2_status proved freshcancelled+freshCheckrow(!busy) excludes selectedOTA under installed471 paths: activate setsinstallFinal BEFOREselection; cleanup cannotrelease final/uncertain; failure staysactivationFailed/busy. Cachedcancelledtext alone insufficient. Root async asks Checkrowavailability before reset; no retry. Also updates GitHub status. checkpoint_review authored retention; phase2_independent_review approved source and auditing473package.
 
 Sid authorized ongoing engineering phase flashing/publication. Visible ENGINEERING BUILD — INCOMPLETE and exact warning “WARNING: Please do not load these builds, these are still a preview of the final approach.” Normal release eligibility; NO alpha/prerelease/channel/temporary software blocks. HA changes/restarts not authorized. RF allowed ONLY until2026-11-11T04:24:29Z, chat BEFORE and AFTER every session; NONE started. No pairing/calibration/limit tests authorized. Don’t disturb occupants.
 
