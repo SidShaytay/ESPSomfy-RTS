@@ -23,6 +23,9 @@ static unsigned commits = 0;
 static ModelCommitResult outcome;
 static std::vector<std::string> events;
 static unsigned recoveries=0;
+static unsigned preparations=0;
+static GitUpdateOwnerToken preparedOwner;
+void runApplicationPreparation(const GitUpdateOwnerToken &owner){++preparations;preparedOwner=owner;}
 struct SomfyShadeController {
   struct {CounterQuarantine cause=CounterQuarantine::none;CounterQuarantine counterQuarantine(){return cause;}} transceiver;
   ModelCommitResult commit() {
@@ -95,6 +98,7 @@ void setUp() {
     gitUpdate.closeTransfer(cleanup.token);gitUpdate.releaseExternal(cleanup.token);
   }
   stubEspTimerMicros=100000;
+  preparations=0;preparedOwner={};
   admitted = true;
   queued = {};
   pendingItems.clear();
@@ -252,8 +256,22 @@ static void counter_recovery_unknown_and_mode_source_mismatch_never_write() {
   runModelCommit(forged);TEST_ASSERT_EQUAL(0,commits);TEST_ASSERT_TRUE(gitUpdate.ownsExternal(owner));
   TEST_ASSERT_FALSE(submitModelCommit({},ModelCommitMode::counterFileRecovery,owner));
 }
+static void application_preparation_keeps_fifo_and_never_commits_on_producer() {
+  loop_item_t first;first.type=loop_item_type_t::shade_request;first.request.id=7;
+  TEST_ASSERT_TRUE(loopQueue.submit(first));
+  GitUpdateOwnerToken owner{123,GitUpdateExternalOwner::manual};
+  TEST_ASSERT_TRUE(submitModelCommit({},ModelCommitMode::applicationPreparation,owner));
+  TEST_ASSERT_EQUAL(0,commits);TEST_ASSERT_EQUAL(0,preparations);
+  TEST_ASSERT_EQUAL(uint8_t(loop_item_type_t::shade_request),uint8_t(pendingItems.front().type));
+  const auto preparation=pendingItems.back();pendingItems.clear();runModelCommit(preparation);
+  TEST_ASSERT_EQUAL(1,preparations);TEST_ASSERT_EQUAL(owner.generation,preparedOwner.generation);TEST_ASSERT_EQUAL(0,commits);
+  auto forged=preparation;forged.restartAfterCommit=true;runModelCommit(forged);TEST_ASSERT_EQUAL(1,preparations);
+  TEST_ASSERT_FALSE(submitModelCommit({},ModelCommitMode::applicationPreparation));
+  owner.kind=GitUpdateExternalOwner::restore;TEST_ASSERT_FALSE(submitModelCommit({},ModelCommitMode::applicationPreparation,owner));
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(application_preparation_keeps_fifo_and_never_commits_on_producer);
   RUN_TEST(explicit_counter_file_recovery_mode_never_leaks_into_unrelated_saves);
   RUN_TEST(counter_recovery_unknown_and_mode_source_mismatch_never_write);
   RUN_TEST(stale_recovery_source_cannot_touch_a_newer_upload);

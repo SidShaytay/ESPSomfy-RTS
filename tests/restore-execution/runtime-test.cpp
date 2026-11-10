@@ -43,6 +43,7 @@ struct SomfyShadeController {
  struct Group{uint8_t id=255;int8_t direction=0;somfy_frame_t lastFrame;uint8_t linkedShades[32]{};uint8_t getGroupId(){return id;}}groups[16];
  Shade *getShadeById(uint8_t id){for(auto &shade:shades)if(id&&id!=255&&shade.id==id)return &shade;return nullptr;}
 }somfy;
+bool radioInstallPaused(){return somfy.transceiver.paused;}
 struct restore_options_t{bool settings=false,shades=false,network=false,transceiver=false,repeaters=false,mqtt=false;};
 static RestoreApplyResult applyResult;static unsigned applies=0;static std::function<void()> duringApply;
 struct ShadeConfigFile {static RestoreApplyResult restore(SomfyShadeController *,const char *,restore_options_t &,const GitUpdateOwnerToken &owner,const RadioInstallToken &radio){

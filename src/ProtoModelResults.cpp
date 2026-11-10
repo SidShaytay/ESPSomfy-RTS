@@ -48,8 +48,8 @@ void writeModelCommitReport(ProtoWriter &w, ModelCommitReport report) {
           "Model file saved; restart not scheduled while operations remain "
           "queued. Resolve queued operations, then Restart.");
   else if (!result.saved()) {
-    w.add(proto_field_t::code, static_cast<uint8_t>(proto_error_t::internal));
-    w.add(proto_field_t::desc, modelCommitFailureDescription(result.state));
+    w.add(proto_field_t::code, static_cast<uint8_t>(result.stage==ModelCommitStage::filesystemBusy ? proto_error_t::busy : proto_error_t::internal));
+    w.add(proto_field_t::desc, modelCommitFailureDescription(result));
   }
 }
 const char *parseModelCommitPayload(JsonObjectConst payload) {

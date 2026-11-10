@@ -88,4 +88,74 @@ static void recovery_is_owned_bounded_and_cannot_revive_expired_io() {
   TEST_ASSERT_FALSE(policy.continuing(own,30000));TEST_ASSERT_TRUE(policy.resource(own,false));
   TEST_ASSERT_FALSE(policy.holdRecovery(own,30000));TEST_ASSERT_TRUE(policy.close(own));
 }
-int main() { UNITY_BEGIN();RUN_TEST(transferred_firmware_outlives_request_and_has_private_worker_claims);RUN_TEST(recovery_is_owned_bounded_and_cannot_revive_expired_io);RUN_TEST(successful_ota_keeps_same_owner_through_restart_publication);RUN_TEST(expiry_cannot_abort_an_inflight_operation_or_revive_late_callbacks);RUN_TEST(token_kind_and_queued_restore_ownership_are_exact);RUN_TEST(timeout_boundary_progress_rollback_and_abandoned_restore_are_bounded);return UNITY_END(); }
+static void application_unmounted_resource_is_not_an_owned_sdk_and_blocks_release() {
+  ManualUpdateLifecycle policy;const auto own=token(30);
+  TEST_ASSERT_TRUE(policy.begin(own,ManualUpdateKind::application,0));TEST_ASSERT_TRUE(policy.claim(own,1));
+  TEST_ASSERT_TRUE(policy.filesystem(own,true));TEST_ASSERT_FALSE(policy.close(own));
+  TEST_ASSERT_TRUE(policy.retire(own));TEST_ASSERT_TRUE(policy.finish(own,2,false));
+  const auto cleanup=policy.cleanup(2);TEST_ASSERT_TRUE(cleanup.filesystemUnavailable);TEST_ASSERT_FALSE(cleanup.resourceOpen);
+  TEST_ASSERT_FALSE(policy.close(own));TEST_ASSERT_FALSE(policy.filesystem(token(31),false));
+  TEST_ASSERT_TRUE(policy.filesystem(own,false));TEST_ASSERT_TRUE(policy.close(own));
+}
+static void application_cannot_restart_or_claim_recovery_while_its_sdk_is_open() {
+  ManualUpdateLifecycle policy;const auto own=token(32);
+  TEST_ASSERT_TRUE(policy.begin(own,ManualUpdateKind::application,0));TEST_ASSERT_TRUE(policy.claim(own,1));
+  TEST_ASSERT_TRUE(policy.filesystem(own,true));TEST_ASSERT_TRUE(policy.resource(own,true));
+  TEST_ASSERT_FALSE(policy.filesystem(own,false));TEST_ASSERT_FALSE(policy.close(own));
+  TEST_ASSERT_TRUE(policy.resource(own,false));TEST_ASSERT_TRUE(policy.holdRestart(own));TEST_ASSERT_TRUE(policy.finish(own,2,true));
+  TEST_ASSERT_FALSE(policy.restartReady(own,3));TEST_ASSERT_FALSE(policy.handoffRestart(own,3));
+  TEST_ASSERT_TRUE(policy.claimRecovery(own,3));TEST_ASSERT_TRUE(policy.filesystem(own,false));
+  TEST_ASSERT_TRUE(policy.finish(own,3,true));TEST_ASSERT_TRUE(policy.restartReady(own,4));TEST_ASSERT_TRUE(policy.handoffRestart(own,4));
+}
+static void prepared_application_binds_source_and_separates_prepare_from_receive() {
+  ManualUpdateLifecycle policy;const auto own=token(40);const ManualApplicationSource source{77,9,4096};
+  TEST_ASSERT_TRUE(policy.begin(own,ManualUpdateKind::application,0));TEST_ASSERT_TRUE(policy.prepareApplication(own,source,0));
+  TEST_ASSERT_FALSE(policy.claim(own,1));TEST_ASSERT_TRUE(policy.claimPreparation(own,source,1));
+  TEST_ASSERT_FALSE(policy.resource(own,true));TEST_ASSERT_FALSE(policy.applicationPrepared(own));
+  TEST_ASSERT_TRUE(policy.filesystem(own,true));TEST_ASSERT_TRUE(policy.applicationPrepared(own));
+  TEST_ASSERT_TRUE(policy.finish(own,2,true));TEST_ASSERT_FALSE(policy.retire(own));
+  auto stale=source;++stale.securityRevision;TEST_ASSERT_FALSE(policy.claimPreparedApplication(own,stale,3));
+  stale=source;++stale.nonce;TEST_ASSERT_FALSE(policy.claimPreparedApplication(own,stale,3));
+  stale=source;++stale.bytes;TEST_ASSERT_FALSE(policy.claimPreparedApplication(own,stale,3));
+  TEST_ASSERT_TRUE(policy.claimPreparedApplication(own,source,3));TEST_ASSERT_TRUE(policy.resource(own,true));
+  TEST_ASSERT_FALSE(policy.claimPreparedApplication(own,source,4));TEST_ASSERT_TRUE(policy.retire(own));
+  TEST_ASSERT_TRUE(policy.resource(own,false));TEST_ASSERT_TRUE(policy.filesystem(own,false));TEST_ASSERT_TRUE(policy.close(own));
+}
+static void abandoned_preparation_never_releases_an_unmounted_filesystem() {
+  for(unsigned clock=0;clock<2;++clock){
+    ManualUpdateLifecycle policy;const auto own=token(41);const ManualApplicationSource source{78,10,4096};
+    TEST_ASSERT_TRUE(policy.begin(own,ManualUpdateKind::application,100));TEST_ASSERT_TRUE(policy.prepareApplication(own,source,100));
+    TEST_ASSERT_TRUE(policy.claimPreparation(own,source,101));TEST_ASSERT_TRUE(policy.filesystem(own,true));
+    TEST_ASSERT_TRUE(policy.applicationPrepared(own));TEST_ASSERT_TRUE(policy.finish(own,102,true));
+    TEST_ASSERT_FALSE(policy.claimPreparedApplication(own,source,clock?99:30102));
+    const auto cleanup=policy.cleanup(30103);TEST_ASSERT_TRUE(cleanup.filesystemUnavailable);TEST_ASSERT_FALSE(cleanup.resourceOpen);
+    TEST_ASSERT_FALSE(policy.close(own));TEST_ASSERT_TRUE(policy.filesystem(own,false));TEST_ASSERT_TRUE(policy.close(own));
+    TEST_ASSERT_FALSE(policy.claimPreparedApplication(own,source,30104));
+  }
+}
+static void expired_application_can_only_enter_reducing_filesystem_recovery() {
+  ManualUpdateLifecycle policy;const auto own=token(42);const ManualApplicationSource source{79,11,4096};
+  TEST_ASSERT_TRUE(policy.begin(own,ManualUpdateKind::application,0));TEST_ASSERT_TRUE(policy.prepareApplication(own,source,0));
+  TEST_ASSERT_TRUE(policy.claimPreparation(own,source,1));TEST_ASSERT_TRUE(policy.filesystem(own,true));
+  auto wrong=source;++wrong.nonce;TEST_ASSERT_FALSE(policy.cancelPreparation(own,wrong));
+  TEST_ASSERT_TRUE(policy.cancelPreparation(own,source));TEST_ASSERT_FALSE(policy.applicationPrepared(own));
+  TEST_ASSERT_TRUE(policy.finish(own,2,false));TEST_ASSERT_TRUE(policy.cleanup(30002).filesystemUnavailable);
+  TEST_ASSERT_TRUE(policy.holdRecovery(own,30002));TEST_ASSERT_TRUE(policy.finish(own,30002,false));
+  TEST_ASSERT_FALSE(policy.continuing(own));TEST_ASSERT_FALSE(policy.cleanup(30003).token.generation);
+  TEST_ASSERT_FALSE(policy.claim(own,30003));TEST_ASSERT_TRUE(policy.claimRecovery(own,30003));
+  TEST_ASSERT_FALSE(policy.resource(own,true));TEST_ASSERT_FALSE(policy.holdRestart(own));
+  TEST_ASSERT_TRUE(policy.filesystem(own,false));TEST_ASSERT_TRUE(policy.close(own));
+}
+static void application_restart_waits_for_verified_recovery_and_never_revives_expiry() {
+  for(bool expire:{false,true}) {
+    ManualUpdateLifecycle policy;const auto own=token(50);
+    TEST_ASSERT_TRUE(policy.begin(own,ManualUpdateKind::application,0));TEST_ASSERT_TRUE(policy.claim(own,0));
+    TEST_ASSERT_TRUE(policy.filesystem(own,true));TEST_ASSERT_TRUE(policy.resource(own,true));TEST_ASSERT_TRUE(policy.resource(own,false));
+    TEST_ASSERT_TRUE(policy.holdRecovery(own,1));TEST_ASSERT_TRUE(policy.finish(own,1,true));
+    TEST_ASSERT_TRUE(policy.claimRecovery(own,expire?30001:2));TEST_ASSERT_FALSE(policy.holdRestart(own));
+    TEST_ASSERT_TRUE(policy.filesystem(own,false));
+    TEST_ASSERT_EQUAL(!expire,policy.holdRestart(own));
+    if(expire)TEST_ASSERT_TRUE(policy.close(own));
+  }
+}
+int main() { UNITY_BEGIN();RUN_TEST(transferred_firmware_outlives_request_and_has_private_worker_claims);RUN_TEST(application_restart_waits_for_verified_recovery_and_never_revives_expiry);RUN_TEST(expired_application_can_only_enter_reducing_filesystem_recovery);RUN_TEST(prepared_application_binds_source_and_separates_prepare_from_receive);RUN_TEST(abandoned_preparation_never_releases_an_unmounted_filesystem);RUN_TEST(application_unmounted_resource_is_not_an_owned_sdk_and_blocks_release);RUN_TEST(application_cannot_restart_or_claim_recovery_while_its_sdk_is_open);RUN_TEST(recovery_is_owned_bounded_and_cannot_revive_expired_io);RUN_TEST(successful_ota_keeps_same_owner_through_restart_publication);RUN_TEST(expiry_cannot_abort_an_inflight_operation_or_revive_late_callbacks);RUN_TEST(token_kind_and_queued_restore_ownership_are_exact);RUN_TEST(timeout_boundary_progress_rollback_and_abandoned_restore_are_bounded);return UNITY_END(); }

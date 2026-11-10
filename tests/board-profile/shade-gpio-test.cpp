@@ -49,7 +49,7 @@ struct SomfyShadeController {
   struct Radio {struct {SettingsLoadStatus loadStatus{SettingsLoadState::loaded};}config;bool usesPin(uint8_t pin){return BoardProfile::usesPin(pin);}} transceiver;
 } somfy;
 struct ConfigSettings {} settings;
-const char *modelCommitFailureDescription(ModelCommitState){return "Not exercised";}
+const char *modelCommitFailureDescription(ModelCommitResult){return "Not exercised";}
 #include "ShadeGpioAdmission.cpp"
 #include "ShadeGpio.cpp"
 #include "ShadeTransport.cpp"

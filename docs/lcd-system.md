@@ -10,6 +10,16 @@ and use Back to return. Opening this screen does not scan, probe or reconnect.
 SSID and IP details stay inside the protected System screen and are discarded
 when its session closes.
 
+**GitHub updates** checks and installs an eligible verified repository release
+entirely from the LCD. Review the release and explicitly choose Install and restart.
+The controller saves current state and waits for safe idle/restart admission;
+postboot health and automatic idle rollback report their status on the LCD.
+See [the update guide](lcd-github-updates.md).
+
+**WiFi scan**, **Radio frequency scan** and **Receive diagnostics** open separate
+owned observation screens; use [WiFi selection](lcd-wifi-scan.md),
+[radio scan](lcd-radio-scan.md) and [receive diagnostics](lcd-receive-diagnostics.md).
+
 **Restart** opens a confirmation with Cancel selected. Turn to Restart now and
 press only after that choice has reached the display. Restart interrupts service.
 The shared restart service checks storage, current model persistence, movement,
@@ -32,7 +42,7 @@ backup is not a routine firmware-update step.
 session. Frame data can identify devices and contains radio counters; keep it
 private.
 
-The form allocates no draft memory. Its state is capped at 80 bytes and it borrows
+The System menu allocates no draft memory. Mutually exclusive child handles share one bounded slot; their private sessions use the existing wiping pool. The menu state is capped at 80 bytes and it borrows
 the Runtime's existing administration presentation buffers because the two
 screens cannot be open together. One 352-byte current view is built on the loop
 stack; it is not another retained framebuffer. Graphics loss, sleep, session or

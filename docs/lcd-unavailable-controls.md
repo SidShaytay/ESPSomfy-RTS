@@ -16,4 +16,4 @@ modes remain saved and editable. The existing relay driver uses only Up/Down
 outputs and does not map tilt movement for either mode. Ordinary supported lift
 controls remain available; RF and GPIO-remote tilt behavior is unchanged. Enabling
 these relay modes needs a specified wiring/driver design and physical verification.
-Phase 2 preserves these modes but does not provide working separate/Euro relay tilt.
+These modes remain available in configuration; this implementation does not provide working separate/Euro relay tilt.

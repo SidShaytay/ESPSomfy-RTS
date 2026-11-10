@@ -4,6 +4,7 @@
 #include "Utils.h"
 #include "SafeRestart.h"
 #include "ExplicitCounter.h"
+#include "ApplicationFilesystem.h"
 #include "outputs/ProtoSocket.h"
 #include <esp_timer.h>
 extern LoopQueue loopQueue;
@@ -45,9 +46,10 @@ ModelCommitReport commit(const proto_reply_to_t &to,ModelCommitMode mode,const G
 }
 }
 bool submitModelCommit(const proto_reply_to_t &to,ModelCommitMode mode,const GitUpdateOwnerToken &owner) {
-  if(static_cast<uint8_t>(mode)>static_cast<uint8_t>(ModelCommitMode::counterFileRecovery)) return false;
+  if(static_cast<uint8_t>(mode)>static_cast<uint8_t>(ModelCommitMode::applicationPreparation)) return false;
   const bool application=mode==ModelCommitMode::applicationRecovery || mode==ModelCommitMode::applicationRecoveryAndRestart;
-  if((application && (!owner.generation || owner.kind!=GitUpdateExternalOwner::manual)) || (!application && owner.generation)) return false;
+  const bool owned=application || mode==ModelCommitMode::applicationPreparation;
+  if((owned && (!owner.generation || owner.kind!=GitUpdateExternalOwner::manual)) || (!owned && owner.generation)) return false;
   loop_item_t item;item.type=loop_item_type_t::model_commit;item.replyTo=to;item.op=uint8_t(mode);
   item.restartAfterCommit=mode==ModelCommitMode::applicationRecoveryAndRestart;
   item.externalOwner=owner;
@@ -59,16 +61,18 @@ ModelCommitReport applyModelCommit(const proto_reply_to_t &to,ModelCommitMode mo
 }
 void runModelCommit(const loop_item_t &item) {
   const auto &owner=item.externalOwner;
-  if(item.op>uint8_t(ModelCommitMode::counterFileRecovery)) {
+  if(item.op>uint8_t(ModelCommitMode::applicationPreparation)) {
     ModelCommitReport refused;refused.refusal=RestartReason::invalidRequest;notify(item.replyTo,refused);return;
   }
   const auto mode=ModelCommitMode(item.op);
   const bool application=mode==ModelCommitMode::applicationRecovery || mode==ModelCommitMode::applicationRecoveryAndRestart;
+  const bool owned=application || mode==ModelCommitMode::applicationPreparation;
   if(item.restartAfterCommit!=(mode==ModelCommitMode::applicationRecoveryAndRestart) ||
-     (application && (!owner.generation || owner.kind!=GitUpdateExternalOwner::manual)) ||
-     (!application && owner.generation) || (application && !gitUpdate.claimTransferRecovery(owner,now()))) {
+     (owned && (!owner.generation || owner.kind!=GitUpdateExternalOwner::manual)) ||
+     (!owned && owner.generation) || (application && !gitUpdate.claimTransferRecovery(owner,now()))) {
     ModelCommitReport refused;refused.refusal=RestartReason::stale;notify(item.replyTo,refused);return;
   }
+  if(mode==ModelCommitMode::applicationPreparation){runApplicationPreparation(owner);return;}
   const auto result=commit(item.replyTo,mode,owner.generation ? &owner : nullptr);
   if(!owner.generation) return;
   if(!result.rebooting && gitUpdate.closeTransfer(owner)) gitUpdate.releaseExternal(owner);

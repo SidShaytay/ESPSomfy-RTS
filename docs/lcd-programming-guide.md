@@ -1,6 +1,6 @@
 # Pair or unpair from the LCD
 
-The LCD guides you through sending a programming request to one RF shutter and recording the result you have verified. This candidate has passed offline tests; it has not been tested on a motor or integrated into main.
+The LCD guides you through sending a programming request to one RF shutter and recording the result you have verified. The guide is implemented in main and covered by offline input, renderer, adapter and FIFO tests. Physical motor programming is not established by that evidence.
 
 ## Use the guide
 

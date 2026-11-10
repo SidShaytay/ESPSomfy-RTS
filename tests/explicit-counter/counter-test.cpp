@@ -27,6 +27,7 @@ static const char *TAG="Counter test";
 struct Transceiver {
   struct {uint8_t type=56;radio_proto proto=radio_proto::RTS;} config;
   uint64_t configurationRevision=1;
+  std::atomic<bool> _administrationPaused{false};
   RadioScheduler sched;CounterEditSafety counterEdits;
   CounterEditAdmission reserveCounterEdit(uint32_t,bool,uint16_t,bool);
   void finishCounterEdit(CounterEditResult,ModelCommitResult);
@@ -69,6 +70,10 @@ static std::mutex txLock;
 struct TxQueueLock {std::lock_guard<std::mutex> held;TxQueueLock():held(txLock){}};
 SomfyShadeController::SomfyShadeController() : startingAddress(100) {modelLoad.bootResult(ModelLoadStatus::loaded);}
 SomfyShadeController somfy;
+// This counter harness has no filesystem-install operation.
+bool radioInstallPaused(){return false;}
+// Preparation/physical filesystem transitions have their own real-owner harness.
+void runApplicationPreparation(const GitUpdateOwnerToken &){assert(false);}
 static bool pendingRestart=false;
 bool restartPending(){return pendingRestart;}
 // Queue/history forwarding is exercised by the actual queue/service harness.

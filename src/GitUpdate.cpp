@@ -1,10 +1,15 @@
-#if defined(ARDUINO) && defined(GIT_UPDATE_HOST_TEST)
+#if defined(ARDUINO) && (defined(GIT_UPDATE_HOST_TEST) || defined(GIT_UPDATE_TRANSFER_CLOCK_TEST))
 #error "Updater host test hooks are forbidden in firmware"
 #endif
 #include "GitUpdate.h"
 #include "GitUpdatePolicy.h"
 #include "GitUpdateImage.h"
 #include "ManualUpdateLifecycle.h"
+#if defined(ARDUINO)
+#include <esp_timer.h>
+#elif defined(GIT_UPDATE_TRANSFER_CLOCK_TEST)
+uint64_t gitUpdateTransferClockNow();
+#endif
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -25,6 +30,17 @@ struct Guard { Guard() { portENTER_CRITICAL(&serviceLock); } ~Guard() { portEXIT
 std::mutex serviceLock;
 struct Guard { std::lock_guard<std::mutex> lock; Guard():lock(serviceLock) {} };
 #endif
+// Called only after Guard acquisition. Caller snapshots can arrive out of
+// timestamp order across HTTP and loop tasks; they are not clock rollback.
+uint64_t manualTransferClock(uint64_t supplied) {
+#if defined(ARDUINO)
+  (void)supplied;return uint64_t(esp_timer_get_time())/1000;
+#elif defined(GIT_UPDATE_TRANSFER_CLOCK_TEST)
+  (void)supplied;return gitUpdateTransferClockNow();
+#else
+  return supplied; // Existing deterministic host-policy callers.
+#endif
+}
 enum class Owner : uint8_t { none,check,prepare,manual,restore,counter,restart,configuration,install };
 Owner owner=Owner::none;
 uint64_t ownerGeneration=0;
@@ -98,19 +114,37 @@ bool GitUpdateClass::releaseExternal(const GitUpdateOwnerToken &token) {
   owner=Owner::none;return true;
 }
 bool GitUpdateClass::beginTransfer(const GitUpdateOwnerToken &token,ManualUpdateKind kind,uint64_t now) {
-  Guard guard;return owns(token) && manualTransfer.begin(token,kind,now);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.begin(token,kind,now);
+}
+bool GitUpdateClass::prepareApplication(const GitUpdateOwnerToken &token,const ManualApplicationSource &source,uint64_t now) {
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.prepareApplication(token,source,now);
+}
+bool GitUpdateClass::claimApplicationPreparation(const GitUpdateOwnerToken &token,const ManualApplicationSource &source,uint64_t now) {
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.claimPreparation(token,source,now);
+}
+bool GitUpdateClass::applicationPrepared(const GitUpdateOwnerToken &token) {
+  Guard guard;return owns(token) && manualTransfer.applicationPrepared(token);
+}
+bool GitUpdateClass::claimPreparedApplication(const GitUpdateOwnerToken &token,const ManualApplicationSource &source,uint64_t now) {
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.claimPreparedApplication(token,source,now);
+}
+bool GitUpdateClass::cancelApplicationPreparation(const GitUpdateOwnerToken &token,const ManualApplicationSource &source) {
+  Guard guard;return owns(token) && manualTransfer.cancelPreparation(token,source);
 }
 bool GitUpdateClass::claimTransfer(const GitUpdateOwnerToken &token,uint64_t now,bool queuedRestore) {
-  Guard guard;return owns(token) && manualTransfer.claim(token,now,queuedRestore);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.claim(token,now,queuedRestore);
 }
 bool GitUpdateClass::transferContinuing(const GitUpdateOwnerToken &token) const {
   Guard guard;return owns(token) && manualTransfer.continuing(token);
 }
 bool GitUpdateClass::transferContinuing(const GitUpdateOwnerToken &token,uint64_t now) {
-  Guard guard;return owns(token) && manualTransfer.continuing(token,now);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.continuing(token,now);
 }
 bool GitUpdateClass::transferResource(const GitUpdateOwnerToken &token,bool opened) {
   Guard guard;return owns(token) && manualTransfer.resource(token,opened);
+}
+bool GitUpdateClass::transferFilesystem(const GitUpdateOwnerToken &token,bool unavailable) {
+  Guard guard;return owns(token) && manualTransfer.filesystem(token,unavailable);
 }
 bool GitUpdateClass::queueTransfer(const GitUpdateOwnerToken &token) {
   Guard guard;return owns(token) && manualTransfer.queue(token);
@@ -119,22 +153,22 @@ bool GitUpdateClass::holdTransferRestart(const GitUpdateOwnerToken &token) {
   Guard guard;return owns(token) && manualTransfer.holdRestart(token);
 }
 bool GitUpdateClass::holdTransferRecovery(const GitUpdateOwnerToken &token,uint64_t now) {
-  Guard guard;return owns(token) && manualTransfer.holdRecovery(token,now);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.holdRecovery(token,now);
 }
 bool GitUpdateClass::claimTransferRecovery(const GitUpdateOwnerToken &token,uint64_t now) {
-  Guard guard;return owns(token) && manualTransfer.claimRecovery(token,now);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.claimRecovery(token,now);
 }
 bool GitUpdateClass::transferRestoreClaimed(const GitUpdateOwnerToken &token,uint64_t now) {
-  Guard guard;return owns(token) && manualTransfer.restoreClaimed(token,now);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.restoreClaimed(token,now);
 }
 bool GitUpdateClass::transferRestartHeld(const GitUpdateOwnerToken &token,uint64_t now) {
-  Guard guard;return owns(token) && manualTransfer.restartHeld(token,now);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.restartHeld(token,now);
 }
 bool GitUpdateClass::transferRestartReady(const GitUpdateOwnerToken &token,uint64_t now) {
-  Guard guard;return owns(token) && manualTransfer.restartReady(token,now);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.restartReady(token,now);
 }
 bool GitUpdateClass::acquireRestart(GitUpdateOwnerToken &result,uint64_t now,const GitUpdateOwnerToken &expected) {
-  Guard guard;
+  Guard guard;now=manualTransferClock(now);
   if(ownerGeneration==UINT64_MAX) return false;
   if(expected.generation) {
     if(!owns(expected) || !manualTransfer.handoffRestart(expected,now)) return false;
@@ -143,18 +177,24 @@ bool GitUpdateClass::acquireRestart(GitUpdateOwnerToken &result,uint64_t now,con
   result={ownerGeneration,GitUpdateExternalOwner::restart};return true;
 }
 bool GitUpdateClass::releaseRestartSource(const GitUpdateOwnerToken &token,uint64_t now) {
-  Guard guard;
+  Guard guard;now=manualTransferClock(now);
   if(!owns(token) || !manualTransfer.cancelRestart(token,now)) return false;
   owner=Owner::none;return true;
 }
 bool GitUpdateClass::finishTransfer(const GitUpdateOwnerToken &token,uint64_t now,bool progress) {
-  Guard guard;return owns(token) && manualTransfer.finish(token,now,progress);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.finish(token,now,progress);
 }
 bool GitUpdateClass::retireTransfer(const GitUpdateOwnerToken &token) {
   Guard guard;return owns(token) && manualTransfer.retire(token);
 }
 ManualUpdateCleanup GitUpdateClass::claimTransferCleanup(uint64_t now) {
-  Guard guard;if(installLease)return {};const auto work=manualTransfer.cleanup(now);
+  Guard guard;now=manualTransferClock(now);if(installLease)return {};const auto work=manualTransfer.cleanup(now);
+  return owns(work.token) ? work : ManualUpdateCleanup{};
+}
+ManualUpdateCleanup GitUpdateClass::claimTransferCleanup(const GitUpdateOwnerToken &expected,uint64_t now) {
+  Guard guard;now=manualTransferClock(now);
+  if(!owns(expected))return {};
+  const auto work=manualTransfer.cleanup(now);
   return owns(work.token) ? work : ManualUpdateCleanup{};
 }
 bool GitUpdateClass::closeTransfer(const GitUpdateOwnerToken &token) {
@@ -525,15 +565,14 @@ void writeInstallation() {
     const auto count=std::min(size_t(4096),installImage->capacity-offset);
     memcpy(chunk.get(),installImage->data+offset,count);
     if(esp_ota_write(handle,chunk.get(),count)!=ESP_OK){okay=false;break;}
-    offset+=count;cooperate();const auto now=transferNow();
-    {Guard guard;okay=manualTransfer.finish(installSource,now,true) && (view.manual?manualTransfer.claimInstall(installSource,now):manualTransfer.claim(installSource,now));view.progress=uint8_t(offset*100/installImage->capacity);}
+    offset+=count;cooperate();
+    {Guard guard;const auto now=manualTransferClock(transferNow());okay=manualTransfer.finish(installSource,now,true) && (view.manual?manualTransfer.claimInstall(installSource,now):manualTransfer.claim(installSource,now));view.progress=uint8_t(offset*100/installImage->capacity);}
   }
   if(stopped())okay=false;
   bool closed=true;
   if(!okay){closed=esp_ota_abort(handle)==ESP_OK;fail(GitUpdateReason::writeFailed);}
   else okay=esp_ota_end(handle)==ESP_OK; // The SDK consumes the handle even on error.
-  const auto now=transferNow();
-  {Guard guard;
+  {Guard guard;const auto now=manualTransferClock(transferNow());
     if(!closed){installUncertain=true;view.phase=GitUpdatePhase::error;view.reason=GitUpdateReason::writeFailed;view.cancellable=false;return;}
     // An expired progress claim is reclaimed by discardInstallation. I/O is
     // already closed; no controller cleanup may run before that reclamation.
@@ -626,8 +665,8 @@ void GitUpdateClass::loop() {
     }
     if(command==3){
       if(!installHooks.current(operation)){cancelled=true;return;}
-      const auto now=transferNow();GitUpdateOwnerToken prepared;
-      {Guard guard;prepared={installLease,GitUpdateExternalOwner::manual};
+      GitUpdateOwnerToken prepared;
+      {Guard guard;const auto now=manualTransferClock(transferNow());prepared={installLease,GitUpdateExternalOwner::manual};
         if(!installSource.generation){owner=Owner::manual;installSource=prepared;
           if(!manualTransfer.begin(prepared,ManualUpdateKind::firmware,now)||!manualTransfer.claim(prepared,now)){installCleanup=true;return;}}
         else if(!owns(installSource) || installSource.generation!=prepared.generation){installCleanup=true;return;}}
@@ -676,7 +715,7 @@ GitUpdateRequest GitUpdateClass::requestInstall(const GitUpdateCandidate &expect
 }
 GitUpdateRequest GitUpdateClass::requestCheck() { return queue(false,{}); }
 bool GitUpdateClass::reserveManualInstall(const GitUpdateOwnerToken &source,uint64_t &operation) {
-  const auto now=transferNow();Guard guard;
+  Guard guard;const auto now=manualTransferClock(transferNow());
   if(!owns(source) || source.kind!=GitUpdateExternalOwner::manual || reservedManualLease || installLease ||
      !workerTask.load() || !installHooks.manual || !candidateGeneration || candidateGeneration==UINT64_MAX ||
      !manualTransfer.firmwareQueuedClaimed(source,now))return false;
@@ -689,9 +728,9 @@ GitUpdateRequest GitUpdateClass::requestManualInstall(const GitUpdateOwnerToken 
   if(!bytes || !esp_ptr_external_ram(bytes) || size<1024 || size>GitUpdatePolicy::APP_BYTES)return GitUpdateRequest::unavailable;
   std::unique_ptr<Buffer> staged(new(std::nothrow)Buffer(nullptr,size));
   if(!staged)return GitUpdateRequest::unavailable;
-  uint64_t ticket;const auto now=transferNow();
+  uint64_t ticket;
   {
-    Guard guard;
+    Guard guard;const auto now=manualTransferClock(transferNow());
     if(!owns(source) || source.kind!=GitUpdateExternalOwner::manual || installLease || installImage ||
        !workerTask.load() || !installHooks.manual || !securityRevision ||
        (reservedManualLease!=source.generation && candidateGeneration==UINT64_MAX) ||
@@ -699,9 +738,8 @@ GitUpdateRequest GitUpdateClass::requestManualInstall(const GitUpdateOwnerToken 
     ticket=reservedManualLease==source.generation ? view.operation : ++candidateGeneration;
   }
   if(!installHooks.manual(source,ticket,securityRevision))return GitUpdateRequest::unavailable;
-  const auto adoptedAt=transferNow();
   {
-    Guard guard;
+    Guard guard;const auto adoptedAt=manualTransferClock(transferNow());
     if(!owns(source) || installLease || !manualTransfer.adoptFirmware(source,adoptedAt))return GitUpdateRequest::unavailable;
     manualTransfer.resource(source,false); // The staged buffer transfers to this service; no SDK handle is open.
     reservedManualLease=0;

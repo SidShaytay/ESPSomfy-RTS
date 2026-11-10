@@ -4,7 +4,46 @@ Use [the standard flashing procedure](flashing.md) for backup and firmware-only 
 
 The 320×170 UI adds status, room selection, controls, details and saved display settings to the LILYGO CC1101/Plus display. It follows the approved dark/teal mockup using the real Adafruit fonts and vector drawing; the generated previews use the same renderer as the board.
 
-The offline implementation now browses configured rooms, devices and groups; it no longer depends on fixed target IDs. Issue #25's administration and updater integration remains in progress in the [capability matrix](lcd-web-capability-matrix.md). The dated installation evidence below describes older installed builds and does not authorize a new live stage.
+This guide describes the software in current main, including the full LCD
+administration and verified updater. Check **Details** for the running firmware,
+application and build identity; a source checkout or version label alone does
+not establish what is installed. Dated evidence near the end of this page is
+historical. See the [implementation audit](lcd-capability-audit.md) for coverage
+and physical-verification limits.
+
+## Start on the LCD
+
+1. Wake the display with one input; that first input sends no command.
+2. Turn or press on Status to open Home. Choose Rooms, Devices or Groups and
+   select the target by its visible ID/name.
+3. Unlock with the configured web PIN/password when requested. Ordinary controls
+   appear only for the selected target’s supported capabilities. Read the action
+   and confirmation on the display before pressing.
+4. Use Back to return to controls or Home. Hold on Status for Details. For a
+   software update, open **Home → System → GitHub updates** and follow its
+   separate default-Cancel release review.
+
+Displayed movement and percentages are estimates. STOP uses MY on ordinary RTS
+motors; it is not a physical emergency-stop system. One-button Toggle devices
+have different stop/reverse semantics and no ordinary STOP action.
+
+## Find a workflow
+
+| Task | LCD path and guide |
+|---|---|
+| Everyday controls and bounded repeats | Target → controls / More / Repeats; instructions below |
+| Position, then set or clear Favourite | Target → More → Set favourite here / Clear favourite; [observed-stop stages](lcd-favourite.md) |
+| Rooms, devices, groups and ordering | Home → Administration; [entity administration](lcd-entity-administration.md), [ordering](lcd-ordering.md) |
+| Status, paired marker, linked remotes, counters | Administration → Devices/Groups → Advanced; [status/metadata](lcd-advanced-metadata.md), [counter correction](lcd-primary-counter-correction.md) |
+| Pair/unpair one motor | Device Advanced → Pair/unpair guide; [programming guide](lcd-programming-guide.md) |
+| Edit group list or program group membership | Group Advanced → Member links or Motor programming; [list repair](lcd-group-membership.md), [motor programming](lcd-group-programming.md) |
+| Receive/review repeater or remove association | Administration → More → Repeaters; [repeater guide](lcd-repeater-learning.md) |
+| Explicit remote chords or sensor simulation | Device/group Advanced → Advanced remote / Sensor simulation; [chords](lcd-advanced-remote.md), [sensor guide](lcd-sensor-simulation.md) |
+| Settings and secrets | Home → Settings; [settings forms](lcd-settings-forms.md) |
+| WiFi/network details and scans | Home → System → Network details / WiFi scan / Radio frequency scan; [System](lcd-system.md), [WiFi](lcd-wifi-scan.md), [radio scan](lcd-radio-scan.md) |
+| Receive diagnostics | Home → System → Receive diagnostics; [receive guide](lcd-receive-diagnostics.md) |
+| Update firmware without a computer | Home → System → GitHub updates; [verified update/rollback](lcd-github-updates.md) |
+| Backup, restore, manual files, clipboard/cache | System → Browser files & Web supplies instructions; [System](lcd-system.md), [generic filesystem files](generic-filesystem-update.md) |
 
 ## Use the encoder
 
@@ -28,19 +67,32 @@ The current font displays ASCII. Unsupported UTF-8 code points and control chara
 
 Configured web credentials also unlock local controls and administration. After two minutes without input, new actions require unlock. Only an already authorized, continuing movement retains ordinary STOP, for at most 30 seconds after the original expiry. Idle, changed configuration, explicit lock or sleep ends that exception; later movement does not regain it. Tilt STOP, MY, Toggle and every other action require unlock after expiry. Numeric drafts discard on timeout, authorization replacement or target changes. See the [interaction and security policy](lcd-interaction-security-design.md) for attempt limits and screenshot protection.
 
-The [manufacturer schematic](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/hardware/T-Embed-CC1101%20V1.0%2024-07-29.pdf) and [component/pin list](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/README.md) do not document an ambient-light sensor. Brightness is manual. The encoder uses INA 4, INB 5 and KEY 0; Back uses GPIO6. The decoder follows the manufacturer's TWO03 mode, recognizing detents at both 00 and 11 and rejecting invalid Gray-code transitions/bounce. Sid confirmed the display, wheel and separate Back button work on the installed update.
+The [manufacturer schematic](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/hardware/T-Embed-CC1101%20V1.0%2024-07-29.pdf) and [component/pin list](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/README.md) do not document an ambient-light sensor. Brightness is manual. The encoder uses INA 4, INB 5 and KEY 0; Back uses GPIO6. The decoder follows the manufacturer's TWO03 mode, recognizing detents at both 00 and 11 and rejecting invalid Gray-code transitions/bounce. Dated bring-up notes below record earlier display/encoder/Back checks.
 
-The Wi-Fi glyph indicates connection, not measured signal strength. The installed build reads battery percentage and voltage from the BQ27220 fuel gauge. Status shows percentage; Details shows percentage and voltage. Startup, no battery, invalid values and failed reads are labeled explicitly. USB/charging detection remains outside this change. Live checks returned 100% and 4,146 mV; these are gauge-reported values, not an independent capacity measurement.
+The Wi-Fi glyph indicates connection, not measured signal strength. The status adapter reads battery percentage and voltage from the BQ27220 fuel gauge. Status shows percentage; Details shows percentage and voltage. Startup, no battery, invalid values and failed reads are labeled explicitly. USB/charging detection remains outside this change. Earlier bring-up samples are historical gauge readings, not current controller state or an independent capacity measurement.
 
 ## If a settings save fails
 
 A settings save error leaves the running settings unchanged and does not automatically reconnect or restart the controller. If the error says settings may be partly persisted, retry the complete intended settings before restarting: some stored values may already have changed, and a restart can load those values. Reading settings shows the running values, so it cannot prove that storage rolled back.
 
-This shared settings service is groundwork for issue #25's local administration screens; it does not mean those menus are already implemented. Backup/restore and manual firmware/web-file transfers remain browser-owned. The existing restore workflow has separate completion and partial-write limitations; this change does not make restores transactional.
+The local Settings and Administration menus use this shared checked service. Backup/restore and manual firmware/web-file transfers remain browser-owned. The existing restore workflow has separate completion and partial-write limitations; this change does not make restores transactional.
 
 ## Health in Details
 
 Hold on Status, then turn to the bottom four Details rows. They show free internal memory and its boot low-water mark, the largest available internal block, free PSRAM, and the last published loop rate and maximum pass time. Memory uses KiB; timing uses milliseconds, with seconds for long passes. Very high rates use `k/s` (thousands per second). Details refreshes once per second; loop statistics use the existing published window, normally every 30 seconds. `Loop: awaiting sample` means no window has been published yet. Missing PSRAM is labeled separately from a present device with zero free memory. These are read-only diagnostics.
+
+## Resolve a refusal or update problem
+
+| Message or symptom | What to do |
+|---|---|
+| Wait / selection not yet displayed | Let the screen finish drawing, then press again. Unseen confirmations do not execute. |
+| Changed / unlock required | Reopen the exact target and unlock again. Old queued actions or observations cannot be reused. |
+| Applied but file save failed | Use the displayed file-only retry when available. It saves the current model; it does not repeat a configuration edit or RF programming. |
+| GitHub updates unavailable / no eligible release | Check the network, stable-build identity and supported release availability. Main source is not automatically a published release. See [update requirements](lcd-github-updates.md). |
+| Controls paused / Update needs recovery | Keep power connected and follow the displayed cleanup/recovery status. Leaving the page does not release an uncertain update. Use the [state-preserving recovery procedure](flashing.md) if attention is required. |
+| Verifying new firmware / Rollback waiting | Continuous health checks or automatic idle rollback are running. The LCD briefly explains waiting for movement, work or saved state; see [boot health](github-update-boot-health.md). |
+| Unreadable model/settings | Existing recovery routes remain; there is no full-section LCD repair wizard. A normal reflash preserves configuration and does not repair corrupt settings by itself. See [model recovery](model-load-recovery.md) and [settings recovery limits](settings-load-trust.md). |
+| Light or relay tilt unavailable | Configuration is retained; no lamp command or separate/Euro relay tilt mapping is invented. See [unavailable controls](lcd-unavailable-controls.md). |
 
 ## Memory and rendering
 

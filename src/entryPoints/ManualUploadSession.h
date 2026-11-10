@@ -7,14 +7,15 @@ class AsyncWebServerRequest;
 struct ManualUploadState {
   GitUpdateOwnerToken owner;
   size_t received=0;
-  uint64_t securityRevision=0;
-  uint64_t operation=0;
+  uint64_t securityRevision=0,operation=0,applicationNonce=0;
+  uint32_t expectedBytes=0;
   ManualUpdateKind kind=ManualUpdateKind::firmware;
   bool started=false,failed=false,uploaded=false,finalReceived=false;
+  bool applicationAdopted=false;
   bool modelAttempted=false,modelQueued=false,restartQueued=false;
   RestartReason restartReason=RestartReason::none;
 };
-static_assert(sizeof(ManualUploadState)<=56,"Keep request upload metadata bounded, including public operation ticket");
+static_assert(sizeof(ManualUploadState)<=64,"Keep request upload metadata bounded");
 ManualUploadState *manualUploadState(AsyncWebServerRequest *request);
 void receiveManualImage(AsyncWebServerRequest *request,ManualUpdateKind kind,size_t index,
                         uint8_t *data,size_t len,bool final);

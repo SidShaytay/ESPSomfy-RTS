@@ -110,13 +110,57 @@ Use the authenticated local **firmware update** screen, which posts one file to 
 
 Upload exactly that one file once. Do not choose **application/filesystem update** (`/updateApplication`) or **restore** (`/restore`). A successful firmware-only update changes the inactive application and normal OTA-selection metadata; NVS, LittleFS, bootloader, partition table and the old active application remain untouched.
 
-The upload stops radio/MQTT operation and schedules a reboot. Keep stable power and retain the response and private diagnostics. A dropped HTTP connection is ambiguous: inspect the running build/slot before retrying. HTTP success alone does not establish that the intended firmware booted.
+On the canonical bundled build, **HTTP 202 / `QUEUED` means the file was
+received and staged for verification/installation**. It does not mean the image
+was installed or selected for boot. The response supplies an exact
+`operationGeneration`; the browser follows that operation through
+`/firmwareStatus`. Receipt, verification, installation and restart are separate
+states. Initial staging does not pause radio/MQTT or select an app slot. The
+verified, loop-owned installer later performs idle/work admission, current-state
+saving, resource pausing and checked installation/restart.
+
+Keep stable power and retain the response and private diagnostics. Do not retry
+a failed, interrupted or ambiguous upload automatically. HTTP 409 from operation
+status means the tracked operation is no longer current: reconnect and review
+the running identity/slot and status before deliberately deciding what to do.
+A dropped connection or HTTP success alone proves neither installation nor boot.
+Generic builds retain their legacy firmware-upload path; canonical staging/status
+semantics must not be assumed for those builds.
 
 ## 5. Verify the reboot without moving anything
 
 Identify the new boot by its exact firmware image/ELF identity, app slot and restarted uptime, not just the version label. Allow the updater's delayed reboot; exclude an early response from the old application.
 
-When an image is pending OTA validation, this firmware confirms it once **uptime is at least 60,000 ms and the network is connected**. This is not proof of radio operation or 60 continuous seconds of connectivity. Verify the confirmation result and stable uptime, then observe longer for unexpected restarts, watchdogs or memory loss.
+Arrange continuous passive monitoring **before the pending image boots**. USB
+serial attachment, port closure and control-signal changes can reset some
+board/host combinations. Keep DTR/RTS behaviour and HUPCL (hang-up-on-close)
+under control, and avoid opening/closing competing monitors until confirmation.
+An unexpected reset can invalidate a pending-image validation trial and affect
+bootloader rollback. Record the reset reason and boot sequence; rollback alone
+does not establish that the host caused it.
+
+For the canonical LILYGO build, a pending image requires **60 continuous healthy
+seconds**, not just 60 seconds of uptime. Health includes connected networking,
+trusted model/settings/radio configuration, verified saved state, mounted model
+storage, updater allocator/bootloader/bundled assets, healthy LCD rendering,
+no counter-storage uncertainty and available radio when enabled. Updates must not be
+paused/busy; loop passes must stay below one second and free internal memory
+must be at least 24 KiB. An unhealthy sample or an observation gap longer than
+one second restarts the healthy interval. Confirm that OTA validation actually
+succeeded, then observe longer for unexpected resets, watchdogs or memory loss.
+
+At 180 seconds without confirmation, the canonical build records a rollback
+intent; it does **not** force an immediate reboot through movement or queued
+work. The LCD briefly reports what it is waiting for. Automatic rollback waits
+for safe idle/work admission and a verified current-state save, then schedules
+a checked restart. New movement can postpone it again. **Rollback needs
+attention** means a safe previous-image/recovery path could not be established.
+See [boot health and recovery](github-update-boot-health.md).
+
+Other generic builds retain the legacy uptime-based `otaProven` condition:
+at least 60 seconds uptime plus the shared network/model/settings readiness
+checks. That condition does not establish the canonical continuous-health
+interval. Neither policy establishes physical motor or RF behaviour.
 
 Compare saved and current configuration, identities, membership, calibration and counters. Investigate differences; do not overwrite newer counters to force equality. Verify protocol synchronization and the expected schema capability, radio initialization/register/RX status, Wi-Fi/listener availability, and read-only HA entity availability. For LCD builds also check command-lock status and framebuffer/fallback health. These checks establish software state, not physical motor movement or RF reliability.
 

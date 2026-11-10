@@ -8,7 +8,9 @@ enum class ModelCommitMode : uint8_t {
   applicationRecovery,
   applicationRecoveryAndRestart,
   // Deliberate browser COMMIT only; generic metadata/file retries stay save.
-  counterFileRecovery
+  counterFileRecovery,
+  // Initial filesystem preparation stays at the FIFO tail, never recovery priority.
+  applicationPreparation
 };
 // Any task: queue only a fresh serialization of the current model. No edit,
 // RF or counter operation is retained for retry. False means not queued.

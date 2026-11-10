@@ -29,6 +29,8 @@ struct ProtoSocket {
 }protoSocket;
 bool counterCommandAllowed(uint32_t,somfy_commands){return true;}
 struct SomfyShadeController {
+ struct Shade{radio_proto proto=radio_proto::RTS;};
+ Shade *getShadeById(uint8_t){return nullptr;}
  ModelLoadTrust modelLoad{ModelLoadStatus::loaded};
  struct {
   somfy_tx_job_t accepted;
@@ -37,6 +39,8 @@ struct SomfyShadeController {
  }transceiver;
  uint32_t sendFrame(somfy_frame_t &,uint8_t,uint16_t=0,bool=false);
 }somfy;
+// Socket retirement tests never enter a filesystem-install pause.
+bool radioInstallPaused(){return false;}
 struct {shade_request_result_t run(const shade_request_t&){++requests;return shade_request_result_t::done;}}shadeRequests;
 void noteRestartOperationAccepted(){++notes;}
 void runModelEdit(model_edit_t *p){++edits;cancelModelEdit(p);}

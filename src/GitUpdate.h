@@ -50,6 +50,7 @@ struct GitUpdateInstallHooks {
   void (*written)(const GitUpdateOwnerToken &,const RadioInstallToken &)=nullptr;
   bool (*manual)(const GitUpdateOwnerToken &,uint64_t operation,uint64_t securityRevision)=nullptr;
 };
+struct ManualApplicationSource;
 class GitUpdateClass {
 public:
   // loop() alone invokes admission. The worker never owns model/settings data.
@@ -79,10 +80,16 @@ public:
   // Short lifecycle claims beneath the same external owner. Callers perform
   // SDK/file I/O after these methods release the service lock.
   bool beginTransfer(const GitUpdateOwnerToken &,ManualUpdateKind,uint64_t now);
+  bool prepareApplication(const GitUpdateOwnerToken &,const ManualApplicationSource &,uint64_t now);
+  bool claimApplicationPreparation(const GitUpdateOwnerToken &,const ManualApplicationSource &,uint64_t now);
+  bool applicationPrepared(const GitUpdateOwnerToken &);
+  bool claimPreparedApplication(const GitUpdateOwnerToken &,const ManualApplicationSource &,uint64_t now);
+  bool cancelApplicationPreparation(const GitUpdateOwnerToken &,const ManualApplicationSource &);
   bool claimTransfer(const GitUpdateOwnerToken &,uint64_t now,bool queuedRestore=false);
   bool transferContinuing(const GitUpdateOwnerToken &) const;
   bool transferContinuing(const GitUpdateOwnerToken &,uint64_t now);
   bool transferResource(const GitUpdateOwnerToken &,bool opened);
+  bool transferFilesystem(const GitUpdateOwnerToken &,bool unavailable);
   bool queueTransfer(const GitUpdateOwnerToken &);
   bool holdTransferRestart(const GitUpdateOwnerToken &);
   bool holdTransferRecovery(const GitUpdateOwnerToken &,uint64_t now);
@@ -98,6 +105,8 @@ public:
   bool finishTransfer(const GitUpdateOwnerToken &,uint64_t now,bool progress);
   bool retireTransfer(const GitUpdateOwnerToken &);
   ManualUpdateCleanup claimTransferCleanup(uint64_t now);
+  // Reducing loop cleanup must never acquire a replacement transfer.
+  ManualUpdateCleanup claimTransferCleanup(const GitUpdateOwnerToken &,uint64_t now);
   bool closeTransfer(const GitUpdateOwnerToken &);
   bool busy() const;
   GitUpdateSnapshot snapshot() const;

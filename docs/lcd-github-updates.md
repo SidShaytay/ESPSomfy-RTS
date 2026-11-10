@@ -4,7 +4,12 @@
 `SidShaytay/ESPSomfy-RTS` without a computer. The shared CC1101 / Plus image
 includes the controller, LCD and web interface together.
 
-This workflow is under review. Development builds show GitHub updates unavailable.
+The shared canonical firmware must already have a compatible layout/profile.
+Eligible release assets must be published in that repository; current main is
+not automatically an available release. Development identities, incompatible
+hardware/assets or unavailable verification show an unavailable/refused result.
+Checks use verified HTTPS, repository metadata and file digests; there is no
+browser companion or separate LCD web-image upload.
 
 1. Unlock with the controller's configured PIN or password, if enabled.
 2. Choose **Check GitHub release**. Opening the screen starts no download.

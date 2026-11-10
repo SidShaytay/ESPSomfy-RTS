@@ -1,4 +1,5 @@
 #include "RestoreExecution.h"
+#include "ApplicationFilesystem.h"
 #include "SettingsRevisions.h"
 #include "Web.h"
 #include "ManualUploadSession.h"
@@ -73,19 +74,6 @@ void receiveFirmwareStage(ManualUploadState &state,size_t index,uint8_t *data,si
   gitUpdate.finishTransfer(state.owner,now(),len!=0||final);
 }
 #endif
-bool queueModel(ManualUploadState &state,bool restart) {
-  if(state.kind!=ManualUpdateKind::application || !state.started || state.modelAttempted) return false;
-  state.modelAttempted=true;
-  const bool held=restart ? gitUpdate.transferRestartHeld(state.owner,now()) : gitUpdate.holdTransferRecovery(state.owner,now());
-  if(!held) return false;
-  // Publish only after retiring this SDK operation claim. The same owner stays
-  // held; loop can immediately claim the exact marker without racing this call.
-  gitUpdate.finishTransfer(state.owner,now(),restart);
-  state.modelQueued=gitUpdate.transferContinuing(state.owner,now()) &&
-      submitModelCommit({},restart ? ModelCommitMode::applicationRecoveryAndRestart : ModelCommitMode::applicationRecovery,state.owner);
-  if(!state.modelQueued && gitUpdate.claimTransferRecovery(state.owner,now())) close(state);
-  return true;
-}
 void fail(ManualUploadState &state,bool abortSdk) {
   state.failed=true;
   if(abortSdk) {
@@ -95,7 +83,7 @@ void fail(ManualUploadState &state,bool abortSdk) {
     }
   }
   gitUpdate.transferResource(state.owner,false);
-  if(!queueModel(state,false)) close(state);
+  close(state);
 }
 ManualUploadState *begin(AsyncWebServerRequest *request,ManualUpdateKind kind) {
   if(request->getAttribute("manualAttempted",false)) return nullptr;
@@ -135,6 +123,7 @@ ManualUploadState *manualUploadState(AsyncWebServerRequest *request) {
 }
 void receiveManualImage(AsyncWebServerRequest *request,ManualUpdateKind kind,size_t index,
                         uint8_t *data,size_t len,bool final) {
+  if(kind!=ManualUpdateKind::firmware)return; // Filesystem images require prepared-source admission.
 #if defined(ESPSOMFY_BUNDLED_WEB)
   if(kind==ManualUpdateKind::firmware && index==0 && request->getAttribute("manualAttempted",false)) {
     if(auto *existing=manualUploadState(request)){existing->failed=true;gitUpdate.retireTransfer(existing->owner);}
@@ -151,7 +140,7 @@ void receiveManualImage(AsyncWebServerRequest *request,ManualUpdateKind kind,siz
   if(kind==ManualUpdateKind::firmware){receiveFirmwareStage(*state,index,data,len,final);return;}
 #endif
   if(index==0) {
-    if(!Update.begin(UPDATE_SIZE_UNKNOWN,kind==ManualUpdateKind::application ? U_SPIFFS : U_FLASH)) {
+    if(!Update.begin(UPDATE_SIZE_UNKNOWN,U_FLASH)) {
       // A failed begin never acquired the SDK object. Do not inspect/abort a
       // potentially foreign Update, and do not shut down hardware or save.
       state->failed=true;close(*state);return;
@@ -179,10 +168,6 @@ void receiveManualImage(AsyncWebServerRequest *request,ManualUpdateKind kind,siz
     gitUpdate.transferResource(state->owner,false);
     state->uploaded=uploaded && gitUpdate.transferContinuing(state->owner,now()) && gitUpdate.holdTransferRestart(state->owner);
     if(!state->uploaded) { fail(*state,false);return; }
-    if(kind==ManualUpdateKind::application) {
-      if(!queueModel(*state,true)) close(*state);
-      return;
-    }
     if(!gitUpdate.finishTransfer(state->owner,now(),true)) {state->failed=true;return;}
     const auto submitted=submitOwnedRestart(state->owner,500);
     state->restartQueued=submitted==RestartSubmission::queued;
@@ -300,9 +285,15 @@ void receiveManualRestore(AsyncWebServerRequest *request,size_t index,uint8_t *d
   gitUpdate.finishTransfer(state->owner,now(),len!=0 || final);
 }
 void manualUploadLoop() {
+  // Physical mount/radio cleanup holds its exact source before generic abort.
+  serviceApplicationFilesystem();
   serviceRestoreCleanup();
   const auto cleanup=gitUpdate.claimTransferCleanup(now());
   if(!cleanup.token.generation) return;
+  if(cleanup.filesystemUnavailable){
+    // Only the loop resource record may remount/save/resume this source.
+    gitUpdate.finishTransfer(cleanup.token,now(),false);return;
+  }
   if(cleanup.resourceOpen) {
     if(cleanup.kind==ManualUpdateKind::restore) LittleFS.remove("/shades.tmp");
     else {
@@ -311,14 +302,9 @@ void manualUploadLoop() {
       else
 #endif
       {
-        Update.abort();
-        if(Update.isRunning()) {gitUpdate.finishTransfer(cleanup.token,now(),false);return;}
-        gitUpdate.transferResource(cleanup.token,false);
-        if(cleanup.kind==ManualUpdateKind::application) {
-          ManualUploadState recovery;recovery.owner=cleanup.token;
-          recovery.kind=ManualUpdateKind::application;recovery.started=true;
-          if(queueModel(recovery,false)) return;
-        }
+      Update.abort();
+      if(Update.isRunning()) {gitUpdate.finishTransfer(cleanup.token,now(),false);return;}
+      gitUpdate.transferResource(cleanup.token,false);
       }
     }
     gitUpdate.transferResource(cleanup.token,false);

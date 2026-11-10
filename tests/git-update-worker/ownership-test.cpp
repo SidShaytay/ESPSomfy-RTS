@@ -5,6 +5,28 @@
 #include <atomic>
 #include <thread>
 #include <vector>
+static void applicationFilesystemRetainsSameOwnerWithoutInventingSdkOwnership() {
+  GitUpdateOwnerToken own,competing;assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,own));
+  assert(gitUpdate.beginTransfer(own,ManualUpdateKind::application,1));assert(gitUpdate.claimTransfer(own,1));
+  assert(gitUpdate.transferFilesystem(own,true));assert(!gitUpdate.closeTransfer(own));
+  assert(gitUpdate.retireTransfer(own));assert(gitUpdate.finishTransfer(own,2,false));
+  auto cleanup=gitUpdate.claimTransferCleanup(2);assert(cleanup.token.generation==own.generation);
+  assert(cleanup.filesystemUnavailable&&!cleanup.resourceOpen);assert(!gitUpdate.closeTransfer(own));
+  assert(!gitUpdate.releaseExternal(own));assert(!gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,competing));
+  auto stale=own;++stale.generation;assert(!gitUpdate.transferFilesystem(stale,false));
+  assert(gitUpdate.transferFilesystem(own,false));assert(gitUpdate.closeTransfer(own));assert(gitUpdate.releaseExternal(own));
+}
+static void preparedApplicationUsesExistingOwnerAndExactSource() {
+  GitUpdateOwnerToken own,other;const ManualApplicationSource source{0x1234,17,4096};
+  assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,own));assert(gitUpdate.beginTransfer(own,ManualUpdateKind::application,1));
+  assert(gitUpdate.prepareApplication(own,source,1));assert(!gitUpdate.claimTransfer(own,2));
+  assert(gitUpdate.claimApplicationPreparation(own,source,2));assert(gitUpdate.transferFilesystem(own,true));
+  assert(gitUpdate.applicationPrepared(own));assert(gitUpdate.finishTransfer(own,2,true));assert(!gitUpdate.retireTransfer(own));
+  assert(!gitUpdate.acquireExternal(GitUpdateExternalOwner::configuration,other));auto wrong=source;++wrong.securityRevision;
+  assert(!gitUpdate.claimPreparedApplication(own,wrong,3));assert(gitUpdate.claimPreparedApplication(own,source,3));
+  assert(!gitUpdate.cancelApplicationPreparation(own,source));
+  assert(gitUpdate.transferFilesystem(own,false));assert(gitUpdate.closeTransfer(own));assert(gitUpdate.releaseExternal(own));
+}
 static void configurationLease() {
   GitUpdateOwnerToken configuration,competing;
   for(auto kind:{GitUpdateExternalOwner::manual,GitUpdateExternalOwner::restore,GitUpdateExternalOwner::counter}) {
@@ -70,7 +92,23 @@ static void cancelledRestartSource() {
   assert(gitUpdate.acquireRestart(next,1,source));assert(!gitUpdate.releaseRestartSource(source,1));
   assert(gitUpdate.ownsExternal(next));assert(gitUpdate.releaseExternal(next));
 }
-int main() {
+static void exactCleanupNeverClaimsReplacementOrForeignSource() {
+  GitUpdateOwnerToken previous,current;
+  assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,previous));
+  assert(gitUpdate.beginTransfer(previous,ManualUpdateKind::application,1));
+  assert(gitUpdate.retireTransfer(previous));
+  assert(gitUpdate.claimTransferCleanup(previous,2).token.generation==previous.generation);
+  assert(gitUpdate.closeTransfer(previous)&&gitUpdate.releaseExternal(previous));
+  assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,current));
+  assert(gitUpdate.beginTransfer(current,ManualUpdateKind::application,3));
+  assert(gitUpdate.retireTransfer(current));
+  assert(!gitUpdate.claimTransferCleanup(previous,40000).token.generation);
+  auto wrong=current;wrong.kind=GitUpdateExternalOwner::restore;
+  assert(!gitUpdate.claimTransferCleanup(wrong,40000).token.generation);
+  assert(gitUpdate.claimTransferCleanup(current,4).token.generation==current.generation);
+  assert(gitUpdate.closeTransfer(current)&&gitUpdate.releaseExternal(current));
+}
+int main() {exactCleanupNeverClaimsReplacementOrForeignSource();preparedApplicationUsesExistingOwnerAndExactSource();applicationFilesystemRetainsSameOwnerWithoutInventingSdkOwnership();
   configurationLease();
   cancelledRestartSource();
   auto before=gitUpdate.snapshot();

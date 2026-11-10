@@ -66,10 +66,10 @@ The isolated model harness compiles the actual group edit branch and actual
 Group list methods; it checks missing-member repair, retained members and checked
 file outcomes without providing a radio endpoint.
 
-The planned receive-only learning cache and RF sequencer are separate increments.
-Their entry and stage transitions must never automatically transmit. Favorite
-programming remains pending a decision about its existing automatic movement and
-later My-command sequence.
+Receive/review learning and explicitly confirmed RF workflows are implemented
+separately from these metadata actions. See [pair/unpair](lcd-programming-guide.md),
+[group motor programming](lcd-group-programming.md), [Favourite stages](lcd-favourite.md),
+[Advanced remote](lcd-advanced-remote.md) and [sensor simulation](lcd-sensor-simulation.md).
 
 The metadata backend uses the existing shared configuration owner. It refuses
 stale or busy requests before acquiring that owner, then rechecks the exact
