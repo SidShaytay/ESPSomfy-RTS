@@ -1,6 +1,6 @@
 # WiFi scan on the LCD
 
-**Navigation version:** Paths below describe source `015ac39`, intended for the next release and not yet deployed. Installed 4.7.3 uses the older menus; see the [installed-version path map](lilygo-local-ui.md#navigation-versions).
+**Navigation version:** These paths apply to **4.8.0 and later**. For 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
 
 Open **This controller → Configure → Network → WiFi scan**, then explicitly choose **Start WiFi scan**.
 Cancel is selected first. Opening or browsing this screen does not start a scan.

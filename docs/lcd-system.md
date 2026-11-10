@@ -1,6 +1,6 @@
 # Controller maintenance and diagnostics
 
-**Navigation version:** Paths below describe source `015ac39`, intended for the next release and not yet deployed. Installed 4.7.3 uses the older menus; see the [installed-version path map](lilygo-local-ui.md#navigation-versions).
+**Navigation version:** These paths apply to **4.8.0 and later**. For 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
 
 Open **This controller → Maintenance** for updates, restart and browser files, or **This controller → Diagnostics** for network details, receive diagnostics, frequency scan and copy-log guidance. **Configure → Network → WiFi scan** owns WiFi selection. Secured controllers require the configured web credential.
 The protected maintenance and diagnostics forms and their transitions retain screenshot protection.

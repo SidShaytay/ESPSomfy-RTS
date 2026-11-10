@@ -1,6 +1,6 @@
 # Pair or unpair from the LCD
 
-**Navigation version:** This path describes source `015ac39`, intended for the next release and not yet deployed. Installed 4.7.3 uses the [older path](lilygo-local-ui.md#navigation-versions).
+**Navigation version:** These paths apply to **4.8.0 and later**. For 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
 
 The LCD guides you through sending a programming request to one RF shutter and recording the result you have verified. The guide is implemented in main and covered by offline input, renderer, adapter and FIFO tests. Physical motor programming is not established by that evidence.
 

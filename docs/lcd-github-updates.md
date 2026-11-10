@@ -1,6 +1,6 @@
 # Update firmware from the LCD
 
-**Navigation version:** Paths below describe source `015ac39`, intended for the next release and not yet deployed. Installed 4.7.3 uses the older menus; see the [installed-version path map](lilygo-local-ui.md#navigation-versions).
+**Navigation version:** These paths apply to **4.8.0 and later**. For 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
 
 **This controller → Maintenance → GitHub updates** checks and installs a newer stable release from
 `SidShaytay/ESPSomfy-RTS` without a computer. The shared CC1101 / Plus image

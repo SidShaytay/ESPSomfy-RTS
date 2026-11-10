@@ -2,7 +2,13 @@
 
 Issue #25 remains open. Installed firmware, host tests and a capability inventory are evidence for their specific checks; they do not establish full hardware acceptance. The [normative requirements](https://github.com/SidShaytay/ESPSomfy-RTS/issues/25#issuecomment-6753845395) remain authoritative.
 
-## Current stage and last fully audited checkpoint
+## Current stage
+
+**4.8.0** is installed. Its exact app1 boot, SDK health confirmation and fresh settings/entities/counter comparisons are independently verified. Raw-flash readback, normal-boot qualification, physical navigation assessment and installation through the new 4.8.0 GitHub flow are not established by those checks. The approved navigation and confirmed-install continuation are implemented and released; full hardware acceptance remains open.
+
+## Earlier checkpoint record
+
+The following record describes the stage before the later 4.7.3 and 4.8.0 installations; its deployment statements are historical.
 
 As of November 10, 2026, **4.7.1 / `5e1657d`** is the last verified installed checkpoint. Its exact app1 ELF and SDK health confirmation, full-flash readback, normal reboot and settings/entities/counter comparisons passed before the GitHub update attempt. Sid accepted the improved wheel/display response in 4.6.1. Later Quick access and update-screen assessment remains incomplete.
 
