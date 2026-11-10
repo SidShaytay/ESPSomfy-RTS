@@ -92,7 +92,23 @@ static void cancelledRestartSource() {
   assert(gitUpdate.acquireRestart(next,1,source));assert(!gitUpdate.releaseRestartSource(source,1));
   assert(gitUpdate.ownsExternal(next));assert(gitUpdate.releaseExternal(next));
 }
-int main() {preparedApplicationUsesExistingOwnerAndExactSource();applicationFilesystemRetainsSameOwnerWithoutInventingSdkOwnership();
+static void exactCleanupNeverClaimsReplacementOrForeignSource() {
+  GitUpdateOwnerToken previous,current;
+  assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,previous));
+  assert(gitUpdate.beginTransfer(previous,ManualUpdateKind::application,1));
+  assert(gitUpdate.retireTransfer(previous));
+  assert(gitUpdate.claimTransferCleanup(previous,2).token.generation==previous.generation);
+  assert(gitUpdate.closeTransfer(previous)&&gitUpdate.releaseExternal(previous));
+  assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,current));
+  assert(gitUpdate.beginTransfer(current,ManualUpdateKind::application,3));
+  assert(gitUpdate.retireTransfer(current));
+  assert(!gitUpdate.claimTransferCleanup(previous,40000).token.generation);
+  auto wrong=current;wrong.kind=GitUpdateExternalOwner::restore;
+  assert(!gitUpdate.claimTransferCleanup(wrong,40000).token.generation);
+  assert(gitUpdate.claimTransferCleanup(current,4).token.generation==current.generation);
+  assert(gitUpdate.closeTransfer(current)&&gitUpdate.releaseExternal(current));
+}
+int main() {exactCleanupNeverClaimsReplacementOrForeignSource();preparedApplicationUsesExistingOwnerAndExactSource();applicationFilesystemRetainsSameOwnerWithoutInventingSdkOwnership();
   configurationLease();
   cancelledRestartSource();
   auto before=gitUpdate.snapshot();

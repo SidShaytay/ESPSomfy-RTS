@@ -79,6 +79,8 @@ public:
   bool finishTransfer(const GitUpdateOwnerToken &,uint64_t now,bool progress);
   bool retireTransfer(const GitUpdateOwnerToken &);
   ManualUpdateCleanup claimTransferCleanup(uint64_t now);
+  // Reducing loop cleanup must never acquire a replacement transfer.
+  ManualUpdateCleanup claimTransferCleanup(const GitUpdateOwnerToken &,uint64_t now);
   bool closeTransfer(const GitUpdateOwnerToken &);
   bool busy() const;
   GitUpdateSnapshot snapshot() const;

@@ -167,6 +167,12 @@ ManualUpdateCleanup GitUpdateClass::claimTransferCleanup(uint64_t now) {
   Guard guard;const auto work=manualTransfer.cleanup(now);
   return owns(work.token) ? work : ManualUpdateCleanup{};
 }
+ManualUpdateCleanup GitUpdateClass::claimTransferCleanup(const GitUpdateOwnerToken &expected,uint64_t now) {
+  Guard guard;
+  if(!owns(expected))return {};
+  const auto work=manualTransfer.cleanup(now);
+  return owns(work.token) ? work : ManualUpdateCleanup{};
+}
 bool GitUpdateClass::closeTransfer(const GitUpdateOwnerToken &token) {
   Guard guard;return owns(token) && manualTransfer.close(token);
 }
