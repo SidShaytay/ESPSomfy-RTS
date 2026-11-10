@@ -17,7 +17,8 @@ enum class Mode : uint8_t {
   wifiReview,
   stackedRows,
   learnReview,
-  counterReview
+  counterReview,
+  sensorReview
 };
 enum class Notice : uint8_t {
   none,

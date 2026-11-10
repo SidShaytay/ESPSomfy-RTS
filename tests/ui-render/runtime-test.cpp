@@ -285,13 +285,20 @@ ModelCommitReport applyModelCommit(const proto_reply_to_t &,ModelCommitMode mode
   return {{entityCommitState,ModelCommitStage::write}};
 }
 #include "../../src/LocalEntityRuntime.cpp"
+static std::vector<shade_request_t> submitted;
+struct RecordingRequests {shade_request_result_t run(const shade_request_t &r){
+  if(r.type==shade_request_type_t::shade_sensor||r.type==shade_request_type_t::group_sensor){
+    assert(gitUpdate.busy());GitUpdateOwnerToken competing;assert(!gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,competing));
+  }
+  submitted.push_back(r);return shade_request_result_t::done;
+}} shadeRequests;
+#define ShadeRequests RecordingRequests
 #include "../../src/LocalAdvancedRuntime.cpp"
+#undef ShadeRequests
 static LocalUi::Authorization authorization;
 static LocalUi::View lastQuery;
-static std::vector<shade_request_t> submitted;
 static unsigned bands=0,presentations=0,locks=0;
 static bool busBusy=false,captureProtected=true;
-struct RecordingRequests {shade_request_result_t run(const shade_request_t &r){submitted.push_back(r);return shade_request_result_t::done;}} shadeRequests;
 #include "../ui-adapter/LoopHarness.h"
 #define ShadeRequests RecordingRequests
 #define snapshotModel adapterSnapshotModel
@@ -826,7 +833,7 @@ int main(int argc,char **argv){
   const auto remoteBefore=entityEdits;click();idle();assert(entityEdits==remoteBefore && advancedShade.linkedRemotes[6].address==2748); // default Cancel
   click();idle();rotate(1);idle();click();idle();assert(!advancedShade.linkedRemotes[6].address && advancedShade.lastRollingCode==123);
   click();idle();closeAdministration();
-  openAdvanced(2);assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].value,"View only"));
+  openAdvanced(2);click();idle();assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].value,"View only"));
   const auto memberBefore=entityEdits;click();idle();assert(entityEdits==memberBefore);rotate(1);idle();click();idle();
   assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[1].label,"Remove #88"));saveFrame(preview,"runtime-advanced-missing-member-confirm");
   rotate(1);idle();click();idle();assert(!advancedGroup.linkedShades[31] && advancedGroup.linkedShades[0]==4 && entityEdits==memberBefore+1);
@@ -959,6 +966,51 @@ int main(int argc,char **argv){
   // Fixture reset only: unknown NVS is never cleared by this production flow.
   somfy.transceiver.quarantine=CounterQuarantine::none;somfy.transceiver.blockedIdentity=0;primaryInjected=CounterDomainState::saved;
   somfy.transceiver.ready=true;
+  // Actual encoder/GFX/auth/Advanced/FIFO path, with a typed recording sink.
+  const auto sensorsBefore=submitted.size();
+  openAdvanced(1);for(unsigned i=0;i<4;++i){rotate(1);idle();}click();idle();
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].label,"Sunny"));
+  click();idle();for(unsigned i=0;i<3;++i){rotate(1);idle();}click();idle();
+  const auto sensorReview=RuntimeTestAccess::administration(settingsUi);
+  assert(sensorReview.mode==EntityAdmin::Mode::sensorReview&&sensorReview.selected==0&&captureProtected);
+  saveFrame(preview,"runtime-sensor-confirm");
+  busBusy=true;rotate(1);click();assert(submitted.size()==sensorsBefore);busBusy=false;idle();click();idle();
+  assert(submitted.size()==sensorsBefore+1&&submitted.back().type==shade_request_type_t::shade_sensor);
+  assert(submitted.back().sunny==0&&submitted.back().windy==-1&&submitted.back().repeat==1);
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].value,"Request accepted"));
+  saveFrame(preview,"runtime-sensor-result");click();idle();closeAdministration();
+  // Actual runtime refusal checks stay ahead of the typed domain sink.
+  auto &sensorBackend=Advanced::runtimeBackend();const Advanced::Target sensorTarget{Advanced::Scope::devices,4};
+  Advanced::Context sensorContext;assert(sensorBackend.capture(sensorTarget,sensorContext));
+  const auto sensorAuth=sensorBackend.authorization();const auto sensorHistory=sensorBackend.revision();
+  Advanced::SensorSimulation sensorDraft;sensorDraft.windy=1;sensorDraft.sunny=1;sensorDraft.repeats=127;
+  struct SensorWitness final:LearnPending{
+    LearnQueueReason reason=LearnQueueReason::ready;LearnQueueReason current(uint64_t)override{return reason;}
+    void execute(uint64_t)override{assert(false);}void cancelled(LearnQueueReason)override{assert(false);}
+  }sensorWitness;
+  const auto beforeSensorRefusals=submitted.size();GitUpdateOwnerToken sensorCompetitor;
+  assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,sensorCompetitor));
+  assert(sensorBackend.sendSensor(sensorTarget,sensorContext,sensorAuth,sensorHistory,sensorDraft,sensorWitness).admission==EntityAdmin::Admission::busy);
+  assert(gitUpdate.releaseExternal(sensorCompetitor));
+  advancedShade.idle=false;assert(sensorBackend.checkSensorContext(sensorTarget,sensorContext,sensorAuth,sensorHistory)==EntityAdmin::Admission::busy);advancedShade.idle=true;
+  somfy.transceiver.suspended=true;assert(sensorBackend.checkSensorContext(sensorTarget,sensorContext,sensorAuth,sensorHistory)==EntityAdmin::Admission::busy);somfy.transceiver.suspended=false;
+  somfy.transceiver.quiescent=false;
+  assert(sensorBackend.sendSensor(sensorTarget,sensorContext,sensorAuth,sensorHistory,sensorDraft,sensorWitness).admission==EntityAdmin::Admission::busy);somfy.transceiver.quiescent=true;
+  sensorWitness.reason=LearnQueueReason::expired;
+  assert(sensorBackend.sendSensor(sensorTarget,sensorContext,sensorAuth,sensorHistory,sensorDraft,sensorWitness).admission==EntityAdmin::Admission::stale);sensorWitness.reason=LearnQueueReason::ready;
+  advancedShade.proto=radio_proto::GP_Remote;assert(!sensorBackend.supportsSensor(sensorTarget));advancedShade.proto=radio_proto::RTS;
+  assert(submitted.size()==beforeSensorRefusals&&!gitUpdate.busy());
+  // Group flags use the same shared typed path, with exact membership context.
+  const Advanced::Target sensorGroup{Advanced::Scope::groups,4};Advanced::Context groupSensorContext;assert(sensorBackend.capture(sensorGroup,groupSensorContext));
+  assert(sensorBackend.sendSensor(sensorGroup,groupSensorContext,sensorAuth,sensorHistory,sensorDraft,sensorWitness).result==shade_request_result_t::done);
+  assert(submitted.size()==beforeSensorRefusals+1&&submitted.back().type==shade_request_type_t::group_sensor&&submitted.back().repeat==127);
+  assert(submitted.back().sunny==1&&submitted.back().windy==1);advancedGroup.linkedShades[31]=88;
+  assert(sensorBackend.sendSensor(sensorGroup,groupSensorContext,sensorAuth,sensorHistory,sensorDraft,sensorWitness).admission==EntityAdmin::Admission::stale);
+  // Existing classifier treats a missing idle link as repairable; movement
+  // evidence alongside that missing member makes motor state unknown.
+  advancedGroup.direction=1;assert(sensorBackend.capture(sensorGroup,groupSensorContext));
+  assert(sensorBackend.checkSensorContext(sensorGroup,groupSensorContext,sensorAuth,sensorHistory)==EntityAdmin::Admission::busy);advancedGroup.linkedShades[31]=0;advancedGroup.direction=0;
+  assert(submitted.size()==beforeSensorRefusals+1&&!gitUpdate.busy());
   free(allocated);allocated=nullptr;hasPsram=false;
   Runtime missing;missing.begin();assert(missing.failure()==GraphicsFailure::missing && !missing.tick(testNow,status,false,send,light));
   hasPsram=true;allocateOK=false;Runtime failed;failed.begin();assert(failed.failure()==GraphicsFailure::allocation && !failed.tick(testNow,status,false,send,light));

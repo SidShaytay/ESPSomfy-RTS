@@ -19,6 +19,7 @@ struct LearnQueued {
 class LearnPending {
 public:
   virtual ~LearnPending() = default;
+  virtual bool usesRadio() const {return false;}
   // Read-only lifetime predicate: MUST NOT close/free its containing session or
   // invoke callbacks. Candidate validation may erase the cache, not the
   // session.

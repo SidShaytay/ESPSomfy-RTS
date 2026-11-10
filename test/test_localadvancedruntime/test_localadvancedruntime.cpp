@@ -36,12 +36,14 @@ struct Shade {
   uint32_t address = 100;
   uint64_t configurationRevision = 1;
   bool paired = false, idle = true;
+  radio_proto proto=radio_proto::RTS;uint8_t bitLength=80;
   Remote linkedRemotes[7];
   uint8_t getShadeId() { return id; }
   uint32_t getRemoteAddress() { return address; }
   bool idleForAdministration() { return idle; }
 };
 struct Group {
+  radio_proto proto=radio_proto::RTS;uint8_t bitLength=80;
   int8_t direction = 1;
   somfy_frame_t lastFrame;
   uint8_t id = 255;
@@ -59,7 +61,9 @@ struct SomfyShadeController {
   uint32_t repeaters[7]{};
   struct {
     uint64_t configurationRevision = 1;
-    bool quiet = true;
+    bool quiet = true,ready=true,suspended=false;
+    struct {uint8_t type=80;}config;
+    bool available()const{return ready;}bool txSuspended()const{return suspended;}
     uint32_t blocked = 0;
     CounterQuarantine quarantine = CounterQuarantine::none;
     CounterQuarantine counterQuarantine() { return quarantine; }
@@ -232,7 +236,13 @@ Backend &runtimeBackend() {
 } // namespace EntityAdmin
 } // namespace LocalUi
 #include "../../src/GitUpdate.cpp"
+static unsigned sensorSends=0;static shade_request_t lastSensor;
+struct RecordingRequests {shade_request_result_t run(const shade_request_t &request){
+  TEST_ASSERT_TRUE(gitUpdate.busy());++sensorSends;lastSensor=request;return shade_request_result_t::done;
+}}shadeRequests;
+#define ShadeRequests RecordingRequests
 #include "../../src/LocalAdvancedRuntime.cpp"
+#undef ShadeRequests
 #include "../../src/LocalLearnQueueRuntime.cpp"
 void setUp() {
   somfy = {};
@@ -248,6 +258,7 @@ void setUp() {
   linkState = CounterDomainState::saved;
   queueAccepts = true;
   expireAllocation = restartAllocation = memberMoves = blockAllocation = false;
+  sensorSends=0;lastSensor={};
   pendingRestart = false;primaryWrites=0;primaryMatches=true;afterPrimaryRead=nullptr;
   file = ModelCommitState::saved;
   TEST_ASSERT_FALSE(gitUpdate.busy());
@@ -628,8 +639,26 @@ static void primary_final_read_side_effect_and_witness_changes_refuse_without_co
     TEST_ASSERT_EQUAL(0,primaryWrites);
   }
 }
+static void sensor_dispatch_holds_shared_owner_and_rejects_unknown_group_motion() {
+  Target device{Scope::devices,7};Context context;TEST_ASSERT_TRUE(source().capture(device,context));
+  const auto auth=source().authorization();const auto history=source().revision();
+  SensorSimulation draft;draft.sunny=1;draft.windy=0;draft.repeats=127;Witness witness;
+  const auto result=source().sendSensor(device,context,auth,history,draft,witness);
+  TEST_ASSERT_EQUAL(Admission::accepted,result.admission);TEST_ASSERT_EQUAL(shade_request_result_t::done,result.result);
+  TEST_ASSERT_EQUAL(1,sensorSends);TEST_ASSERT_EQUAL(shade_request_type_t::shade_sensor,lastSensor.type);
+  TEST_ASSERT_EQUAL(1,lastSensor.sunny);TEST_ASSERT_EQUAL(0,lastSensor.windy);TEST_ASSERT_EQUAL(127,lastSensor.repeat);
+  somfy.transceiver.suspended=true;TEST_ASSERT_EQUAL(Admission::busy,source().checkSensorContext(device,context,auth,history));somfy.transceiver.suspended=false;
+  somfy.shades[0].proto=radio_proto::GP_Relay;TEST_ASSERT_FALSE(source().supportsSensor(device));somfy.shades[0].proto=radio_proto::RTS;
+  Target group{Scope::groups,9};TEST_ASSERT_TRUE(source().capture(group,context));
+  TEST_ASSERT_EQUAL(Admission::busy,source().checkSensorContext(group,context,auth,history));
+  somfy.groups[0].linkedShades[31]=0;TEST_ASSERT_TRUE(source().capture(group,context));
+  TEST_ASSERT_EQUAL(shade_request_result_t::done,source().sendSensor(group,context,auth,history,draft,witness).result);
+  TEST_ASSERT_EQUAL(2,sensorSends);TEST_ASSERT_EQUAL(shade_request_type_t::group_sensor,lastSensor.type);
+  TEST_ASSERT_FALSE(gitUpdate.busy());
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(sensor_dispatch_holds_shared_owner_and_rejects_unknown_group_motion);
   RUN_TEST(primary_counter_read_and_final_apply_share_fresh_context_without_nested_owner);
   RUN_TEST(primary_final_read_side_effect_and_witness_changes_refuse_without_correction);
   RUN_TEST(checked_link_uses_only_address_counter_and_domain_owned_lease);
