@@ -1,4 +1,5 @@
 #include "ModelPersistence.h"
+#include "MountedFilesystemGate.h"
 #include <stdlib.h>
 #include <string.h>
 #include <string>
@@ -118,6 +119,7 @@ static std::string load(const char *name) {
   return s;
 }
 void setUp() {
+  mountedFilesystemGate().resume();
   char name[] = "/tmp/espsomfy-model-XXXXXX";
   char *p = mkdtemp(name);
   TEST_ASSERT_NOT_NULL(p);
@@ -126,6 +128,7 @@ void setUp() {
   readError = corruptNext = false;
 }
 void tearDown() {
+  mountedFilesystemGate().resume();
   remove(path("/shades.cfg").c_str());
   remove(path("/shades.cfg.new").c_str());
   rmdir(directory.c_str());
@@ -273,8 +276,33 @@ static void invalid_mount_or_missing_operation_fails_before_any_io() {
   TEST_ASSERT_EQUAL(0, call);
   TEST_ASSERT_EQUAL(0, records.serializations);
 }
+static void sealed_mount_defers_model_io_and_retry_uses_current_ram_counters() {
+  Records records;TEST_ASSERT_TRUE(commitModelFile(directory.c_str(),records,operations).saved());
+  const auto before=load("/shades.cfg");records.shade.lastRollingCode=54322;
+  call=0;records.serializations=0;mountedFilesystemGate().seal();
+  const auto blocked=commitModelFile(directory.c_str(),records,operations);
+  TEST_ASSERT_FALSE(blocked.saved());TEST_ASSERT_EQUAL(ModelCommitStage::filesystemBusy,blocked.stage);TEST_ASSERT_EQUAL(0,call);TEST_ASSERT_EQUAL(0,records.serializations);
+  TEST_ASSERT_EQUAL_STRING(before.c_str(),load("/shades.cfg").c_str());
+  TEST_ASSERT_TRUE(mountedFilesystemGate().drained());
+  mountedFilesystemGate().resume();TEST_ASSERT_TRUE(commitModelFile(directory.c_str(),records,operations).saved());
+  TEST_ASSERT_NOT_EQUAL(std::string::npos,load("/shades.cfg").find("54322"));
+}
+static void admitted_model_commit_retains_mount_until_final_readback_finishes() {
+  struct SealingRecords:Records {
+    bool tracked=true;
+    bool write(ConfigWriter &writer)override {
+      mountedFilesystemGate().seal();tracked=tracked&&!mountedFilesystemGate().drained();
+      return Records::write(writer);
+    }
+  } records;
+  TEST_ASSERT_TRUE(commitModelFile(directory.c_str(),records,operations).saved());
+  TEST_ASSERT_TRUE(records.tracked);TEST_ASSERT_EQUAL(3,records.serializations);
+  TEST_ASSERT_TRUE(mountedFilesystemGate().drained());
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(admitted_model_commit_retains_mount_until_final_readback_finishes);
+  RUN_TEST(sealed_mount_defers_model_io_and_retry_uses_current_ram_counters);
   RUN_TEST(verified_replacement_contains_actual_records_and_counters);
   RUN_TEST(
       every_injected_io_failure_is_truthful_and_preserves_old_before_replace);

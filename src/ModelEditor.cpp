@@ -9,7 +9,7 @@ edit_result_t edit_result_t::completed(uint8_t id,
   result.persistence = persistence;
   result.ok = persistence.saved();
   if (!result.ok)
-    result.desc = modelCommitFailureDescription(persistence.state);
+    result.desc = modelCommitFailureDescription(persistence);
   return result;
 }
 

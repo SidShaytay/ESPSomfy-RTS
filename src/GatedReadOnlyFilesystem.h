@@ -7,4 +7,3 @@ class GatedReadOnlyFilesystem final:public fs::FS {
 public:
   GatedReadOnlyFilesystem(fs::FS &source,MountedFilesystemGate &gate);
 };
-MountedFilesystemGate &mountedFilesystemGate();

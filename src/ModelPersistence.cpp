@@ -1,4 +1,5 @@
 #include "ModelPersistence.h"
+#include "MountedFilesystemGate.h"
 #include <string.h>
 #include <unistd.h>
 namespace {
@@ -79,6 +80,9 @@ ModelCommitResult commitModelFile(const char *mountpoint,
                                   ModelSerializer &source,
                                   const ModelFileOperations &io) {
   ModelCommitResult result;
+  auto mount=mountedFilesystemGate().enter();
+  if(!mount){result.stage=ModelCommitStage::filesystemBusy;return result;}
+  // Lease covers staging, replacement and final readback, including all failure closes.
   // Only fixed model filenames are accepted. Keep path memory bounded and
   // derive the VFS prefix from the actual filesystem mount point.
   constexpr size_t capacity = 128;
@@ -142,8 +146,10 @@ ModelCommitResult commitModelFile(const char *mountpoint,
   return result;
 }
 
-const char *modelCommitFailureDescription(ModelCommitState state) {
-  return state == ModelCommitState::uncertain
+const char *modelCommitFailureDescription(ModelCommitResult result) {
+  if(result.stage==ModelCommitStage::filesystemBusy)
+    return "Current changes remain in memory; filesystem unavailable. Retry Commit after update recovery; no file save confirmed.";
+  return result.state == ModelCommitState::uncertain
              ? "Running changes applied; model file could not be verified. "
                "Retry Commit before restarting."
              : "Running changes applied; model file not saved. Previous file "

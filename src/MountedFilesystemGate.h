@@ -37,3 +37,5 @@ public:
   // been remounted and current-state recovery completed. No mount I/O here.
   void resume(){state.fetch_and(countMask,std::memory_order_release);}
 };
+
+inline MountedFilesystemGate &mountedFilesystemGate(){static MountedFilesystemGate gate;return gate;}
