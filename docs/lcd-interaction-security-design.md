@@ -1,23 +1,31 @@
 # LCD interaction and security proposal for issue #25
 
-Status: design for review plus an authorization implementation slice. Only the
-implementation record below describes implemented behavior; other flows remain proposals. Sid approved
+Status: historical design reference. The starting inventory and implementation
+record below describe earlier checkpoints, not current feature coverage. See the
+[current capability audit](lcd-capability-audit.md) and
+[installed checkpoint and remaining qualification](lcd-completion-qualification.md).
+The approved policies below remain design requirements; later decisions and
+implementation status are recorded in those current references. Sid approved
 reuse of the configured web credential for both local controls and administration,
 with 120-second inactivity expiry and a device-wide attempt limit. Sid later superseded the initial STOP decision: narrowly scoped STOP remains available
 for at most 30 seconds after expiry for already-authorized continuing movement, ending
 sooner when that movement ends, as described below. The existing
 web throttle schedule uses
-volatile local state (including the documented reboot-reset limitation). Other decisions
-remain pending as marked below. This document is
-based on fetched main `fc5a2947928fdf855185f77ecaae69c00b677156` and the reviewed local
+volatile local state (including the documented reboot-reset limitation). This design
+started from fetched main `fc5a2947928fdf855185f77ecaae69c00b677156` and the reviewed local
 main STOP fix `a493d50`. It does not authorize controller access, flashing, RF, motor,
-pairing, calibration, limits or HA operations. All development verification uses fake
-request sinks and synthetic model data. Hardware acceptance remains a separate stage.
+pairing, calibration, limits or HA operations. Original offline verification used fake
+request sinks and synthetic model data; subsequent deployment evidence is recorded in
+the qualification document. Hardware acceptance remains a separate stage.
 See the [capability matrix](lcd-web-capability-matrix.md) for operation coverage.
 
 Sid's revised build decision is one full-feature `lilygo-t-embed-cc1101` image for CC1101 and Plus, using their same project-relevant hardware. Keep the supported hardware list exact; the unused nRF24 does not create another firmware variant. Historical two-build evidence remains history and does not define the current product.
 
-## Existing contracts and gaps
+## Historical starting contracts and gaps
+
+This inventory records the starting baseline above. Its fixed slots, missing
+authentication/capture protection and absent updater describe that historical
+state, not the current implementation. Use the capability audit for current coverage.
 
 - `LocalUi.h`, `LocalUi.cpp` and `LocalUiAdapter.cpp` contain three fixed slots,
   shades 1/2 and group 1, and UP/STOP/DOWN. Existing input behavior includes 40 ms
