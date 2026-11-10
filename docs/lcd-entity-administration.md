@@ -1,6 +1,8 @@
 # Local entity administration
 
-Open **Home → Administration** and unlock when required, then choose **Rooms**,
+**Navigation version:** Paths below describe source `015ac39`, intended for the next release and not yet deployed. Installed 4.7.3 uses the older menus; see the [installed-version path map](lilygo-local-ui.md#navigation-versions).
+
+Open **This controller → Configure → Rooms, devices & groups** and unlock when required, then choose **Rooms**,
 **Devices** or **Groups**. Select Add, or select an existing entry by its stable ID
 to edit or delete it. Duplicate names are allowed; the kind and ID identify the
 target. These flows work on the LCD without a browser. Full lists page through

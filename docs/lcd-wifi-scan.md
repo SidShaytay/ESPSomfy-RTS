@@ -1,6 +1,8 @@
 # WiFi scan on the LCD
 
-Open **System → WiFi scan**, then explicitly choose **Start WiFi scan**.
+**Navigation version:** Paths below describe source `015ac39`, intended for the next release and not yet deployed. Installed 4.7.3 uses the older menus; see the [installed-version path map](lilygo-local-ui.md#navigation-versions).
+
+Open **This controller → Configure → Network → WiFi scan**, then explicitly choose **Start WiFi scan**.
 Cancel is selected first. Opening or browsing this screen does not start a scan.
 Scanning can interrupt WiFi service; it never selects a connection or saves
 settings. The existing network service owns the physical scan and may share its

@@ -17,12 +17,14 @@ public:
 };
 // Loop-owned navigation. Runtime supplies the existing shared presentation
 // frame; this state owns neither another frame nor any dynamic allocation.
+enum class Menu:uint8_t {legacy,maintenance,diagnostics,wifiScan};
 class Form {
   Backend &backend;
   enum class Page : uint8_t { closed, menu, confirm, files, guidance, result, wifi, diagnostics, network, radio, updates } page=Page::closed;
   uint32_t generation=0,configurationGeneration=0;
   uint64_t observedAt=0,activityAt=0,restartGeneration=0;
   uint8_t cursor=0,file=0;
+  Menu menu=Menu::legacy;
   EntityAdmin::Notice notice=EntityAdmin::Notice::none;
   RestartReason reason=RestartReason::none;
   bool admitted=false,stopped=false,statusUnknown=false;
@@ -30,7 +32,7 @@ class Form {
   void touch(uint64_t);
 public:
   explicit Form(Backend &value):backend(value){}
-  bool open(uint64_t);
+  bool open(uint64_t,Menu=Menu::legacy,uint8_t initial=0);
   void discard();
   bool closed() const {return page==Page::closed;}
   void tick(uint64_t);
@@ -42,7 +44,7 @@ public:
   bool wantsDiagnostics() const {return page==Page::diagnostics;}
   bool wantsUpdates() const {return page==Page::updates;}
   bool wantsRadioScan() const {return page==Page::radio;}
-  void finishChild(){if(page==Page::wifi || page==Page::diagnostics || page==Page::radio || page==Page::updates){cursor=page==Page::wifi?2:page==Page::diagnostics?3:page==Page::radio?5:6;page=Page::menu;}}
+  void finishChild(){if(menu==Menu::wifiScan){discard();return;}if(page==Page::wifi || page==Page::diagnostics || page==Page::radio || page==Page::updates){cursor=menu==Menu::maintenance?0:menu==Menu::diagnostics?(page==Page::diagnostics?1:2):page==Page::wifi?2:page==Page::diagnostics?3:page==Page::radio?5:6;page=Page::menu;}}
   void childActivity(uint64_t now){if(guard(now))touch(now);}
 };
 static_assert(sizeof(Form)<=80,"System borrows presentation storage and allocates nothing");

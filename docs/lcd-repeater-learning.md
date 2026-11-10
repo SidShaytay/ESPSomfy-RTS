@@ -1,6 +1,8 @@
 # Add a repeater from the LCD
 
-Use **Home → Administration → More → Repeaters**, then **Learn/add repeater**.
+**Navigation version:** Paths below describe source `015ac39`, intended for the next release and not yet deployed. Installed 4.7.3 uses the older menus; see the [installed-version path map](lilygo-local-ui.md#navigation-versions).
+
+Use **This controller → Configure → Rooms, devices & groups → More → Repeaters**, then **Learn/add repeater**.
 This candidate is offline-tested and awaiting independent review/integration; no
 physical repeater behavior has been tested.
 

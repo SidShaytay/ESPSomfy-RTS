@@ -1,6 +1,8 @@
 # Scan the radio frequency from the LCD
 
-Use **System → Radio frequency scan** to observe signal strength and copy a
+**Navigation version:** Paths below describe source `015ac39`, intended for the next release and not yet deployed. Installed 4.7.3 uses the older menus; see the [installed-version path map](lilygo-local-ui.md#navigation-versions).
+
+Use **This controller → Diagnostics → Radio frequency scan** to observe signal strength and copy a
 completed scan's strongest frequency into the Radio settings draft.
 Unlock with the configured web credential first if security is enabled.
 

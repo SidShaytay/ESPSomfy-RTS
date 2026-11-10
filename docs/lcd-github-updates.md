@@ -1,6 +1,8 @@
 # Update firmware from the LCD
 
-**System → GitHub updates** checks and installs a newer stable release from
+**Navigation version:** Paths below describe source `015ac39`, intended for the next release and not yet deployed. Installed 4.7.3 uses the older menus; see the [installed-version path map](lilygo-local-ui.md#navigation-versions).
+
+**This controller → Maintenance → GitHub updates** checks and installs a newer stable release from
 `SidShaytay/ESPSomfy-RTS` without a computer. The shared CC1101 / Plus image
 includes the controller, LCD and web interface together.
 
@@ -40,5 +42,5 @@ postpones it again. An unavailable previous image shows **Rollback needs attenti
 could not be verified. Leaving the screen does not release those locks or start
 another update. A later check does not silently retry the failed installation.
 
-Use **System → Browser files & Web** for the existing browser backup, restore
+Use **This controller → Maintenance → Browser files & Web** for the existing browser backup, restore
 and manual firmware file workflows.

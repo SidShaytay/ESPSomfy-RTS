@@ -1,11 +1,13 @@
 # LCD sensor simulation
 
+**Navigation version:** Paths below describe source `015ac39`, intended for the next release and not yet deployed. Installed 4.7.3 uses the older menus; see the [installed-version path map](lilygo-local-ui.md#navigation-versions).
+
 Sensor simulation sends Sunny/Windy radio status through the controller's
 existing sensor-command handler. A motor may react through its configured
 weather or sun automation. This is an active command, not a sensor reading or a
 harmless radio probe.
 
-Open **Home → Administration → Devices → Advanced**, select the device, then
+Open **This controller → Configure → Rooms, devices & groups → Devices → Advanced**, select the device, then
 **Sensor simulation**. For a group, choose **Groups → Advanced**, select the
 group, then **Sensor simulation**. The group's **Members** entry remains
 available for reviewing and repairing membership.
