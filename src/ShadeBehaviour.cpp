@@ -1088,7 +1088,13 @@ bool ShadeBehaviour::moveToMyPosition(uint32_t now) {
   if(this->s.myTiltPos >= 0.0f && this->s.myTiltPos <= 100.0f) this->p_tiltTarget(this->s.myTiltPos);
   return true;
 }
-bool ShadeBehaviour::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint32_t now) {
+bool ShadeBehaviour::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint32_t now, uint32_t *ticket) {
+  if(ticket) *ticket=0;
+  const auto send = [&](somfy_commands command,uint8_t count,uint8_t step,uint16_t delay,bool priority,uint32_t at) {
+    const auto result=this->transmit(command,count,step,delay,priority,at);
+    if(ticket) *ticket=result.ticket;
+    return result;
+  };
   ESP_LOGD(TAG, "Send command start");
   // This sendCommand function will always be called externally. sendCommand at the remote level
   // is expected to be called internally when the motor needs commanded.
@@ -1097,7 +1103,7 @@ bool ShadeBehaviour::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t ste
   if((cmd == somfy_commands::Up && this->s.direction == -1) ||
      (cmd == somfy_commands::Down && this->s.direction == 1)) {
     ESP_LOGD(TAG, "Same command as dir");
-    if(!this->transmit(cmd, repeat, 0, 0, false, now).sent) return false;
+    if(!send(cmd, repeat, 0, 0, false, now).sent) return false;
     this->p_target(this->s.currentPos);
     this->p_tiltTarget(this->s.currentTiltPos);
     this->setMovement(0, now);
@@ -1108,11 +1114,11 @@ bool ShadeBehaviour::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t ste
     if(this->settings.tiltType == tilt_types::euromode) {
       // In euromode we need to long press for 2 seconds on the
       // up command.
-      if(!this->transmit(cmd, TILT_REPEATS, 0, 0, false, now).sent) return false;
+      if(!send(cmd, TILT_REPEATS, 0, 0, false, now).sent) return false;
       this->p_target(0.0f);
     }
     else {
-      if(!this->transmit(cmd, repeat, 0, 0, false, now).sent) return false;
+      if(!send(cmd, repeat, 0, 0, false, now).sent) return false;
       if(this->settings.tiltType == tilt_types::tiltonly) {
         this->p_target(100.0f);
         this->p_tiltTarget(0.0f);
@@ -1126,11 +1132,11 @@ bool ShadeBehaviour::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t ste
     if(this->settings.tiltType == tilt_types::euromode) {
       // In euromode we need to long press for 2 seconds on the
       // down command.
-      if(!this->transmit(cmd, TILT_REPEATS, 0, 0, false, now).sent) return false;
+      if(!send(cmd, TILT_REPEATS, 0, 0, false, now).sent) return false;
       this->p_target(100.0f);
     }
     else {
-      if(!this->transmit(cmd, repeat, 0, 0, false, now).sent) return false;
+      if(!send(cmd, repeat, 0, 0, false, now).sent) return false;
       if(this->settings.tiltType == tilt_types::tiltonly) {
         this->p_target(100.0f);
         this->p_tiltTarget(100.0f);
@@ -1142,7 +1148,7 @@ bool ShadeBehaviour::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t ste
   }
   else if(cmd == somfy_commands::My) {
     if(this->isToggle() || this->settings.shadeType == shade_types::drycontact) {
-      if(!this->transmit(cmd, repeat, 0, 0, false, now).sent) return false;
+      if(!send(cmd, repeat, 0, 0, false, now).sent) return false;
     }
     else if(this->settings.shadeType == shade_types::drycontact2){
         ESP_LOGD(TAG, "Send command start 1");
@@ -1154,21 +1160,21 @@ bool ShadeBehaviour::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t ste
       return sent;
     }
     else {
-      if(!this->transmit(cmd, repeat, 0, 0, false, now).sent) return false;
+      if(!send(cmd, repeat, 0, 0, false, now).sent) return false;
       if(this->settings.tiltType != tilt_types::tiltonly) this->p_target(this->s.currentPos);
       this->p_tiltTarget(this->s.currentTiltPos);
       this->pinTiltOnlyLift();
     }
   }
   else if(cmd == somfy_commands::Toggle) {
-    if(this->remote.bitLength != 80) { if(!this->transmit(somfy_commands::My, repeat, stepSize, 0, false, now).sent) return false; }
-    else if(!this->transmit(somfy_commands::Toggle, repeat, 0, 0, false, now).sent) return false;
+    if(this->remote.bitLength != 80) { if(!send(somfy_commands::My, repeat, stepSize, 0, false, now).sent) return false; }
+    else if(!send(somfy_commands::Toggle, repeat, 0, 0, false, now).sent) return false;
   }
   else if(this->isToggle() && cmd == somfy_commands::Prog) {
-    if(!this->transmit(somfy_commands::Toggle, repeat, stepSize, 0, false, now).sent) return false;
+    if(!send(somfy_commands::Toggle, repeat, stepSize, 0, false, now).sent) return false;
   }
   else {
-    if(!this->transmit(cmd, repeat, stepSize, 0, false, now).sent) return false;
+    if(!send(cmd, repeat, stepSize, 0, false, now).sent) return false;
   }
   ESP_LOGD(TAG, "Send command end");
   return true;

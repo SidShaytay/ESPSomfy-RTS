@@ -6,6 +6,7 @@
 // model.  Runs on loop() only.
 class SomfyShadeOps : public ShadeOps {
   public:
+    uint32_t sendOwnedRepeat(const shade_request_t &) override;
     bool findShade(uint8_t shadeId, shade_info_t &info) override;
     bool findGroup(uint8_t groupId, uint8_t &repeats) override;
     bool moveToTarget(uint8_t shadeId, float pos) override;

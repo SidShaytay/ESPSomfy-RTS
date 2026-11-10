@@ -100,3 +100,23 @@ shade_request_result_t ShadeRequests::run(const shade_request_t &req) {
   }
   return shade_request_result_t::done;
 }
+
+bool validOwnedRepeatRequest(const shade_request_t &req) {
+  if((req.type != shade_request_type_t::shade_repeat && req.type != shade_request_type_t::group_repeat) ||
+     req.id == 0 || req.id == 255 || req.repeat < 1 || req.target != -1 ||
+     req.position != -1 || req.tiltPosition != -1 || req.sunny != -1 || req.windy != -1 || req.rollingCode)
+    return false;
+  switch(req.command) {
+    case somfy_commands::Up: case somfy_commands::Down: case somfy_commands::Favorite:
+    case somfy_commands::Toggle: case somfy_commands::StepUp: case somfy_commands::StepDown:
+    case somfy_commands::SunFlag: case somfy_commands::Flag: break;
+    default: return false;
+  }
+  return true;
+}
+shade_request_result_t ShadeRequests::runOwnedRepeat(const shade_request_t &req, owned_repeat_receipt_t &receipt) {
+  receipt = {};
+  if(!validOwnedRepeatRequest(req)) return shade_request_result_t::radio_refused;
+  receipt.ticket = this->ops.sendOwnedRepeat(req);
+  return sent(receipt.ticket != 0);
+}

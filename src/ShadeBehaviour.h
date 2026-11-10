@@ -96,7 +96,7 @@ class ShadeBehaviour {
 
     // Commands from the web, MQTT and Home Assistant.  False when the radio
     // refused a command they sent.
-    bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint32_t now);
+    bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint32_t now, uint32_t *ticket = nullptr);
     bool sendTiltCommand(somfy_commands cmd, uint32_t now);
     bool moveToTarget(float pos, float tilt, uint32_t now);
     bool moveToTiltTarget(float target, uint32_t now);

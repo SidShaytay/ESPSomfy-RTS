@@ -80,6 +80,7 @@ class SomfyRemote : public RemoteSettings {
     send_result_t sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority = false, bool hearsItself = false);
     bool sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repeat);
     bool repeatFrame(uint8_t repeat);
+    send_result_t repeatFrameReceipt(uint8_t repeat);
     virtual uint16_t p_lastRollingCode(uint16_t code);
     somfy_commands transformCommand(somfy_commands cmd);
     // GPIO admission precedes counter reads and frame/model mutation. Base
@@ -142,6 +143,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     bool sendTiltCommand(somfy_commands cmd);
     bool sendCommand(somfy_commands cmd);
     bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
+    send_result_t sendCommandReceipt(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
     // Puts the shade at pos and tilt (-1 leaves one alone) without moving it.
     void setPosition(float pos, float tilt);
     // Where the config file says the shade was.
@@ -235,6 +237,7 @@ class SomfyGroup : public SomfyRemote {
     void configChanged() { ++configurationRevision; this->changed |= GROUP_CHANGED_CONFIG; }
     bool sendCommand(somfy_commands cmd);
     bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
+    send_result_t sendCommandReceipt(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
     int8_t p_direction(int8_t dir);
     bool publish(const char *topic, uint8_t val, bool retain = false);
     bool publish(const char *topic, int8_t val, bool retain = false);
