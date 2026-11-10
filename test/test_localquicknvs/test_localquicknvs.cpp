@@ -34,4 +34,17 @@ static void save_errors_never_claim_verified_or_write_without_witness() {
   if(fault>=2)TEST_ASSERT_EQUAL(QuickPreferenceSave::unknown,r);
  }
 }
-int main(){UNITY_BEGIN();RUN_TEST(read_never_creates_and_distinguishes_missing_corrupt_unreadable);RUN_TEST(explicit_save_commits_and_freshly_verifies_only_its_key);RUN_TEST(save_errors_never_claim_verified_or_write_without_witness);return UNITY_END();}
+static void every_storage_boundary_rechecks_fresh_authority() {
+ struct Revoking:QuickPreferenceWitness {unsigned call=0, revoke;explicit Revoking(unsigned n):revoke(n){}bool current()override{return ++call<revoke;}};
+ for(unsigned at=2;at<=5;++at) {
+  FakeNvs::reset();FakeNvs::values["LCDUI/brightness"]={FakeNvs::Type::u8,{32}};
+  Revoking witness(at);const auto result=writeQuickAccessPreferences(draft(),witness);
+  TEST_ASSERT_EQUAL(at==2?QuickPreferenceSave::failed:QuickPreferenceSave::unknown,result);
+  TEST_ASSERT_EQUAL(at==2?0:1,FakeNvs::sets);
+  TEST_ASSERT_EQUAL(at<=3?0:1,FakeNvs::commits);
+  TEST_ASSERT_EQUAL(at==5?2:0,FakeNvs::reads);
+  TEST_ASSERT_EQUAL(FakeNvs::opens,FakeNvs::closes);TEST_ASSERT_TRUE(FakeNvs::handles.empty());
+  TEST_ASSERT_EQUAL(32,FakeNvs::values["LCDUI/brightness"].bytes[0]);TEST_ASSERT_EQUAL(0,FakeNvs::erases);
+ }
+}
+int main(){UNITY_BEGIN();RUN_TEST(every_storage_boundary_rechecks_fresh_authority);RUN_TEST(read_never_creates_and_distinguishes_missing_corrupt_unreadable);RUN_TEST(explicit_save_commits_and_freshly_verifies_only_its_key);RUN_TEST(save_errors_never_claim_verified_or_write_without_witness);return UNITY_END();}
