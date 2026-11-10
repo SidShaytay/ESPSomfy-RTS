@@ -73,3 +73,28 @@ U_SPIFFS branch selects the first SPIFFS-subtype partition and ignores its label
 argument; U_LITTLEFS similarly selects the first LittleFS subtype. Verify the
 chosen partition is exactly the one mounted as spiffs, and reject a mismatch
 before raw writes. Do not assume the begin() label selects it.
+
+`ApplicationFilesystem` now implements the loop's bounded physical resource
+record beneath that same owner. Initial preparation uses the existing model
+commit FIFO at normal priority. It verifies the exact mounted `spiffs` partition
+matches the pinned Update SDK's first partition of the selected subtype and
+requires a full-partition image. It saves current RAM, briefly seals queue
+admission while publishing the existing radio pause and filesystem seal, then
+allows independent wired work while tracked file handles drain. Only verified
+unmounting publishes ready status. The metadata request has no upload-disconnect
+hook; only the later adopted file request may own that hook.
+
+Reducing cleanup precedes generic upload cleanup. It never aborts a foreign SDK
+object, remounts without formatting, restores the exact radio token, and saves
+current RAM. Busy radio restoration is deferred without holding queue admission.
+Mount/save faults retain the source for explicit recovery retry; retry cannot
+receive another image or authorize a restart. A failed mount still releases the
+radio where possible. Cached status and loop resources contain no request or
+image pointers. Canonical bundled builds compile inert versions of this module.
+
+Seventeen host scenarios exercise the actual implementation with the real
+GitUpdate owner and fake I/O; the FIFO preparation regression additionally
+checks normal ordering and no producer-side commit. Both firmware environments
+compile. The browser preparation endpoints, exact-source file receiver and
+successful-upload restart handoff are still to be connected and qualified;
+these component checks do not make the existing generic upload route safe.

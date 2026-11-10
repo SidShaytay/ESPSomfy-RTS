@@ -72,6 +72,8 @@ SomfyShadeController::SomfyShadeController() : startingAddress(100) {modelLoad.b
 SomfyShadeController somfy;
 // This counter harness has no filesystem-install operation.
 bool radioInstallPaused(){return false;}
+// Preparation/physical filesystem transitions have their own real-owner harness.
+void runApplicationPreparation(const GitUpdateOwnerToken &){assert(false);}
 static bool pendingRestart=false;
 bool restartPending(){return pendingRestart;}
 // Queue/history forwarding is exercised by the actual queue/service harness.

@@ -61,6 +61,7 @@ struct SomfyShadeController {
   Shade *getShadeById(uint8_t id){for(auto &shade:shades)if(id && id!=255 && shade.id==id)return &shade;return nullptr;}
   ModelCommitResult commit(){noteModelCommit({ModelCommitState::saved});return {ModelCommitState::saved};}
 } somfy;
+bool radioInstallPaused(){return somfy.transceiver.restorePaused;}
 struct ConfigSettings { bool settingsUsable()const{return Security.loadTrusted();} bool hasOtaSlot=true;struct { bool trusted=true;bool loadTrusted()const{return trusted;} } Security; } settings; // Qualified boot fixture.
 #define configsettings_h
 static std::function<void()> duringAuthentication;
@@ -143,6 +144,8 @@ bool submitModelCommit(const proto_reply_to_t &, ModelCommitMode mode,const GitU
 void completeRestoreModel(const RestoreApplyResult &result){assert(result.modelApplied);}
 uint32_t restoreTestRandom(){return 42;}
 #include "../../src/RestoreExecution.cpp"
+// Physical transitions are exercised against the real owner in application-filesystem.
+void serviceApplicationFilesystem(){}
 #include "../../src/entryPoints/ManualUploadSession.cpp"
 #include "../../src/entryPoints/ApplicationUpload.cpp"
 #include "../../src/entryPoints/FirmwareUpload.cpp"
