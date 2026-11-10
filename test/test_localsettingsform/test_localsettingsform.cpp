@@ -861,6 +861,19 @@ static void scanned_ssid_stages_only_after_exact_authority_and_network_revision(
   memory.fail=true;
   TEST_ASSERT_FALSE(form.openNetworkSSID("other",7,backend.auth,backend.revision(settings_section_t::network)));TEST_ASSERT_EQUAL(0,backend.saves);
 }
+static void scanned_frequency_stages_only_with_exact_authority_and_radio_history() {
+ Memory memory;Fake backend;Form form(backend,memory);const auto revision=backend.revision(settings_section_t::radio);
+ TEST_ASSERT_TRUE(form.openRadioFrequency(433.42f,1,backend.auth,revision));
+ TEST_ASSERT_TRUE(form.view().dirty);TEST_ASSERT_EQUAL(0,backend.saves);form.discard();
+ auto stale=backend.auth;++stale.generation;
+ TEST_ASSERT_FALSE(form.openRadioFrequency(433.42f,2,stale,revision));
+ TEST_ASSERT_FALSE(form.openRadioFrequency(433.42f,3,backend.auth,revision+1));
+ TEST_ASSERT_FALSE(form.openRadioFrequency(NAN,4,backend.auth,revision));
+ TEST_ASSERT_FALSE(form.openRadioFrequency(500,5,backend.auth,revision));
+ TEST_ASSERT_TRUE(form.openRadioFrequency(433.421f,6,backend.auth,revision));TEST_ASSERT_FALSE(form.view().dirty);form.discard();
+ backend.changeOnRead=true;TEST_ASSERT_FALSE(form.openRadioFrequency(433.42f,7,backend.auth,revision));
+ TEST_ASSERT_EQUAL(0,memory.active);TEST_ASSERT_EQUAL(0,backend.saves);
+}
 static void current_scanned_ssid_is_clean_and_save_is_unchanged() {
   Memory memory;Fake backend;Form form(backend,memory);
   TEST_ASSERT_TRUE(form.openNetworkSSID("wifi",1,backend.auth,backend.revision(settings_section_t::network)));
@@ -912,6 +925,7 @@ static void applied_radio_failure_closes_and_wipes_without_replaying_save() {
 }
 int main() {
   UNITY_BEGIN();RUN_TEST(applied_radio_failure_closes_and_wipes_without_replaying_save);RUN_TEST(unsupported_frequency_requires_explicit_valid_replacement_without_losing_other_drafts);RUN_TEST(unavailable_snapshot_closes_without_default_replace_or_save);
+  RUN_TEST(scanned_frequency_stages_only_with_exact_authority_and_radio_history);
   RUN_TEST(current_scanned_ssid_is_clean_and_save_is_unchanged);
   RUN_TEST(scanned_ssid_stages_only_after_exact_authority_and_network_revision);
   RUN_TEST(every_saved_restart_refusal_preserves_typed_reason_and_no_retry_draft);

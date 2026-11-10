@@ -8,9 +8,10 @@
 #include "LocalSystem.h"
 #include "LocalWifiScan.h"
 #include "LocalDiagnostics.h"
+#include "LocalFrequencyScan.h"
 #include <type_traits>
 namespace LocalUi {
-static_assert(sizeof(System::Form)+sizeof(WifiScan::Form)+sizeof(Diagnostics::Form)+2<=160,"System observation state borrows existing presentation storage");
+static_assert(sizeof(System::Form)+sizeof(WifiScan::Form)+sizeof(Diagnostics::Form)+sizeof(RadioScan::Form)+2<=160,"System observation state borrows existing presentation storage");
 class Runtime {
 #ifdef UI_RUNTIME_HOST_TEST
   friend struct RuntimeTestAccess;
@@ -25,11 +26,13 @@ class Runtime {
   System::Form systemForm{System::runtimeBackend()};
   WifiScan::Form wifiScanForm{WifiScan::runtimeBackend(),Settings::runtimeMemory()};
   Diagnostics::Form diagnosticsForm{Diagnostics::runtimeBackend(),Settings::runtimeMemory()};
-  enum class SystemChild:uint8_t {none,wifi,diagnostics} systemChild=SystemChild::none;
+  RadioScan::Form radioScanForm{RadioScan::runtimeBackend(),Settings::runtimeMemory()};
+  enum class SystemChild:uint8_t {none,wifi,diagnostics,radio} systemChild=SystemChild::none;
   bool systemActive=false;
   template<typename Action> void visitSystemChild(Action action) {
     if(systemChild==SystemChild::wifi)action(wifiScanForm);
     else if(systemChild==SystemChild::diagnostics)action(diagnosticsForm);
+    else if(systemChild==SystemChild::radio)action(radioScanForm);
   }
   static void wipePrivateProjection(EntityAdmin::FormView &view) {
     static_assert(std::is_trivially_copyable<EntityAdmin::FormView>::value,
@@ -46,15 +49,16 @@ class Runtime {
     frameAdministrationEpoch=presentedAdministrationEpoch=0;presentedAdministrationValid=false;
   }
   void discardSystemChild(){
-    wifiScanForm.discard();diagnosticsForm.discard();systemChild=SystemChild::none;
+    wifiScanForm.discard();diagnosticsForm.discard();radioScanForm.discard();systemChild=SystemChild::none;
     discardPrivateProjection();
   }
   bool childClosed()const {
-    return systemChild==SystemChild::wifi?wifiScanForm.closed():systemChild==SystemChild::diagnostics?diagnosticsForm.closed():false;
+    return systemChild==SystemChild::wifi?wifiScanForm.closed():systemChild==SystemChild::diagnostics?diagnosticsForm.closed():systemChild==SystemChild::radio?radioScanForm.closed():false;
   }
   void renderSystem(EntityAdmin::FormView &out)const {
     if(systemChild==SystemChild::wifi)wifiScanForm.render(out);
     else if(systemChild==SystemChild::diagnostics)diagnosticsForm.render(out);
+    else if(systemChild==SystemChild::radio)radioScanForm.render(out);
     else systemForm.render(out);
   }
   EntityAdmin::FormView frameAdministration,presentedAdministration;

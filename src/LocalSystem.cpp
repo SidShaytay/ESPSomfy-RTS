@@ -70,7 +70,7 @@ void Form::tick(uint64_t now) {
 void Form::turn(int direction,uint64_t now) {
   if(!direction || !guard(now))return;
   touch(now);
-  const uint8_t last=page==Page::menu?3:page==Page::confirm?1:page==Page::files?3:0;
+  const uint8_t last=page==Page::menu?4:page==Page::confirm?1:page==Page::files?3:0;
   if(direction>0 && cursor<last)++cursor;
   if(direction<0 && cursor)--cursor;
 }
@@ -78,7 +78,7 @@ void Form::activate(uint64_t now) {
   if(!guard(now))return;
   touch(now);
   switch(page) {
-  case Page::menu:page=cursor==3?Page::diagnostics:cursor==2?Page::wifi:cursor?Page::files:Page::confirm;cursor=0;break;
+  case Page::menu:page=cursor==4?Page::radio:cursor==3?Page::diagnostics:cursor==2?Page::wifi:cursor?Page::files:Page::confirm;cursor=0;break;
   case Page::confirm:
     if(!cursor){page=Page::menu;break;}
     {const auto result=backend.restart(generation,configurationGeneration);admitted=result.admitted;reason=result.reason;
@@ -95,7 +95,8 @@ void Form::activate(uint64_t now) {
   case Page::files:file=cursor;page=Page::guidance;cursor=0;break;
   case Page::guidance:page=Page::files;cursor=file;break;
   case Page::result:break; // A completion is never a second restart/retry action.
-  case Page::wifi:case Page::diagnostics:break;
+  case Page::wifi:case Page::radio:
+  case Page::diagnostics:break;
   case Page::closed:break;
   }
 }
@@ -112,8 +113,8 @@ void Form::render(EntityAdmin::FormView &out) const {
   out.mode=EntityAdmin::Mode::fields;
   const char *title="System",*hint="Press: choose   Back: Home";
   if(page==Page::menu) {
-    const char *labels[]={"Restart","Browser files & Web","WiFi scan","Receive diagnostics"};
-    out.total=4;out.offset=cursor/3*3;
+    const char *labels[]={"Restart","Browser files & Web","WiFi scan","Receive diagnostics","Radio frequency scan"};
+    out.total=5;out.offset=cursor/3*3;
     for(uint8_t i=out.offset;i<out.total && out.rowCount<3;++i)strcpy(out.rows[out.rowCount++].label,labels[i]);
   } else if(page==Page::files) {
     title="Browser files";out.total=4;out.offset=cursor/3*3;

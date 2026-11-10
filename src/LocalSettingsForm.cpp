@@ -298,6 +298,31 @@ bool Form::openSection(settings_section_t s, uint64_t now) {
   render();
   return !closed();
 }
+bool Form::openRadioFrequency(float frequency,uint64_t now,Authorization expected,uint64_t revision) {
+  discard();const auto current=backend.authorization();
+  if(!current.allowed||!expected.allowed||!expected.generation||!expected.configurationGeneration||
+     current.generation!=expected.generation||current.configurationGeneration!=expected.configurationGeneration||
+     !revision||backend.revision(settings_section_t::radio)!=revision){close(Notice::changed);return false;}
+  if(!isfinite(frequency)||frequency<433||frequency>434){close(Notice::invalid);return false;}
+  if(!openSection(settings_section_t::radio,now))return false;
+  if(admitted.generation!=expected.generation||admitted.configurationGeneration!=expected.configurationGeneration||admittedRevision!=revision){close(Notice::changed);return false;}
+  const settings_field_t *frequencyField=nullptr;
+  for(uint8_t i=0;i<count();++i){const auto *field=settingsFieldAt(section,i,backend.hasEthernet());if(field->field==proto_field_t::frequency){selected=i;frequencyField=field;}}
+  if(!frequencyField){close(Notice::changed);return false;}
+  settings_value_t original;const bool known=readValue(*frequencyField,original)&&original.kind=='n'&&isfinite(original.number);
+  const auto scaled=lround(double(frequency)*1000);
+  const bool changed=!known||original.number<300||original.number>928||lround(double(original.number)*1000)!=scaled;
+  wipe(&original,sizeof(original));
+  if(changed){
+    changes[protoField(proto_field_t::frequency).key]=double(scaled)/1000;
+    changes[protoField(proto_field_t::section).key]=settingsSectionName(section);
+    JsonDocument expanded(&allocator);proto_error_buffer_t why={};settings_section_t parsed;
+    const char *error=expandSettingsPayload(changes.as<JsonObjectConst>(),backend.hasEthernet(),parsed,expanded,why);
+    const bool noMemory=changes.overflowed()||expanded.overflowed();changes.remove(protoField(proto_field_t::section).key);
+    if(noMemory||error){close(noMemory?Notice::noMemory:Notice::invalid);return false;}
+  }
+  if(!guard(now))return false;render();return !closed();
+}
 bool Form::openNetworkSSID(const char *ssid, uint64_t now,
                            Authorization expected, uint64_t revision) {
   discard();

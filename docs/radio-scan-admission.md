@@ -16,7 +16,14 @@ GPIO targets retain normal execution. Explicitly RF local markers are refused
 at publication; the queue never reads the mutable model from a producer task.
 This prevents a delayed unpair from transmitting when the scan ends.
 
-The scan driver remains the owner of its active indication. These changes add
-no second scan engine or configuration writer. Full authenticated browser/LCD
-scan ownership, bounded result review and explicit Apply remain unfinished in
-this feature branch. No physical scan or RF test has been performed.
+The scan driver remains the owner of its active indication. A loop-owned session
+uses the existing configuration owner and binds a scan token to the browser
+client or authenticated LCD session, security history and radio revision.
+Ownership is retained until actual driver restoration completes. Foreign or
+stale Stop/result requests cannot operate a later scan. Source revocation,
+backwards time and the five-minute limit request cleanup, not an automatic retry.
+
+The LCD and browser offer explicit Start, Stop and completed-result review.
+A fresh result check precedes copying to the Radio draft; saving remains separate.
+See [LCD radio scan](lcd-radio-scan.md) and the protocol reference. No physical
+scan or RF test has been performed for this change.
