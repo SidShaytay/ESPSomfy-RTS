@@ -2104,7 +2104,15 @@ class Somfy {
     }
     procFrequencyScan(scan) {
         //console.log(scan);
-        let div = this.scanFrequency();
+        let div = document.getElementById('divScanFrequency');
+        if (!div || !scan.scanToken || div.getAttribute('data-scantoken') !== scan.scanToken) return;
+        if (scan.scanning === false || scan.scanning === 0) {
+            div.setAttribute('data-initscan', false);
+            document.getElementById('btnStopScanning').style.display = 'none';
+            document.getElementById('btnRestartScanning').style.display = '';
+            document.getElementById('btnCloseScanning').style.display = '';
+            document.getElementById('btnCopyFrequency').style.display = scan.RSSI > -100 ? '' : 'none';
+        }
         let spanTestFreq = document.getElementById('spanTestFreq');
         let spanTestRSSI = document.getElementById('spanTestRSSI');
         let spanBestFreq = document.getElementById('spanBestFreq');
@@ -2130,7 +2138,7 @@ class Somfy {
             div = document.createElement('div');
             div.setAttribute('id', 'divScanFrequency');
             div.classList.add('prompt-message');
-            let html = '<div class="sub-message">Frequency Scanning has started.  Press and hold any button on your remote and ESPSomfy RTS will find the closest frequency to the remote.</div>';
+            let html = '<div class="sub-message">Radio observation requires explicit Start. RF controls pause during scanning; independent wired controls remain usable. Remote signals may also operate motors.</div>';
             html += '<hr style="width:100%;margin:0px;"></hr>';
             html += '<div style="width:100%;text-align:center;">';
             html += '<div class="" style="font-size:20px;"><label style="padding-right:7px;display:inline-block;width:87px;">Scanning</label><span id="spanTestFreq" style="display:inline-block;width:4em;text-align:right;">433.00</span><span>MHz</span><label style="padding-left:12px;padding-right:7px;">RSSI</label><span id="spanTestRSSI">----</span><span>dBm</span></div>';
@@ -2145,45 +2153,69 @@ class Somfy {
             div.innerHTML = html;
             document.getElementById('divRadioSettings').appendChild(div);
         }
-        if (initScan) {
+        if (initScan && div.getAttribute('data-initscan') !== 'true') {
             div.setAttribute('data-initscan', true);
-            sendOp('beginFrequencyScan', {}, (err) => {
-                if (err) ui.serviceError(err);
-                else {
-                    document.getElementById('btnStopScanning').style.display = '';
-                    document.getElementById('btnRestartScanning').style.display = 'none';
-                    document.getElementById('btnCopyFrequency').style.display = 'none';
-                    document.getElementById('btnCloseScanning').style.display = 'none';
+            div.setAttribute('data-scantoken', '');
+            document.getElementById('btnCopyFrequency').style.display = 'none';
+            sendOp('beginFrequencyScan', {}, (err, response) => {
+                if (document.getElementById('divScanFrequency') !== div) {
+                    if (!err && response && this.scanTokenValid(response.scanToken))
+                        sendOp('endFrequencyScan', { scanToken: response.scanToken }, () => {});
+                    return;
                 }
+                if (err || !response || !this.scanTokenValid(response.scanToken)) {
+                    div.setAttribute('data-initscan', false);
+                    document.getElementById('btnStopScanning').style.display = 'none';
+                    document.getElementById('btnRestartScanning').style.display = '';
+                    document.getElementById('btnCloseScanning').style.display = '';
+                    ui.serviceError(err || { desc: 'Scan identity unavailable; start is not confirmed.' });
+                    return;
+                }
+                div.setAttribute('data-scantoken', response.scanToken);
+                document.getElementById('btnStopScanning').style.display = '';
+                document.getElementById('btnRestartScanning').style.display = 'none';
+                document.getElementById('btnCopyFrequency').style.display = 'none';
+                document.getElementById('btnCloseScanning').style.display = 'none';
             });
         }
         return div;
     }
+    scanTokenValid(value) {
+        if (typeof value !== 'string') return false;
+        const parts = value.split('.');
+        return parts.length === 2 && parts.every(part => /^[1-9][0-9]{0,19}$/.test(part) &&
+            (part.length < 20 || part <= '18446744073709551615'));
+    }
     setScannedFrequency() {
-        let div = document.getElementById('divScanFrequency');
-        let freq = parseFloat(div.getAttribute('data-frequency'));
-        let slid = document.getElementById('slidFrequency');
-        slid.value = Math.round(freq * 1000);
-        somfy.frequencyChanged(slid);
-        div.remove();
+        const div = document.getElementById('divScanFrequency');
+        const token = div && div.getAttribute('data-scantoken');
+        if (!this.scanTokenValid(token)) return;
+        sendOp('getFrequencyScanResult', { scanToken: token }, (err, response) => {
+            if (document.getElementById('divScanFrequency') !== div || div.getAttribute('data-scantoken') !== token) return;
+            if (err) { ui.serviceError(err); return; }
+            const frequency = response && response.frequency;
+            if (!Number.isFinite(frequency) || frequency < 433 || frequency > 434) {
+                ui.serviceError({ desc: 'No current completed scan result.' }); return;
+            }
+            const slider = document.getElementById('slidFrequency');
+            slider.value = Math.round(frequency * 1000);
+            somfy.frequencyChanged(slider); // Draft only; saving remains explicit.
+            div.remove();
+        });
     }
     stopScanningFrequency(killScan) {
-        let div = document.getElementById('divScanFrequency');
-        if (div && killScan !== true) {
-            div.remove();
-        }
-        else {
-            sendOp('endFrequencyScan', {}, (err) => {
-                if (err) ui.serviceError(err);
-                else {
-                    let freq = parseFloat(div.getAttribute('data-frequency'));
-                    document.getElementById('btnStopScanning').style.display = 'none';
-                    document.getElementById('btnRestartScanning').style.display = '';
-                    if (typeof freq === 'number' && !isNaN(freq)) document.getElementById('btnCopyFrequency').style.display = '';
-                    document.getElementById('btnCloseScanning').style.display = '';
-                }
-            });
-        }
+        const div = document.getElementById('divScanFrequency');
+        if (!div) return;
+        if (killScan !== true) { div.remove(); return; }
+        const token = div.getAttribute('data-scantoken');
+        if (!this.scanTokenValid(token)) { ui.infoMessage('No owned scan identity; another session cannot be stopped.'); return; }
+        sendOp('endFrequencyScan', { scanToken: token }, err => {
+            if (document.getElementById('divScanFrequency') !== div || div.getAttribute('data-scantoken') !== token) return;
+            if (err) { ui.serviceError(err); return; }
+            document.getElementById('btnStopScanning').style.display = 'none';
+            document.getElementById('btnCopyFrequency').style.display = 'none';
+            // Matching final feed proves tuning/receive restoration completed.
+        });
     }
     btnDown = null;
     btnTimer = null;

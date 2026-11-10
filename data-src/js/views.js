@@ -27,7 +27,9 @@ class ProtoViews {
     }
     static scan(schema, d) {
         const s = schema.fill(Object.assign({}, d), ['scanning', 'testFreq', 'testRssi', 'frequency', 'rssi']);
-        return { scanning: s.scanning, testFreq: s.testFreq, testRSSI: s.testRssi, frequency: s.frequency, RSSI: s.rssi };
+        const view = { scanning: s.scanning, testFreq: s.testFreq, testRSSI: s.testRssi, frequency: s.frequency, RSSI: s.rssi };
+        if (typeof d.scanToken === 'string') view.scanToken = d.scanToken;
+        return view;
     }
     // The network section as the panel binds it: WiFi, Ethernet and the
     // address each in an object of their own, the connection as connType.
