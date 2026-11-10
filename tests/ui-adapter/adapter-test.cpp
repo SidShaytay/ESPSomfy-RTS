@@ -21,6 +21,9 @@ void LocalUi::lockAuthorization(){++security.generation;security.stopGrace=false
 static std::vector<shade_request_t> submitted;
 static unsigned refuseAt=0;
 struct RecordingRequests {
+  shade_request_result_t runOwnedRepeat(const shade_request_t &request,owned_repeat_receipt_t &receipt) {
+    const auto result=run(request);receipt.ticket=result==shade_request_result_t::done?123:0;return result;
+  }
   shade_request_result_t run(const shade_request_t &r){
     submitted.push_back(r);
     return refuseAt && submitted.size()==refuseAt?shade_request_result_t::radio_refused:shade_request_result_t::done;
