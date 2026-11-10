@@ -13,13 +13,15 @@ browser companion or separate LCD web-image upload.
 
 1. Unlock with the controller's configured PIN or password, if enabled.
 2. Choose **Check GitHub release**. Opening the screen starts no download.
-3. Choose **Review latest release** and read the full release version.
+3. In 4.7.3 and later, an eligible result opens its review automatically with **Cancel** selected. Read the full release version. Earlier builds require choosing **Review release** first.
 4. Turn from the default **Cancel** to **Install and restart**, then press.
 5. Keep power connected while the controller verifies and installs the update.
 
 Installation saves the current model and checks that movement and pending work
 have finished. If the release or controller state changes, it can refuse and
 require a new review. No failed operation retries automatically.
+
+In 4.7.3 and later, display inactivity dims the screen while keeping update progress or its result visible. It does not return to Home. An expired session shows a protected read-only result; wake the display, then press **Back: System** to leave. This does not extend authentication.
 
 During reversible work, **Cancel update** or the Back button cancels the
 operation. Controls resume after cleanup finishes. The Cancel action disappears
