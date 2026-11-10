@@ -846,7 +846,7 @@ static void group_programming_rechecks_context_motion_profile_owner_and_witness(
       case 7:somfy.transceiver.ready=false;break;case 8:somfy.transceiver.suspended=true;break;
       case 9:somfy.transceiver.blocked=selection.groupAddress;break;case 10:witness.state=LearnQueueReason::expired;break;
       case 11:TEST_ASSERT_TRUE(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,owner));break;
-      case 12:somfy.shades[0].bitLength=56;break;
+      case 12:somfy.shades[0].bitLength=selection.bits==80?56:80;break;
     }
     const auto result=source().sendGroupProgramming(target,context,auth,history,selection,false,witness);
     TEST_ASSERT_NOT_EQUAL(Admission::accepted,result.admission);TEST_ASSERT_EQUAL(0,programmingSends);TEST_ASSERT_EQUAL(0,applies);

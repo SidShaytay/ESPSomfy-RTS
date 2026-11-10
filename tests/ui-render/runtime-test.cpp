@@ -321,8 +321,6 @@ static LocalUi::Authorization authorization;
 static LocalUi::View lastQuery;
 static unsigned bands=0,presentations=0,locks=0;
 static bool busBusy=false,captureProtected=true;
-static LocalUi::Authorization authorization;
-static LocalUi::View lastQuery;
 #include "../ui-adapter/LoopHarness.h"
 #define ShadeRequests RecordingRequests
 #define snapshotModel adapterSnapshotModel
