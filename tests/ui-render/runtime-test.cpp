@@ -1138,7 +1138,7 @@ int main(int argc,char **argv){
   auto &update=Updates::previewBackend;openUpdates();assert(!update.checks && captureProtected);
   saveFrame(preview,"runtime-updates-home");click();idle();assert(update.checks==1 && !update.installs);
   saveFrame(preview,"runtime-updates-checking");update.value.busy=update.value.cancellable=false;update.value.phase=GitUpdatePhase::available;update.value.canInstall=true;
-  update.value.candidate.generation=600;strcpy(update.value.candidate.version,"v4294967295.4294967295.4294967295");idle();rotate(1);idle();click();idle();
+  update.value.candidate.generation=600;strcpy(update.value.candidate.version,"v4294967295.4294967295.4294967295");idle();
   auto updateReview=RuntimeTestAccess::system(settingsUi);assert(updateReview.mode==EntityAdmin::Mode::updateReview && updateReview.selected==0);
   assert(!strcmp(updateReview.rows[2].value,update.value.candidate.version));saveFrame(preview,"runtime-updates-confirm-wide");
   click();idle();assert(!update.installs);rotate(1);idle();click();idle();busBusy=true;rotate(1);click();assert(!update.installs);

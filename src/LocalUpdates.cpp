@@ -47,6 +47,7 @@ struct Form::Session {
   enum class Page:uint8_t {menu,confirm,progress,result}page=Page::menu;
   GitUpdateReason reason=GitUpdateReason::none;
   uint8_t cursor=1;
+  bool checking=false;
 };
 void Form::close(Notice reason){
   if(session){
@@ -74,31 +75,37 @@ void Form::touch(uint64_t now){session->activity=now;backend.activity();}
 void Form::tick(uint64_t now){
   if(!guard(now))return;
   auto &s=*session;const auto value=backend.status();
-  if(s.page==Session::Page::confirm && (s.candidate!=value.candidate.generation || !value.canInstall || value.busy)){
+  if(s.page==Session::Page::confirm && (s.candidate!=value.candidate.generation || !value.canInstall || value.busy || backend.boot().pending)){
     s.candidate=0;s.page=Session::Page::menu;s.cursor=1;notice=Notice::changed;
   }else if(s.page==Session::Page::progress){
     if(s.operation!=value.operation){s.operation=0;s.page=Session::Page::result;s.reason=GitUpdateReason::invalidCandidate;notice=Notice::changed;}
-    else if(!value.busy){s.operation=0;s.page=Session::Page::menu;s.cursor=1;s.reason=value.reason;}
+    else if(!value.busy){
+      const bool review=s.checking && value.phase==GitUpdatePhase::available && value.reason==GitUpdateReason::none &&
+        value.canInstall && value.candidate.generation>s.operation && value.candidate.generation!=s.candidate &&
+        value.candidate.version[0] && !backend.boot().pending;
+      s.operation=0;s.checking=false;s.page=review?Session::Page::confirm:Session::Page::menu;
+      s.cursor=review?0:1;s.candidate=review?value.candidate.generation:0;s.reason=value.reason;
+    }
   }
 }
 void Form::turn(int direction,uint64_t now){
   if(!direction || !guard(now))return;touch(now);auto &s=*session;
   if(s.page==Session::Page::confirm)s.cursor=direction>0?1:0;
   else if(s.page==Session::Page::menu){
-    const auto value=backend.status();s.cursor=direction>0 && value.canInstall && !value.busy && !backend.boot().pending?2:1;
+    const auto value=backend.status();s.cursor=direction>0 && value.candidate.version[0] && value.canInstall && !value.busy && !backend.boot().pending?2:1;
   }
 }
 void Form::activate(uint64_t now){
   if(!guard(now))return;touch(now);auto &s=*session;
   const auto value=backend.status();const auto boot=backend.boot();
   if(s.page==Session::Page::progress){
-    if(s.operation==value.operation && value.cancellable)backend.cancel(s.operation,s.auth.generation,s.auth.configurationGeneration);
+    if(s.operation==value.operation && value.cancellable){s.checking=false;backend.cancel(s.operation,s.auth.generation,s.auth.configurationGeneration);}
     return;
   }
   if(s.page==Session::Page::result)return;
   if(s.page==Session::Page::confirm && !s.cursor){s.page=Session::Page::menu;s.cursor=1;s.candidate=0;return;}
   if(s.page==Session::Page::menu && s.cursor==2){
-    if(!value.canInstall || value.busy || boot.pending)return;
+    if(!value.candidate.version[0] || !value.canInstall || value.busy || boot.pending)return;
     s.candidate=value.candidate.generation;s.page=Session::Page::confirm;s.cursor=0;notice=Notice::none;return;
   }
   GitUpdateRequest result;uint64_t operation=0;
@@ -109,7 +116,7 @@ void Form::activate(uint64_t now){
     if(!checkable(value,boot)){discard();return;}
     result=backend.check(s.auth.generation,s.auth.configurationGeneration,operation);
   }
-  if(result==GitUpdateRequest::accepted && operation){s.operation=operation;s.page=Session::Page::progress;s.cursor=0;notice=Notice::none;}
+  if(result==GitUpdateRequest::accepted && operation){s.checking=s.page!=Session::Page::confirm;if(s.checking)s.candidate=value.candidate.generation;s.operation=operation;s.page=Session::Page::progress;s.cursor=0;notice=Notice::none;}
   else{s.page=Session::Page::result;s.reason=result==GitUpdateRequest::invalidCandidate?GitUpdateReason::invalidCandidate:GitUpdateReason::admission;}
 }
 void Form::back(uint64_t now){
@@ -129,13 +136,15 @@ void Form::render(FormView &out)const{
     if(value.candidate.generation==s.candidate)snprintf(out.rows[2].value,sizeof(out.rows[2].value),"%s",value.candidate.version);
   }else if(s.page==Session::Page::progress){
     title=progress(value.phase);hint=value.phase==GitUpdatePhase::cleanupPending?"Controls stay paused until cleanup completes.":value.cancellable?"Keep power connected. Back cancels this update.":"Keep power connected. Back leaves this screen.";
-    out.rowCount=out.total=2;snprintf(out.rows[0].label,sizeof(out.rows[0].label),"Progress: %u%%",unsigned(value.progress));
+    out.rowCount=out.total=2;
+    if(s.checking)strcpy(out.rows[0].label,"Checking GitHub...");
+    else snprintf(out.rows[0].label,sizeof(out.rows[0].label),"Progress: %u%%",unsigned(value.progress));
     strcpy(out.rows[1].label,value.cancellable?"Cancel update":"Final checks; please wait");out.selected=1;
     if(value.phase==GitUpdatePhase::error){title="Update needs recovery";hint=message(value.reason);strcpy(out.rows[0].label,"Controls paused");strcpy(out.rows[1].label,"Back: System");}
   }else if(s.page==Session::Page::result){
     title="Update refused";hint=message(s.reason);out.rowCount=out.total=1;strcpy(out.rows[0].label,"Back: System");
   }else{
-    out.rowCount=out.total=3;out.selected=s.cursor;
+    out.rowCount=out.total=value.candidate.version[0]?3:2;out.selected=s.cursor;
     strcpy(out.rows[0].label,"Installed");snprintf(out.rows[0].value,sizeof(out.rows[0].value),"%s",value.installed);
     strcpy(out.rows[1].label,checkable(value,boot)?"Check GitHub release":"Back: System");
     strcpy(out.rows[2].label,value.canInstall?"Review release":"Latest release");
