@@ -33,6 +33,8 @@ inline RestartResult requestOwnedRestart(const GitUpdateOwnerToken &,uint32_t){a
 #endif
 #ifndef LOCAL_QUEUE_REAL_UPDATE_OWNER
 inline GitUpdateClass gitUpdate;
+inline bool GitUpdateClass::acquireExternal(GitUpdateExternalOwner,GitUpdateOwnerToken &){return false;}
+inline bool GitUpdateClass::ownsExternal(const GitUpdateOwnerToken &)const{return false;}
 inline bool GitUpdateClass::claimTransfer(const GitUpdateOwnerToken &,uint64_t,bool){return false;}
 inline bool GitUpdateClass::transferResource(const GitUpdateOwnerToken &,bool){assert(false);return false;}
 inline bool GitUpdateClass::transferContinuing(const GitUpdateOwnerToken &,uint64_t){assert(false);return false;}

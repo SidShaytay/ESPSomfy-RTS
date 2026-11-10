@@ -6,13 +6,14 @@
 #include "LocalControlPolicy.h"
 #include "LocalControlMenu.h"
 #include "LocalValueEditor.h"
+#include "LocalQuickAccessNvs.h"
 namespace LocalUi {
 constexpr uint8_t detailsRowCount=14, detailsVisibleRows=6;
 constexpr uint8_t homeRows=8, administrationHomeIndex=6, systemHomeIndex=7;
-enum class Screen : uint8_t { status, home, catalogue, roomKinds, control, actions, value, repeatActions, repeatValue, details, brightness, unlock, settings, administration, system, favouriteObserve, favouriteConfirm };
+enum class Screen : uint8_t { status, home, catalogue, roomKinds, control, actions, value, repeatActions, repeatValue, details, brightness, unlock, settings, administration, system, favouriteObserve, favouriteConfirm, quickHome, quickManage, quickActions, quickSave };
 using Action=ControlAction;
 enum class Notice : uint8_t { none, preview, queued, refused, idle, changed, wait, saved, saveFailed,
-  unlockRequired, unlockWrong, unlockWait, unlockUnavailable, unlocked, done, partial, busy, cancelled, valueUnavailable, expired, stopNotQueued, holdToSend };
+  unlockRequired, unlockWrong, unlockWait, unlockUnavailable, unlocked, done, partial, busy, cancelled, valueUnavailable, expired, stopNotQueued, holdToSend, quickSaved, quickSaveFailed, quickSaveUnknown, quickUnavailable };
 enum class DispatchResult : uint8_t { queued, done, partial, refused, stale, busy, denied, idle, cancelled, expired, cancelledBusy };
 struct Target {
   EntityRef ref;
@@ -27,6 +28,10 @@ struct Target {
 };
 struct Model {
   CataloguePage page;
+  QuickAccess quickAccess;
+  QuickAccessLoad quickStatus=QuickAccessLoad::unreadable;
+  uint64_t quickRevision=0;
+  bool quickReady=false;
   Target target;
   CatalogueKind catalogue=CatalogueKind::devices;
   uint8_t room=allRooms;
@@ -59,6 +64,9 @@ struct View {
   int16_t draftValue=0;
   uint8_t valueChoice=0, repeatStep=0;
   bool repeating=false, repeatHeld=false;
+  QuickAccess quickDraft;
+  bool quickEditing=false, quickPicking=false, quickOrigin=false;
+  uint8_t quickSlot=0;
   Notice notice=Notice::none;
   uint16_t credentialChoice=0;
   uint8_t credentialLength=0, credentialMaximum=0;
@@ -76,8 +84,17 @@ struct Command {
   int8_t repeat=-1;
   uint64_t favouriteRevision=0;
 };
+struct QuickPreferenceRequest {
+  QuickAccess value;
+  uint64_t modelRevision=0,restoreRevision=0,quickRevision=0;
+  uint32_t authGeneration=0,authConfigurationGeneration=0;
+};
 class Controller {
   View state;
+  QuickPreferenceRequest quickGuard;
+  bool quickEnabled=false,quickLanded=false,quickSavePending=false;
+  void discardQuick();
+  void bindEntry(const Model &,EntityRef,const CatalogueEntry &,bool shortcut);
   Command pending, repeatWitness;
   bool repeatPress=false, repeatArmed=false;
   uint32_t repeatObserved=0, repeatConfiguration=0;
@@ -113,6 +130,11 @@ public:
   // admitted queue work and discards its Form/presentation state on graphics loss.
   void discardTransient();
   const View &view() const { return state; }
+  bool takeQuickSave(QuickPreferenceRequest &out) {
+    if(!quickSavePending)return false;
+    out=quickGuard;out.value=state.quickDraft;quickSavePending=false;return true;
+  }
+  void quickSaveResult(uint32_t,QuickPreferenceSave);
   uint8_t brightness() const { return asleep?0:dimmed?(state.level<4?1:4):state.level; }
   bool take(Command &out);
   bool takeCancellation() {const bool value=cancelPending;cancelPending=false;return value;}

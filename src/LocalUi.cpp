@@ -29,7 +29,7 @@ void Controller::discardTransient() {
   editor.cancel();valueEditor.cancel();
   state=View{};pending=repeatWitness=Command{};formInput={};
   repeatPress=repeatArmed=false;repeatObserved=repeatConfiguration=0;
-  repeatModel=repeatRestore=0;
+  repeatModel=repeatRestore=0;quickGuard={};quickEnabled=quickLanded=quickSavePending=false;
   editorMode=AuthMode::none;afterUnlock=Screen::control;
   valueAuthorizationGeneration=valueConfigurationGeneration=0;
   brightnessConfigurationGeneration=editorActivity=editorConfigurationGeneration=0;
@@ -66,9 +66,14 @@ void Controller::goBack() {
   repeatArmed=false;state.repeatHeld=false;
   cancelPending=true;
   hasCommand=false; state.notice=Notice::none; state.action=Action::stop;
-  if(state.screen==Screen::unlock) { editor.cancel(); editorView(); state.screen=afterUnlock; }
+  if(state.screen==Screen::quickHome) {state.screen=Screen::status;}
+  else if(state.screen==Screen::quickActions || state.screen==Screen::quickSave) {state.screen=Screen::quickManage;state.selected=state.quickSlot;}
+  else if(state.screen==Screen::quickManage) {discardQuick();state.screen=Screen::quickHome;state.selected=4;}
+  else if(state.screen==Screen::catalogue && state.quickPicking) {state.quickPicking=false;state.screen=Screen::quickActions;state.selected=0;}
+  else if(state.screen==Screen::home && quickEnabled) {state.screen=Screen::quickHome;state.selected=3;}
+  else if(state.screen==Screen::unlock) { editor.cancel(); editorView(); state.screen=afterUnlock; }
   else if(state.screen==Screen::brightness) { setPreferences(brightnessBefore); savePending=false; state.screen=Screen::home; state.selected=4; }
-  else if(state.screen==Screen::control) { state.screen=Screen::catalogue; }
+  else if(state.screen==Screen::control) {state.screen=state.quickOrigin?Screen::quickHome:Screen::catalogue;if(state.quickOrigin)state.selected=state.quickSlot;}
   else if(state.screen==Screen::catalogue) {
     if(state.catalogue!=CatalogueKind::rooms && state.room!=allRooms) { state.screen=Screen::roomKinds; state.selected=0; }
     else { state.screen=Screen::home; state.selected=state.catalogue==CatalogueKind::rooms?0:state.catalogue==CatalogueKind::devices?1:2; }
@@ -119,10 +124,47 @@ void Controller::submitControl(uint32_t now,const Model &m,bool visible,Action a
 }
 void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
   switch(state.screen) {
+  case Screen::quickHome:
+    if(!visible){state.notice=Notice::wait;break;}
+    if(state.selected<3) {
+      const auto *binding=m.quickAccess.at(state.selected);
+      const auto &entry=m.page.rows[state.selected];
+      if(!binding || binding->empty() || !entry.revision || entry.id!=binding->ref.id || entry.identity!=binding->identity)
+        {state.notice=Notice::quickUnavailable;break;}
+      state.quickSlot=state.selected;bindEntry(m,binding->ref,entry,true);
+    } else if(state.selected==3){state.screen=Screen::home;state.selected=0;}
+    else if(!m.authorized)beginUnlock(now,m,Screen::quickHome);
+    else {
+      state.quickDraft=m.quickAccess;state.quickEditing=true;state.quickPicking=false;
+      quickGuard={m.quickAccess,m.modelRevision,m.restoreRevision,m.quickRevision,m.authGeneration,m.authConfigurationGeneration};
+      state.screen=Screen::quickManage;state.selected=0;
+    }
+    break;
+  case Screen::quickManage:
+    if(!visible){state.notice=Notice::wait;break;}
+    if(state.selected<3){state.quickSlot=state.selected;state.screen=Screen::quickActions;state.selected=0;}
+    else if(state.selected==3){state.screen=Screen::quickSave;state.valueChoice=0;}
+    else {discardQuick();state.screen=Screen::quickHome;state.selected=4;}
+    break;
+  case Screen::quickActions:
+    if(!visible){state.notice=Notice::wait;break;}
+    if(state.selected<2){state.quickPicking=true;openCatalogue(state.selected?CatalogueKind::groups:CatalogueKind::devices,allRooms);}
+    else {
+      if(state.selected==2)state.quickDraft.remove(state.quickSlot);
+      else if(state.selected==3 && state.quickSlot) {state.quickDraft.move(state.quickSlot,state.quickSlot-1);--state.quickSlot;}
+      else if(state.selected==4 && state.quickSlot<2) {state.quickDraft.move(state.quickSlot,state.quickSlot+1);++state.quickSlot;}
+      state.screen=Screen::quickManage;state.selected=state.quickSlot;
+    }
+    break;
+  case Screen::quickSave:
+    if(!visible)state.notice=Notice::wait;
+    else if(!state.valueChoice){state.screen=Screen::quickManage;state.selected=3;}
+    else {quickSavePending=true;state.notice=Notice::queued;}
+    break;
   case Screen::unlock:
     if(editor.press()==EditorResult::cancelled) state.screen=afterUnlock;
     editorView(); break;
-  case Screen::status: state.screen=Screen::home; state.selected=0; break;
+  case Screen::status: state.screen=quickEnabled?Screen::quickHome:Screen::home; state.selected=0; break;
   case Screen::details: state.screen=Screen::status; break;
   case Screen::home:
     if(state.selected<3) {
@@ -157,11 +199,12 @@ void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
       state.room=entry.id; memcpy(state.roomName,entry.name,sizeof(state.roomName));
       state.screen=Screen::roomKinds; state.selected=0;
     } else {
-      state.entity={state.catalogue==CatalogueKind::devices?EntityKind::device:EntityKind::group,entry.id};
-      chosenIdentity=entry.identity; chosenRevision=entry.revision;
-      chosenModelRevision=m.modelRevision; chosenRestoreRevision=m.restoreRevision;
-      state.openedToken=0; bindTarget=true; state.screen=Screen::control; state.action=Action::stop;
-      state.authorizedSelection=m.authorized; state.selectionAuthGeneration=m.authGeneration;
+      const EntityRef ref{state.catalogue==CatalogueKind::devices?EntityKind::device:EntityKind::group,entry.id};
+      if(state.quickPicking) {
+        const auto edited=state.quickDraft.assign(state.quickSlot,ref,entry.identity);
+        state.quickPicking=false;state.screen=Screen::quickManage;state.selected=state.quickSlot;
+        if(edited!=QuickAccessEdit::changed && edited!=QuickAccessEdit::unchanged)state.notice=Notice::refused;
+      } else bindEntry(m,ref,entry,false);
     }
     break;
   }
@@ -257,6 +300,22 @@ void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
   }
   if(state.notice!=Notice::none) noticeSince=now;
 }
+void Controller::discardQuick() {
+ state.quickDraft={};state.quickEditing=state.quickPicking=false;quickGuard={};quickSavePending=false;
+}
+void Controller::bindEntry(const Model &m,EntityRef ref,const CatalogueEntry &entry,bool shortcut) {
+ state.entity=ref;chosenIdentity=entry.identity;chosenRevision=entry.revision;
+ chosenModelRevision=m.modelRevision;chosenRestoreRevision=m.restoreRevision;
+ state.openedToken=0;bindTarget=true;state.screen=Screen::control;state.action=Action::stop;
+ state.authorizedSelection=m.authorized;state.selectionAuthGeneration=m.authGeneration;state.quickOrigin=shortcut;
+}
+void Controller::quickSaveResult(uint32_t now,QuickPreferenceSave result) {
+ state.notice=result==QuickPreferenceSave::saved?Notice::quickSaved:
+   result==QuickPreferenceSave::unknown?Notice::quickSaveUnknown:Notice::quickSaveFailed;
+ if(result==QuickPreferenceSave::saved){discardQuick();state.screen=Screen::quickHome;state.selected=0;}
+ else state.valueChoice=0;
+ noticeSince=now;
+}
 bool Controller::repeatCurrent(const Model &m) const {
   return m.ready && m.controlsEnabled && m.authorized && m.authGeneration==repeatWitness.authGeneration &&
     m.authConfigurationGeneration==repeatConfiguration && m.modelRevision==repeatModel &&
@@ -275,6 +334,19 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
     backRaw = backStable = backPressed;
     backConsumed = backPressed;
     backSince = now;
+  }
+  if(m.quickReady) {
+    quickEnabled=true;
+    if(!quickLanded) {
+      quickLanded=true;
+      if(state.screen==Screen::status && !m.anyMoving && !m.controlPending){state.screen=Screen::quickHome;state.selected=0;}
+    }
+  }
+  if(state.quickEditing && (!m.authorized || m.authGeneration!=quickGuard.authGeneration ||
+     m.authConfigurationGeneration!=quickGuard.authConfigurationGeneration ||
+     m.modelRevision!=quickGuard.modelRevision || m.restoreRevision!=quickGuard.restoreRevision || m.quickRevision!=quickGuard.quickRevision)) {
+    discardQuick();state.screen=Screen::quickHome;state.selected=4;
+    state.notice=m.authorized?Notice::changed:Notice::unlockRequired;noticeSince=now;consumed=true;
   }
   state.retryAfterMs=m.retryAfterMs;
   if(state.screen==Screen::catalogue && m.pageValid && m.catalogue==state.catalogue && m.room==state.room) {
@@ -417,8 +489,10 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
     if(stable) {
       pressedSince = now;
       held = false;
-      if(asleep || dimmed)
+      if(asleep || dimmed) {
         consumed = true;
+        if(quickEnabled && !m.anyMoving && !m.controlPending && state.screen==Screen::status){state.screen=Screen::quickHome;state.selected=0;}
+      }
       touch(now);
       authActivity = true;
       editorActivity = now;
@@ -455,8 +529,10 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
       consumed = true;
       return;
     }
-    if(waking)
+    if(waking) {
+      if(quickEnabled && !m.anyMoving && !m.controlPending && state.screen==Screen::status){state.screen=Screen::quickHome;state.selected=0;}
       return;
+    }
     state.notice = Notice::none;
     if(state.screen == Screen::unlock) {
       editor.turn(turn);
@@ -466,8 +542,12 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
       const int last = detailsRowCount - detailsVisibleRows;
       state.detailsOffset = offset < 0 ? 0 : offset > last ? last : offset;
     } else if(state.screen == Screen::status) {
-      state.screen = Screen::home;
+      state.screen = quickEnabled?Screen::quickHome:Screen::home;
       state.selected = 0;
+    } else if(state.screen==Screen::quickHome || state.screen==Screen::quickManage || state.screen==Screen::quickActions) {
+      const int last=state.screen==Screen::quickActions?5:4;
+      const int next=int(state.selected)+(turn>0?1:-1);state.selected=next<0?0:next>last?last:next;
+    } else if(state.screen==Screen::quickSave) {state.valueChoice=turn>0?1:0;
     } else if(state.screen==Screen::home || state.screen==Screen::roomKinds) {
       const int last=state.screen==Screen::home?homeRows-1:1;
       int next=int(state.selected)+(turn>0?1:-1);
@@ -511,7 +591,7 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
   if(!moving && uint32_t(now - activity) >= (state.offSeconds ? uint32_t(state.offSeconds) * 1000 : 30000)) {
     if(state.screen == Screen::unlock) { editor.cancel(); editorView(); }
     if(state.screen == Screen::brightness) { setPreferences(brightnessBefore); savePending=false; }
-    cancelValue();
+    cancelValue();discardQuick();
     state.screen = Screen::status;
     state.action = Action::stop;
   }

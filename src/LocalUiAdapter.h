@@ -5,6 +5,8 @@
 namespace LocalUi {
 Model snapshotModel(bool running,const View &);
 CatalogueSource &runtimeCatalogue();
+void initializeQuickPreferences();
+QuickPreferenceSave saveQuickPreferences(const QuickPreferenceRequest &);
 // Called only after a complete control frame was presented. Context tokens are
 // loop-owned and monotonic; a list row cannot manufacture a presented RF target.
 void markControlPresented(EntityRef,uint64_t token,bool authorizedSelection,uint32_t sessionGeneration);
