@@ -5,7 +5,7 @@
 static uint64_t clockMs=0;
 static bool otaPending=true,routes=true,filesystem=true,allocator=true,graphics=true,paused=false,busy=false;
 static bool updaterBootloaderHealthy=true,updaterAssetsHealthy=true,confirmationFails=false;
-static unsigned confirmations=0,modelLoops=0,drains=0,changes=0,startupStep=0;
+static unsigned confirmations=0,modelLoops=0,drains=0,changes=0,startupStep=0,confirmationLogs=0;
 static constexpr unsigned long OTA_PROVEN_MS=60000;
 static constexpr int ESP_OK=0,MALLOC_CAP_INTERNAL=1,MALLOC_CAP_8BIT=2;
 static size_t freeBytes=32768;
@@ -43,7 +43,15 @@ struct {void loop(){}}webServer,protoSocket;
 static bool bundledWebRoutesReady(){return routes;}
 static int esp_ota_mark_app_valid_cancel_rollback(){++confirmations;return confirmationFails?-1:ESP_OK;}
 static bool gitUpdateMemoryBegin(){assert(startupStep++==0);return allocator;}
-struct {void begin(int){assert(startupStep++==1);}}Serial;
+struct {
+ void begin(int){assert(startupStep++==1);}
+ void println(const char *message) {
+  assert(std::strcmp(message,"OTA health confirmed=1")==0);
+  assert(!otaPending && !confirmationFails && confirmations);
+  assert(otaHealth.poll(true,clockMs)==GitUpdateBootHealth::Action::none);
+  ++confirmationLogs;
+ }
+}Serial;
 namespace BoardProfile {static void begin(){assert(startupStep++==2);}}
 namespace StatusPanel {static void begin(){assert(startupStep++==3);}}
 struct {void drain(){++drains;}}loopQueue;
@@ -57,6 +65,16 @@ struct {uint32_t lap(){return 0;}}timing;
 static void sampleUntil(uint64_t end){while(end-clockMs>500){clockMs+=500;health();}clockMs=end;health();}
 int main(int argc,char **argv){
   assert(argc==2);const std::string mode=argv[1];otaHealth.start(true,0);health();
+  if(mode=="confirmationLog") {
+    assert(!confirmations && !confirmationLogs); // no policy action
+    confirmationFails=true;sampleUntil(60000);
+    assert(otaPending && confirmations==1 && !confirmationLogs);
+    clockMs=60001;health();assert(confirmations==1 && !confirmationLogs);
+    clockMs=61000;confirmationFails=false;health();
+    assert(!otaPending && confirmations==2 && confirmationLogs==1);
+    sampleUntil(180000);assert(confirmations==2 && confirmationLogs==1);
+    return 0;
+  }
   if(mode=="longGap"){
     clockMs=60000;health();assert(otaPending && !confirmations);
     sampleUntil(119999);assert(!confirmations);sampleUntil(120000);assert(confirmations==1 && !otaPending);return 0;
@@ -77,7 +95,7 @@ int main(int argc,char **argv){
   }
   if(mode=="deadline"){
     clockMs=179000;graphics=false;health();graphics=true;health();clockMs=180000;health();
-    assert(otaPending && otaHealth.rollbackRequired() && !confirmations);clockMs=181000;health();assert(otaHealth.rollbackRequired());return 0;
+    assert(otaPending && otaHealth.rollbackRequired() && !confirmations && !confirmationLogs);clockMs=181000;health();assert(otaHealth.rollbackRequired());return 0;
   }
   if(mode=="retry"){
     confirmationFails=true;sampleUntil(60000);assert(otaPending && confirmations==1);
@@ -112,5 +130,5 @@ int main(int argc,char **argv){
     somfy.modelLoad.trusted=settings.trusted=durable=true;somfy.isDirty=false;
     clockMs=60000;health();assert(!confirmations);sampleUntil(119999);assert(!confirmations);clockMs=120000;
   }else{sampleUntil(59999);assert(!confirmations);clockMs=60000;}
-  health();assert(!otaPending && confirmations==1 && !otaHealth.rollbackRequired());
+  health();assert(!otaPending && confirmations==1 && !otaHealth.rollbackRequired() && confirmationLogs==1);
 }
