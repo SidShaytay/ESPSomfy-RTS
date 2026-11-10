@@ -38,6 +38,7 @@ static bool waitingRestart=false,detectedMovement=false,stopAvailable=false;
 namespace StatusPanel {static bool healthy(){return graphics;}static void loop(){if(detectedMovement)stopAvailable=!waitingRestart;}}
 static bool restartLoop(){if(detectedMovement)waitingRestart=false;return false;}
 static void loopGitUpdateController(){}
+namespace FrequencyScan {static void poll(){}}
 struct {void loop(){}}webServer,protoSocket;
 static bool bundledWebRoutesReady(){return routes;}
 static int esp_ota_mark_app_valid_cancel_rollback(){++confirmations;return confirmationFails?-1:ESP_OK;}

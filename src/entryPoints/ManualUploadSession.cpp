@@ -14,6 +14,11 @@
 #include <esp_timer.h>
 #include <new>
 #include <stdlib.h>
+#if defined(ESPSOMFY_BUNDLED_WEB)
+#include "GitUpdatePolicy.h"
+#include <esp_heap_caps.h>
+#include <string.h>
+#endif
 extern SomfyShadeController somfy;
 extern MqttConnection mqtt;
 extern Web webServer;
@@ -23,6 +28,51 @@ uint64_t now() { return uint64_t(esp_timer_get_time())/1000; }
 void close(ManualUploadState &state) {
   if(gitUpdate.closeTransfer(state.owner)) gitUpdate.releaseExternal(state.owner);
 }
+#if defined(ESPSOMFY_BUNDLED_WEB)
+// One resource beneath the existing manual owner. Every access requires its
+// lifecycle claim, which excludes receive, loop handoff and cleanup races.
+struct FirmwareStage {
+  GitUpdateOwnerToken owner;
+  uint8_t *bytes=nullptr;
+  size_t size=0;
+  uint64_t securityRevision=0,startedAt=0;
+} firmwareStage;
+bool stagedFor(const GitUpdateOwnerToken &owner) {
+  return owner.generation && firmwareStage.owner.generation==owner.generation && firmwareStage.owner.kind==owner.kind;
+}
+void freeFirmwareStage(const GitUpdateOwnerToken &owner) {
+  if(!stagedFor(owner))return;
+  heap_caps_free(firmwareStage.bytes);firmwareStage={};
+}
+void failFirmwareStage(ManualUploadState &state) {
+  state.failed=true;freeFirmwareStage(state.owner);
+  gitUpdate.transferResource(state.owner,false);close(state);
+}
+void receiveFirmwareStage(ManualUploadState &state,size_t index,uint8_t *data,size_t len,bool final) {
+  if(index==0) {
+    if(firmwareStage.bytes){state.failed=true;close(state);return;}
+    auto *bytes=static_cast<uint8_t*>(heap_caps_malloc(GitUpdatePolicy::APP_BYTES,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT));
+    if(!bytes){state.failed=true;close(state);return;}
+    firmwareStage={state.owner,bytes,0,state.securityRevision,now()};
+    state.started=true;gitUpdate.transferResource(state.owner,true);
+  }
+  const auto clock=now();
+  if(!stagedFor(state.owner) || clock<firmwareStage.startedAt || clock-firmwareStage.startedAt>=180000 ||
+     len>GitUpdatePolicy::APP_BYTES-state.received || (len&&!data) ||
+     !state.securityRevision || securityConfigurationRevision()!=state.securityRevision ||
+     !gitUpdate.transferContinuing(state.owner,clock)) {
+    failFirmwareStage(state);return;
+  }
+  if(len)memcpy(firmwareStage.bytes+index,data,len);
+  firmwareStage.size=state.received+=len;
+  if(final) {
+    state.finalReceived=true;
+    if(state.received<1024){failFirmwareStage(state);return;}
+    state.uploaded=true;
+  }
+  gitUpdate.finishTransfer(state.owner,now(),len!=0||final);
+}
+#endif
 bool queueModel(ManualUploadState &state,bool restart) {
   if(state.kind!=ManualUpdateKind::application || !state.started || state.modelAttempted) return false;
   state.modelAttempted=true;
@@ -56,11 +106,15 @@ ManualUploadState *begin(AsyncWebServerRequest *request,ManualUpdateKind kind) {
   auto *state=new(memory) ManualUploadState{};
   state->kind=kind;request->_tempObject=state;
   request->setAttribute("manualState",true);
-  if(kind==ManualUpdateKind::restore){
+  if(kind==ManualUpdateKind::restore
+#if defined(ESPSOMFY_BUNDLED_WEB)
+      || kind==ManualUpdateKind::firmware
+#endif
+    ){
     const auto revision=securityConfigurationRevision();
     // Bind this grant across a fresh check, including same-value replacements.
     // No request IP/token is fabricated or kept in the queued source.
-    if(!restoreExecutionReady() || !revision || !webServer.isAuthenticated(request) ||
+    if((kind==ManualUpdateKind::restore && !restoreExecutionReady()) || !revision || !webServer.isAuthenticated(request) ||
        securityConfigurationRevision()!=revision){state->failed=true;return state;}
     state->securityRevision=revision;
   }
@@ -81,12 +135,21 @@ ManualUploadState *manualUploadState(AsyncWebServerRequest *request) {
 }
 void receiveManualImage(AsyncWebServerRequest *request,ManualUpdateKind kind,size_t index,
                         uint8_t *data,size_t len,bool final) {
+#if defined(ESPSOMFY_BUNDLED_WEB)
+  if(kind==ManualUpdateKind::firmware && index==0 && request->getAttribute("manualAttempted",false)) {
+    if(auto *existing=manualUploadState(request)){existing->failed=true;gitUpdate.retireTransfer(existing->owner);}
+    return; // A second multipart file must not silently install the first.
+  }
+#endif
   auto *state=index==0 ? begin(request,kind) : manualUploadState(request);
   if(!state || state->failed || state->finalReceived || state->kind!=kind) return;
   if(index!=state->received || len>SIZE_MAX-state->received) {
     state->failed=true;gitUpdate.retireTransfer(state->owner);return;
   }
   if(!gitUpdate.claimTransfer(state->owner,now())) { state->failed=true;return; }
+#if defined(ESPSOMFY_BUNDLED_WEB)
+  if(kind==ManualUpdateKind::firmware){receiveFirmwareStage(*state,index,data,len,final);return;}
+#endif
   if(index==0) {
     if(!Update.begin(UPDATE_SIZE_UNKNOWN,kind==ManualUpdateKind::application ? U_SPIFFS : U_FLASH)) {
       // A failed begin never acquired the SDK object. Do not inspect/abort a
@@ -130,6 +193,40 @@ void receiveManualImage(AsyncWebServerRequest *request,ManualUpdateKind kind,siz
   }
   gitUpdate.finishTransfer(state->owner,now(),len!=0 || final);
 }
+#if defined(ESPSOMFY_BUNDLED_WEB)
+bool queueManualFirmware(AsyncWebServerRequest *request) {
+  auto *state=manualUploadState(request);
+  if(!state || state->kind!=ManualUpdateKind::firmware || !state->uploaded || state->failed ||
+     state->modelAttempted || !gitUpdate.claimTransfer(state->owner,now()))return false;
+  state->modelAttempted=true;
+  if(!stagedFor(state->owner) || !state->securityRevision ||
+     securityConfigurationRevision()!=state->securityRevision || !webServer.isAuthenticated(request) ||
+     securityConfigurationRevision()!=state->securityRevision || !gitUpdate.transferContinuing(state->owner,now()) ||
+     !gitUpdate.queueTransfer(state->owner) || !gitUpdate.reserveManualInstall(state->owner,state->operation)) {
+    failFirmwareStage(*state);return false;
+  }
+  gitUpdate.finishTransfer(state->owner,now(),true);
+  loop_item_t item;item.type=loop_item_type_t::firmware_install;item.externalOwner=state->owner;
+  state->modelQueued=queueLoopItem(request,item);
+  if(!state->modelQueued) {
+    request->setAttribute("firmwareQueueRefused",true); // queueLoopItem already answered.
+    if(gitUpdate.claimTransfer(state->owner,now(),true))failFirmwareStage(*state);
+  }
+  return state->modelQueued;
+}
+void runManualFirmware(const GitUpdateOwnerToken &owner) {
+  if(!gitUpdate.claimTransfer(owner,now(),true))return;
+  if(stagedFor(owner)) {
+    uint64_t operation=0;
+    if(gitUpdate.requestManualInstall(owner,firmwareStage.bytes,firmwareStage.size,firmwareStage.securityRevision,operation)==GitUpdateRequest::accepted) {
+      firmwareStage={};return; // Installer owns buffer and the retained claim.
+    }
+    freeFirmwareStage(owner);
+  }
+  gitUpdate.transferResource(owner,false);
+  if(gitUpdate.closeTransfer(owner))gitUpdate.releaseExternal(owner);
+}
+#endif
 bool claimManualRestore(AsyncWebServerRequest *request) {
   const auto *state=manualUploadState(request);
   if(!state || state->kind!=ManualUpdateKind::restore || !state->uploaded ||
@@ -209,13 +306,19 @@ void manualUploadLoop() {
   if(cleanup.resourceOpen) {
     if(cleanup.kind==ManualUpdateKind::restore) LittleFS.remove("/shades.tmp");
     else {
-      Update.abort();
-      if(Update.isRunning()) {gitUpdate.finishTransfer(cleanup.token,now(),false);return;}
-      gitUpdate.transferResource(cleanup.token,false);
-      if(cleanup.kind==ManualUpdateKind::application) {
-        ManualUploadState recovery;recovery.owner=cleanup.token;
-        recovery.kind=ManualUpdateKind::application;recovery.started=true;
-        if(queueModel(recovery,false)) return;
+#if defined(ESPSOMFY_BUNDLED_WEB)
+      if(cleanup.kind==ManualUpdateKind::firmware)freeFirmwareStage(cleanup.token);
+      else
+#endif
+      {
+        Update.abort();
+        if(Update.isRunning()) {gitUpdate.finishTransfer(cleanup.token,now(),false);return;}
+        gitUpdate.transferResource(cleanup.token,false);
+        if(cleanup.kind==ManualUpdateKind::application) {
+          ManualUploadState recovery;recovery.owner=cleanup.token;
+          recovery.kind=ManualUpdateKind::application;recovery.started=true;
+          if(queueModel(recovery,false)) return;
+        }
       }
     }
     gitUpdate.transferResource(cleanup.token,false);

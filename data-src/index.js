@@ -4400,6 +4400,69 @@ class Firmware {
         document.getElementById('divContainer').appendChild(div);
         if(this.isMobile()) document.getElementById('btnBackupCfg').style.display = 'inline-block';
     }
+    watchFirmware(el, identity) {
+        const instructions = el.querySelector('div[id="divInstText"]');
+        const report = text => { if (instructions) instructions.textContent = text; };
+        const operation = identity && identity.operationGeneration;
+        if (typeof operation !== 'string' || !/^[1-9][0-9]{0,19}$/.test(operation) ||
+            (operation.length === 20 && operation > '18446744073709551615')) {
+            report('Firmware completion is not confirmed. Reconnect and review the device; do not resubmit automatically.');
+            return;
+        }
+        let stopped = false, timer, request, attempts = 0;
+        const stop = () => { stopped = true; clearTimeout(timer); };
+        const unavailable = () => {
+            if (stopped) return;
+            stop(); report('Firmware completion is not confirmed. Reconnect and review the version and boot health; do not resubmit automatically.');
+        };
+        const close = el.querySelector('button[id="btnClose"]');
+        if (close) close.addEventListener('click', () => {
+            stop();
+            if (request) request.abort(); // End observation; never cancel or replay installation.
+        });
+        const poll = () => {
+            if (stopped) return;
+            if (attempts++ >= 360) { unavailable(); return; }
+            request = new XMLHttpRequest();
+            request.open('GET', `${baseUrl}/firmwareStatus?operationGeneration=${operation}`, true);
+            request.timeout = 5000;
+            request.setRequestHeader('apikey', security.apiKey);
+            request.onerror = request.ontimeout = unavailable;
+            request.onload = () => {
+                if (stopped) return;
+                if (request.status === 401) { stop(); security.tokenRefused(); return; }
+                let status;
+                try { status = JSON.parse(request.responseText); } catch (e) { unavailable(); return; }
+                if (request.status !== 200 || status.operationGeneration !== operation || status.source !== 'manual-file') {
+                    unavailable(); return;
+                }
+                if (['error', 'cancelled', 'cleanupPending'].includes(status.state)) {
+                    stop();
+                    const reason = typeof status.error === 'string' && status.error ? status.error : 'Firmware operation did not complete.';
+                    report(`${reason} ${status.busy ? 'Controls may remain paused; review the device.' : 'No automatic retry was requested.'}`);
+                    return;
+                }
+                switch (status.state) {
+                    case 'queued': report('Firmware file received; waiting for verification and admission.'); break;
+                    case 'verifying': report('Verifying the complete firmware file before writing.'); break;
+                    case 'writing':
+                        if (!Number.isInteger(status.progress) || status.progress < 0 || status.progress > 100) { unavailable(); return; }
+                        report(`Writing verified firmware to the inactive slot: ${status.progress}%.`); break;
+                    case 'written':
+                        if (status.restartScheduled === true) {
+                            stop(); report('Firmware written; restart scheduled subject to final safety checks. Reconnect and verify the version and boot health.'); return;
+                        }
+                        report('Firmware written; waiting for final save and restart checks.'); break;
+                    default: unavailable(); return;
+                }
+                if (status.busy !== true) { unavailable(); return; }
+                timer = setTimeout(poll, 500);
+            };
+            request.send();
+        };
+        report('Firmware file received; installation is not yet confirmed.');
+        poll();
+    }
     watchRestore(el, identity) {
         const instructions = el.querySelector('div[id="divInstText"]');
         const report = text => { if (instructions) instructions.textContent = text; };
@@ -4585,6 +4648,13 @@ class Firmware {
                 return;
             }
             switch (service) {
+                case '/updateFirmware':
+                    if (isBundledWeb()) {
+                        let operation;
+                        try { operation = JSON.parse(xhr.responseText); } catch (e) { }
+                        firmware.watchFirmware(el, operation);
+                    }
+                    break;
                 case '/restore':
                     let identity;
                     try { identity = JSON.parse(xhr.responseText); } catch (e) { }
