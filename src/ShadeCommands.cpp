@@ -16,4 +16,9 @@ bool SomfyShade::sendTiltCommand(somfy_commands cmd) { if(!somfy.modelLoad.usabl
 bool SomfyShade::moveToTarget(float pos, float tilt) { if(!somfy.modelLoad.usable())return false; if(!counterCommandAllowed(this->getRemoteAddress(),somfy_commands::UpDown))return false; if(!this->canGpioSeek(tilt>=0 || this->tiltType==tilt_types::tiltonly))return false; return this->behaviour.moveToTarget(pos, tilt, millis()); }
 bool SomfyShade::moveToTiltTarget(float target) { if(!somfy.modelLoad.usable())return false; if(!counterCommandAllowed(this->getRemoteAddress(),somfy_commands::UpDown))return false; if(!this->canGpioSeek(true))return false; return this->behaviour.moveToTiltTarget(target, millis()); }
 bool SomfyShade::setMyPosition(int8_t pos, int8_t tilt) { if(!somfy.modelLoad.usable())return false; if(!counterCommandAllowed(this->getRemoteAddress(),somfy_commands::UpDown))return false; if(!this->canGpioSeek(this->tiltType!=tilt_types::none))return false; return this->behaviour.setMyPosition(pos, tilt, millis()); }
+bool SomfyShade::programMyPositionHere(bool clear) {
+  if(!somfy.modelLoad.usable() || !counterCommandAllowed(this->getRemoteAddress(),somfy_commands::My) ||
+     !this->canGpioCommand(somfy_commands::My) || !this->canGpioSeek(this->tiltType!=tilt_types::none)) return false;
+  return this->behaviour.programMyPositionHere(clear,millis());
+}
 bool SomfyShade::moveToMyPosition() { if(!somfy.modelLoad.usable())return false; if(!counterCommandAllowed(this->getRemoteAddress(),somfy_commands::My))return false; if(!this->canGpioCommand(somfy_commands::My) || ((this->simMy || this->proto==radio_proto::GP_Relay) && !this->canGpioSeek(this->tiltType!=tilt_types::none)))return false; return this->behaviour.moveToMyPosition(millis()); }

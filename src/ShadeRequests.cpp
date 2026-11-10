@@ -85,6 +85,10 @@ shade_request_result_t ShadeRequests::run(const shade_request_t &req) {
       if(!inRange(pos)) pos = displayPosition(shade.myPos >= 0.0f ? shade.myPos : shade.currentPos, flip);
       return sent(this->ops.setMyPosition(req.id, storedPosition(pos, flip), storedPosition(tilt, flip)));
     }
+    case shade_request_type_t::set_favorite_here:
+    case shade_request_type_t::clear_favorite_here:
+      if(!shade.idle) return shade_request_result_t::shade_moving;
+      return sent(this->ops.programMyPositionHere(req.id, req.type == shade_request_type_t::clear_favorite_here));
     case shade_request_type_t::unpair: {
       // A 56-bit motor needs a longer Prog press than an 80-bit one.
       const bool taken = this->ops.sendCommand(req.id, somfy_commands::Prog, shade.bitLength == 56 ? 7 : 1, 0);

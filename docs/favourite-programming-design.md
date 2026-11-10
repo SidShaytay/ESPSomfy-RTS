@@ -26,6 +26,12 @@ explicit stages. Existing browser callers retain that behavior.
   favourite; persistence is requested only after the whole programming frame
   completes. Accepted transmission is not proof the motor learned it.
 
+Separate internal `set_favorite_here` and `clear_favorite_here` requests route
+through `ShadeRequests` and the production `SomfyShadeOps` adapter. They cannot
+consume a position/target field or invoke the old automatic operation. The
+production wrapper retains model, counter and GPIO admission checks. No new
+browser/MQTT protocol operation is exposed by this backend increment.
+
 ## Remaining LCD work
 
 The authenticated device workflow must offer separate movement controls with
