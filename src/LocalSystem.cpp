@@ -3,12 +3,13 @@
 #include <string.h>
 namespace LocalUi { namespace System {
 namespace {
-constexpr const char *files[]={"Backup","Restore","Manual firmware","Refresh browser cache"};
+constexpr const char *files[]={"Backup","Restore","Manual firmware","Refresh browser cache","Copy receive log"};
 constexpr const char *guidance[]={
   "Browser: System > Firmware > Backup. Keep the file private.",
   "Browser: System > Firmware > Restore. Review sections first.",
   "Browser: System > Firmware > Update Firmware. Web UI included.",
-  "Browser: System > Firmware > Refresh Cache. No device reset."};
+  "Browser: System > Firmware > Refresh Cache. No device reset.",
+  "Browser: Radio > Log. Use Copy; keep frame data private."};
 const char *refusal(RestartReason value) {
   switch(value) {
   case RestartReason::none:return "Pending final safety checks; restart can still be refused.";
@@ -70,7 +71,7 @@ void Form::tick(uint64_t now) {
 void Form::turn(int direction,uint64_t now) {
   if(!direction || !guard(now))return;
   touch(now);
-  const uint8_t last=page==Page::menu?3:page==Page::confirm?1:page==Page::files?3:0;
+  const uint8_t last=page==Page::menu?4:page==Page::network?networkDetailRows-1:page==Page::confirm?1:page==Page::files?4:0;
   if(direction>0 && cursor<last)++cursor;
   if(direction<0 && cursor)--cursor;
 }
@@ -78,7 +79,7 @@ void Form::activate(uint64_t now) {
   if(!guard(now))return;
   touch(now);
   switch(page) {
-  case Page::menu:page=cursor==3?Page::diagnostics:cursor==2?Page::wifi:cursor?Page::files:Page::confirm;cursor=0;break;
+  case Page::menu:page=cursor==4?Page::network:cursor==3?Page::diagnostics:cursor==2?Page::wifi:cursor?Page::files:Page::confirm;cursor=0;break;
   case Page::confirm:
     if(!cursor){page=Page::menu;break;}
     {const auto result=backend.restart(generation,configurationGeneration);admitted=result.admitted;reason=result.reason;
@@ -92,6 +93,7 @@ void Form::activate(uint64_t now) {
       }
       page=Page::result;cursor=0;}
     break;
+  case Page::network:if(cursor==networkDetailRows-1){page=Page::menu;cursor=4;}break;
   case Page::files:file=cursor;page=Page::guidance;cursor=0;break;
   case Page::guidance:page=Page::files;cursor=file;break;
   case Page::result:break; // A completion is never a second restart/retry action.
@@ -104,6 +106,7 @@ void Form::back(uint64_t now) {
   touch(now);
   if(page==Page::menu)discard();
   else if(page==Page::guidance){page=Page::files;cursor=file;}
+  else if(page==Page::network){page=Page::menu;cursor=4;}
   else {page=Page::menu;cursor=0;}
 }
 void Form::render(EntityAdmin::FormView &out) const {
@@ -112,12 +115,18 @@ void Form::render(EntityAdmin::FormView &out) const {
   out.mode=EntityAdmin::Mode::fields;
   const char *title="System",*hint="Press: choose   Back: Home";
   if(page==Page::menu) {
-    const char *labels[]={"Restart","Browser files & Web","WiFi scan","Receive diagnostics"};
-    out.total=4;out.offset=cursor/3*3;
+    const char *labels[]={"Restart","Browser files & Web","WiFi scan","Receive diagnostics","Network details"};
+    out.total=5;out.offset=cursor/3*3;
     for(uint8_t i=out.offset;i<out.total && out.rowCount<3;++i)strcpy(out.rows[out.rowCount++].label,labels[i]);
+  } else if(page==Page::network){
+    title="Network details";out.mode=EntityAdmin::Mode::stackedRows;out.total=networkDetailRows;out.offset=cursor/3*3;
+    hint="Read only; current connection, no probe or reconnect.";
+    for(uint8_t i=out.offset;i<out.total&&out.rowCount<3;++i){auto &row=out.rows[out.rowCount++];
+      if(!backend.networkRow(i,row)){strcpy(row.label,"Network status unavailable");row.value[0]=0;}
+    }
   } else if(page==Page::files) {
-    title="Browser files";out.total=4;out.offset=cursor/3*3;
-    for(uint8_t i=out.offset;i<4 && out.rowCount<3;++i)strcpy(out.rows[out.rowCount++].label,files[i]);
+    title="Browser files";out.total=5;out.offset=cursor/3*3;
+    for(uint8_t i=out.offset;i<5 && out.rowCount<3;++i)strcpy(out.rows[out.rowCount++].label,files[i]);
   } else {
     out.mode=EntityAdmin::Mode::validation;
     if(page==Page::confirm) {

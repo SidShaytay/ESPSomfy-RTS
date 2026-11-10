@@ -18,6 +18,10 @@
 #include "CounterRuntime.h"
 #include "ModelCommitService.h"
 namespace LocalUi {
+bool readLocalNetworkRow(uint8_t index,EntityAdmin::FormRow &out){out={};if(index>=networkDetailRows)return false;
+  const char *labels[]={"Connection","WiFi SSID","WiFi channel","WiFi signal","IP address","Ethernet link","Ethernet speed","Ethernet duplex","Back"};
+  snprintf(out.label,sizeof(out.label),"%s",labels[index]);snprintf(out.value,sizeof(out.value),"%s",index==1?"Test network":index==3?"-55 dBm":index==8?"":"Available");return true;
+}
 struct RuntimeTestAccess {
   static uint16_t *losePixels(Runtime &ui) {auto *pixels=ui.memory.pixels;ui.memory.pixels=nullptr;return pixels;}
   static void restorePixels(Runtime &ui,uint16_t *pixels) {ui.memory.pixels=pixels;}
@@ -809,7 +813,7 @@ int main(int argc,char **argv){
   advancedGroup.linkedShades[0]=4;advancedGroup.linkedShades[31]=88;strcpy(advancedGroup.name,"Office group");
   somfy.repeaters[6]=3567;somfy.transceiver.quiescent=true;++somfy.configurationRevision;
   snapshotFakeOrderFile();assert(!filePairedMarker);const auto rfBeforeAdvanced=submitted.size();
-  auto openAdvanced=[&](unsigned type) {
+  auto openAdvanced=[&](unsigned type,bool memberLinks=true) {
     openAdministration(type);
     const auto entries=RuntimeTestAccess::administration(settingsUi);
     const unsigned advance=(entries.total-1+entries.total-entries.selected)%entries.total;
@@ -820,6 +824,7 @@ int main(int argc,char **argv){
     if(strcmp(openedAdvanced.title,type==1?"Advanced devices":"Advanced groups"))fprintf(stderr,"Advanced navigation: type=%u title=%s selected=%u total=%u id=%u\n",type,openedAdvanced.title,openedAdvanced.selected,openedAdvanced.total,openedAdvanced.id);
     assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,type==1?"Advanced devices":"Advanced groups"));
     click();idle();assert(RuntimeTestAccess::administration(settingsUi).id==4 && Settings::runtimeMemory().used()>0);
+    if(type==2&&memberLinks){click();idle();} // Explicit Member links from the group menu.
   };
   const auto metadataBefore=entityEdits,metadataCommitsBefore=entityCommits;
   openAdvanced(1);assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].label,"Paired marker"));
@@ -1001,6 +1006,30 @@ int main(int argc,char **argv){
   // Fixture reset only: unknown NVS is never cleared by this production flow.
   somfy.transceiver.quarantine=CounterQuarantine::none;somfy.transceiver.blockedIdentity=0;primaryInjected=CounterDomainState::saved;
   somfy.transceiver.ready=true;
+  // Read-only live status uses the existing protected administration frame.
+  somfy.transceiver.quarantine=CounterQuarantine::none;somfy.transceiver.blockedIdentity=0;
+  advancedShade.flipPosition=false;advancedShade.tiltType=tilt_types::integrated;advancedShade.sunSensor=true;advancedShade.statusFlags=0x21;
+  advancedShade.value.currentPos=35.5f;advancedShade.value.target=80;advancedShade.value.myPos=20;advancedShade.value.myTiltPos=25;
+  ++somfy.configurationRevision;const auto statusEdits=entityEdits;const auto statusRequests=submitted.size();
+  openAdvanced(1);rotate(-1);idle();click();idle();
+  assert(RuntimeTestAccess::administration(settingsUi).total==entityStatusRows&&captureProtected);saveFrame(preview,"runtime-status-identity");
+  for(unsigned i=0;i<4;++i){rotate(1);idle();}
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[1].value,"35.5%"));saveFrame(preview,"runtime-status-positions");
+  busBusy=true;click();assert(entityEdits==statusEdits&&submitted.size()==statusRequests);busBusy=false;idle();
+  for(unsigned i=0;i<4;++i){rotate(1);idle();}saveFrame(preview,"runtime-status-favourite");
+  for(unsigned i=0;i<4;++i){rotate(1);idle();}saveFrame(preview,"runtime-status-weather");
+  back();idle();back();idle();closeAdministration();assert(entityEdits==statusEdits&&submitted.size()==statusRequests);
+  openAdvanced(2,false);rotate(1);idle();click();idle();for(unsigned i=0;i<4;++i){rotate(1);idle();}
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[1].value,"Varies by member"));saveFrame(preview,"runtime-status-group");
+  back();idle();back();idle();closeAdministration();
+  click();idle();for(unsigned i=0;i<homeRows;++i){rotate(-1);idle();}for(unsigned i=0;i<systemHomeIndex;++i){rotate(1);idle();}click();idle();
+  for(unsigned i=0;i<4;++i){rotate(1);idle();}click();idle();assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"Network details")&&captureProtected);
+  assert(!strcmp(RuntimeTestAccess::system(settingsUi).rows[1].value,"Test network"));saveFrame(preview,"runtime-status-network");
+  back();idle();for(unsigned i=0;i<3;++i){rotate(-1);idle();}click();idle();for(unsigned i=0;i<4;++i){rotate(1);idle();}click();idle();
+  assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"Copy receive log"));saveFrame(preview,"runtime-status-copy-guidance");
+  for(unsigned i=0;i<6&&RuntimeTestAccess::view(settingsUi).screen!=Screen::home;++i){back();idle();}
+  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::home);back();idle();
+  assert(!RuntimeTestAccess::systemContains(settingsUi,"Test network")&&entityEdits==statusEdits&&submitted.size()==statusRequests);
   free(allocated);allocated=nullptr;hasPsram=false;
   Runtime missing;missing.begin();assert(missing.failure()==GraphicsFailure::missing && !missing.tick(testNow,status,false,send,light));
   hasPsram=true;allocateOK=false;Runtime failed;failed.begin();assert(failed.failure()==GraphicsFailure::allocation && !failed.tick(testNow,status,false,send,light));

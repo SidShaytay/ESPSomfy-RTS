@@ -3,6 +3,13 @@
 Open **Home → System**. Secured controllers require the configured web credential.
 The menu and its transitions are protected from screenshot capture.
 
+**Network details** shows the current connection, connected WiFi SSID, channel,
+signal strength and IP address. Builds with Ethernet also show its selected link,
+speed and duplex. Unavailable readings are labelled explicitly. Turn to scroll,
+and use Back to return. Opening this screen does not scan, probe or reconnect.
+SSID and IP details stay inside the protected System screen and are discarded
+when its session closes.
+
 **Restart** opens a confirmation with Cancel selected. Turn to Restart now and
 press only after that choice has reached the display. Restart interrupts service.
 The shared restart service checks storage, current model persistence, movement,
@@ -19,6 +26,11 @@ reports its completion. Backups contain sensitive configuration and counters;
 keep them private. Shared LILYGO firmware contains its web interface. Follow the
 [state-preserving flashing procedure](flashing.md) for recovery; restoring an old
 backup is not a routine firmware-update step.
+
+**Copy receive log**, inside Browser files & Web, directs you to the browser's
+**Radio → Log → Copy** action. The LCD does not create a clipboard or transfer
+session. Frame data can identify devices and contains radio counters; keep it
+private.
 
 The form allocates no draft memory. Its state is capped at 80 bytes and it borrows
 the Runtime's existing administration presentation buffers because the two

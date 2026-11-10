@@ -52,7 +52,9 @@ struct Form::Session final : LearnPending {
     learnFault,
     learnResult,
     primaryCounter,
-    membership
+    membership,
+    groupMenu,
+    details
   };
   Context context;
   OrderIds ids{}, slots{};
@@ -211,7 +213,7 @@ bool Form::select() {
       return false;
     s.page = Session::Page::menu;
   } else if(s.target.scope==Scope::groups) {
-    if(!openMembership(false))return false;
+    s.page=Session::Page::groupMenu;
   } else
     s.page = Session::Page::list;
   s.cursor = 0;
@@ -231,8 +233,10 @@ void Form::turn(int direction, uint64_t now) {
     s.primary.turn(direction,now);return;
   case Session::Page::membership:
     s.membership.turn(direction);return;
+  case Session::Page::groupMenu:count=2;break;
+  case Session::Page::details:count=entityStatusRows;break;
   case Session::Page::menu:
-    count = 4;
+    count = 5;
     break;
   case Session::Page::learnList:
     count = s.learned.candidates.count();
@@ -633,7 +637,13 @@ void Form::activate(uint64_t now) {
     primaryEffect(s.primary.activate(now),now);return;
   case Session::Page::membership:
     membershipEffect(s.membership.activate(),now);return;
+  case Session::Page::groupMenu:
+    if(!s.cursor){if(!openMembership(false))close(Notice::changed);}
+    else{s.page=Session::Page::details;s.cursor=0;}return;
+  case Session::Page::details:
+    if(s.cursor==entityStatusRows-1){s.page=s.target.scope==Scope::groups?Session::Page::groupMenu:Session::Page::menu;s.cursor=s.target.scope==Scope::groups?1:4;}return;
   case Session::Page::menu:
+    if(s.cursor==4){endLearning();s.page=Session::Page::details;s.cursor=0;return;}
     if(s.cursor==3) {
       PrimaryCounterReview reviewed;
       const auto result=backend.readPrimary(s.target,s.context,s.auth,s.revision,reviewed);
@@ -795,6 +805,7 @@ void Form::back(uint64_t now) {
   auto &s = *session;
   if(s.membershipMode){membershipEffect(s.membership.back(),now);return;}
   if(s.page==Session::Page::primaryCounter){primaryEffect(s.primary.back(now),now);return;}
+  if(s.page==Session::Page::details){s.page=s.target.scope==Scope::groups?Session::Page::groupMenu:Session::Page::menu;s.cursor=s.target.scope==Scope::groups?1:4;return;}
   if (s.page == Session::Page::learnPending ||
       s.page == Session::Page::learnResult) {
     close(Notice::none);
@@ -871,6 +882,19 @@ void Form::render(FormView &out) {
     return;
   }
   if(s.page==Session::Page::primaryCounter){s.primary.render(out,s.target.id);return;}
+  if(s.page==Session::Page::groupMenu){
+    out.total=out.rowCount=2;strcpy(out.rows[0].label,"Member links");strcpy(out.rows[1].label,"Status details");
+    strcpy(out.hint,"Read status or edit controller list.");for(uint8_t i=0;i<2;++i)out.rows[i].selected=i==s.cursor;return;
+  }
+  if(s.page==Session::Page::details){
+    out.mode=Mode::stackedRows;out.total=entityStatusRows;out.offset=s.cursor/3*3;
+    strcpy(out.hint,"Read only; positions and movement are estimates.");
+    for(uint8_t i=out.offset;i<out.total&&out.rowCount<3;++i){auto &row=out.rows[out.rowCount++];
+      if(!backend.statusRow(s.target,i,row)){strcpy(row.label,"Status unavailable");row.value[0]=0;}
+      row.selected=i==s.cursor;
+    }return;
+  }
+
   strcpy(out.hint, "Press: choose   Back: cancel");
   if (s.page == Session::Page::learnStart ||
       s.page == Session::Page::learnReview ||
@@ -1024,10 +1048,11 @@ void Form::render(FormView &out) {
     strcpy(out.rows[1].label, "Close");
     strcpy(out.hint, "Applied already. Retry saves the model file only.");
   } else if (s.page == Session::Page::menu) {
-    out.total=4;out.offset=s.cursor/3*3;
-    for(uint8_t i=out.offset;i<4 && out.rowCount<3;++i) {
+    out.total=5;out.offset=s.cursor/3*3;
+    for(uint8_t i=out.offset;i<5 && out.rowCount<3;++i) {
       auto &row=out.rows[out.rowCount++];
-      if(i==0){strcpy(row.label,"Paired marker");strcpy(row.value,s.paired?"Paired":"Unpaired");}
+      if(i==4)strcpy(row.label,"Status details");
+      else if(i==0){strcpy(row.label,"Paired marker");strcpy(row.value,s.paired?"Paired":"Unpaired");}
       else strcpy(row.label,i==1?"Linked remotes":i==2?"Learn received remote":"Primary rolling code");
     }
   } else {

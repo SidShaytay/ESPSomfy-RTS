@@ -48,6 +48,7 @@ struct Model : Advanced::Backend {
   unsigned corrections=0;
   unsigned membershipEdits=0;
   bool membershipStale=false;
+  bool statusRow(Target,uint8_t index,FormRow &out)override{EntityStatus state;state.lift=42;return entityStatusRow(state,index,out);}
   bool membershipRows(Target,bool adding,MembershipRows &out) override {
     out={};out.groupSlot=2;memset(out.devices,255,sizeof(out.devices));
     if(adding){out.count=1;out.ids[0]=9;out.slots[0]=255;out.devices[0]=30;}
@@ -402,6 +403,7 @@ static void confirmation_names_exact_association_and_configuration_effect() {
       form.turn(1, 12);
       form.activate(13);
     }
+    if(scope==Scope::groups)form.activate(13); // Explicit Member links submenu.
     form.activate(14);
     FormView view;
     form.render(view);
@@ -726,7 +728,7 @@ static void sensor_zero_and_observed_format_are_honest_without_fake_rssi() {
 static void openPrimary(Advanced::Form &form) {
   TEST_ASSERT_TRUE(form.open(Scope::devices,1));form.activate(2);
   for(unsigned i=0;i<3;i++)form.turn(1,3+i);
-  FormView view;form.render(view);TEST_ASSERT_EQUAL(4,view.total);TEST_ASSERT_EQUAL(3,view.offset);TEST_ASSERT_EQUAL_STRING("Primary rolling code",view.rows[0].label);
+  FormView view;form.render(view);TEST_ASSERT_EQUAL(5,view.total);TEST_ASSERT_EQUAL(3,view.offset);TEST_ASSERT_EQUAL_STRING("Primary rolling code",view.rows[0].label);
   form.activate(6);form.render(view);TEST_ASSERT_EQUAL(Mode::counterReview,view.mode);TEST_ASSERT_EQUAL(0,view.selected);
 }
 static void editPrimary(Advanced::Form &form,bool change=true) {
@@ -783,7 +785,7 @@ static void primary_editor_expiry_and_old_ticket_cannot_execute_reopened_session
 static void group_membership_parent_reviews_then_queues_and_only_retries_file() {
   Model model;model.file=ModelCommitState::failed;
   JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);FormView view;
-  TEST_ASSERT_TRUE(form.open(Scope::groups,0));form.activate(1);form.render(view);
+  TEST_ASSERT_TRUE(form.open(Scope::groups,0));form.activate(1);form.activate(1);form.render(view);
   TEST_ASSERT_EQUAL_UINT8(33,view.total); // All 32 physical slots plus Add.
   form.activate(2);form.render(view);TEST_ASSERT_EQUAL(Mode::membershipReview,view.mode);
   TEST_ASSERT_EQUAL_UINT8(0,view.selected);TEST_ASSERT_NOT_NULL(strstr(view.hint,"still respond"));
@@ -797,7 +799,7 @@ static void group_membership_parent_reviews_then_queues_and_only_retries_file() 
 }
 static void group_membership_parent_revalidates_candidate_at_fifo_execution() {
   Model model;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);
-  TEST_ASSERT_TRUE(form.open(Scope::groups,0));form.activate(1);form.activate(2);form.turn(1,3);form.activate(4);
+  TEST_ASSERT_TRUE(form.open(Scope::groups,0));form.activate(1);form.activate(1);form.activate(2);form.turn(1,3);form.activate(4);
   const auto token=model.learnedToken;TEST_ASSERT_NOT_EQUAL(0,token);model.membershipStale=true;
   model.learnedQueue.run(token,40);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(0,model.membershipEdits);
   TEST_ASSERT_EQUAL(0,memory.used());
@@ -805,7 +807,7 @@ static void group_membership_parent_revalidates_candidate_at_fifo_execution() {
 static void membership_pending_cancel_expiry_and_lock_wipe_without_edits() {
   for(unsigned cause=0;cause<4;++cause){
     Model model;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);
-    TEST_ASSERT_TRUE(form.open(Scope::groups,0));form.activate(1);form.activate(2);form.turn(1,3);form.activate(4);
+    TEST_ASSERT_TRUE(form.open(Scope::groups,0));form.activate(1);form.activate(1);form.activate(2);form.turn(1,3);form.activate(4);
     const auto token=model.learnedToken;TEST_ASSERT_NOT_EQUAL(0,token);
     if(cause==0)form.back(5);
     if(cause==1)form.tick(120005);
@@ -815,8 +817,18 @@ static void membership_pending_cancel_expiry_and_lock_wipe_without_edits() {
     TEST_ASSERT_EQUAL(0,model.membershipEdits);TEST_ASSERT_EQUAL(0,memory.used());
   }
 }
+static void readonly_status_pages_refresh_without_commands_or_saves_and_revoke(){
+  Model model;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);FormView view;
+  TEST_ASSERT_TRUE(form.open(Scope::devices,0));form.activate(1);for(unsigned i=0;i<4;++i)form.turn(1,2+i);form.activate(6);
+  form.render(view);TEST_ASSERT_TRUE(view.protectedFrame);TEST_ASSERT_EQUAL(entityStatusRows,view.total);
+  for(unsigned i=0;i<4;++i)form.turn(1,7+i);form.render(view);TEST_ASSERT_EQUAL_STRING("42.0%",view.rows[1].value);
+  form.activate(11);TEST_ASSERT_EQUAL(0,model.saves);TEST_ASSERT_EQUAL(0,model.links);TEST_ASSERT_EQUAL(0,model.counterWrites);
+  form.back(12);form.render(view);TEST_ASSERT_EQUAL(4,view.selected);form.activate(13);++model.auth.generation;form.tick(14);
+  TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(0,memory.used());
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(readonly_status_pages_refresh_without_commands_or_saves_and_revoke);
   RUN_TEST(membership_pending_cancel_expiry_and_lock_wipe_without_edits);
   RUN_TEST(group_membership_parent_reviews_then_queues_and_only_retries_file);
   RUN_TEST(group_membership_parent_revalidates_candidate_at_fifo_execution);
