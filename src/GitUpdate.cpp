@@ -95,6 +95,21 @@ bool GitUpdateClass::releaseExternal(const GitUpdateOwnerToken &token) {
 bool GitUpdateClass::beginTransfer(const GitUpdateOwnerToken &token,ManualUpdateKind kind,uint64_t now) {
   Guard guard;return owns(token) && manualTransfer.begin(token,kind,now);
 }
+bool GitUpdateClass::prepareApplication(const GitUpdateOwnerToken &token,const ManualApplicationSource &source,uint64_t now) {
+  Guard guard;return owns(token) && manualTransfer.prepareApplication(token,source,now);
+}
+bool GitUpdateClass::claimApplicationPreparation(const GitUpdateOwnerToken &token,const ManualApplicationSource &source,uint64_t now) {
+  Guard guard;return owns(token) && manualTransfer.claimPreparation(token,source,now);
+}
+bool GitUpdateClass::applicationPrepared(const GitUpdateOwnerToken &token) {
+  Guard guard;return owns(token) && manualTransfer.applicationPrepared(token);
+}
+bool GitUpdateClass::claimPreparedApplication(const GitUpdateOwnerToken &token,const ManualApplicationSource &source,uint64_t now) {
+  Guard guard;return owns(token) && manualTransfer.claimPreparedApplication(token,source,now);
+}
+bool GitUpdateClass::cancelApplicationPreparation(const GitUpdateOwnerToken &token,const ManualApplicationSource &source) {
+  Guard guard;return owns(token) && manualTransfer.cancelPreparation(token,source);
+}
 bool GitUpdateClass::claimTransfer(const GitUpdateOwnerToken &token,uint64_t now,bool queuedRestore) {
   Guard guard;return owns(token) && manualTransfer.claim(token,now,queuedRestore);
 }
@@ -106,6 +121,9 @@ bool GitUpdateClass::transferContinuing(const GitUpdateOwnerToken &token,uint64_
 }
 bool GitUpdateClass::transferResource(const GitUpdateOwnerToken &token,bool opened) {
   Guard guard;return owns(token) && manualTransfer.resource(token,opened);
+}
+bool GitUpdateClass::transferFilesystem(const GitUpdateOwnerToken &token,bool unavailable) {
+  Guard guard;return owns(token) && manualTransfer.filesystem(token,unavailable);
 }
 bool GitUpdateClass::queueTransfer(const GitUpdateOwnerToken &token) {
   Guard guard;return owns(token) && manualTransfer.queue(token);

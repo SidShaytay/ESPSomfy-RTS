@@ -38,6 +38,7 @@ const char *gitUpdateReason(GitUpdateReason reason);
 const char *gitUpdatePhase(GitUpdatePhase phase);
 enum class ManualUpdateKind : uint8_t;
 struct ManualUpdateCleanup;
+struct ManualApplicationSource;
 class GitUpdateClass {
 public:
   // loop() alone invokes admission. The worker never owns model/settings data.
@@ -54,10 +55,16 @@ public:
   // Short lifecycle claims beneath the same external owner. Callers perform
   // SDK/file I/O after these methods release the service lock.
   bool beginTransfer(const GitUpdateOwnerToken &,ManualUpdateKind,uint64_t now);
+  bool prepareApplication(const GitUpdateOwnerToken &,const ManualApplicationSource &,uint64_t now);
+  bool claimApplicationPreparation(const GitUpdateOwnerToken &,const ManualApplicationSource &,uint64_t now);
+  bool applicationPrepared(const GitUpdateOwnerToken &);
+  bool claimPreparedApplication(const GitUpdateOwnerToken &,const ManualApplicationSource &,uint64_t now);
+  bool cancelApplicationPreparation(const GitUpdateOwnerToken &,const ManualApplicationSource &);
   bool claimTransfer(const GitUpdateOwnerToken &,uint64_t now,bool queuedRestore=false);
   bool transferContinuing(const GitUpdateOwnerToken &) const;
   bool transferContinuing(const GitUpdateOwnerToken &,uint64_t now);
   bool transferResource(const GitUpdateOwnerToken &,bool opened);
+  bool transferFilesystem(const GitUpdateOwnerToken &,bool unavailable);
   bool queueTransfer(const GitUpdateOwnerToken &);
   bool holdTransferRestart(const GitUpdateOwnerToken &);
   bool holdTransferRecovery(const GitUpdateOwnerToken &,uint64_t now);
