@@ -33,8 +33,21 @@ The implementation must use the existing manual owner and lifecycle throughout:
    restart checks. Failed mount/save remains visibly refused or recovery-pending;
    never automatically format, erase state, restore stale counters or replay RF.
 
-Remaining implementation investigation: track asynchronous static/backup readers
-and the model-save entry points; establish pinned driver behavior for open files;
+Reader tracking is now implemented for generic static assets through a read-only
+FS view. Its shared FileImpl lease survives request/response aliases and releases
+only after underlying close. Concurrent close waits for active reads; closed
+aliases cannot issue later filesystem I/O. Actual pinned Arduino File/FS tests
+cover aliases, destruction, missing files, write denial and concurrent closure.
+The two native gate tests cover sealing, draining and cancelled preparation.
+The gate uses ordinary project-style atomic operations in task context; the
+pinned ESP32 toolchain does not promise lock-free atomics. No service lock is
+held across file I/O.
+
+The upload receiver does not seal this gate yet. The raw mounted-write bug is
+still open until the prepare/unmount/recovery flow below is wired and tested.
+Backup responses are RAM-backed, not persistent file handles.
+
+Remaining implementation investigation: guard model-save entry points and
 choose the smallest bounded browser admission handshake that preserves the SAME
 manual owner and does not create a second upload broker. Tests must inject reader
 races, failed unmount/remount, short writes, expiry, old callbacks and failed

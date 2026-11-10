@@ -1,4 +1,5 @@
 #include <LittleFS.h>
+#include "GatedReadOnlyFilesystem.h"
 #if defined(ESPSOMFY_BUNDLED_WEB)
 #include "BundledWebRoutes.h"
 #endif
@@ -91,7 +92,8 @@ void registerHttpRoutes(AsyncWebServer &server) {
 #if defined(ESPSOMFY_BUNDLED_WEB)
   if(!registerBundledWebRoutes(server))ESP_LOGE(TAG,"Bundled web handler registration failed");
 #else
-  server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html")
+  static GatedReadOnlyFilesystem assets(LittleFS,mountedFilesystemGate());
+  server.serveStatic("/", assets, "/").setDefaultFile("index.html")
     .setFilter([](AsyncWebServerRequest *r) { return isWebAsset(r->url().c_str()); });
 #endif
 
