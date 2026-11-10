@@ -492,10 +492,152 @@ static void restart_work_includes_waiting_taken_and_unobserved_outcomes() {
   scheduler.reopenAfterRefusedRestart();
   TEST_ASSERT_NOT_EQUAL(0,submit(scheduler,REMOTE_B));
 }
+static void test_release_after_admission_drops_only_owned_queued_ticket() {
+  RadioScheduler s;
+  const auto owned=submit(s,REMOTE_A);
+  const auto other=submit(s,REMOTE_B);
+  TEST_ASSERT_TRUE(s.cancel(owned,1));
+  TEST_ASSERT_EQUAL_UINT32_MESSAGE(other,runNext(s,2),
+    "release must remove the admitted repeat ticket without dropping unrelated work");
+  assertEvent(s,tx_event_t::dropped,owned);
+  assertEvent(s,tx_event_t::started,other);
+  assertEvent(s,tx_event_t::finished,other);
+  assertNoEvents(s);
+}
+static void test_release_after_take_prevents_start_without_flushing_other_job() {
+  RadioScheduler s;
+  const auto owned=submit(s,REMOTE_A);
+  const auto other=submit(s,REMOTE_B);
+  somfy_tx_job_t job;uint32_t wait=0;
+  TEST_ASSERT_TRUE(s.next(0,job,wait));
+  TEST_ASSERT_EQUAL_UINT32(owned,job.ticket);
+  TEST_ASSERT_TRUE(s.cancel(owned,1));
+  TEST_ASSERT_FALSE_MESSAGE(s.start(owned,2),
+    "release between take and start must prevent the owned repeat from going on air");
+  assertEvent(s,tx_event_t::dropped,owned);
+  TEST_ASSERT_EQUAL_UINT32(other,runNext(s,3));
+  assertEvent(s,tx_event_t::started,other);
+  assertEvent(s,tx_event_t::finished,other);
+  assertNoEvents(s);
+}
+static void test_release_on_air_stops_next_repeat_preserving_ticket_outcomes() {
+  RadioScheduler s;
+  auto repeat=makeJob(REMOTE_A);repeat.repeats=127;
+  const auto owned=s.submit(repeat,false,0,0);
+  const auto other=submit(s,REMOTE_B);
+  somfy_tx_job_t job;uint32_t wait=0;
+  TEST_ASSERT_TRUE(s.next(0,job,wait));
+  TEST_ASSERT_TRUE(s.start(owned,0));
+  // Transceiver::transmitJob checks this predicate after the initial complete
+  // frame and before each repeat. Release must not inject a MY/STOP command.
+  TEST_ASSERT_TRUE(s.keepSending(owned));
+  TEST_ASSERT_TRUE(s.cancel(owned,1));
+  TEST_ASSERT_FALSE_MESSAGE(s.keepSending(owned),
+    "release must stop FUTURE repeats after admission at the next frame boundary");
+  s.ended(owned,false,2);
+  TEST_ASSERT_FALSE(s.cancel(owned,3)); // stale cancellation cannot affect another job
+  TEST_ASSERT_EQUAL_UINT32(other,runNext(s,4));
+  assertEvent(s,tx_event_t::started,owned);
+  assertEvent(s,tx_event_t::aborted,owned);
+  assertEvent(s,tx_event_t::started,other);
+  assertEvent(s,tx_event_t::finished,other);
+  assertNoEvents(s);
+}
+
+static void test_cancel_unknown_and_repeated_tickets_preserves_outcomes() {
+  RadioScheduler s;
+  const auto owned=submit(s,REMOTE_A);
+  TEST_ASSERT_FALSE(s.cancel(0,1));
+  TEST_ASSERT_FALSE(s.cancel(owned+1,1));
+  TEST_ASSERT_TRUE(s.cancel(owned,2));
+  TEST_ASSERT_FALSE(s.cancel(owned,3));
+  assertEvent(s,tx_event_t::dropped,owned);
+  assertNoEvents(s);
+  TEST_ASSERT_FALSE(s.hasWork());
+}
+static void test_cancel_taken_twice_then_flush_reports_one_drop() {
+  RadioScheduler s;
+  const auto owned=submit(s,REMOTE_A);
+  somfy_tx_job_t job;uint32_t wait=0;
+  TEST_ASSERT_TRUE(s.next(0,job,wait));
+  TEST_ASSERT_TRUE(s.cancel(owned,1));
+  TEST_ASSERT_TRUE(s.cancel(owned,2));
+  s.flush(3);
+  TEST_ASSERT_FALSE(s.start(owned,4));
+  TEST_ASSERT_FALSE(s.start(owned,5));
+  TEST_ASSERT_FALSE(s.cancel(owned,6));
+  assertEvent(s,tx_event_t::dropped,owned);
+  assertNoEvents(s);
+}
+static void test_cancel_after_final_frame_preserves_finished_outcome() {
+  RadioScheduler s;
+  const auto owned=submit(s,REMOTE_A);
+  somfy_tx_job_t job;uint32_t wait=0;
+  TEST_ASSERT_TRUE(s.next(0,job,wait));
+  TEST_ASSERT_TRUE(s.start(owned,0));
+  // The radio already sent its last frame when cancellation won the lock.
+  TEST_ASSERT_TRUE(s.cancel(owned,1));
+  s.ended(owned,true,2);
+  TEST_ASSERT_FALSE(s.cancel(owned,3));
+  assertEvent(s,tx_event_t::started,owned);
+  assertEvent(s,tx_event_t::finished,owned);
+  assertNoEvents(s);
+}
+static void test_cancel_same_remote_head_preserves_priority_code_order() {
+  RadioScheduler s;
+  const auto owned=submit(s,REMOTE_A,0,false,5000);
+  const auto older=submit(s,REMOTE_A);
+  const auto stop=submit(s,REMOTE_A,1,true);
+  TEST_ASSERT_TRUE(s.cancel(owned,2));
+  assertEvent(s,tx_event_t::dropped,owned);
+  TEST_ASSERT_EQUAL_UINT32(older,runNext(s,3));
+  TEST_ASSERT_EQUAL_UINT32(stop,runNext(s,4));
+  assertEvent(s,tx_event_t::started,older);
+  assertEvent(s,tx_event_t::finished,older);
+  assertEvent(s,tx_event_t::started,stop);
+  assertEvent(s,tx_event_t::finished,stop);
+  assertNoEvents(s);
+}
+static void test_cancel_keeps_unobserved_outcomes_in_restart_accounting() {
+  RadioScheduler s;
+  const auto owned=submit(s,REMOTE_A);
+  TEST_ASSERT_TRUE(s.cancel(owned,1));
+  TEST_ASSERT_TRUE(s.hasWork());
+  TEST_ASSERT_FALSE(s.sealForRestart());
+  assertEvent(s,tx_event_t::dropped,owned);
+  TEST_ASSERT_TRUE(s.sealForRestart());
+  TEST_ASSERT_FALSE(s.cancel(owned,2));
+  TEST_ASSERT_TRUE(s.sealedForRestart());
+}
+static void test_cancel_at_outcome_capacity_loses_no_job_results() {
+  RadioScheduler s;
+  uint32_t tickets[TX_JOB_QUEUE_SIZE * 3];uint8_t n=0;
+  for(;;) {
+    const auto ticket=submit(s,REMOTE_A,0,true);
+    if(!ticket) break;
+    TEST_ASSERT_LESS_THAN_UINT32(sizeof(tickets)/sizeof(tickets[0]),n);
+    tickets[n++]=ticket;
+    TEST_ASSERT_TRUE(s.cancel(ticket,1));
+  }
+  TEST_ASSERT_GREATER_THAN_UINT8(TX_JOB_QUEUE_SIZE,n);
+  for(uint8_t i=0;i<n;i++) assertEvent(s,tx_event_t::dropped,tickets[i]);
+  assertNoEvents(s);
+  TEST_ASSERT_TRUE(s.hasRoom());
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_cancel_unknown_and_repeated_tickets_preserves_outcomes);
+  RUN_TEST(test_cancel_taken_twice_then_flush_reports_one_drop);
+  RUN_TEST(test_cancel_after_final_frame_preserves_finished_outcome);
+  RUN_TEST(test_cancel_same_remote_head_preserves_priority_code_order);
+  RUN_TEST(test_cancel_keeps_unobserved_outcomes_in_restart_accounting);
+  RUN_TEST(test_cancel_at_outcome_capacity_loses_no_job_results);
+  RUN_TEST(test_release_after_admission_drops_only_owned_queued_ticket);
+  RUN_TEST(test_release_after_take_prevents_start_without_flushing_other_job);
+  RUN_TEST(test_release_on_air_stops_next_repeat_preserving_ticket_outcomes);
   RUN_TEST(restart_work_includes_waiting_taken_and_unobserved_outcomes);
   RUN_TEST(test_jobs_go_out_in_the_order_they_came);
   RUN_TEST(test_tickets_are_distinct_and_set_in_the_job);

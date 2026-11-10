@@ -122,6 +122,9 @@ class Transceiver {
     // Hands a job to the radio task, see RadioScheduler::submit().  Returns its
     // ticket, 0 when the radio can't take it.  Safe from any task.
     uint32_t submitTx(somfy_tx_job_t &job, bool priority = false, uint16_t delayMs = 0);
+    // Cancels only an owned ticket, without sending STOP or waiting for the
+    // radio lock. A frame already committed to air finishes normally.
+    bool cancelTx(uint32_t ticket);
     void suspendTx(uint8_t reason);
     void resumeTx(uint8_t reason);
     bool txSuspended();

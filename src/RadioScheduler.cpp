@@ -120,6 +120,21 @@ void RadioScheduler::ended(uint32_t ticket, bool complete, uint32_t now) {
   this->lastEnded = now;
   this->endedOnce = true;
 }
+bool RadioScheduler::cancel(uint32_t ticket, uint32_t now) {
+  if(ticket == 0) return false;
+  if(ticket == this->taken) {
+    // Reuse the same frame-boundary cancellation and outcome path as flush().
+    this->takenFlushed = true;
+    return true;
+  }
+  for(uint8_t i = 0; i < this->count; i++) {
+    if(this->jobs[i].ticket != ticket) continue;
+    this->post(tx_event_t::dropped, this->jobs[i], now);
+    this->remove(i);
+    return true;
+  }
+  return false;
+}
 void RadioScheduler::flush(uint32_t now) {
   // Every discarded job is reported as dropped.
   for(uint8_t i = 0; i < this->count; i++) this->post(tx_event_t::dropped, this->jobs[i], now);
