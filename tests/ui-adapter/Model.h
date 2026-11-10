@@ -15,9 +15,10 @@ struct SomfyShade : ShadeSettings,RemoteSettings {
   uint16_t lastRollingCode=1;
   uint64_t configurationRevision=1;
   struct Remote { uint16_t lastRollingCode=0;uint32_t address=0; uint32_t getRemoteAddress() const{return address;} } linkedRemotes[7];
-  struct State { float currentPos=35,currentTiltPos=20,myPos=-1,myTiltPos=-1; int8_t tiltDirection=0; } value;
+  struct State { float currentPos=35,currentTiltPos=20,target=50,tiltTarget=30,myPos=-1,myTiltPos=-1; int8_t direction=0,tiltDirection=0; } value;
   uint8_t getShadeId() const{return id;} uint32_t getRemoteAddress() const{return address;}
   const State &state() const{return value;} bool isIdle() const{return idle;} bool idleForAdministration() const{return idle && !gpioRelease;}
+  uint8_t getFlags()const{return statusFlags;}uint8_t statusFlags=0;
   bool isInGroup();
   bool isToggle(){return isToggleShade(shadeType);}
   somfy_commands transformCommand(somfy_commands cmd){return flipCommands?flipCommand(cmd):cmd;}
@@ -39,6 +40,7 @@ struct SomfyGroup : RemoteSettings {
   char name[21]="Group"; uint8_t linkedShades[32]={};
   radio_proto proto=radio_proto::RTS; uint32_t address=500;uint16_t lastRollingCode=0;
   uint64_t configurationRevision=1;
+  uint8_t statusFlags=0;uint8_t getFlags()const{return statusFlags;}
   uint8_t getGroupId() const{return id;} uint32_t getRemoteAddress() const{return address;}
   bool sendCommand(somfy_commands,uint8_t,uint8_t){return true;}
   bool isLastCommand(somfy_commands){return false;} bool repeatFrame(uint8_t){return true;}

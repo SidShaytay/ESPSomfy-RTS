@@ -10,6 +10,7 @@ public:
     auto current=pollAuthorization();current.allowed=current.allowed && !localControlsFrozen();return current;
   }
   void activity() override {authorizationActivity();}
+  bool networkRow(uint8_t index,EntityAdmin::FormRow &out)override{out={};return authorization().allowed&&readLocalNetworkRow(index,out);}
   RestartResult restart(uint32_t session,uint32_t configuration) override {
     const auto current=authorization();
     if(!current.allowed || !session || current.generation!=session ||

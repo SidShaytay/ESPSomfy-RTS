@@ -2,12 +2,14 @@
 #include "LocalSystem.h"
 #include "SafeRestart.h"
 #include <unity.h>
+#include <string.h>
 namespace LocalUi {
 static SecuritySnapshot current{AuthMode::none,true,false,1,1};
 static bool frozen=false;
 SecuritySnapshot pollAuthorization(){return current;}
 void authorizationActivity(){}
 bool localControlsFrozen(){return frozen;}
+bool readLocalNetworkRow(uint8_t,EntityAdmin::FormRow &out){out={};strcpy(out.label,"Connection");strcpy(out.value,"WiFi connected");return true;}
 }
 static unsigned requests=0;
 static RestartResult next{false,RestartReason::counterUncertain};

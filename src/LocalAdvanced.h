@@ -4,6 +4,7 @@
 #include "LocalLearnQueue.h"
 #include "LocalMembership.h"
 #include "LocalTargetRead.h"
+#include "LocalEntityStatus.h"
 namespace LocalUi {
 enum class PrimaryCounterEffect : uint8_t;
 namespace Advanced {
@@ -77,6 +78,7 @@ struct MembershipApplyResult {
 class Backend {
 public:
   virtual ~Backend() = default;
+  virtual bool statusRow(Target,uint8_t,EntityAdmin::FormRow &){return false;}
   virtual bool membershipRows(Target,bool candidates,MembershipRows &) = 0;
   virtual bool membershipLabel(Target,bool candidates,const MembershipRows &,uint8_t,
       EntityAdmin::Choice &,char (&detail)[48]) = 0;

@@ -38,6 +38,11 @@ struct Shade {
   uint32_t gpioRelease=0;uint8_t bitLength=56;radio_proto proto=radio_proto::RTS;int8_t sortOrder=0;char name[21]="Office";
   uint64_t configurationRevision = 1;
   bool paired = false, idle = true;
+  uint8_t roomId=0,flags=0;shade_types shadeType=shade_types::roller;tilt_types tiltType=tilt_types::none;
+  bool sunSensor=false,flipPosition=false;
+  struct State {float currentPos=35,currentTiltPos=20,target=50,tiltTarget=30,myPos=-1,myTiltPos=-1;int8_t direction=0,tiltDirection=0;}value;
+  const State &state()const{return value;}uint8_t getFlags()const{return flags;}
+
   Remote linkedRemotes[7];
   uint8_t getShadeId() { return id; }
   uint32_t getRemoteAddress() { return address; }
@@ -50,6 +55,7 @@ struct Group {
   uint32_t address = 200;
   uint8_t bitLength=56;radio_proto proto=radio_proto::RTS;char name[21]="Group";
   uint64_t configurationRevision = 1;
+  uint8_t roomId=0,flags=0;uint8_t getFlags()const{return flags;}
   uint8_t linkedShades[32]{};
   uint8_t getGroupId() { return id; }
   uint32_t getRemoteAddress() { return address; }
@@ -60,7 +66,10 @@ struct SomfyShadeController {
   Shade shades[32];
   Group groups[16];
   uint32_t repeaters[7]{};
+  struct Room {uint8_t roomId=0;char name[21]="Office";}room;
+  Room *getRoomById(uint8_t id){return id&&room.roomId==id?&room:nullptr;}
   struct {
+    bool available()const{return true;}
     uint64_t configurationRevision = 1;
     bool quiet = true;bool paused=false;struct{uint8_t type=56;}config;
     bool txSuspended(){return paused;}
@@ -661,8 +670,19 @@ static void membership_repairs_unknown_groups_but_preserves_unrelated_motion_and
     TEST_ASSERT_EQUAL(Admission::busy,result.result.admission);TEST_ASSERT_EQUAL(0,applies);TEST_ASSERT_EQUAL(history,source().revision());Context after;source().capture(target,after);TEST_ASSERT_TRUE(raw.same(after));
   }
 }
+static void status_rows_are_live_readonly_and_group_estimates_are_not_invented(){
+  FormRow row;auto &backend=source();somfy.shades[0].value.currentPos=36.5f;somfy.shades[0].flags=0x20;
+  TEST_ASSERT_TRUE(backend.statusRow({Scope::devices,7},4,row));TEST_ASSERT_EQUAL_STRING("36.5%",row.value);
+  somfy.shades[0].value.currentPos=42;backend.statusRow({Scope::devices,7},4,row);TEST_ASSERT_EQUAL_STRING("42.0%",row.value);
+  backend.statusRow({Scope::devices,7},12,row);TEST_ASSERT_EQUAL_STRING("Yes",row.value);
+  backend.statusRow({Scope::groups,9},4,row);TEST_ASSERT_EQUAL_STRING("Varies by member",row.value);
+  backend.statusRow({Scope::groups,9},14,row);TEST_ASSERT_EQUAL_STRING("1 present; 1 missing",row.value);
+  TEST_ASSERT_EQUAL(0,applies);TEST_ASSERT_EQUAL(0,linkWrites);LocalUi::security.allowed=false;
+  TEST_ASSERT_FALSE(backend.statusRow({Scope::devices,7},4,row));TEST_ASSERT_EQUAL_STRING("",row.value);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(status_rows_are_live_readonly_and_group_estimates_are_not_invented);
   RUN_TEST(membership_reads_all_slots_and_mixed_unpaired_candidates_without_rf_filter);
   RUN_TEST(membership_repairs_unknown_groups_but_preserves_unrelated_motion_and_stop_context);
   RUN_TEST(primary_counter_read_and_final_apply_share_fresh_context_without_nested_owner);

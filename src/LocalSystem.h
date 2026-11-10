@@ -2,10 +2,14 @@
 #include "LocalEntityView.h"
 #include "LocalUiAuthorizationAdapter.h"
 #include "RestartTypes.h"
-namespace LocalUi { namespace System {
+namespace LocalUi {
+bool readLocalNetworkRow(uint8_t,EntityAdmin::FormRow &);
+constexpr uint8_t networkDetailRows=9;
+namespace System {
 class Backend {
 public:
   virtual ~Backend()=default;
+  virtual bool networkRow(uint8_t,EntityAdmin::FormRow &){return false;}
   virtual SecuritySnapshot authorization()=0;
   virtual void activity()=0;
   virtual RestartResult restart(uint32_t session,uint32_t configuration)=0;
@@ -15,7 +19,7 @@ public:
 // frame; this state owns neither another frame nor any dynamic allocation.
 class Form {
   Backend &backend;
-  enum class Page : uint8_t { closed, menu, confirm, files, guidance, result, wifi, diagnostics } page=Page::closed;
+  enum class Page : uint8_t { closed, menu, confirm, files, guidance, result, wifi, diagnostics, network } page=Page::closed;
   uint32_t generation=0,configurationGeneration=0;
   uint64_t observedAt=0,activityAt=0,restartGeneration=0;
   uint8_t cursor=0,file=0;
