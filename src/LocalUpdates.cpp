@@ -110,10 +110,11 @@ void Form::turn(int direction,uint64_t now){
   }
 }
 void Form::activate(uint64_t now){
-  if(!guard(now))return;touch(now);auto &s=*session;
+  if(!guard(now))return;auto &s=*session;
   const auto value=backend.status();const auto boot=backend.boot();
+  if(s.page==Session::Page::progress && s.installing && !backend.authorization().allowed){s.operation=0;close(Notice::locked);return;}
+  touch(now);
   if(s.page==Session::Page::progress){
-    if(s.installing && !backend.authorization().allowed){notice=Notice::locked;return;}
     if(s.operation==value.operation && value.cancellable){s.checking=false;backend.cancel(s.operation,s.auth.generation,s.auth.configurationGeneration);}
     return;
   }
