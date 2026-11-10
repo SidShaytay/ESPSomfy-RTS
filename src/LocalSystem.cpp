@@ -121,8 +121,11 @@ void Form::render(EntityAdmin::FormView &out) const {
   const char *title="System",*hint="Press: choose   Back: Home";
   if(page==Page::menu) {
     const char *labels[]={"Restart","Browser files & Web","WiFi scan","Receive diagnostics","Network details","Radio frequency scan","GitHub updates"};
-    out.total=7;out.offset=cursor/3*3;
-    for(uint8_t i=out.offset;i<out.total && out.rowCount<3;++i)strcpy(out.rows[out.rowCount++].label,labels[i]);
+    const char *maintenance[]={"GitHub updates","Restart","Browser files & Web"};
+    const char *diagnostics[]={"Network details","Receive diagnostics","Radio frequency scan","Copy receive log"};
+    title=menu==Menu::maintenance?"Maintenance":menu==Menu::diagnostics?"Diagnostics":"System";
+    out.total=menu==Menu::maintenance?3:menu==Menu::diagnostics?4:7;out.offset=cursor/3*3;
+    for(uint8_t i=out.offset;i<out.total && out.rowCount<3;++i)strcpy(out.rows[out.rowCount++].label,menu==Menu::maintenance?maintenance[i]:menu==Menu::diagnostics?diagnostics[i]:labels[i]);
   } else if(page==Page::network){
     title="Network details";out.mode=EntityAdmin::Mode::stackedRows;out.total=networkDetailRows;out.offset=cursor/3*3;
     hint="Read only; current connection, no probe or reconnect.";
