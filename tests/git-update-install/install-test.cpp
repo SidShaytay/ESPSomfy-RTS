@@ -11,6 +11,7 @@
 static uint64_t installOperation=0;
 static GitUpdateOwnerToken preparedToken;
 static unsigned preparations=0,cleanups=0,written=0;
+static uint32_t largestRetryWait=0;
 static bool sourceFresh=true,paused=false,cleanupReady=true;
 static std::string scenario;
 static bool sourceCurrent(uint64_t generation){return sourceFresh && generation==installOperation;}
@@ -60,13 +61,38 @@ int main(int argc,char **argv){
   if(scenario=="cancelStage")Fake::onRead=[](){CHECK(gitUpdate.requestCancel());gitUpdate.loop();CHECK(!preparations && !cleanups);};
   if(scenario=="refuseAdmission")allowed=false;
   if(scenario=="shortImage")Fake::responses[imageUrl].body=image.substr(0,image.size()-1);
+  if(scenario.rfind("rate",0)==0){
+    auto &r=Fake::responses[apiUrl];r.temporaryStatusFailures=1;r.temporaryStatusCode=429;
+    if(scenario=="rateAfter")r.retryAfter="2";
+    if(scenario=="rateReset"){r.temporaryStatusCode=403;r.rateRemaining="0";r.rateReset=std::to_string(uint64_t(Fake::wallClock)+90);}
+    if(scenario=="rateDefault"){r.temporaryStatusCode=429;r.temporaryStatusFailures=2;}
+    if(scenario=="rateOrdinary403")r.temporaryStatusCode=403;
+    if(scenario=="rateMalformed")r.retryAfter="not-numeric";
+    if(scenario=="rateBeyond")r.retryAfter="999999";
+    Fake::onYield=[](){const auto wait=gitUpdate.snapshot().retryDelayMs;largestRetryWait=std::max(largestRetryWait,wait);if(scenario=="rateBeyond" && wait)Fake::now+=gitUpdateInstallDurationMs;};
+  }
+  if(scenario=="retryApi")Fake::responses[apiUrl].temporaryOpenFailures=1;
+  if(scenario=="retryManifest")Fake::responses[std::string("https://github.com/")+GitUpdatePolicy::REPOSITORY+"/releases/download/"+tag+"/"+GitUpdatePolicy::MANIFEST_ASSET].temporaryStatusFailures=1;
+  if(scenario=="retryImage")Fake::responses[imageUrl].temporaryTruncations=1;
+  if(scenario=="retryHeaderEOF")Fake::responses[apiUrl].temporaryHeaderFailures=1;
+  if(scenario=="retryBadHeaders"){Fake::responses[apiUrl].length=-1;Fake::responses[apiUrl].encoding="gzip";}
+  if(scenario=="retryCert"){Fake::bundleResult=-77;Fake::bundleFlags=0x4000;}
+  if(scenario=="retryMalformed")Fake::responses[apiUrl].body="{malformed";
+  if(scenario=="retryBounds")Fake::responses[imageUrl].length=0;
+  if(scenario=="retryPermanentTLS"){Fake::responses[apiUrl].openError=ESP_ERR_HTTP_CONNECT;Fake::responses[apiUrl].tlsError=-0x2700;}
+  if(scenario=="retryDeadline" || scenario=="retryCancel"){
+    Fake::responses[apiUrl].temporaryStatusFailures=10000;
+    Fake::onYield=[](){if(!gitUpdate.snapshot().retryDelayMs)return;if(scenario=="retryCancel")CHECK(gitUpdate.requestCancel());else Fake::now+=1000000;};
+  }
   for(unsigned i=0;i<5;++i)pump();
   const auto result=gitUpdate.snapshot();
-  if(scenario=="valid" || scenario.compare(0,8,"activate")==0){
+  if(scenario=="valid" || scenario=="retryApi" || scenario=="retryManifest" || scenario=="retryImage" || scenario=="retryHeaderEOF" || scenario=="rateAfter" || scenario=="rateReset" || scenario=="rateDefault" || scenario.compare(0,8,"activate")==0){
     CHECK(preparations==1 && written==1 && paused && gitUpdate.busy());
     CHECK(Fake::otaBegins==1 && Fake::otaEnds==1 && Fake::written.size()==image.size());
     CHECK(std::string(reinterpret_cast<const char*>(Fake::written.data()),Fake::written.size())==image);
     CHECK(Fake::otaActivations==0 && Fake::otaAddress==nextPartition.address);
+    if(scenario=="rateAfter" || scenario=="rateReset" || scenario=="rateDefault"){CHECK(result.retryCount==(scenario=="rateDefault"?2:1) && Fake::otaBegins==1);CHECK(largestRetryWait>=(scenario=="rateAfter"?2000u:scenario=="rateReset"?90000u:120000u));return 0;}
+    if(scenario=="retryApi" || scenario=="retryManifest" || scenario=="retryImage" || scenario=="retryHeaderEOF"){CHECK(result.retryCount==1 && !result.retryDelayMs && Fake::otaBegins==1 && Fake::otaEnds==1);return 0;}
     if(scenario=="valid")return 0;
     CHECK(!gitUpdate.activateInstall(installOperation) && !Fake::otaActivations);
     GitUpdateOwnerToken restart;CHECK(gitUpdate.acquireRestart(restart,Fake::now,preparedToken));
@@ -90,6 +116,13 @@ int main(int argc,char **argv){
   }
   if(scenario=="cleanupBusy"){
     CHECK(paused && gitUpdate.busy() && cleanups>0 && !written);cleanupReady=true;for(unsigned i=0;i<3;++i)pump();
+  }
+  if(scenario.rfind("rate",0)==0){CHECK(!Fake::otaBegins);if(scenario=="rateBeyond")CHECK(result.reason==GitUpdateReason::timeout && result.retryCount==1);else CHECK(!result.retryCount);}
+  if(scenario.rfind("retry",0)==0){
+    CHECK(!Fake::otaBegins && !Fake::otaActivations);
+    if(scenario=="retryDeadline")CHECK(result.reason==GitUpdateReason::timeout && result.retryCount>0 && result.retryCount<3);
+    else if(scenario=="retryCancel")CHECK(result.reason==GitUpdateReason::cancelled && result.retryCount==1);
+    else CHECK(result.retryCount==0);
   }
   if(scenario!="invalid"){
     CHECK(!paused && !gitUpdate.busy() && !written && !Fake::otaActivations);
