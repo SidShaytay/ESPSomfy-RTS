@@ -302,7 +302,7 @@ public:
                              const LearnSelection &candidate,
                              LearnPending &witness,
                              ArduinoJson::Allocator &allocator) override {
-    if(target.scope!=Scope::devices)return {{},Admission::invalid};
+    if(target.scope!=Scope::devices&&target.scope!=Scope::repeaters)return {{},Admission::invalid};
     auto admission = admit(target, context, expected, history);
     if (admission != Admission::accepted)
       return {{}, admission};
@@ -342,7 +342,7 @@ public:
   LearnFileResult retryLearnFile(Target target, const Context &context,
                                  Authorization expected, uint64_t history,
                                  LearnPending &witness) override {
-    if(target.scope!=Scope::devices)return {{},Admission::invalid};
+    if(target.scope!=Scope::devices&&target.scope!=Scope::repeaters)return {{},Admission::invalid};
     auto admission = admit(target, context, expected, history);
     if (admission != Admission::accepted)
       return {{}, admission};
