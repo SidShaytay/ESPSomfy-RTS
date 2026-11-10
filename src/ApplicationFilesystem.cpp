@@ -3,6 +3,7 @@
 bool completePreparedApplication(const GitUpdateOwnerToken &,const ManualApplicationSource &){return false;}
 bool noteApplicationPreparation(const GitUpdateOwnerToken &,const ManualApplicationSource &){return false;}
 bool requestApplicationFilesystemRecovery(const GitUpdateOwnerToken &,const ManualApplicationSource &){return false;}
+void refuseUnpublishedApplication(const GitUpdateOwnerToken &){}
 void runApplicationPreparation(const GitUpdateOwnerToken &){}
 void serviceApplicationFilesystem(){}
 ApplicationFilesystemSnapshot applicationFilesystemStatus(){return {};}
@@ -112,6 +113,11 @@ bool noteApplicationPreparation(const GitUpdateOwnerToken &owner,const ManualApp
   if(owner.generation<=view.owner.generation)return false;
   ApplicationFilesystemDetail::recoveryRetry=false;view={};view.owner=owner;view.source=source;view.phase=ApplicationFilesystemPhase::queued;return true;
 }
+void refuseUnpublishedApplication(const GitUpdateOwnerToken &owner){
+  using namespace ApplicationFilesystemDetail;
+  Guard guard;if(!same(view.owner,owner)||view.phase!=ApplicationFilesystemPhase::queued)return;
+  view.phase=ApplicationFilesystemPhase::refused;view.fault=ApplicationFilesystemFault::busy;
+}
 void runApplicationPreparation(const GitUpdateOwnerToken &owner){
   using namespace ApplicationFilesystemDetail;
   const auto state=applicationFilesystemStatus();
@@ -145,6 +151,10 @@ void serviceApplicationFilesystem(){
   if(!gitUpdate.ownsExternal(pending.owner)){attention(ApplicationFilesystemFault::source);return;}
   if(pending.recovering){recover();return;}
   if(!pending.claimed){
+    if(!secure()){
+      gitUpdate.cancelApplicationPreparation(pending.owner,pending.source);
+      gitUpdate.retireTransfer(pending.owner);
+    }
     const bool uploaded=applicationFilesystemStatus().uploaded;
     ManualUpdateCleanup cleanup;
     if(uploaded){
@@ -178,7 +188,8 @@ bool completePreparedApplication(const GitUpdateOwnerToken &owner,const ManualAp
      !gitUpdate.holdTransferRecovery(owner,ApplicationFilesystemDetail::now()))return false;
   ApplicationFilesystemDetail::Guard guard;
   if(!ApplicationFilesystemDetail::same(ApplicationFilesystemDetail::view.owner,owner))return false;
-  ApplicationFilesystemDetail::view.uploaded=true;return true;
+  ApplicationFilesystemDetail::view.uploaded=true;
+  ApplicationFilesystemDetail::view.phase=ApplicationFilesystemPhase::recovering;return true;
 }
 bool requestApplicationFilesystemRecovery(const GitUpdateOwnerToken &owner,const ManualApplicationSource &source){
   using namespace ApplicationFilesystemDetail;

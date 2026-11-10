@@ -51,9 +51,51 @@ struct Web{bool isAuthenticated(AsyncWebServerRequest *request){return request->
 #include "entryPoints/ManualUploadSession.h"
 ManualUploadState *manualUploadState(AsyncWebServerRequest *request){return request->getAttribute("manualState",false)?static_cast<ManualUploadState *>(request->_tempObject):nullptr;}
 #include "../../src/entryPoints/PreparedApplicationUpload.cpp"
+const char _encoding_json[]="application/json";
+String asyncParam(AsyncWebServerRequest *request,const char *name){return String(request->params[name]);}
+static bool metadataQueue=true;static GitUpdateOwnerToken queuedOwner;
+bool submitModelCommit(const proto_reply_to_t &,ModelCommitMode mode,const GitUpdateOwnerToken &owner){assert(mode==ModelCommitMode::applicationPreparation);queuedOwner=owner;return metadataQueue;}
+static bool entropyFails=false;uint32_t applicationTestRandom(){return entropyFails?0:123;}
+static void resetTaskWdt(){}
+#define TASK_WDT_H
+#include "../../src/entryPoints/ApplicationUpload.cpp"
 
 int main(int argc,char **argv){
  assert(argc==2);const std::string test=argv[1];const ManualApplicationSource source{123,revision,4096};GitUpdateOwnerToken owner;
+ if(test.rfind("http",0)==0){
+  AsyncWebServer server;registerApplicationUploadRoute(server);AsyncWebServerRequest prepare;
+  prepare.params["bytes"]="4096";
+  if(test=="httpAuth")prepare.allowed=false;
+  if(test=="httpBytes")prepare.params["bytes"]="04096";
+  if(test=="httpEntropy")entropyFails=true;
+  if(test=="httpQueue")metadataQueue=false;
+  server.metadata.at("/prepareApplication:2")(&prepare);
+  assert(!saves&&!LittleFS.ends&&!Update.begins&&!prepare.disconnected);
+  if(test=="httpAuth"||test=="httpBytes"||test=="httpEntropy"){assert(prepare.status>=400&&!gitUpdate.busy());return 0;}
+  if(test=="httpQueue"){
+   assert(prepare.status==503&&applicationFilesystemStatus().phase==ApplicationFilesystemPhase::refused);
+   const auto cleanup=gitUpdate.claimTransferCleanup(0);assert(cleanup.token.generation);assert(gitUpdate.closeTransfer(cleanup.token)&&gitUpdate.releaseExternal(cleanup.token));return 0;
+  }
+  assert(prepare.status==202&&queuedOwner.generation);const auto snapshot=applicationFilesystemStatus();
+  AsyncWebServerRequest query;query.params={{"nonce",std::to_string(snapshot.source.nonce)},{"generation",std::to_string(snapshot.owner.generation)}};
+  query.allowed=false;server.metadata.at("/applicationUpdateStatus:1")(&query);assert(query.status==401);
+  query.allowed=true;query.params["nonce"]="01";server.metadata.at("/applicationUpdateStatus:1")(&query);assert(query.status==400);
+  query.params["nonce"]=std::to_string(snapshot.source.nonce);server.metadata.at("/applicationUpdateStatus:1")(&query);assert(query.status==200);
+  runApplicationPreparation(snapshot.owner);serviceApplicationFilesystem();assert(!LittleFS.mounted);
+  if(test=="httpCancel"){
+   query.params["action"]="cancel";server.metadata.at("/applicationUpdate:2")(&query);assert(query.status==202);serviceApplicationFilesystem();assert(!gitUpdate.busy()&&LittleFS.mounted);return 0;
+  }
+  uint8_t bytes[4096]{};AsyncWebServerRequest file;file.params=query.params;
+  if(test=="httpReauth"){
+   server.upload(&file,String("web.littlefs.bin"),0,bytes,2048,false);file.allowed=false;
+   server.upload(&file,String("web.littlefs.bin"),2048,bytes,2048,true);server.complete(&file);
+   assert(file.status==401);currentCounter=71;serviceApplicationFilesystem();
+   assert(!gitUpdate.busy()&&LittleFS.mounted&&!restartCalls&&Update.aborts==1&&savedCounter==71);return 0;
+  }
+  server.upload(&file,String("web.littlefs.bin"),0,bytes,4096,true);assert(!restartCalls);
+  server.complete(&file);assert(file.status==202&&!restartCalls);assert(applicationFilesystemStatus().phase==ApplicationFilesystemPhase::recovering);currentCounter=71;serviceApplicationFilesystem();
+  assert(applicationFilesystemStatus().uploaded&&restartCalls==1&&savedCounter==71);assert(gitUpdate.releaseExternal(restartOwner));return 0;
+ }
  assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,owner));assert(gitUpdate.beginTransfer(owner,ManualUpdateKind::application,0));
  assert(gitUpdate.prepareApplication(owner,source,0));assert(noteApplicationPreparation(owner,source));
  auto reader=mountedFilesystemGate().enter();assert(reader);
@@ -128,7 +170,8 @@ int main(int argc,char **argv){
  if(test=="sdk"||test=="abortBusy"){
   assert(gitUpdate.claimPreparedApplication(owner,source,0));assert(gitUpdate.transferResource(owner,true));Update.running=true;
   Update.abortFails=test=="abortBusy";assert(gitUpdate.retireTransfer(owner));assert(gitUpdate.finishTransfer(owner,0,false));
- }else if(test=="expiredReady")stubEspTimerMicros=30000000;
+ }else if(test=="revokedReady")++revision;
+ else if(test=="expiredReady")stubEspTimerMicros=30000000;
  else assert(gitUpdate.cancelApplicationPreparation(owner,source));
  currentCounter=45;
  serviceApplicationFilesystem();

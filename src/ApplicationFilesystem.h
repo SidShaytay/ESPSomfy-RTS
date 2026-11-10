@@ -18,6 +18,7 @@ static_assert(sizeof(ApplicationFilesystemSnapshot)<=64,"Bounded file preparatio
 // Any-task metadata publication before the existing FIFO marker is submitted.
 bool noteApplicationPreparation(const GitUpdateOwnerToken &,const ManualApplicationSource &);
 // Loop only: consume that exact FIFO marker and service drain/reducing cleanup.
+void refuseUnpublishedApplication(const GitUpdateOwnerToken &);
 void runApplicationPreparation(const GitUpdateOwnerToken &);
 void serviceApplicationFilesystem();
 ApplicationFilesystemSnapshot applicationFilesystemStatus();
