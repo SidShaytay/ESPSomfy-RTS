@@ -9,7 +9,7 @@
 namespace LocalUi {
 constexpr uint8_t detailsRowCount=14, detailsVisibleRows=6;
 constexpr uint8_t homeRows=8, administrationHomeIndex=6, systemHomeIndex=7;
-enum class Screen : uint8_t { status, home, catalogue, roomKinds, control, actions, value, repeatActions, repeatValue, details, brightness, unlock, settings, administration, system };
+enum class Screen : uint8_t { status, home, catalogue, roomKinds, control, actions, value, repeatActions, repeatValue, details, brightness, unlock, settings, administration, system, favouriteObserve, favouriteConfirm };
 using Action=ControlAction;
 enum class Notice : uint8_t { none, preview, queued, refused, idle, changed, wait, saved, saveFailed,
   unlockRequired, unlockWrong, unlockWait, unlockUnavailable, unlocked, done, partial, busy, cancelled, valueUnavailable, expired, stopNotQueued };
@@ -18,10 +18,10 @@ struct Target {
   EntityRef ref;
   char name[21]={};
   uint32_t identity=0, capabilities=0;
-  uint64_t revision=0, token=0;
+  uint64_t revision=0, token=0, favouriteRevision=0;
   ControlDescriptor descriptor;
   uint8_t movingCount=0;
-  bool pendingRelayTilt=false,lightUnavailable=false;
+  bool pendingRelayTilt=false,lightUnavailable=false,favouriteReady=false,favouriteClearReady=false;
   int8_t position=-1, tiltPosition=-1;
   bool exists=false, valid=false, moving=false, tiltMoving=false, stopLease=false;
 };
@@ -50,7 +50,7 @@ struct View {
   uint8_t room=allRooms;
   char roomName[21]={};
   EntityRef entity;
-  uint64_t openedToken=0;
+  uint64_t openedToken=0, favouriteRevision=0;
   bool authorizedSelection=false;
   uint32_t selectionAuthGeneration=0;
   uint8_t level=32, setting=0, detailsOffset=0;
@@ -74,6 +74,7 @@ struct Command {
   // Active session source, or the original expired source for scoped STOP.
   uint32_t authGeneration=0;
   int8_t repeat=-1;
+  uint64_t favouriteRevision=0;
 };
 class Controller {
   View state;

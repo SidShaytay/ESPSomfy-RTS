@@ -449,6 +449,36 @@ int main(int argc,char **argv){
   assert(localControlPending() && submitted.size()==beforePending);idle();click();
   assert(!localControlPending() && submitted.size()==beforePending);
   somfy.transceiver.room=true;idle();click();assert(!localControlPending() && submitted.size()==beforePending);
+  // Favourite uses the same movement controls, exact presentation gate and FIFO.
+  const auto beforeFavourite=submitted.size();
+  auto favouriteMenu=[&](Action desired) {
+    assert(RuntimeTestAccess::view(*active).screen==Screen::control);
+    rotate(1);idle();rotate(1);idle();click();idle();assert(lastQuery.screen==Screen::actions);
+    for(unsigned i=0;i<unsigned(Action::count)&&RuntimeTestAccess::view(*active).action!=desired;++i){rotate(1);idle();}
+    assert(RuntimeTestAccess::view(*active).action==desired);click();idle();
+    assert(lastQuery.screen==Screen::favouriteObserve && captureProtected);
+  };
+  favouriteMenu(Action::setFavouriteHere);saveFrame(preview,"runtime-favourite-observe");
+  busBusy=true;rotate(1);click();assert(lastQuery.screen==Screen::favouriteObserve && submitted.size()==beforeFavourite);
+  busBusy=false;idle();click();idle();assert(lastQuery.screen==Screen::favouriteConfirm && captureProtected);
+  assert(RuntimeTestAccess::view(*active).valueChoice==0);saveFrame(preview,"runtime-favourite-confirm");
+  busBusy=true;rotate(1);click();assert(submitted.size()==beforeFavourite && !localControlPending());
+  busBusy=false;idle();somfy.transceiver.room=false;click();idle();
+  assert(localControlPending() && submitted.size()==beforeFavourite);saveFrame(preview,"runtime-favourite-pending");
+  ++one.observationRevision;somfy.transceiver.room=true;idle();
+  assert(!localControlPending() && submitted.size()==beforeFavourite); // No latent programming after changed observation.
+  favouriteMenu(Action::setFavouriteHere);rotate(1);idle();click();idle();rotate(1);idle();click();idle();
+  assert(submitted.size()==beforeFavourite+1 && submitted.back().type==shade_request_type_t::set_favorite_here);
+  saveFrame(preview,"runtime-favourite-accepted");
+  favouriteMenu(Action::clearFavouriteHere);rotate(1);idle();click();idle();
+  assert(lastQuery.screen==Screen::favouriteObserve && submitted.size()==beforeFavourite+1); // Old favourite not known.
+  back();idle();assert(!captureProtected && lastQuery.screen==Screen::control);
+  one.value.myPos=one.value.currentPos;++one.observationRevision;
+  favouriteMenu(Action::clearFavouriteHere);rotate(1);idle();click();idle();
+  assert(lastQuery.screen==Screen::favouriteConfirm);saveFrame(preview,"runtime-favourite-clear-confirm");
+  rotate(1);idle();click();idle();
+  assert(submitted.size()==beforeFavourite+2 && submitted.back().type==shade_request_type_t::clear_favorite_here);
+  assert(!captureProtected && lastQuery.screen==Screen::control);
   one.idle=two.idle=true; // Settings teardown case tests idle sleep.
   free(allocated);allocated=nullptr;
   authorization.configure(AuthMode::none,"","");

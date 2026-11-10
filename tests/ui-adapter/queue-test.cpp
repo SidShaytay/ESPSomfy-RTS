@@ -283,12 +283,31 @@ static void learned_intents_share_real_fifo_age_and_exact_cancellation() {
   admission=submitLocalLearn(full,authTestNow);full.token=admission.token;full.validity=LearnQueueReason::candidate;loopQueue.drain();
   assert(!full.effects && full.last==LearnQueueReason::candidate && !localLearnTokenActive(full.token));
 }
+static void favourite_programming_requires_unchanged_observation_at_admission_and_execution() {
+  auto view=reset();auto &shade=somfy.shades[13];shade.idle=true;shade.observationRevision=31;somfy.shades[31].idle=true;
+  auto model=open(view,view.entity);assert(model.target.favouriteReady && model.target.favouriteRevision==31);
+  auto set=command(view,Action::setFavouriteHere);
+  assert(dispatch(set)==DispatchResult::stale && sent.empty());
+  set.favouriteRevision=31;somfy.shades[31].idle=false;assert(dispatch(set)==DispatchResult::stale);
+  somfy.shades[31].idle=true;somfy.transceiver.quiescent=false;assert(dispatch(set)==DispatchResult::stale);
+  somfy.transceiver.quiescent=true;assert(dispatch(set)==DispatchResult::queued);
+  ++shade.observationRevision;loopQueue.drain();assert(result()==DispatchResult::stale && sent.empty());
+  set.favouriteRevision=shade.observationRevision;assert(dispatch(set)==DispatchResult::queued);loopQueue.drain();
+  assert(result()==DispatchResult::done && sent.size()==1 && sent[0].type==shade_request_type_t::set_favorite_here);
+  sent.clear();auto clear=command(view,Action::clearFavouriteHere);clear.favouriteRevision=shade.observationRevision;
+  assert(dispatch(clear)==DispatchResult::stale && sent.empty()); // Not at old favourite.
+  shade.value.myPos=shade.value.currentPos;assert(dispatch(clear)==DispatchResult::queued);
+  shade.idle=false;loopQueue.drain();assert(result()==DispatchResult::stale && sent.empty());
+  shade.idle=true;assert(dispatch(clear)==DispatchResult::queued);loopQueue.drain();
+  assert(result()==DispatchResult::done && sent.size()==1 && sent[0].type==shade_request_type_t::clear_favorite_here);
+}
 int main() {
   static_assert(sizeof(loop_item_t)<=80,"Queue markers must not copy target contexts into 32 slots");
   queueAllocationOK=false;loopQueue.begin();auto noQueue=reset();
   assert(dispatch(command(noQueue,Action::up))==DispatchResult::busy && !localControlPending() && sent.empty());
   queueAllocationOK=true;loopQueue.begin();explicit_repeats_preserve_tuple_and_fifo_recheck_every_admission();learned_intents_share_real_fifo_age_and_exact_cancellation();accepted_mutation_history_follows_actual_queue_result();restart_seal_preserves_every_accepted_item_and_refuses_late_submission();deferred_fifo_backpressure_and_cancel();age_clock_context_and_freeze_guards();
   invalid_or_active_replacement_sources_cannot_authorize_old_intents();
+  favourite_programming_requires_unchanged_observation_at_admission_and_execution();
   stop_supersedes_only_same_authorized_context_at_fifo_tail();
   pending_stop_observes_idle_behind_a_held_head_and_never_gains_motion();
   queue_idle_observations_revoke_only_the_matching_global_lease();
