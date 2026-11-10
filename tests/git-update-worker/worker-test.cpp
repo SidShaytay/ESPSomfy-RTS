@@ -59,6 +59,10 @@ int main(int argc,char **argv) {
   }
   gitUpdate.begin(admit);CHECK(Fake::createdTasks==1);
   CHECK(Fake::urls.empty() && Fake::attestationCalls==0);
+  if(mode=="transport_eof" || mode=="transport_reset") {
+    auto &r=Fake::responses[apiUrl];r.openError=-1;r.socketError=104;r.tlsSdkError=0x801a;r.tlsError=-0x7280;
+  }
+  if(mode=="transport_http")Fake::responses[apiUrl].status=503;
   if(mode=="expiredcert") Fake::expiredCertificate=true;
   if(mode=="futurecert") Fake::futureCertificate=true;
   if(mode=="expiredintermediate") Fake::expiredIntermediate=true;
@@ -140,6 +144,19 @@ int main(int argc,char **argv) {
   CHECK(gitUpdate.requestCheck()==GitUpdateRequest::accepted);
   CHECK(Fake::urls.empty() && Fake::attestationCalls==0 && !Fake::queued);
   auto result=run();
+  if(mode=="transport_eof" || mode=="transport_reset" || mode=="transport_http") {
+    CHECK(result.reason==GitUpdateReason::transport && result.transport.download==GitUpdateDownload::api);
+    if(mode=="transport_http")CHECK(result.transport.stage==GitUpdateTransportStage::status && result.transport.httpStatus==503 && result.transport.certificateState==3);
+    else CHECK(result.transport.stage==GitUpdateTransportStage::open && result.transport.sdkError==-1 && result.transport.socketError==104 && result.transport.tlsSdkError==0x801a && result.transport.tlsError==-0x7280 && result.transport.certificateState==0);
+    if(mode=="transport_reset") {
+      Fake::responses[apiUrl].openError=0;Fake::responses[apiUrl].socketError=0;
+      Fake::responses[apiUrl].tlsError=Fake::responses[apiUrl].tlsSdkError=0;
+      CHECK(gitUpdate.requestCheck()==GitUpdateRequest::accepted);
+      CHECK(gitUpdate.snapshot().transport.stage==GitUpdateTransportStage::none && !gitUpdate.snapshot().transport.tlsError);
+      const auto fresh=run();CHECK(fresh.compatible && fresh.transport.stage==GitUpdateTransportStage::complete && !fresh.transport.tlsError && fresh.transport.download==GitUpdateDownload::manifest);
+    }
+    std::cout<<mode<<": diagnostic boundary passed\n";return 0;
+  }
   const bool good=mode=="newweb" || mode=="valid" || mode=="redirect" || mode=="chunkapi" || mode=="prepare" || mode=="generation" || mode=="reboot" || mode=="generationlarge" || mode=="wrapclock" || mode=="externalinvalidates" || mode=="failedrefresh" || mode=="sameversion" || mode=="downgrade" || mode.rfind("changed",0)==0;
   CHECK(result.compatible==good);CHECK(!result.canInstall);
   if(!good) {
@@ -148,7 +165,13 @@ int main(int argc,char **argv) {
     if(mode=="wrapclock") {Fake::now=UINT32_MAX-1000;Fake::onRead=[] {Fake::now+=2000;};}
   if(mode=="timeout") CHECK(result.reason==GitUpdateReason::timeout);
     if(mode=="wrongrepo") CHECK(result.reason==GitUpdateReason::repository);
-    if(mode=="expiredcert" || mode=="futurecert" || mode=="expiredintermediate") CHECK(result.reason==GitUpdateReason::certificateTime);
+    if(mode=="expiredcert" || mode=="futurecert" || mode=="expiredintermediate") {
+      CHECK(result.reason==GitUpdateReason::certificateTime);
+      CHECK(result.transport.download==GitUpdateDownload::api && result.transport.stage==GitUpdateTransportStage::open && result.transport.certificateFailure!=0);
+    }
+    if(mode=="bundlefailure")CHECK((result.transport.certificateState&4)!=0 && !result.transport.certificateFailure);
+    if(mode=="missingverify")CHECK(result.transport.certificateState==1 && result.transport.stage==GitUpdateTransportStage::open);
+    if(mode=="truncated" || mode=="unclean" || mode=="cancel" || mode=="timeout")CHECK(result.transport.stage==GitUpdateTransportStage::read);
     if(mode=="missingverify" || mode=="bundlefailure") CHECK(result.reason==GitUpdateReason::transport);
     if(mode=="redirectloop") CHECK(Fake::urls.size()==4);
     CHECK(std::string(gitUpdateReason(result.reason)).find("sentinel")==std::string::npos);

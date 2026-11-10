@@ -82,10 +82,13 @@ int main() {
   updateSample.operation=987654321;
   tlsSample.requested=404; tlsSample.peak=505; tlsSample.internalPeak=606;
   tlsSample.failures=7;
+  updateSample.transport.download=GitUpdateDownload::api;updateSample.transport.stage=GitUpdateTransportStage::open;
+  updateSample.transport.sdkError=-1;updateSample.transport.socketError=104;updateSample.transport.tlsSdkError=0x801a;
+  updateSample.transport.tlsError=-0x7280;updateSample.transport.tlsFlags=8;updateSample.transport.certificateState=1;
   fakeNow=29999; StatusPanel::loop(true);
   assert(updaterSamples==0 && tlsSamples==0 && Serial.output.empty());
   fakeNow=30000; StatusPanel::loop(true);
-  const std::string expected="LCD update minInternalB=101 minLargestInternalB=202 maxPsramUsedB=303 workerStackMinB=0 tlsRequestedB=404 tlsPeakRequestedB=505 tlsInternalPeakRequestedB=606 tlsFailures=7\n";
+  const std::string expected="LCD update minInternalB=101 minLargestInternalB=202 maxPsramUsedB=303 workerStackMinB=0 tlsRequestedB=404 tlsPeakRequestedB=505 tlsInternalPeakRequestedB=606 tlsFailures=7 download=1 stage=3 sdkErr=-1 http=0 errno=104 tlsSdkErr=32794 tlsErr=-29312 tlsFlags=8 certState=1 certFailure=0\n";
   assert(Serial.output.find(expected)!=std::string::npos);
   assert(updaterSamples==1 && tlsSamples==1);
   assert(Serial.output.find("PRIVATE_")==std::string::npos);

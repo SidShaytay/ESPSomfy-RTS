@@ -100,7 +100,7 @@ bool GitUpdateClass::acquireExternal(GitUpdateExternalOwner kind,GitUpdateOwnerT
   Guard guard;
   if(!acquire(requested)) return false;
   token.generation=ownerGeneration;token.kind=kind;
-  view.operation=0;view.manual=false;
+  view.operation=0;view.manual=false;view.transport={};
   view.compatible=false;view.canPrepare=false;view.candidate={};
   if(view.phase!=GitUpdatePhase::unavailable) view.phase=GitUpdatePhase::idle;
   return true;
@@ -330,8 +330,9 @@ esp_err_t headerEvent(esp_http_client_event_t *event) {
   if(strcasecmp(event->header_key,"Content-Encoding")==0 && strcasecmp(event->header_value,"identity")!=0) headers.invalid=true;
   return ESP_OK;
 }
-bool download(const std::string &initial,Buffer &out,size_t &received,bool api=false) {
-  std::string url=initial;received=0;
+bool download(const std::string &initial,Buffer &out,size_t &received,GitUpdateDownload kind) {
+  std::string url=initial;received=0;const bool api=kind==GitUpdateDownload::api;
+  { Guard guard;view.transport={};view.transport.download=kind;view.transport.stage=GitUpdateTransportStage::init; }
   for(unsigned hop=0;hop<4;hop++) {
     if(stopped()) { fail(GitUpdateReason::cancelled);return false; }
     if(!GitUpdatePolicy::allowedUrl(url.c_str())) { fail(GitUpdateReason::redirect);return false; }
@@ -347,11 +348,21 @@ bool download(const std::string &initial,Buffer &out,size_t &received,bool api=f
     config.user_agent="ESPSomfy-RTS-verified-updater/2";config.transport_type=HTTP_TRANSPORT_OVER_SSL;
     const auto client=esp_http_client_init(&config);
     if(!client) { fail(GitUpdateReason::memory);return false; }
+    auto trace=[&](GitUpdateTransportStage stage,int error=0,int status=0) {
+      GitUpdateTransport value;value.download=kind;value.stage=stage;value.sdkError=error;value.httpStatus=status;
+      value.socketError=esp_http_client_get_errno(client);
+      int tlsError=0,tlsFlags=0;value.tlsSdkError=esp_http_client_get_and_clear_last_tls_error(client,&tlsError,&tlsFlags);
+      value.tlsError=tlsError;value.tlsFlags=tlsFlags;value.certificateState=certificate.diagnosticState();
+      value.certificateFailure=static_cast<uint8_t>(certificate.failure());
+      Guard guard;view.transport=value;
+    };
     struct Cleanup { esp_http_client_handle_t client;~Cleanup() { esp_http_client_cleanup(client); } } cleanup{client};
-    if(esp_http_client_set_header(client,"Accept-Encoding","identity")!=ESP_OK ||
-        esp_http_client_set_header(client,"Accept",api ? "application/vnd.github+json" : "application/octet-stream")!=ESP_OK) { fail(GitUpdateReason::transport);return false; }
-    const bool opened=esp_http_client_open(client,0)==ESP_OK;
-    if(!opened || !certificate.complete()) {
+    auto configured=esp_http_client_set_header(client,"Accept-Encoding","identity");
+    if(configured==ESP_OK) configured=esp_http_client_set_header(client,"Accept",api ? "application/vnd.github+json" : "application/octet-stream");
+    if(configured!=ESP_OK) { trace(GitUpdateTransportStage::setHeaders,configured);fail(GitUpdateReason::transport);return false; }
+    const auto opened=esp_http_client_open(client,0);
+    if(opened!=ESP_OK || !certificate.complete()) {
+      trace(GitUpdateTransportStage::open,opened);
       const auto timeFailure=certificate.failure();
       fail(certificate.rejectedByBundle() ? GitUpdateReason::transport :
         (timeFailure==GitUpdateCertificate::Failure::clock ? GitUpdateReason::clock :
@@ -361,12 +372,13 @@ bool download(const std::string &initial,Buffer &out,size_t &received,bool api=f
     measure();
     const int64_t length=esp_http_client_fetch_headers(client);
     const int code=esp_http_client_get_status_code(client);
-    if(headers.invalid || length<0) { fail(GitUpdateReason::headers);return false; }
+    if(headers.invalid || length<0) { trace(GitUpdateTransportStage::headers,0,code);fail(GitUpdateReason::headers);return false; }
     if(code==301 || code==302 || code==303 || code==307 || code==308) {
-      if(!headers.location[0] || !GitUpdatePolicy::allowedUrl(headers.location)) { fail(GitUpdateReason::redirect);return false; }
+      trace(GitUpdateTransportStage::status,0,code);
+      if(!headers.location[0] || !GitUpdatePolicy::allowedUrl(headers.location)) { trace(GitUpdateTransportStage::status,0,code);fail(GitUpdateReason::redirect);return false; }
       url=headers.location;continue;
     }
-    if(code!=200) { fail(code==404 ? GitUpdateReason::notPublished : GitUpdateReason::transport);return false; }
+    if(code!=200) { trace(GitUpdateTransportStage::status,0,code);fail(code==404 ? GitUpdateReason::notPublished : GitUpdateReason::transport);return false; }
     const GitUpdateTransfer::Bounds bounds{out.capacity,length,esp_http_client_is_chunked_response(client),api};
     const auto result=GitUpdateTransfer::readBody(bounds,out.data,received,
       [&](uint8_t *destination,size_t count) { return esp_http_client_read(client,reinterpret_cast<char *>(destination),count); },
@@ -375,8 +387,8 @@ bool download(const std::string &initial,Buffer &out,size_t &received,bool api=f
         { Guard guard;view.progress=total ? static_cast<uint8_t>((count*100)/total) : 0; }
         cooperate();
       });
-    if(result!=GitUpdateTransfer::Result::Complete || stopped()) { fail(GitUpdateReason::body);return false; }
-    return true;
+    if(result!=GitUpdateTransfer::Result::Complete || stopped()) { trace(GitUpdateTransportStage::read,0,code);fail(GitUpdateReason::body);return false; }
+    trace(GitUpdateTransportStage::complete,0,code);return true;
   }
   fail(GitUpdateReason::redirect);return false;
 }
@@ -446,7 +458,7 @@ bool metadata(bool prepare,const GitUpdateCandidate &expected,GitUpdatePolicy::M
   LocalUi::JsonAllocator allocator(JSON_BUDGET,jsonAcquire,jsonRelease);
   Buffer api(API_LIMIT);if(!api.data) { fail(GitUpdateReason::memory);return false; }
   size_t received=0;
-  if(!download(std::string("https://api.github.com/repos/")+REPOSITORY+"/releases/latest",api,received,true)) return false;
+  if(!download(std::string("https://api.github.com/repos/")+REPOSITORY+"/releases/latest",api,received,GitUpdateDownload::api)) return false;
   JsonDocument filter(&allocator);
   for(const char *field:{"id","url","html_url","published_at","tag_name","draft","prerelease"}) filter[field]=true;
   filter["assets"][0]["name"]=true;filter["assets"][0]["size"]=true;filter["assets"][0]["digest"]=true;
@@ -477,7 +489,7 @@ bool metadata(bool prepare,const GitUpdateCandidate &expected,GitUpdatePolicy::M
   if(fwCount!=1 || manifestCount!=1 || fwSize<1024 || fwSize>APP_BYTES || !manifestSize || manifestSize>MANIFEST_LIMIT) { fail(GitUpdateReason::metadata);return false; }
   Buffer body(MANIFEST_LIMIT);if(!body.data) { fail(GitUpdateReason::memory);return false; }
   const std::string assetUrl=std::string("https://github.com/")+REPOSITORY+"/releases/download/"+tag+"/"+MANIFEST_ASSET;
-  if(!download(assetUrl,body,received)) return false;
+  if(!download(assetUrl,body,received,GitUpdateDownload::manifest)) return false;
   if(received!=manifestSize || !digestMatches(body.data,received,manifestDigest)) { fail(GitUpdateReason::digest);return false; }
   JsonDocument json(&allocator);Manifest m;
   const auto manifestError=deserializeJson(json,body.data,received,DeserializationOption::NestingLimit(3));
@@ -546,7 +558,7 @@ void stageInstallation(const GitUpdateCandidate &expected) {
   if(!installImage || !installImage->data){fail(GitUpdateReason::memory);return;}
   size_t received=0;
   const std::string url=std::string("https://github.com/")+GitUpdatePolicy::REPOSITORY+"/releases/download/"+expected.version+"/"+GitUpdatePolicy::FIRMWARE_ASSET;
-  if(!download(url,*installImage,received))return;
+  if(!download(url,*installImage,received,GitUpdateDownload::image))return;
   if(received!=expected.size){fail(GitUpdateReason::body);return;}
   {Guard guard;view.phase=GitUpdatePhase::verifying;}
   GitUpdateImage::Identity identity;
@@ -619,7 +631,7 @@ GitUpdateRequest queue(bool prepare,const GitUpdateCandidate &expected,uint64_t 
   if(prepare && (!view.compatible || !view.canPrepare || !expected.generation || !matches(view.candidate,expected))) return GitUpdateRequest::invalidCandidate;
   if(candidateGeneration==UINT64_MAX){terminalLocked(GitUpdateReason::freshness);return GitUpdateRequest::unavailable;}
   if(!acquire(prepare ? Owner::prepare : Owner::check)) return GitUpdateRequest::unavailable;
-  view.operation=++candidateGeneration;view.manual=false;if(operation)*operation=view.operation;
+  view.operation=++candidateGeneration;view.manual=false;view.transport={};if(operation)*operation=view.operation;
   operationExpected=expected;runningLease=ownerGeneration;
   cancelled.store(false);admissionPending=prepare ? 2 : 1;
   view.phase=GitUpdatePhase::queued;view.reason=GitUpdateReason::none;view.cancellable=true;view.progress=0;
@@ -710,7 +722,7 @@ GitUpdateRequest GitUpdateClass::requestInstall(const GitUpdateCandidate &expect
   if(candidateGeneration==UINT64_MAX){terminalLocked(GitUpdateReason::freshness);return GitUpdateRequest::unavailable;}
   if(!acquire(Owner::install))return GitUpdateRequest::unavailable;
   installLease=runningLease=ownerGeneration;operationExpected=expected;cancelled=false;admissionPending=1;operationStart=millis();
-  operation=view.operation=++candidateGeneration;view.manual=false;view.phase=GitUpdatePhase::queued;view.reason=GitUpdateReason::none;view.progress=0;view.cancellable=true;
+  operation=view.operation=++candidateGeneration;view.manual=false;view.transport={};view.phase=GitUpdatePhase::queued;view.reason=GitUpdateReason::none;view.progress=0;view.cancellable=true;
   return GitUpdateRequest::accepted;
 }
 GitUpdateRequest GitUpdateClass::requestCheck() { return queue(false,{}); }
@@ -719,7 +731,7 @@ bool GitUpdateClass::reserveManualInstall(const GitUpdateOwnerToken &source,uint
   if(!owns(source) || source.kind!=GitUpdateExternalOwner::manual || reservedManualLease || installLease ||
      !workerTask.load() || !installHooks.manual || !candidateGeneration || candidateGeneration==UINT64_MAX ||
      !manualTransfer.firmwareQueuedClaimed(source,now))return false;
-  reservedManualLease=source.generation;operation=view.operation=++candidateGeneration;
+  reservedManualLease=source.generation;operation=view.operation=++candidateGeneration;view.transport={};
   view.manual=true;view.compatible=view.canPrepare=view.cancellable=false;view.candidate={};
   view.phase=GitUpdatePhase::queued;view.reason=GitUpdateReason::none;view.progress=0;
   return true;
@@ -745,7 +757,7 @@ GitUpdateRequest GitUpdateClass::requestManualInstall(const GitUpdateOwnerToken 
     reservedManualLease=0;
     staged->data=bytes;bytes=nullptr;installImage=std::move(staged);
     installLease=runningLease=source.generation;installSource=source;operationExpected={};
-    operation=view.operation=ticket;view.manual=true;view.compatible=view.canPrepare=false;view.candidate={};
+    operation=view.operation=ticket;view.manual=true;view.transport={};view.compatible=view.canPrepare=false;view.candidate={};
     view.phase=GitUpdatePhase::verifying;view.reason=GitUpdateReason::none;view.progress=0;view.cancellable=true;
     cancelled=false;operationStart=millis();installWorkerActive=true;
   }
