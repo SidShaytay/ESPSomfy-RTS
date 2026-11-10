@@ -9,7 +9,7 @@ bool radio(radio_proto proto) {
 bool gpio(radio_proto proto) { return proto == radio_proto::GP_Relay || proto == radio_proto::GP_Remote; }
 constexpr ControlMask groupActions = controlActionBit(ControlAction::up) | controlActionBit(ControlAction::stop) |
   controlActionBit(ControlAction::down) | controlActionBit(ControlAction::my) |
-  controlActionBit(ControlAction::stepUp) | controlActionBit(ControlAction::stepDown);
+  controlActionBit(ControlAction::stepUp) | controlActionBit(ControlAction::stepDown) | controlActionBit(ControlAction::favourite);
 }
 ControlMask controlCapabilities(const ControlDescriptor &d) {
   const bool rf = radio(d.proto);
@@ -20,7 +20,7 @@ ControlMask controlCapabilities(const ControlDescriptor &d) {
     // not have a member GPIO trigger path in SomfyGroup::sendCommand.
     if(!rf || !d.memberCount || d.memberCount > SOMFY_MAX_GROUPED_SHADES) return 0;
     ControlMask mask = d.commonActions & groupActions;
-    if(d.bitLength != 80) mask &= ~(controlActionBit(ControlAction::stepUp) | controlActionBit(ControlAction::stepDown));
+    if(d.bitLength != 80) mask &= ~(controlActionBit(ControlAction::stepUp) | controlActionBit(ControlAction::stepDown) | controlActionBit(ControlAction::favourite));
     // The web group flag is an any-member sensor aggregate, not an intersection.
     if(d.sunSensor) mask |= controlActionBit(ControlAction::sunOn) | controlActionBit(ControlAction::sunOff);
     return mask;

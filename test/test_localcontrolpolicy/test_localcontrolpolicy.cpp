@@ -142,14 +142,21 @@ static void groups_intersect_members_but_use_any_sensor_and_no_position_or_tilt(
   ControlDescriptor group;group.group=true;group.memberCount=2;group.bitLength=80;group.moving=true;
   group.commonActions=controlCapabilities(first)&controlCapabilities(second);group.sunSensor=true;
   for(auto a:{ControlAction::up,ControlAction::stop,ControlAction::down,ControlAction::my,
-              ControlAction::stepUp,ControlAction::stepDown,ControlAction::sunOn,ControlAction::sunOff})
+              ControlAction::favourite,ControlAction::stepUp,ControlAction::stepDown,ControlAction::sunOn,ControlAction::sunOff})
     TEST_ASSERT_TRUE(allows(a,group));
   for(auto a:{ControlAction::position,ControlAction::tiltPosition,ControlAction::tiltUp,
-              ControlAction::tiltDown,ControlAction::tiltStop,ControlAction::favourite,ControlAction::toggle})
+              ControlAction::tiltDown,ControlAction::tiltStop,ControlAction::toggle})
     TEST_ASSERT_FALSE(allows(a,group));
   shade_request_t out;
   TEST_ASSERT_EQUAL(int(ControlResult::done),int(prepareControlRequest(ControlAction::stepDown,group,16,-1,7,out)));
   TEST_ASSERT_EQUAL(int(shade_request_type_t::group_command),int(out.type));TEST_ASSERT_EQUAL(7,out.stepSize);
+  TEST_ASSERT_EQUAL(int(ControlResult::done),int(prepareControlRequest(ControlAction::favourite,group,16,-1,0,out)));
+  TEST_ASSERT_EQUAL(int(shade_request_type_t::group_command),int(out.type));
+  TEST_ASSERT_EQUAL(16,out.id);TEST_ASSERT_EQUAL(int(somfy_commands::Favorite),int(out.command));
+  group.bitLength=56;TEST_ASSERT_FALSE(allows(ControlAction::favourite,group));group.bitLength=80;
+  second.bitLength=56;group.commonActions=controlCapabilities(first)&controlCapabilities(second);
+  TEST_ASSERT_FALSE(allows(ControlAction::favourite,group));
+  second.bitLength=80;group.commonActions=controlCapabilities(first)&controlCapabilities(second);
   group.sunSensor=false;TEST_ASSERT_FALSE(allows(ControlAction::sunOn,group));
   second.shadeType=shade_types::drycontact;
   group.commonActions=controlCapabilities(first)&controlCapabilities(second);
