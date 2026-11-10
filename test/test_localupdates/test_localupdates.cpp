@@ -123,7 +123,7 @@ static void continuation_does_not_survive_config_or_foreign_operation(){
 static void locked_install_can_only_be_cancelled_after_fresh_unlock_resume(){
  Backend b;b.available();JsonAllocator pool(4096,malloc,free);Updates::Form form(b,pool);EntityAdmin::FormView v;
  form.open(0);form.turn(1,1);form.activate(2);form.turn(1,3);form.activate(4);
- b.auth.allowed=false;++b.auth.generation;form.tick(120005);form.activate(120006);TEST_ASSERT_EQUAL(0,b.cancels);
+ b.auth.allowed=false;++b.auth.generation;form.tick(120005);const auto activity=b.activityCount;form.activate(120006);TEST_ASSERT_EQUAL(0,b.cancels);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(activity,b.activityCount);
  form.back(120007);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(0,b.cancels);
  b.auth.allowed=true;b.value.installRemainingMs=gitUpdateInstallDurationMs-120004;
  TEST_ASSERT_TRUE(form.open(120008));form.render(v);TEST_ASSERT_EQUAL(EntityAdmin::Mode::updateStatus,v.mode);TEST_ASSERT_EQUAL(1,b.installs);TEST_ASSERT_EQUAL(0,b.checks);
