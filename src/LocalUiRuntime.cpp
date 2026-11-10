@@ -15,7 +15,7 @@ uint32_t hash(const void *p,size_t n,uint32_t h=2166136261u) {
   const auto *b=static_cast<const uint8_t *>(p);while(n--) h=(h^*b++)*16777619u;return h;
 }
 uint32_t sceneHash(const Model &m,const View &v,const StatusDisplay::Snapshot &s) {
-  const uint32_t values[]={uint32_t(v.screen),v.selected,v.cursor,v.routed,uint32_t(v.returnScreen),v.returnSelection,v.settingsSection,v.systemSection,uint32_t(v.catalogue),v.room,
+  const uint32_t values[]={uint32_t(v.screen),v.selected,v.cursor,v.routed,uint32_t(v.returnScreen),v.returnSelection,v.settingsSection,v.systemSection,v.systemSettings,v.systemSelection,uint32_t(v.catalogue),v.room,
     uint32_t(v.entity.kind),v.entity.id,v.quickEditing,v.quickPicking,v.quickOrigin,v.quickSlot,uint32_t(m.quickStatus),uint32_t(m.quickRevision),uint32_t(m.quickRevision>>32),uint32_t(v.openedToken),uint32_t(v.openedToken>>32),uint32_t(v.action),
     uint32_t(v.favouriteRevision),uint32_t(v.favouriteRevision>>32),
     uint32_t(m.target.favouriteRevision),uint32_t(m.target.favouriteRevision>>32),m.target.favouriteReady,m.target.favouriteClearReady,
@@ -86,7 +86,7 @@ bool quickEqual(const QuickAccess &a,const QuickAccess &b) {
 // Motion/estimate repainting is coalesced until a frame finishes. Structural
 // page, target, action, editor and authorization changes supersede it promptly.
 bool sameMeaning(const View &a,const View &b,uint64_t page,uint64_t framePage,uint64_t target,uint64_t frameTarget) {
-  if(a.routed!=b.routed || a.returnScreen!=b.returnScreen || a.returnSelection!=b.returnSelection || a.settingsSection!=b.settingsSection || a.systemSection!=b.systemSection || a.screen!=b.screen || a.notice!=b.notice || a.repeatHeld!=b.repeatHeld ||
+  if(a.routed!=b.routed || a.returnScreen!=b.returnScreen || a.returnSelection!=b.returnSelection || a.settingsSection!=b.settingsSection || a.systemSection!=b.systemSection || a.systemSettings!=b.systemSettings || a.systemSelection!=b.systemSelection || a.screen!=b.screen || a.notice!=b.notice || a.repeatHeld!=b.repeatHeld ||
      a.quickEditing!=b.quickEditing || a.quickPicking!=b.quickPicking || a.quickOrigin!=b.quickOrigin ||
      a.quickSlot!=b.quickSlot || !quickEqual(a.quickDraft,b.quickDraft)) return false;
   if(a.screen==Screen::quickHome || a.screen==Screen::quickManage || a.screen==Screen::quickActions || a.screen==Screen::quickSave)
@@ -247,7 +247,7 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
     administrationActive=presentedAdministrationValid=false;
   }
   if(controller.view().screen==Screen::system) {
-    if(!systemActive) {systemForm.open(settingsNow,static_cast<System::Menu>(controller.view().systemSection));systemActive=true;presentedAdministrationValid=false;attempted=false;}
+    if(!systemActive) {systemForm.open(settingsNow,static_cast<System::Menu>(controller.view().systemSection),controller.view().systemSelection);systemActive=true;presentedAdministrationValid=false;attempted=false;}
     systemForm.tick(settingsNow);
     auto renderCurrent=[&](){renderSystem(systemView);};
     visitSystemChild([&](auto &form){form.tick(settingsNow);});

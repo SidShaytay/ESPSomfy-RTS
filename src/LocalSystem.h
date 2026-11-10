@@ -32,7 +32,7 @@ class Form {
   void touch(uint64_t);
 public:
   explicit Form(Backend &value):backend(value){}
-  bool open(uint64_t,Menu=Menu::legacy);
+  bool open(uint64_t,Menu=Menu::legacy,uint8_t initial=0);
   void discard();
   bool closed() const {return page==Page::closed;}
   void tick(uint64_t);

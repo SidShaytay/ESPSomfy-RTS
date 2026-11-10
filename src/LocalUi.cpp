@@ -144,7 +144,7 @@ void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
     if(state.selected==0){state.screen=Screen::configureMenu;state.selected=0;}
     else if(state.selected==2 || state.selected==3){state.routed=true;state.returnScreen=Screen::controllerMenu;state.returnSelection=state.selected;state.detailsOffset=0;state.screen=state.selected==2?Screen::status:Screen::details;}
     else if(!m.authorized)beginUnlock(now,m,Screen::controllerMenu);
-    else {state.routed=true;state.returnScreen=Screen::controllerMenu;state.returnSelection=state.selected;state.systemSection=state.selected==1?1:2;state.screen=Screen::system;formInput={};}
+    else {state.routed=true;state.returnScreen=Screen::controllerMenu;state.returnSelection=state.selected;state.systemSection=state.selected==1?1:2;state.systemSelection=0;state.screen=Screen::system;formInput={};}
     break;
   case Screen::configureMenu:
   case Screen::networkMenu: {
@@ -419,10 +419,10 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
      (!m.authorized || m.authConfigurationGeneration != brightnessConfigurationGeneration)) {
     setPreferences(brightnessBefore);
     savePending = false;
-    state.screen = Screen::home;
+    if(state.routed)closeForm();else {state.screen=Screen::home;state.selected=4;}
     state.notice = Notice::unlockRequired;
     noticeSince = now;
-    consumed = true;
+    consumed = consumed || pressed || raw || stable;
   }
   if(state.screen == Screen::unlock &&
      (m.authMode != editorMode || m.authConfigurationGeneration != editorConfigurationGeneration ||
