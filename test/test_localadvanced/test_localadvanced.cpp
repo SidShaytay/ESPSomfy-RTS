@@ -74,6 +74,26 @@ struct Model : Advanced::Backend {
   LearnFileResult retryMembershipFile(Target target,const Context &context,Authorization auth,uint64_t rev,LearnPending &witness) override {
     return retryLearnFile(target,context,auth,rev,witness);
   }
+  bool membership=false,lastProgrammingRadio=false;
+  unsigned memoryRequests=0,groupRequests=0;
+  bool groupProgrammingSelection(Target target,bool adding,uint8_t id,GroupProgrammingSelection &out)override{
+    out={};if(target.scope!=Scope::groups||id!=27||adding==membership)return false;
+    out.deviceId=27;out.deviceSlot=31;out.deviceAddress=100;out.groupAddress=200;out.deviceRevision=1;out.adding=adding;out.bits=80;return true;
+  }
+  Admission groupProgrammingCurrent(Target target,const Context &context,Authorization admitted,uint64_t revision,const GroupProgrammingSelection &selection)override{
+    const auto identity=checkLearnContext(target,context,admitted,revision);if(identity!=Admission::accepted)return identity;
+    if(refusal!=Admission::accepted)return refusal;
+    GroupProgrammingSelection current;return groupProgrammingSelection(target,selection.adding,selection.deviceId,current)&&selection.same(current)?Admission::accepted:Admission::stale;
+  }
+  GroupProgrammingSendResult sendGroupProgramming(Target,const Context &,Authorization,uint64_t,const GroupProgrammingSelection &,bool memory,LearnPending &witness)override{
+    if(witness.current(memory?40:50)!=LearnQueueReason::ready)return {shade_request_result_t::radio_refused,Admission::stale};
+    TEST_ASSERT_TRUE(witness.usesRadio());if(memory)++memoryRequests;else ++groupRequests;return {shade_request_result_t::done};
+  }
+  LearnApplyResult saveProgrammingMembership(Target,const Context &,Authorization,uint64_t,const GroupProgrammingSelection &selection,LearnPending &witness,ArduinoJson::Allocator &)override{
+    if(witness.current(80)!=LearnQueueReason::ready)return {{},Admission::stale};
+    TEST_ASSERT_FALSE(witness.usesRadio());++saves;++history;membership=selection.adding;
+    edit_result_t result;result.applied=true;result.persistence={file};return {result};
+  }
   PrimaryReadResult readPrimary(Target target,const Context &,Authorization,uint64_t,PrimaryCounterReview &out) override {
     out={};if(refusal!=Admission::accepted)return {CounterDomainState::invalid,refusal};
     out.shadeId=target.id;out.address=100;out.primary=primaryCode;out.stored={storedPrimary,storedPresent};out.matching[0]=3;out.codes[0]=primaryCode;out.codes[1]=aliasCode;
@@ -987,6 +1007,46 @@ static void programming_does_not_rewrite_an_already_matching_marker(){
   TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_TRUE(model.marked);TEST_ASSERT_EQUAL(0,model.saves);
   TEST_ASSERT_EQUAL(1,model.programmingSends);TEST_ASSERT_EQUAL(Notice::unchanged,form.notice());TEST_ASSERT_EQUAL(0,memory.used());
 }
+static void groupReview(Advanced::Form &form,bool adding){
+  TEST_ASSERT_TRUE(form.open(Scope::groups,10));form.activate(11);for(unsigned i=0;i<3;++i)form.turn(1,12);form.activate(13);
+  form.turn(1,14);if(!adding)form.turn(1,15);form.activate(16);form.activate(17);
+  form.turn(1,18);form.activate(19); // device Prog review, no RF
+}
+static void group_programming_requires_independent_rf_observation_and_list_confirmations(){
+  for(bool adding:{false,true}){
+    Model model;model.membership=!adding;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);
+    groupReview(form,adding);FormView view;form.render(view);TEST_ASSERT_EQUAL(0,view.selected);
+    TEST_ASSERT_EQUAL(0,model.memoryRequests);TEST_ASSERT_EQUAL(0,model.groupRequests);TEST_ASSERT_EQUAL(0,model.saves);
+    form.turn(1,20);form.activate(21);model.learnedQueue.run(model.learnedToken,40);
+    TEST_ASSERT_EQUAL(1,model.memoryRequests);TEST_ASSERT_EQUAL(0,model.groupRequests);TEST_ASSERT_EQUAL(0,model.saves);
+    form.turn(1,41);form.activate(42);form.render(view);TEST_ASSERT_EQUAL(0,view.selected);TEST_ASSERT_NOT_NULL(strstr(view.hint,"Other motors"));
+    form.turn(1,43);form.activate(44);model.learnedQueue.run(model.learnedToken,50);
+    TEST_ASSERT_EQUAL(1,model.groupRequests);TEST_ASSERT_EQUAL(0,model.saves);TEST_ASSERT_EQUAL(!adding,model.membership);
+    form.turn(1,51);form.activate(52);form.render(view);TEST_ASSERT_EQUAL(0,view.selected);
+    form.turn(1,53);form.activate(54);TEST_ASSERT_EQUAL(0,model.saves);model.learnedQueue.run(model.learnedToken,80);
+    TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(1,model.saves);TEST_ASSERT_EQUAL(adding,model.membership);
+    TEST_ASSERT_EQUAL(1,model.memoryRequests);TEST_ASSERT_EQUAL(1,model.groupRequests);TEST_ASSERT_EQUAL(0,memory.used());
+  }
+}
+static void group_cancel_age_auth_and_context_changes_never_dispatch(){
+  for(unsigned change=0;change<5;++change){
+    Model model;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);groupReview(form,true);
+    form.turn(1,20);form.activate(21);
+    if(change==0)form.back(22);if(change==1)model.auth.allowed=false;if(change==2)++model.auth.generation;if(change==3)++model.history;
+    model.learnedQueue.run(model.learnedToken,change==4?5021:40);
+    TEST_ASSERT_EQUAL(0,model.memoryRequests);TEST_ASSERT_EQUAL(0,model.groupRequests);TEST_ASSERT_EQUAL(0,model.saves);
+    form.discard();TEST_ASSERT_EQUAL(0,memory.used());
+  }
+}
+static void group_list_file_retry_never_replays_rf_or_membership(){
+  Model model;model.file=ModelCommitState::failed;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);
+  groupReview(form,true);form.turn(1,20);form.activate(21);model.learnedQueue.run(model.learnedToken,40);
+  form.turn(1,41);form.activate(42);form.turn(1,43);form.activate(44);model.learnedQueue.run(model.learnedToken,50);
+  form.turn(1,51);form.activate(52);form.turn(1,53);form.activate(54);model.learnedQueue.run(model.learnedToken,80);
+  FormView view;form.render(view);TEST_ASSERT_EQUAL(1,view.selected);TEST_ASSERT_EQUAL(1,model.saves);TEST_ASSERT_TRUE(model.membership);
+  form.turn(-1,81);form.activate(82);TEST_ASSERT_EQUAL(1,model.retries);TEST_ASSERT_EQUAL(1,model.saves);
+  TEST_ASSERT_EQUAL(1,model.memoryRequests);TEST_ASSERT_EQUAL(1,model.groupRequests);TEST_ASSERT_TRUE(form.closed());
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(readonly_status_pages_refresh_without_commands_or_saves_and_revoke);
@@ -1000,6 +1060,9 @@ int main() {
   RUN_TEST(programming_is_queued_once_then_observation_and_marker_save_are_separate);
   RUN_TEST(programming_queue_cancel_age_and_authority_changes_never_send);
   RUN_TEST(programming_marker_file_retry_never_replays_programming);
+  RUN_TEST(group_programming_requires_independent_rf_observation_and_list_confirmations);
+  RUN_TEST(group_cancel_age_auth_and_context_changes_never_dispatch);
+  RUN_TEST(group_list_file_retry_never_replays_rf_or_membership);
   RUN_TEST(primary_queue_back_age_auth_and_unknown_storage_never_replay);
   RUN_TEST(remote_pending_cancel_expiry_and_auth_never_send);
   RUN_TEST(remote_repeat_bounds_and_group_menu_are_explicit);

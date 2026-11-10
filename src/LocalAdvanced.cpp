@@ -24,6 +24,9 @@ struct Form::Session final : LearnPending {
   bool programSent=false;
   bool guideMode=false;
   ProgrammingGuide guide;
+  bool groupGuideMode=false,programmingAdding=false;
+  GroupProgrammingGuide groupGuide;
+  GroupProgrammingSelection programming;
   uint64_t ticket = 0, queuedAt = 0;
   bool listening = false, fileOnly = false, canRetryFile = false,
        linkApplied = false, fileVerified = false;
@@ -39,7 +42,7 @@ struct Form::Session final : LearnPending {
   LearnQueueReason current(uint64_t now) override {
     return owner.learnCurrent(now);
   }
-  bool usesRadio() const override { return programMode||guideMode; }
+  bool usesRadio() const override { return programMode||guideMode||(groupGuideMode&&groupGuide.pendingEffect()!=GroupProgrammingEffect::saveList); }
   void execute(uint64_t now) override { owner.runLearn(now); }
   void cancelled(LearnQueueReason reason) override {
     owner.learnCancelled(reason);
@@ -61,7 +64,9 @@ struct Form::Session final : LearnPending {
     membership,
     groupMenu,
     details,
-    remoteMenu,remoteRepeat,remoteConfirm,remotePending,remoteResult
+    remoteMenu,remoteRepeat,remoteConfirm,remotePending,remoteResult,
+    groupIntent,
+    groupPick
   };
   Context context;
   OrderIds ids{}, slots{};
@@ -141,6 +146,11 @@ bool Form::guard(uint64_t now) {
     const auto current=backend.membershipCurrent(s.target,s.context,s.auth,s.revision,s.membership.selection());
     if(current==Admission::locked){close(Notice::locked);return false;}
     if(current!=Admission::accepted){close(Notice::changed);return false;}
+  }
+  if(s.groupGuideMode){
+    const auto current=backend.groupProgrammingCurrent(s.target,s.context,s.auth,s.revision,s.programming);
+    if(current==Admission::locked){close(Notice::locked);return false;}
+    if(current!=Admission::accepted&&current!=Admission::busy){close(Notice::changed);return false;}
   }
   if(s.primaryMode && s.primary.review().address && !backend.primaryCurrent(s.target,s.primary.review())) {
     close(Notice::changed);return false;
@@ -237,8 +247,11 @@ void Form::turn(int direction, uint64_t now) {
   touch(now);
   auto &s = *session;
   if(s.guideMode){s.guide.turn(direction);return;}
+  if(s.groupGuideMode){s.groupGuide.turn(direction);return;}
   uint8_t count = 0;
   switch (s.page) {
+  case Session::Page::groupIntent:count=3;break;
+  case Session::Page::groupPick:
   case Session::Page::picker:
     count = s.count;
     break;
@@ -246,7 +259,7 @@ void Form::turn(int direction, uint64_t now) {
     s.primary.turn(direction,now);return;
   case Session::Page::membership:
     s.membership.turn(direction);return;
-  case Session::Page::groupMenu:count=3;break;
+  case Session::Page::groupMenu:count=4;break;
   case Session::Page::details:count=entityStatusRows;break;
   case Session::Page::menu:
     count = 7;
@@ -358,7 +371,7 @@ LearnQueueReason Form::learnCurrent(uint64_t now) {
   if (now < s.observedAt || now < s.activityAt ||
       now - s.activityAt >= timeoutMs)
     return LearnQueueReason::expired;
-  const auto admission = s.guideMode?backend.checkPairingContext(s.target,s.context,s.auth,s.revision):s.programMode
+  const auto admission = s.groupGuideMode?backend.groupProgrammingCurrent(s.target,s.context,s.auth,s.revision,s.programming):s.guideMode?backend.checkPairingContext(s.target,s.context,s.auth,s.revision):s.programMode
       ? backend.checkProgrammingContext(s.target,s.context,s.auth,s.revision)
       : backend.checkLearnContext(s.target, s.context, s.auth, s.revision);
   if (admission == Admission::locked)
@@ -366,7 +379,7 @@ LearnQueueReason Form::learnCurrent(uint64_t now) {
   if(s.guideMode&&admission==Admission::busy)return LearnQueueReason::busy;
   if (admission != Admission::accepted)
     return LearnQueueReason::stale;
-  if(s.programMode)return LearnQueueReason::ready;
+  if(s.programMode||s.groupGuideMode)return LearnQueueReason::ready;
   if (s.fileOnly || s.guideMode)
     return LearnQueueReason::ready;
   if(s.membershipMode) {
@@ -408,6 +421,7 @@ void Form::learnCancelled(LearnQueueReason reason) {
   }
   if(session->membershipMode){session->membership.busy();return;}
   if(session->guideMode){session->guide.complete(false);return;}
+  if(session->groupGuideMode){session->groupGuide.complete(false);return;}
   if(session->primaryMode){session->primary.busy();return;}
   if(session->programMode){session->programSent=false;session->page=Session::Page::remoteResult;return;}
   if (session->fileOnly) {
@@ -438,6 +452,7 @@ void Form::queueLearn(uint64_t now, bool fileOnly) {
       return;
     }
     if(s.guideMode){learnCancelled(queued.reason);return;}
+    if(s.groupGuideMode){learnCancelled(queued.reason);return;}
     learnFault("Queue unavailable/full. Wait, then review explicitly.");
     return;
   }
@@ -453,6 +468,23 @@ void Form::runLearn(uint64_t) {
     if(result.admission==Admission::locked){close(Notice::locked);return;}
     if(result.admission==Admission::stale){close(Notice::changed);return;}
     s.guide.complete(result.admission==Admission::accepted&&result.result==shade_request_result_t::done);return;
+  }
+  if(session->groupGuideMode){
+    auto &s=*session;s.ticket=0;
+    if(s.groupGuide.pendingEffect()==GroupProgrammingEffect::saveList){
+      const auto result=backend.saveProgrammingMembership(s.target,s.context,s.auth,s.revision,s.programming,s,allocator);
+      if(result.freshness!=LearnQueueReason::ready){learnCancelled(result.freshness);return;}
+      if(result.admission==Admission::locked){close(Notice::locked);return;}
+      if(result.admission==Admission::stale){close(Notice::changed);return;}
+      if(result.admission!=Admission::accepted||!result.edit.applied){s.groupGuide.complete(false);return;}
+      s.groupGuideMode=false;s.groupGuide={};s.programming={};
+      finishApply({result.edit});return;
+    }
+    const auto result=backend.sendGroupProgramming(s.target,s.context,s.auth,s.revision,s.programming,
+      s.groupGuide.pendingEffect()==GroupProgrammingEffect::openMemory,s);
+    if(result.admission==Admission::locked){close(Notice::locked);return;}
+    if(result.admission==Admission::stale){close(Notice::changed);return;}
+    s.groupGuide.complete(result.admission==Admission::accepted&&result.result==shade_request_result_t::done);return;
   }
   if(session->primaryMode){runPrimary();return;}
   auto &s = *session;
@@ -691,6 +723,13 @@ void Form::activate(uint64_t now) {
     }
     return;
   }
+  if(s.groupGuideMode){
+    const auto effect=s.groupGuide.activate();
+    if(effect==GroupProgrammingEffect::close){close(Notice::none);return;}
+    if(effect==GroupProgrammingEffect::openMemory||effect==GroupProgrammingEffect::sendGroup||effect==GroupProgrammingEffect::saveList)
+      queueLearn(now,false);
+    return;
+  }
   switch (s.page) {
   case Session::Page::picker:
     if (!s.count) {
@@ -700,6 +739,25 @@ void Form::activate(uint64_t now) {
     if (!select())
       close(Notice::changed);
     break;
+  case Session::Page::groupIntent:{
+    if(!s.cursor){close(Notice::none);return;}
+    s.programmingAdding=s.cursor==1;OrderIds ids{},slots{};uint8_t count=0;
+    if(!backend.targets(Scope::devices,ids,slots,count)||count>32){close(Notice::changed);return;}
+    s.count=0;
+    for(uint8_t i=0;i<count;++i){GroupProgrammingSelection selection;
+      if(backend.groupProgrammingSelection(s.target,s.programmingAdding,ids[i],selection)){
+        s.ids[s.count]=ids[i];s.slots[s.count++]=slots[i];
+      }
+    }
+    s.page=Session::Page::groupPick;s.cursor=0;return;
+  }
+  case Session::Page::groupPick:
+    if(s.cursor>=s.count)return;
+    if(!backend.groupProgrammingSelection(s.target,s.programmingAdding,s.ids[s.cursor],s.programming)){
+      close(Notice::changed);return;
+    }
+    endLearning();s.groupGuideMode=true;
+    s.groupGuide.begin(s.programmingAdding,isToggleShade(shade_types(s.programming.shadeType)));return;
   case Session::Page::primaryCounter:
     primaryEffect(s.primary.activate(now),now);return;
   case Session::Page::membership:
@@ -707,7 +765,8 @@ void Form::activate(uint64_t now) {
   case Session::Page::groupMenu:
     if(!s.cursor){if(!openMembership(false))close(Notice::changed);}
     else if(s.cursor==1){s.page=Session::Page::details;s.cursor=0;}
-    else{if(!backend.supportsProgramming(s.target)){status=Notice::invalid;return;}endLearning();s.programMode=true;s.program={};s.page=Session::Page::remoteMenu;s.cursor=0;}return;
+    else if(s.cursor==2){if(!backend.supportsProgramming(s.target)){status=Notice::invalid;return;}endLearning();s.programMode=true;s.program={};s.page=Session::Page::remoteMenu;s.cursor=0;}
+    else{s.page=Session::Page::groupIntent;s.cursor=0;}return;
   case Session::Page::details:
     if(s.cursor==entityStatusRows-1){s.page=s.target.scope==Scope::groups?Session::Page::groupMenu:Session::Page::menu;s.cursor=s.target.scope==Scope::groups?1:4;}return;
   case Session::Page::menu:
@@ -907,6 +966,7 @@ void Form::back(uint64_t now) {
   if(s.page==Session::Page::primaryCounter){primaryEffect(s.primary.back(now),now);return;}
   if(s.page==Session::Page::details){s.page=s.target.scope==Scope::groups?Session::Page::groupMenu:Session::Page::menu;s.cursor=s.target.scope==Scope::groups?1:4;return;}
   if(s.guideMode){if(s.guide.back()==ProgrammingEffect::close)close(Notice::none);return;}
+  if(s.groupGuideMode){if(s.groupGuide.back()==GroupProgrammingEffect::close)close(Notice::none);return;}
   if (s.page == Session::Page::learnPending ||
       s.page == Session::Page::learnResult) {
     close(Notice::none);
@@ -1002,8 +1062,10 @@ void Form::render(FormView &out) {
     return;
   }
   if(s.page==Session::Page::groupMenu){
-    out.total=out.rowCount=3;strcpy(out.rows[0].label,"Member links");strcpy(out.rows[1].label,"Status details");strcpy(out.rows[2].label,"Advanced remote");
-    strcpy(out.hint,"Read status or edit controller list.");for(uint8_t i=0;i<3;++i)out.rows[i].selected=i==s.cursor;return;
+    static const char *labels[]={"Member links","Status details","Advanced remote","Motor programming"};
+    out.total=4;out.offset=s.cursor/3*3;
+    for(uint8_t i=out.offset;i<4&&out.rowCount<3;++i){auto &row=out.rows[out.rowCount++];strcpy(row.label,labels[i]);row.selected=i==s.cursor;}
+    strcpy(out.hint,"Review status, controller list or motor programming.");return;
   }
   if(s.page==Session::Page::details){
     out.mode=Mode::stackedRows;out.total=entityStatusRows;out.offset=s.cursor/3*3;
@@ -1015,6 +1077,30 @@ void Form::render(FormView &out) {
   }
 
   if(s.guideMode){s.guide.render(out);return;}
+  if(s.groupGuideMode){
+    Choice device;char groupName[32];snprintf(groupName,sizeof(groupName),"%s",out.title);
+    if(!backend.targetLabel({Scope::devices,s.programming.deviceId},s.programming.deviceSlot,device)||device.value!=s.programming.deviceId||!memchr(device.label,0,sizeof(device.label))){close(Notice::changed);out={};out.notice=status;return;}
+    const auto *groupText=strchr(groupName,' '),*deviceText=strchr(device.label,' ');
+    snprintf(out.title,sizeof(out.title),"G%u %.6s / D%u %.6s",unsigned(s.target.id),groupText?groupText+1:groupName,
+      unsigned(s.programming.deviceId),deviceText?deviceText+1:device.label);
+    s.groupGuide.render(out);return;
+  }
+  if(s.page==Session::Page::groupIntent){
+    out.mode=Mode::stackedRows;out.total=out.rowCount=3;out.selected=s.cursor;
+    strcpy(out.rows[0].label,"Cancel");strcpy(out.rows[1].label,"Pair motor to group");strcpy(out.rows[2].label,"Unpair motor from group");
+    strcpy(out.hint,"Programming can affect motors. List is not motor state.");
+    for(uint8_t i=0;i<3;++i)out.rows[i].selected=i==s.cursor;return;
+  }
+  if(s.page==Session::Page::groupPick){
+    out.mode=Mode::stackedRows;out.total=s.count;out.selected=s.cursor;out.offset=s.cursor/3*3;
+    strcpy(out.hint,"Select compatible RF device. Nothing sent.");
+    if(!s.count){out.total=out.rowCount=1;strcpy(out.rows[0].label,"No compatible devices");return;}
+    for(uint8_t i=out.offset;i<s.count&&out.rowCount<3;++i){Choice device;
+      if(!backend.targetLabel({Scope::devices,s.ids[i]},s.slots[i],device)||device.value!=s.ids[i]||!memchr(device.label,0,sizeof(device.label))){close(Notice::changed);out={};out.notice=status;return;}
+      auto &row=out.rows[out.rowCount++];snprintf(row.label,sizeof(row.label),"%s",device.label);row.selected=i==s.cursor;
+    }return;
+  }
+
   strcpy(out.hint, "Press: choose   Back: cancel");
   if (s.page == Session::Page::learnStart ||
       s.page == Session::Page::learnReview ||

@@ -185,6 +185,11 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
     somfy.shades[0].linkedRemotes[6].address = 0;
   else if (edit.type == model_edit_type_t::unlink_repeater)
     somfy.repeaters[6] = 0;
+  else if((edit.type==model_edit_type_t::link_to_group||edit.type==model_edit_type_t::unlink_from_group)&&edit.doc["shadeId"].as<uint8_t>()==7){
+    TEST_ASSERT_EQUAL(9,edit.doc["groupId"].as<uint8_t>());TEST_ASSERT_EQUAL(2,edit.doc.size());
+    somfy.groups[0].linkedShades[0]=edit.type==model_edit_type_t::link_to_group?7:0;
+    ++somfy.groups[0].configurationRevision;
+  }
   else {
     TEST_ASSERT_TRUE(edit.type==model_edit_type_t::unlink_from_group || edit.type==model_edit_type_t::link_to_group);
     const auto id=edit.doc["shadeId"].as<uint8_t>();
@@ -253,9 +258,10 @@ Backend &runtimeBackend() {
 } // namespace EntityAdmin
 } // namespace LocalUi
 #include "../../src/GitUpdate.cpp"
+static unsigned programmingSends=0;static shade_request_t programmingRequest;
 static unsigned pairingSends=0;static shade_request_t pairingRequest;
 static unsigned radioCommands=0;static shade_request_t sentRemote;
-struct RecordingRequests {shade_request_result_t run(const shade_request_t &request){TEST_ASSERT_TRUE(gitUpdate.busy());GitUpdateOwnerToken competing;const bool acquired=gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,competing);if(acquired)gitUpdate.releaseExternal(competing);TEST_ASSERT_FALSE(acquired);++radioCommands;sentRemote=request;++pairingSends;pairingRequest=request;return shade_request_result_t::done;}} shadeRequests;
+struct RecordingRequests {shade_request_result_t run(const shade_request_t &request){TEST_ASSERT_TRUE(gitUpdate.busy());GitUpdateOwnerToken competing;const bool acquired=gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,competing);if(acquired)gitUpdate.releaseExternal(competing);TEST_ASSERT_FALSE(acquired);++radioCommands;sentRemote=request;++programmingSends;programmingRequest=request;++pairingSends;pairingRequest=request;return shade_request_result_t::done;}} shadeRequests;
 #define ShadeRequests RecordingRequests
 #include "../../src/LocalAdvancedRuntime.cpp"
 #undef ShadeRequests
@@ -277,6 +283,7 @@ void setUp() {
   pairingSends=0;pairingRequest={};
   pendingRestart = false;primaryWrites=0;primaryMatches=true;afterPrimaryRead=nullptr;
   file = ModelCommitState::saved;repeaterListAllocation=false;
+  programmingSends=0;programmingRequest={};
   TEST_ASSERT_FALSE(gitUpdate.busy());
 }
 void tearDown() { TEST_ASSERT_FALSE(gitUpdate.busy()); }
@@ -805,6 +812,86 @@ static void pairing_rechecks_authority_context_owner_radio_motion_and_final_witn
     TEST_ASSERT_FALSE(gitUpdate.busy());
   }
 }
+static void group_programming_uses_exact_device40_and_group1_under_shared_owner(){
+  const Target target{Scope::groups,9};Context context;somfy.groups[0].direction=0;
+  TEST_ASSERT_TRUE(source().capture(target,context));GroupProgrammingSelection selection;
+  TEST_ASSERT_TRUE(source().groupProgrammingSelection(target,false,7,selection));
+  const auto auth=source().authorization();const auto history=source().revision();Witness witness;
+  auto result=source().sendGroupProgramming(target,context,auth,history,selection,true,witness);
+  TEST_ASSERT_EQUAL(Admission::accepted,result.admission);TEST_ASSERT_EQUAL(shade_request_result_t::done,result.result);
+  TEST_ASSERT_EQUAL(1,programmingSends);TEST_ASSERT_EQUAL(shade_request_type_t::shade_command,programmingRequest.type);
+  TEST_ASSERT_EQUAL(7,programmingRequest.id);TEST_ASSERT_EQUAL(somfy_commands::Prog,programmingRequest.command);TEST_ASSERT_EQUAL(40,programmingRequest.repeat);
+  result=source().sendGroupProgramming(target,context,auth,history,selection,false,witness);
+  TEST_ASSERT_EQUAL(Admission::accepted,result.admission);TEST_ASSERT_EQUAL(shade_request_type_t::group_command,programmingRequest.type);
+  TEST_ASSERT_EQUAL(9,programmingRequest.id);TEST_ASSERT_EQUAL(1,programmingRequest.repeat);TEST_ASSERT_EQUAL(2,programmingSends);
+  TEST_ASSERT_EQUAL(0,applies);TEST_ASSERT_EQUAL(7,somfy.groups[0].linkedShades[0]);TEST_ASSERT_FALSE(gitUpdate.busy());
+  struct RadioWitness:Witness {bool usesRadio()const override{return true;}} radioWitness;
+  auto queued=submitLocalLearn(radioWitness,0);TEST_ASSERT_EQUAL(LearnQueueReason::ready,queued.reason);
+  TEST_ASSERT_TRUE(learnedMarker.localRadio);TEST_ASSERT_TRUE(cancelLocalLearn(queued.token,radioWitness));
+  queued=submitLocalLearn(witness,0);TEST_ASSERT_EQUAL(LearnQueueReason::ready,queued.reason);
+  TEST_ASSERT_FALSE(learnedMarker.localRadio);TEST_ASSERT_TRUE(cancelLocalLearn(queued.token,witness));
+
+  somfy.shades[0].proto=radio_proto::GP_Relay;TEST_ASSERT_FALSE(source().groupProgrammingSelection(target,false,7,selection));
+}
+static void group_programming_rechecks_context_motion_profile_owner_and_witness(){
+  for(unsigned change=0;change<13;++change){
+    setUp();somfy.groups[0].direction=0;const Target target{Scope::groups,9};Context context;
+    TEST_ASSERT_TRUE(source().capture(target,context));GroupProgrammingSelection selection;
+    TEST_ASSERT_TRUE(source().groupProgrammingSelection(target,false,7,selection));
+    const auto auth=source().authorization();const auto history=source().revision();Witness witness;GitUpdateOwnerToken owner;
+    switch(change){
+      case 0:LocalUi::security.allowed=false;break;case 1:++LocalUi::security.generation;break;
+      case 2:++somfy.shades[0].configurationRevision;break;case 3:somfy.groups[0].linkedShades[0]=0;break;
+      case 4:pendingCount=1;break;case 5:pendingRestart=true;break;case 6:somfy.shades[0].idle=false;break;
+      case 7:somfy.transceiver.ready=false;break;case 8:somfy.transceiver.suspended=true;break;
+      case 9:somfy.transceiver.blocked=selection.groupAddress;break;case 10:witness.state=LearnQueueReason::expired;break;
+      case 11:TEST_ASSERT_TRUE(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,owner));break;
+      case 12:somfy.shades[0].bitLength=selection.bits==80?56:80;break;
+    }
+    const auto result=source().sendGroupProgramming(target,context,auth,history,selection,false,witness);
+    TEST_ASSERT_NOT_EQUAL(Admission::accepted,result.admission);TEST_ASSERT_EQUAL(0,programmingSends);TEST_ASSERT_EQUAL(0,applies);
+    if(change==11)TEST_ASSERT_TRUE(gitUpdate.releaseExternal(owner));TEST_ASSERT_FALSE(gitUpdate.busy());
+  }
+}
+static void group_list_save_is_separate_and_rechecks_after_allocation(){
+  for(unsigned change=0;change<7;++change){
+    setUp();somfy.groups[0].direction=0;somfy.groups[0].linkedShades[0]=0;
+    const Target target{Scope::groups,9};Context context;TEST_ASSERT_TRUE(source().capture(target,context));
+    GroupProgrammingSelection selection;TEST_ASSERT_TRUE(source().groupProgrammingSelection(target,true,7,selection));
+    const auto auth=source().authorization();const auto history=source().revision();Witness witness;
+    if(change==1)expireAllocation=true;if(change==2)restartAllocation=true;if(change==3)memberMoves=true;
+    if(change==4)witness.state=LearnQueueReason::expired;if(change==5)file=ModelCommitState::failed;
+    if(change==6)file=ModelCommitState::uncertain;
+    JsonAllocator memory(65536,acquire,release);
+    const auto result=source().saveProgrammingMembership(target,context,auth,history,selection,witness,memory);
+    const bool applied=change==0||change==5||change==6;
+    TEST_ASSERT_EQUAL(applied,result.edit.applied);TEST_ASSERT_EQUAL(applied?1:0,applies);
+    TEST_ASSERT_EQUAL(applied?7:0,somfy.groups[0].linkedShades[0]);TEST_ASSERT_EQUAL(0,programmingSends);
+    if(applied)TEST_ASSERT_EQUAL(file,result.edit.persistence.state);
+    TEST_ASSERT_FALSE(gitUpdate.busy());
+  }
+}
+static void group_candidates_require_exact_rf_format_membership_capacity_and_identity(){
+  const Target target{Scope::groups,9};GroupProgrammingSelection selection;
+  for(const auto protocol:{radio_proto::RTS,radio_proto::RTW,radio_proto::RTV})for(const auto bits:{56,80}){
+    somfy.shades[0].proto=somfy.groups[0].proto=protocol;somfy.shades[0].bitLength=somfy.groups[0].bitLength=bits;
+    TEST_ASSERT_TRUE(source().groupProgrammingSelection(target,false,7,selection));
+    TEST_ASSERT_EQUAL(bits,selection.bits);TEST_ASSERT_EQUAL(uint8_t(protocol),selection.protocol);
+    TEST_ASSERT_FALSE(source().groupProgrammingSelection(target,true,7,selection));
+  }
+  somfy.shades[0].proto=somfy.groups[0].proto=radio_proto::RTS;
+  somfy.shades[0].bitLength=56;somfy.groups[0].bitLength=80;TEST_ASSERT_FALSE(source().groupProgrammingSelection(target,false,7,selection));
+  somfy.shades[0].bitLength=80;somfy.groups[0].proto=radio_proto::RTW;TEST_ASSERT_FALSE(source().groupProgrammingSelection(target,false,7,selection));
+  somfy.groups[0].proto=radio_proto::RTS;somfy.shades[0].proto=radio_proto::GP_Remote;TEST_ASSERT_FALSE(source().groupProgrammingSelection(target,false,7,selection));
+  somfy.shades[0].proto=radio_proto::RTS;somfy.groups[0].address=100;TEST_ASSERT_FALSE(source().groupProgrammingSelection(target,false,7,selection));
+  somfy.groups[0].address=200;somfy.shades[0].address=0x1000000;TEST_ASSERT_FALSE(source().groupProgrammingSelection(target,false,7,selection));
+  somfy.shades[0].address=100;somfy.groups[0].linkedShades[0]=0;
+  TEST_ASSERT_FALSE(source().groupProgrammingSelection(target,false,7,selection));TEST_ASSERT_TRUE(source().groupProgrammingSelection(target,true,7,selection));
+  for(auto &member:somfy.groups[0].linkedShades)member=88;TEST_ASSERT_FALSE(source().groupProgrammingSelection(target,true,7,selection));
+  somfy.groups[0].linkedShades[31]=255;TEST_ASSERT_FALSE(source().groupProgrammingSelection(target,true,7,selection));
+  somfy.groups[0].linkedShades[31]=0;TEST_ASSERT_TRUE(source().groupProgrammingSelection(target,true,7,selection));
+  TEST_ASSERT_EQUAL(0,programmingSends);TEST_ASSERT_EQUAL(0,applies);
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(status_rows_are_live_readonly_and_group_estimates_are_not_invented);
@@ -816,6 +903,10 @@ int main() {
   RUN_TEST(remote_runtime_uses_exact_shared_request_and_fresh_admission);
   RUN_TEST(pairing_rechecks_authority_context_owner_radio_motion_and_final_witness);
   RUN_TEST(pairing_uses_typed_prog_under_owner_without_inventing_paired_state);
+  RUN_TEST(group_candidates_require_exact_rf_format_membership_capacity_and_identity);
+  RUN_TEST(group_list_save_is_separate_and_rechecks_after_allocation);
+  RUN_TEST(group_programming_uses_exact_device40_and_group1_under_shared_owner);
+  RUN_TEST(group_programming_rechecks_context_motion_profile_owner_and_witness);
   RUN_TEST(primary_counter_read_and_final_apply_share_fresh_context_without_nested_owner);
   RUN_TEST(primary_final_read_side_effect_and_witness_changes_refuse_without_correction);
   RUN_TEST(checked_link_uses_only_address_counter_and_domain_owned_lease);

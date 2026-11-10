@@ -6,6 +6,7 @@
 #include "LocalTargetRead.h"
 #include "LocalEntityStatus.h"
 #include "LocalProgrammingGuide.h"
+#include "LocalGroupProgramming.h"
 #include "ShadeRequests.h"
 namespace LocalUi {
 enum class PrimaryCounterEffect : uint8_t;
@@ -101,6 +102,21 @@ struct PairingSendResult {
   shade_request_result_t result=shade_request_result_t::radio_refused;
   EntityAdmin::Admission admission=EntityAdmin::Admission::accepted;
 };
+struct GroupProgrammingSelection {
+  uint64_t deviceRevision=0;
+  uint32_t deviceAddress=0,groupAddress=0;
+  uint8_t deviceId=0,deviceSlot=0,protocol=0,bits=0,shadeType=0;
+  bool adding=false;
+  bool same(const GroupProgrammingSelection &other)const{
+    return deviceRevision==other.deviceRevision&&deviceAddress==other.deviceAddress&&groupAddress==other.groupAddress&&
+      deviceId==other.deviceId&&deviceSlot==other.deviceSlot&&protocol==other.protocol&&bits==other.bits&&
+      shadeType==other.shadeType&&adding==other.adding;
+  }
+};
+struct GroupProgrammingSendResult {
+  shade_request_result_t result=shade_request_result_t::radio_refused;
+  EntityAdmin::Admission admission=EntityAdmin::Admission::accepted;
+};
 class Backend {
 public:
   virtual ~Backend() = default;
@@ -127,6 +143,14 @@ public:
   virtual PairingSendResult sendPairing(Target,const Context &,EntityAdmin::Authorization,uint64_t,uint8_t,LearnPending &){
     return {shade_request_result_t::radio_refused,EntityAdmin::Admission::invalid};
   }
+  virtual bool groupProgrammingSelection(Target,bool,uint8_t,GroupProgrammingSelection &){return false;}
+  virtual EntityAdmin::Admission groupProgrammingCurrent(Target,const Context &,EntityAdmin::Authorization,
+      uint64_t,const GroupProgrammingSelection &){return EntityAdmin::Admission::stale;}
+  virtual GroupProgrammingSendResult sendGroupProgramming(Target,const Context &,EntityAdmin::Authorization,
+      uint64_t,const GroupProgrammingSelection &,bool,LearnPending &){return {};}
+  virtual LearnApplyResult saveProgrammingMembership(Target,const Context &,EntityAdmin::Authorization,
+      uint64_t,const GroupProgrammingSelection &,LearnPending &,ArduinoJson::Allocator &){return {{},EntityAdmin::Admission::stale};}
+
   virtual PrimaryReadResult readPrimary(Target, const Context &,
       EntityAdmin::Authorization, uint64_t, PrimaryCounterReview &) = 0;
   // Live aliases/quarantine only; no NVS/owner/allocation. Safe in a final
