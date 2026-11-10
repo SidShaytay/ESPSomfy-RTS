@@ -359,16 +359,29 @@ static void repeat_hold_binds_raw_press_and_release_never_becomes_stop() {
  TEST_ASSERT_FALSE(d.c.take(out));
  d.tick(0,true,true,false,1);TEST_ASSERT_TRUE(d.c.take(out));
  TEST_ASSERT_EQUAL(1,out.repeat);TEST_ASSERT_TRUE(d.c.view().repeatHeld);
- d.c.result(d.now,DispatchResult::done);d.tick(0,true,true,false,1500);
+ d.c.result(d.now,DispatchResult::queued);TEST_ASSERT_TRUE(d.c.view().repeatHeld);
+ d.c.result(d.now,DispatchResult::done);TEST_ASSERT_FALSE(d.c.view().repeatHeld);
+ TEST_ASSERT_EQUAL(Notice::done,d.c.view().notice);d.tick(0,true,true,false,1500);
  TEST_ASSERT_FALSE(d.c.take(out)); // finite maximum completed while held
- d.tick(0,false);TEST_ASSERT_TRUE(d.c.takeCancellation());TEST_ASSERT_FALSE(d.c.take(out));
+ d.tick(0,false);TEST_ASSERT_FALSE(d.c.take(out));
  d.tick();TEST_ASSERT_FALSE(d.c.take(out));TEST_ASSERT_FALSE(d.c.view().repeatHeld);
  TEST_ASSERT_EQUAL(Action::stop,d.c.view().action);
  // Even failed admission consumes the physical hold through release.
  Drive refused;openRepeats(refused,Action::up);refused.click();refused.tick(-1);refused.holdSend();
  TEST_ASSERT_TRUE(refused.c.take(out));refused.c.result(refused.now,DispatchResult::refused);
+ TEST_ASSERT_FALSE(refused.c.view().repeatHeld);TEST_ASSERT_EQUAL(Notice::refused,refused.c.view().notice);
  refused.tick(0,true,true,false,1000);TEST_ASSERT_FALSE(refused.c.take(out));
  refused.tick();refused.tick();TEST_ASSERT_FALSE(refused.c.take(out));
+ Drive expired;openRepeats(expired,Action::up);expired.click();expired.tick(-1);expired.holdSend();
+ TEST_ASSERT_TRUE(expired.c.take(out));expired.c.result(expired.now,DispatchResult::expired);
+ TEST_ASSERT_FALSE(expired.c.view().repeatHeld);TEST_ASSERT_EQUAL(Notice::expired,expired.c.view().notice);
+ expired.tick(0,true,true,false,1000);TEST_ASSERT_FALSE(expired.c.take(out));
+ expired.tick();expired.tick();TEST_ASSERT_FALSE(expired.c.take(out));
+ // Admission remains active: a queued result must keep release cancellation.
+ Drive queued;openRepeats(queued,Action::up);queued.click();queued.tick(-1);queued.holdSend();
+ TEST_ASSERT_TRUE(queued.c.take(out));queued.c.result(queued.now,DispatchResult::queued);
+ TEST_ASSERT_TRUE(queued.c.view().repeatHeld);queued.tick(0,false);
+ TEST_ASSERT_TRUE(queued.c.takeCancellation());queued.tick();TEST_ASSERT_FALSE(queued.c.take(out));
  for(unsigned changed=0;changed<12;++changed) {
   Drive x;openRepeats(x,Action::stepDown);x.click();x.tick(-1);x.click(); // step editor -> count
   x.click();x.tick(-1);TEST_ASSERT_EQUAL(Screen::repeatValue,x.c.view().screen);
