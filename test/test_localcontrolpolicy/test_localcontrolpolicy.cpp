@@ -189,8 +189,29 @@ static void capability_menu_covers_each_supported_action_once_without_hidden_fal
       TEST_ASSERT_TRUE(mask&controlActionBit(defaultControlAction(mask)));
     }
 }
+static void explicit_repeats_use_fresh_typed_commands_and_reject_stop_seek_gpio() {
+  auto d=motor();d.bitLength=80;d.moving=true;
+  for(auto action:{ControlAction::up,ControlAction::down,ControlAction::favourite,ControlAction::stepUp}) {
+    for(int count:{1,127}) {
+      shade_request_t out;
+      TEST_ASSERT_EQUAL(int(ControlResult::done),int(prepareControlRequest(action,d,7,-1,action==ControlAction::stepUp?23:0,out,count)));
+      TEST_ASSERT_EQUAL(count,out.repeat);TEST_ASSERT_EQUAL(int(shade_request_type_t::shade_command),int(out.type));
+    }
+  }
+  shade_request_t out;out.id=73;
+  for(int count:{-2,0,128}) TEST_ASSERT_EQUAL(int(ControlResult::invalid),int(prepareControlRequest(ControlAction::up,d,7,-1,0,out,count)));
+  for(auto action:{ControlAction::my,ControlAction::stop,ControlAction::tiltStop,ControlAction::position,ControlAction::tiltUp})
+    TEST_ASSERT_NOT_EQUAL(int(ControlResult::done),int(prepareControlRequest(action,d,7,action==ControlAction::position?50:-1,0,out,3)));
+  d.group=true;d.memberCount=2;d.commonActions=allControlActions;
+  TEST_ASSERT_EQUAL(int(ControlResult::done),int(prepareControlRequest(ControlAction::stepDown,d,11,-1,23,out,127)));
+  TEST_ASSERT_EQUAL(int(shade_request_type_t::group_command),int(out.type));TEST_ASSERT_EQUAL(11,out.id);TEST_ASSERT_EQUAL(23,out.stepSize);TEST_ASSERT_EQUAL(127,out.repeat);
+  out.id=73;d.group=false;d.proto=radio_proto::GP_Remote;
+  TEST_ASSERT_EQUAL(int(ControlResult::unsupported),int(prepareControlRequest(ControlAction::up,d,7,-1,0,out,3)));
+  TEST_ASSERT_EQUAL(73,out.id);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(explicit_repeats_use_fresh_typed_commands_and_reject_stop_seek_gpio);
   RUN_TEST(all_types_protocols_bits_and_tilt_modes_have_expected_capabilities);
   RUN_TEST(malformed_descriptors_and_actions_fail_closed);
   RUN_TEST(bounds_never_turn_invalid_targets_into_my_or_change_output);

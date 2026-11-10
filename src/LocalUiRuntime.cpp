@@ -79,10 +79,10 @@ uint32_t administrationHash(const EntityAdmin::FormView &view,uint64_t epoch) {
 bool sameMeaning(const View &a,const View &b,uint64_t page,uint64_t framePage,uint64_t target,uint64_t frameTarget) {
   if(a.screen!=b.screen || a.notice!=b.notice) return false;
   if(a.screen==Screen::catalogue) return page==framePage && a.catalogue==b.catalogue && a.room==b.room && a.cursor==b.cursor;
-  if(a.screen==Screen::control || a.screen==Screen::actions || a.screen==Screen::value) {
+  if(a.screen==Screen::control || a.screen==Screen::actions || a.screen==Screen::value || a.screen==Screen::repeatActions || a.screen==Screen::repeatValue) {
     const bool sameTarget=a.entity==b.entity && a.openedToken==b.openedToken && target==frameTarget && a.action==b.action;
-    if(a.screen==Screen::actions) return sameTarget && a.selected==b.selected;
-    if(a.screen==Screen::value) return sameTarget && a.valueChoice==b.valueChoice && a.draftValue==b.draftValue;
+    if(a.screen==Screen::actions || a.screen==Screen::repeatActions) return sameTarget && a.selected==b.selected;
+    if(a.screen==Screen::value || a.screen==Screen::repeatValue) return sameTarget && a.valueChoice==b.valueChoice && a.draftValue==b.draftValue && a.repeatStep==b.repeatStep && a.repeating==b.repeating;
     return sameTarget;
   }
   if(a.screen==Screen::unlock) return a.credentialChoice==b.credentialChoice && a.credentialLength==b.credentialLength &&
@@ -148,12 +148,12 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
     if(before.action==Action::stop) visible=same && stopPresentedRef==before.entity && stopPresentedToken==before.openedToken;
     else visible &= same && presentedView.entity==before.entity && presentedView.openedToken==before.openedToken &&
       presentedTargetToken==before.openedToken && presentedView.action==before.action;
-  } else if(before.screen==Screen::actions || before.screen==Screen::value) {
+  } else if(before.screen==Screen::actions || before.screen==Screen::value || before.screen==Screen::repeatActions || before.screen==Screen::repeatValue) {
     visible &= model.target.ref==before.entity && before.openedToken && model.target.token==before.openedToken &&
       presentedView.entity==before.entity && presentedView.openedToken==before.openedToken &&
       presentedTargetToken==before.openedToken && presentedView.action==before.action;
-    if(before.screen==Screen::actions) visible &= presentedView.selected==before.selected;
-    else visible &= presentedView.valueChoice==before.valueChoice && presentedView.draftValue==before.draftValue;
+    if(before.screen==Screen::actions || before.screen==Screen::repeatActions) visible &= presentedView.selected==before.selected;
+    else visible &= presentedView.valueChoice==before.valueChoice && presentedView.draftValue==before.draftValue && presentedView.repeatStep==before.repeatStep && presentedView.repeating==before.repeating;
   } else if(before.screen==Screen::settings)
     visible &= settingsActive && presentedSettingsValid && sameSettings(settingsForm.view(),presentedSettings);
   else if(before.screen==Screen::brightness)

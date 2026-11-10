@@ -238,12 +238,12 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
       text(216, y + 21, label, false, active ? teal : muted, 86);
     }
     text(12, 164, v.setting == 2 ? "Press: save   Back: cancel" : "Press: next   Back: cancel", false, muted);
-  } else if(v.screen==Screen::actions) {
+  } else if(v.screen==Screen::actions || v.screen==Screen::repeatActions) {
     snprintf(label,sizeof(label),"#%s%u %s",v.entity.kind==EntityKind::group?"G":"",unsigned(v.entity.id),m.target.name);
     text(12,28,label,true,white);
-    snprintf(label,sizeof(label),"Actions %u/%u",unsigned(v.selected+1),unsigned(controlMenu(m.target.capabilities,false).count));
+    snprintf(label,sizeof(label),v.screen==Screen::repeatActions?"Repeat action %u/%u":"Actions %u/%u",unsigned(v.selected+1),unsigned((v.screen==Screen::repeatActions?repeatMenu(m.target.descriptor):controlMenu(m.target.capabilities,false,repeatableControls(m.target.descriptor)!=0)).count));
     text(12,52,label,false,muted);
-    const auto menu=controlMenu(m.target.capabilities,false);
+    const auto menu=(v.screen==Screen::repeatActions?repeatMenu(m.target.descriptor):controlMenu(m.target.capabilities,false,repeatableControls(m.target.descriptor)!=0));
     const unsigned offset=v.selected<3?0:v.selected-2;
     for(unsigned row=0;row<3 && row+offset<menu.count;row++) {
       const unsigned index=offset+row;const bool active=index==v.selected;
@@ -258,14 +258,18 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
     if(m.controlPending) text(12,164,"Queued action; Back cancels",false,amber);
     else if(v.notice!=Notice::none) text(12,164,notices[int(v.notice)],false,amber);
     else text(12,164,"Turn: choose   Back: STOP page",false,muted);
-  } else if(v.screen==Screen::value) {
+  } else if(v.screen==Screen::value || v.screen==Screen::repeatValue) {
     snprintf(label,sizeof(label),"#%s%u %s",v.entity.kind==EntityKind::group?"G":"",unsigned(v.entity.id),m.target.name);
-    text(12,28,label,true,white);text(12,52,controlLabel(v.action),false,muted);
+    text(12,28,label,true,white);
+    if(v.screen==Screen::repeatValue && controlIsStep(v.action)) {
+      snprintf(label,sizeof(label),"%s: %u steps",controlLabel(v.action),unsigned(v.repeatStep));
+      text(12,52,label,false,muted);
+    } else text(12,52,controlLabel(v.action),false,muted);
     fillRoundRect(10,64,300,42,5,v.valueChoice?bg:selected);
-    snprintf(label,sizeof(label),controlIsStep(v.action)?"%d steps":"%d%%",int(v.draftValue));
+    snprintf(label,sizeof(label),v.screen==Screen::repeatValue?"Repeats: %d":controlIsStep(v.action)?"%d steps":"%d%%",int(v.draftValue));
     text(22,94,label,true,white);
     if(v.valueChoice) {
-      const char *choices[]={"Apply","Cancel"};
+      const char *choices[]={v.repeating && v.screen==Screen::value?"Next":"Apply","Cancel"};
       for(unsigned i=0;i<2;i++) {
         const int x=12+i*152;const bool active=v.valueChoice==i+1;
         fillRoundRect(x,114,144,30,4,active?selected:bg);
@@ -273,7 +277,7 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
         text(x+35,136,choices[i],false,active?teal:white,108);
       }
     } else text(12,135,"Turn: adjust   Push: review",false,teal);
-    text(12,164,m.controlPending?"Queued action; Back cancels both":v.notice!=Notice::none?notices[int(v.notice)]:"Back: cancel   Apply sends",false,m.controlPending||v.notice!=Notice::none?amber:muted);
+    text(12,164,m.controlPending?"Queued action; Back cancels both":v.notice!=Notice::none?notices[int(v.notice)]:v.repeating && v.screen==Screen::value?"Next: choose repeats; Back cancels":"Back: cancel   Apply sends",false,m.controlPending||v.notice!=Notice::none?amber:muted);
   } else {
     const auto &t=m.target;
     snprintf(label,sizeof(label),"#%s%u %s",v.entity.kind==EntityKind::group?"G":"",unsigned(v.entity.id),t.exists?t.name:"Not configured");
@@ -292,7 +296,7 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
     else if(t.position<0) snprintf(label,sizeof(label),"Position estimate unavailable");
     else snprintf(label,sizeof(label),"Estimated position %d%%",t.position);
     text(12,74,label,false,t.valid?muted:amber);
-    const auto menu=controlMenu(t.capabilities,true);
+    const auto menu=controlMenu(t.capabilities,true,repeatableControls(t.descriptor)!=0);
     for(unsigned i=0;i<menu.count;i++) {
       const int width=(296-int(menu.count-1)*8)/menu.count,x=12+i*(width+8);
       const auto action=menu.actions[i];const bool active=action==v.action;

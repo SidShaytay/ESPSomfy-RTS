@@ -302,8 +302,40 @@ static void status_hold_details_scroll_reaches_health_bottom_without_commands() 
   Command command;TEST_ASSERT_FALSE(d.c.take(command));
   d.back();TEST_ASSERT_EQUAL(Screen::status,d.c.view().screen);TEST_ASSERT_FALSE(d.c.take(command));
 }
+static void openRepeats(Drive &d,Action action) {
+  auto &descriptor=d.f.base.target.descriptor;descriptor.paired=true;descriptor.bitLength=80;
+  openMore(d);
+  for(unsigned i=0;i<20 && d.c.view().action!=repeatsNavigation;i++) d.tick(1);
+  d.click();TEST_ASSERT_EQUAL(Screen::repeatActions,d.c.view().screen);
+  for(unsigned i=0;i<20 && d.c.view().action!=action;i++) d.tick(1);
+  TEST_ASSERT_EQUAL(action,d.c.view().action);d.click();
+}
+static void repeats_are_bounded_explicit_presented_and_cancel_without_effects() {
+  Drive d;openRepeats(d,Action::up);TEST_ASSERT_EQUAL(Screen::repeatValue,d.c.view().screen);
+  Command out;for(unsigned i=0;i<140;i++) d.tick(1);
+  TEST_ASSERT_EQUAL(127,d.c.view().draftValue);TEST_ASSERT_FALSE(d.c.take(out));
+  d.click();TEST_ASSERT_EQUAL(2,d.c.view().valueChoice);d.tick(-1);d.click(false);TEST_ASSERT_FALSE(d.c.take(out));
+  d.click();TEST_ASSERT_TRUE(d.c.take(out));TEST_ASSERT_EQUAL(127,out.repeat);TEST_ASSERT_EQUAL(Action::up,out.action);
+  TEST_ASSERT_EQUAL(99,out.token);TEST_ASSERT_EQUAL(Action::stop,d.c.view().action);
+  Drive step;openRepeats(step,Action::stepDown);TEST_ASSERT_EQUAL(Screen::value,step.c.view().screen);
+  step.tick(1);step.tick(1);step.click();step.tick(-1);step.click();
+  TEST_ASSERT_EQUAL(Screen::repeatValue,step.c.view().screen);TEST_ASSERT_FALSE(step.c.take(out));
+  step.tick(1);step.click();step.tick(-1);step.click();TEST_ASSERT_TRUE(step.c.take(out));
+  TEST_ASSERT_EQUAL(3,out.step);TEST_ASSERT_EQUAL(2,out.repeat);TEST_ASSERT_EQUAL(Action::stepDown,out.action);
+  for(unsigned reason=0;reason<5;reason++) {
+    Drive cancelled;openRepeats(cancelled,Action::up);cancelled.tick(1);
+    if(reason==0) cancelled.back();
+    if(reason==1) {cancelled.click();cancelled.click();}
+    if(reason==2) {++cancelled.f.base.target.token;cancelled.tick();}
+    if(reason==3) {cancelled.f.base.authorized=false;cancelled.tick();}
+    if(reason==4) cancelled.tick(0,false,true,false,30000);
+    TEST_ASSERT_FALSE(cancelled.c.take(out));TEST_ASSERT_EQUAL(Screen::control,cancelled.c.view().screen);
+    TEST_ASSERT_EQUAL(Action::stop,cancelled.c.view().action);
+  }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(repeats_are_bounded_explicit_presented_and_cancel_without_effects);
   RUN_TEST(administration_requires_unlock_and_forwards_only_presented_form_press);
   RUN_TEST(status_hold_details_scroll_reaches_health_bottom_without_commands);
   RUN_TEST(stable_catalogue_selection_binds_id_not_slot);
