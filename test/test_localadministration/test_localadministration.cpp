@@ -11,6 +11,15 @@ struct Memory : ArduinoJson::Allocator {
   void *reallocate(void *p,size_t n) override {return realloc(p,n);}
 };
 struct State : EntityAdmin::Backend,Advanced::Backend,CatalogueSource {
+  // Parent navigation fixture; membership mutations are tested by the real
+  // runtime/member suites. Unimplemented child operations fail closed here.
+  bool membershipRows(Advanced::Target,bool,Advanced::MembershipRows &)override{return false;}
+  bool membershipLabel(Advanced::Target,bool,const Advanced::MembershipRows &,uint8_t,Choice &,char (&)[48])override{return false;}
+  bool selectMembership(Advanced::Target,const Advanced::Context &,bool,const Advanced::MembershipRows &,uint8_t,Advanced::MembershipSelection &)override{return false;}
+  Admission membershipCurrent(Advanced::Target,const Advanced::Context &,Authorization,uint64_t,const Advanced::MembershipSelection &)override{return Admission::stale;}
+  Advanced::MembershipApplyResult applyMembership(Advanced::Target,const Advanced::Context &,Authorization,uint64_t,const Advanced::MembershipSelection &,LearnPending &,ArduinoJson::Allocator &)override{return {{{},Admission::stale}};}
+  Advanced::LearnFileResult retryMembershipFile(Advanced::Target,const Advanced::Context &,Authorization,uint64_t,LearnPending &)override{return {{},Admission::stale};}
+
   // This catalogue/metadata fixture does not emulate checked counter storage.
   // Primary correction is driven through the real Backend by its own tests.
   Advanced::PrimaryReadResult readPrimary(Advanced::Target,const Advanced::Context&,Authorization,uint64_t,PrimaryCounterReview &out) override {
