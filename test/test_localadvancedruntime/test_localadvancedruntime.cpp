@@ -238,7 +238,7 @@ Backend &runtimeBackend() {
 } // namespace LocalUi
 #include "../../src/GitUpdate.cpp"
 static unsigned radioCommands=0;static shade_request_t sentRemote;
-struct RecordingRequests {shade_request_result_t run(const shade_request_t &request){++radioCommands;sentRemote=request;return shade_request_result_t::done;}} shadeRequests;
+struct RecordingRequests {shade_request_result_t run(const shade_request_t &request){TEST_ASSERT_TRUE(gitUpdate.busy());GitUpdateOwnerToken competing;const bool acquired=gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,competing);if(acquired)gitUpdate.releaseExternal(competing);TEST_ASSERT_FALSE(acquired);++radioCommands;sentRemote=request;return shade_request_result_t::done;}} shadeRequests;
 #define ShadeRequests RecordingRequests
 #include "../../src/LocalAdvancedRuntime.cpp"
 #undef ShadeRequests
@@ -639,8 +639,15 @@ static void primary_final_read_side_effect_and_witness_changes_refuse_without_co
 }
 static void remote_runtime_uses_exact_shared_request_and_fresh_admission() {
   struct Witness:LearnPending {
-    bool valid=true;
-    LearnQueueReason current(uint64_t) override{return valid?LearnQueueReason::ready:LearnQueueReason::expired;}
+    bool valid=true,expectLease=true;
+    unsigned checks=0;
+    LearnQueueReason current(uint64_t) override{
+      ++checks;GitUpdateOwnerToken competing;
+      const bool acquired=gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,competing);
+      if(acquired)gitUpdate.releaseExternal(competing);
+      if(expectLease)TEST_ASSERT_FALSE(acquired);
+      return valid?LearnQueueReason::ready:LearnQueueReason::expired;
+    }
     void execute(uint64_t) override{}void cancelled(LearnQueueReason) override{}
     bool usesRadio()const override{return true;}
   } witness;
@@ -648,8 +655,12 @@ static void remote_runtime_uses_exact_shared_request_and_fresh_admission() {
   RemoteProgram program;program.command=somfy_commands::Prog;program.repeats=7;
   TEST_ASSERT_TRUE(source().supportsProgramming(target));
   const EntityAdmin::Authorization auth{true,1,1};
+  GitUpdateOwnerToken occupied;TEST_ASSERT_TRUE(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,occupied));
+  auto refused=source().sendProgramming(target,context,auth,1,program,witness);
+  TEST_ASSERT_EQUAL(Admission::busy,refused.admission);TEST_ASSERT_EQUAL(0,witness.checks);TEST_ASSERT_EQUAL(0,radioCommands);
+  TEST_ASSERT_TRUE(gitUpdate.releaseExternal(occupied));
   auto result=source().sendProgramming(target,context,auth,1,program,witness);
-  TEST_ASSERT_EQUAL(Admission::accepted,result.admission);TEST_ASSERT_EQUAL(1,radioCommands);
+  TEST_ASSERT_EQUAL(Admission::accepted,result.admission);TEST_ASSERT_EQUAL(1,radioCommands);TEST_ASSERT_GREATER_THAN(0,witness.checks);TEST_ASSERT_FALSE(gitUpdate.busy());
   TEST_ASSERT_EQUAL(7,sentRemote.id);TEST_ASSERT_EQUAL(somfy_commands::Prog,sentRemote.command);TEST_ASSERT_EQUAL(7,sentRemote.repeat);
   somfy.shades[0].idle=false;source().sendProgramming(target,context,auth,1,program,witness);TEST_ASSERT_EQUAL(1,radioCommands);
   somfy.shades[0].idle=true;witness.valid=false;source().sendProgramming(target,context,auth,1,program,witness);TEST_ASSERT_EQUAL(1,radioCommands);
@@ -657,7 +668,7 @@ static void remote_runtime_uses_exact_shared_request_and_fresh_admission() {
   somfy.shades[0].configurationRevision++;source().sendProgramming(target,context,auth,1,program,witness);TEST_ASSERT_EQUAL(1,radioCommands);
   TEST_ASSERT_TRUE(source().capture(target,context));somfy.shades[0].proto=radio_proto::GP_Relay;
   TEST_ASSERT_FALSE(source().supportsProgramming(target));source().sendProgramming(target,context,auth,1,program,witness);TEST_ASSERT_EQUAL(1,radioCommands);
-  auto queued=submitLocalLearn(witness,10);TEST_ASSERT_EQUAL(LearnQueueReason::ready,queued.reason);
+  witness.expectLease=false;auto queued=submitLocalLearn(witness,10);TEST_ASSERT_EQUAL(LearnQueueReason::ready,queued.reason);
   TEST_ASSERT_TRUE(learnedMarker.localRadio);TEST_ASSERT_TRUE(loopItemUsesRadio(learnedMarker));
   TEST_ASSERT_TRUE(cancelLocalLearn(queued.token,witness));
 }
