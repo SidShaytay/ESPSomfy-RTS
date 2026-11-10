@@ -126,7 +126,12 @@ int main(int argc, char **argv) {
     assert(radioCalls==1 && nvsCalls==1 && group.lastFrame.cmd==somfy_commands::Favorite);
     assert(shade.state().target==50 && !shade.idleForAdministration());
     assert(requestRestart(1).reason==RestartReason::activeMovement);
-    puts("Group Favorite: one group transmission, member estimate, restart blocked");return 0;
+    // Native motor movement completes without any member-addressed STOP or
+    // programming. The fake member transport above rejects every such send.
+    nowMs+=1000;shade.checkMovement();
+    assert(shade.state().currentPos==50 && shade.state().myPos==50);
+    assert(shade.idleForAdministration() && radioCalls==1 && nvsCalls==1);
+    puts("Group Favorite: one group transmission, member estimate and completion without member RF");return 0;
   }
   const bool unknown = mode.rfind("unknown", 0) == 0, empty = mode == "empty",
              dangling = mode == "dangling";

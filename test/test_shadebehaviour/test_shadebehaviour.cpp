@@ -690,8 +690,63 @@ static void test_administration_idle_waits_for_favourite_programming() {
   r.event(tx_event_t::finished,r.lastSent().ticket);
   TEST_ASSERT_TRUE(r.b.idleForAdministration());
 }
+// A native group Favorite has already been transmitted on the group address.
+// Displaced local sequences may not append member STOP or favourite programming.
+static void test_group_favorite_displaces_position_simmy_and_programming_sequences() {
+  for(unsigned source=0;source<4;++source) {
+    Rig r;r.remote.bitLength=80;r.settings.tiltType=tilt_types::tiltmotor;
+    r.b.restore(0,0,60,40);
+    if(source==0) TEST_ASSERT_TRUE(r.b.moveToTarget(80,80,r.now));
+    if(source==1) {r.settings.simMy=true;TEST_ASSERT_TRUE(r.b.moveToMyPosition(r.now));}
+    if(source==2) TEST_ASSERT_TRUE(r.b.setMyPosition(80,80,r.now));
+    if(source==3) TEST_ASSERT_TRUE(r.b.moveToTiltTarget(80,r.now));
+    r.onAir();r.run(200);const auto sent=r.link.sent.size();
+    r.b.onGroupCommand(somfy_commands::Favorite,3,r.now);
+    r.run(30000);
+    TEST_ASSERT_EQUAL(sent,r.link.sent.size());
+    ASSERT_POS(60,r.st().currentPos);ASSERT_POS(40,r.st().currentTiltPos);
+    ASSERT_POS(60,r.st().myPos);ASSERT_POS(40,r.st().myTiltPos);
+    TEST_ASSERT_TRUE(r.b.idleForAdministration());
+  }
+}
+static void test_group_favorite_consumes_obsolete_deferred_my_without_replay() {
+  for(bool longPress:{false,true}) {
+    Rig r;r.remote.bitLength=80;r.settings.simMy=true;r.b.restore(0,0,60,-1);
+    r.press(somfy_commands::My);r.lastFrame.repeats=longPress?35:0;
+    TEST_ASSERT_FALSE(r.lastFrame.processed);TEST_ASSERT_NOT_EQUAL(0,r.lastFrame.await);
+    r.b.onGroupCommand(somfy_commands::Favorite,3,r.now);
+    r.run(1000);r.wait(600);r.run(30000);r.wait(600);
+    TEST_ASSERT_EQUAL(0,r.link.sent.size());ASSERT_POS(60,r.st().target);
+    ASSERT_POS(60,r.st().myPos);TEST_ASSERT_TRUE(r.b.idleForAdministration());
+  }
+}
+static void test_group_favorite_preserves_already_accepted_tx_outcomes() {
+  // A queued position command remains unsettled until its real outcome arrives.
+  Rig queued;queued.b.restore(0,0,60,-1);queued.b.moveToTarget(80,-1,queued.now);
+  const auto moving=queued.lastSent().ticket;
+  queued.b.onGroupCommand(somfy_commands::Favorite,3,queued.now);
+  queued.run(1000);TEST_ASSERT_FALSE(queued.b.idleForAdministration());
+  queued.event(tx_event_t::started,moving);queued.run(30000);
+  TEST_ASSERT_EQUAL(1,queued.link.sent.size());ASSERT_POS(60,queued.st().myPos);
+  TEST_ASSERT_TRUE(queued.b.idleForAdministration());
+  // Already accepted programming still commits/restores from its actual ticket.
+  for(bool finished:{false,true}) {
+    Rig programming;programming.b.restore(30,0,70,-1);
+    programming.b.setMyPosition(30,-1,programming.now);
+    const auto ticket=programming.lastSent().ticket;
+    programming.b.onGroupCommand(somfy_commands::Favorite,3,programming.now);
+    programming.run(1000);TEST_ASSERT_FALSE(programming.b.idleForAdministration());
+    programming.event(finished?tx_event_t::finished:tx_event_t::dropped,ticket);
+    TEST_ASSERT_EQUAL(1,programming.link.sent.size());
+    ASSERT_POS(finished?30:70,programming.st().myPos);
+    TEST_ASSERT_TRUE(programming.b.idleForAdministration());
+  }
+}
 int main(int argc, char **argv) {
   UNITY_BEGIN();
+  RUN_TEST(test_group_favorite_displaces_position_simmy_and_programming_sequences);
+  RUN_TEST(test_group_favorite_consumes_obsolete_deferred_my_without_replay);
+  RUN_TEST(test_group_favorite_preserves_already_accepted_tx_outcomes);
   RUN_TEST(test_administration_idle_rejects_a_held_frame_without_side_effects);
   RUN_TEST(test_administration_idle_rejects_a_queued_hold_until_resolved);
   RUN_TEST(test_administration_idle_waits_for_the_stop_outcome);
