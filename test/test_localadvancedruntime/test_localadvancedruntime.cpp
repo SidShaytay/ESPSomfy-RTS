@@ -88,6 +88,7 @@ static unsigned pendingCount = 0, applies = 0, commits = 0;
 static bool expireAllocation = false, restartAllocation = false,
             memberMoves = false, blockAllocation = false;
 static ModelCommitState file = ModelCommitState::saved;
+static bool repeaterListAllocation=false;
 uint32_t LoopQueue::pending() const { return pendingCount; }
 static loop_item_t learnedMarker;
 static bool queueAccepts = true;
@@ -114,6 +115,7 @@ CounterDomainResult applyPrimaryCounterCorrection(uint8_t,uint16_t,const Primary
 static unsigned linkWrites = 0;
 static CounterDomainState linkState = CounterDomainState::saved;
 static void *acquire(size_t n) {
+  if(repeaterListAllocation)somfy.repeaters[5]=999;
   if (expireAllocation)
     ++LocalUi::security.generation;
   if (restartAllocation)
@@ -160,7 +162,12 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
   TEST_ASSERT_FALSE(
       gitUpdate.acquireExternal(GitUpdateExternalOwner::counter, competing));
   TEST_ASSERT_FALSE(edit.doc.overflowed());
-  if (edit.type == model_edit_type_t::set_paired)
+  if(edit.type==model_edit_type_t::link_repeater){
+    TEST_ASSERT_EQUAL(1,edit.doc.size());TEST_ASSERT_TRUE(edit.doc["rollingCode"].isNull());
+    const auto address=edit.doc["remoteAddress"].as<uint32_t>();TEST_ASSERT_EQUAL(123456,address);
+    for(auto &entry:somfy.repeaters)if(!entry){entry=address;break;}
+  }
+  else if (edit.type == model_edit_type_t::set_paired)
     somfy.shades[0].paired = edit.doc["paired"].as<bool>();
   else if (edit.type == model_edit_type_t::unlink_remote)
     somfy.shades[0].linkedRemotes[6].address = 0;
@@ -249,7 +256,7 @@ void setUp() {
   queueAccepts = true;
   expireAllocation = restartAllocation = memberMoves = blockAllocation = false;
   pendingRestart = false;primaryWrites=0;primaryMatches=true;afterPrimaryRead=nullptr;
-  file = ModelCommitState::saved;
+  file = ModelCommitState::saved;repeaterListAllocation=false;
   TEST_ASSERT_FALSE(gitUpdate.busy());
 }
 void tearDown() { TEST_ASSERT_FALSE(gitUpdate.busy()); }
@@ -628,8 +635,47 @@ static void primary_final_read_side_effect_and_witness_changes_refuse_without_co
     TEST_ASSERT_EQUAL(0,primaryWrites);
   }
 }
+static void repeater_learning_uses_address_only_metadata_without_counter_linking(){
+  const Target target{Scope::repeaters,0};Context context;TEST_ASSERT_TRUE(source().capture(target,context));
+  const auto auth=source().authorization();const auto history=source().revision();Witness witness;
+  LearnSelection candidate{1,1,123456,250,0,56};JsonAllocator memory(65536,acquire,release);
+  const auto result=source().linkLearn(target,context,auth,history,candidate,witness,memory);
+  TEST_ASSERT_EQUAL(Admission::accepted,result.admission);TEST_ASSERT_TRUE(result.edit.applied);
+  TEST_ASSERT_FALSE(result.edit.hasCounterResult);TEST_ASSERT_EQUAL(0,linkWrites);TEST_ASSERT_EQUAL(0,primaryWrites);
+  TEST_ASSERT_EQUAL(123456,somfy.repeaters[0]);TEST_ASSERT_FALSE(gitUpdate.busy());
+}
+static void repeater_candidate_bounds_duplicate_capacity_and_final_authority_refuse(){
+  for(unsigned change=0;change<13;++change){
+    setUp();const Target target{Scope::repeaters,0};
+    LearnSelection candidate{1,1,123456,250,0,56};
+    if(change==0)candidate.address=654321;if(change==1)for(unsigned i=0;i<7;++i)somfy.repeaters[i]=i+1;
+    if(change==2)candidate.address=0;if(change==3)candidate.address=0x1000000;
+    if(change==4)candidate.protocol=3;if(change==5)candidate.bits=57;
+    if(change==6)candidate.session=0;if(change==7)candidate.revision=0;
+    Context context;TEST_ASSERT_TRUE(source().capture(target,context));const auto auth=source().authorization();const auto history=source().revision();
+    Witness witness;GitUpdateOwnerToken owner;
+    if(change==8)expireAllocation=true;if(change==9)restartAllocation=true;if(change==10)repeaterListAllocation=true;
+    if(change==11)witness.state=LearnQueueReason::expired;if(change==12)TEST_ASSERT_TRUE(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,owner));
+    JsonAllocator memory(65536,acquire,release);const auto result=source().linkLearn(target,context,auth,history,candidate,witness,memory);
+    TEST_ASSERT_FALSE(result.edit.applied);TEST_ASSERT_EQUAL(0,applies);TEST_ASSERT_EQUAL(0,linkWrites);TEST_ASSERT_EQUAL(0,primaryWrites);
+    if(change==12)TEST_ASSERT_TRUE(gitUpdate.releaseExternal(owner));TEST_ASSERT_FALSE(gitUpdate.busy());
+  }
+}
+static void repeater_applied_persistence_failures_never_certify_counter_storage(){
+  for(const auto state:{ModelCommitState::saved,ModelCommitState::failed,ModelCommitState::uncertain}){
+    setUp();file=state;const Target target{Scope::repeaters,0};Context context;TEST_ASSERT_TRUE(source().capture(target,context));
+    const auto auth=source().authorization();const auto history=source().revision();Witness witness;
+    LearnSelection candidate{1,1,123456,250,0,56};JsonAllocator memory(65536,acquire,release);
+    const auto result=source().linkLearn(target,context,auth,history,candidate,witness,memory);
+    TEST_ASSERT_TRUE(result.edit.applied);TEST_ASSERT_EQUAL(state,result.edit.persistence.state);TEST_ASSERT_FALSE(result.edit.hasCounterResult);
+    TEST_ASSERT_EQUAL(1,applies);TEST_ASSERT_EQUAL(0,linkWrites);TEST_ASSERT_EQUAL(0,primaryWrites);TEST_ASSERT_EQUAL(123456,somfy.repeaters[0]);
+  }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(repeater_candidate_bounds_duplicate_capacity_and_final_authority_refuse);
+  RUN_TEST(repeater_applied_persistence_failures_never_certify_counter_storage);
+  RUN_TEST(repeater_learning_uses_address_only_metadata_without_counter_linking);
   RUN_TEST(primary_counter_read_and_final_apply_share_fresh_context_without_nested_owner);
   RUN_TEST(primary_final_read_side_effect_and_witness_changes_refuse_without_correction);
   RUN_TEST(checked_link_uses_only_address_counter_and_domain_owned_lease);

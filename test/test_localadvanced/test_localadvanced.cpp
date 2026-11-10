@@ -32,13 +32,13 @@ struct Model : Advanced::Backend {
   unsigned saves = 0, retries = 0, targetReads = 0;
   bool marked = false;
   bool stale = false, badLabel = false;
-  uint8_t total = 1;
+  uint8_t total = 1,repeaterTotal=1;
   uint32_t repeater = 1234;
   Admission refusal = Admission::accepted, retryRefusal = Admission::accepted;
   ModelCommitState file = ModelCommitState::saved;
   ReceiveHub received;
   LearnQueue learnedQueue;
-  unsigned links = 0, counterWrites = 0;
+  unsigned links = 0, counterWrites = 0, repeaterAdds=0;
   uint64_t learnedToken = 0;
   CounterDomainState counterState = CounterDomainState::saved;
   LearnQueueReason lateFreshness = LearnQueueReason::ready;
@@ -90,6 +90,10 @@ struct Model : Advanced::Backend {
       return {{}, Admission::stale};
     if (lateFreshness != LearnQueueReason::ready)
       return {{}, Admission::accepted, lateFreshness};
+    if(target.scope==Scope::repeaters){
+      ++repeaterAdds;repeater=candidate.address;++history;
+      return {edit_result_t::completed(0,{file,ModelCommitStage::write})};
+    }
     ++links;
     const bool applied = counterState == CounterDomainState::saved ||
                          counterState == CounterDomainState::modelFailed ||
@@ -155,8 +159,9 @@ struct Model : Advanced::Backend {
     out = marked;
     return true;
   }
-  uint8_t itemCount(Target) override { return 1; }
-  bool itemAt(Target, uint8_t index, Item &out) override {
+  uint8_t itemCount(Target target) override { return target.scope==Scope::repeaters?repeaterTotal:1; }
+  bool itemAt(Target target, uint8_t index, Item &out) override {
+    if(target.scope==Scope::repeaters){if(index>=repeaterTotal)return false;out={};out.key=repeater+index;out.slot=6-index;snprintf(out.label,sizeof(out.label),"%lu",static_cast<unsigned long>(out.key));return true;}
     if (index)
       return false;
     out = {};
@@ -746,8 +751,45 @@ static void primary_editor_expiry_and_old_ticket_cannot_execute_reopened_session
   TEST_ASSERT_NOT_EQUAL(old,replacement);model.learnedQueue.run(old,40);TEST_ASSERT_EQUAL(0,model.corrections);TEST_ASSERT_TRUE(model.learnedQueue.active(replacement));
   model.learnedQueue.run(replacement,40);TEST_ASSERT_EQUAL(1,model.corrections);form.discard();TEST_ASSERT_EQUAL(0,memory.used());
 }
+static void repeater_start_review_add_and_file_only_retry_are_explicit(){
+  Model model;model.file=ModelCommitState::failed;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);FormView view;
+  TEST_ASSERT_TRUE(form.open(Scope::repeaters,0));form.turn(1,1);form.activate(2);form.render(view);
+  TEST_ASSERT_EQUAL_STRING("Begin observation",view.rows[1].label);TEST_ASSERT_EQUAL(0,view.selected);TEST_ASSERT_FALSE(model.received.active());
+  form.turn(1,3);form.activate(4);TEST_ASSERT_TRUE(model.received.active());received(model,5,123456,200);
+  TEST_ASSERT_EQUAL(0,model.repeaterAdds);form.activate(6);form.render(view);TEST_ASSERT_EQUAL(0,view.selected);
+  TEST_ASSERT_EQUAL_STRING("Add repeater",view.rows[1].label);TEST_ASSERT_NOT_NULL(strstr(view.hint,"retransmit"));
+  form.turn(1,7);form.activate(8);TEST_ASSERT_EQUAL(0,model.repeaterAdds);model.learnedQueue.run(model.learnedToken,20);
+  TEST_ASSERT_EQUAL(1,model.repeaterAdds);TEST_ASSERT_EQUAL(123456,model.repeater);TEST_ASSERT_EQUAL(0,model.counterWrites);TEST_ASSERT_EQUAL(0,model.links);
+  form.render(view);TEST_ASSERT_EQUAL(Mode::result,view.mode);TEST_ASSERT_EQUAL(1,view.selected);TEST_ASSERT_FALSE(model.received.active());
+  form.turn(-1,21);form.activate(22);TEST_ASSERT_EQUAL(1,model.retries);TEST_ASSERT_EQUAL(1,model.repeaterAdds);
+  TEST_ASSERT_EQUAL(0,model.counterWrites);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(0,memory.used());
+}
+static void repeater_full_start_cancel_and_back_preserve_list_without_observation(){
+  for(bool full:{false,true}){
+    Model model;if(full)model.repeaterTotal=7;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);FormView view;
+    TEST_ASSERT_TRUE(form.open(Scope::repeaters,0));form.turn(-1,1);form.activate(2);
+    if(full){TEST_ASSERT_EQUAL(Notice::capacity,form.notice());form.render(view);TEST_ASSERT_EQUAL_STRING("Full",view.rows[view.rowCount-1].value);}
+    else {form.activate(3);form.render(view);TEST_ASSERT_EQUAL_STRING("Repeaters",view.title);TEST_ASSERT_EQUAL_STRING("Learn/add repeater",view.rows[1].label);}
+    TEST_ASSERT_FALSE(model.received.active());TEST_ASSERT_EQUAL(0,model.repeaterAdds);TEST_ASSERT_EQUAL(1234,model.repeater);
+    form.back(4);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(0,memory.used());
+  }
+}
+static void repeater_queued_cancel_age_auth_and_list_changes_never_add(){
+  for(unsigned change=0;change<5;++change){
+    Model model;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);
+    TEST_ASSERT_TRUE(form.open(Scope::repeaters,0));form.turn(1,1);form.activate(2);form.turn(1,3);form.activate(4);
+    received(model,5,123456,200);form.activate(6);form.turn(1,7);form.activate(8);
+    if(change==0)form.back(9);if(change==1)model.auth.allowed=false;if(change==2)++model.auth.generation;if(change==3)++model.repeater;
+    model.learnedQueue.run(model.learnedToken,change==4?5008:20);
+    TEST_ASSERT_EQUAL(0,model.repeaterAdds);TEST_ASSERT_EQUAL(0,model.counterWrites);TEST_ASSERT_EQUAL(0,model.links);
+    form.discard();TEST_ASSERT_FALSE(model.received.active());TEST_ASSERT_EQUAL(0,memory.used());
+  }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(repeater_full_start_cancel_and_back_preserve_list_without_observation);
+  RUN_TEST(repeater_queued_cancel_age_auth_and_list_changes_never_add);
+  RUN_TEST(repeater_start_review_add_and_file_only_retry_are_explicit);
   RUN_TEST(primary_queue_back_age_auth_and_unknown_storage_never_replay);
   RUN_TEST(primary_editor_expiry_and_old_ticket_cannot_execute_reopened_session);
   RUN_TEST(primary_correction_requires_explicit_draft_apply_confirm_and_file_only_recovery);

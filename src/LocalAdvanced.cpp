@@ -75,6 +75,11 @@ void Form::endLearning() {
   session->listening = false;
   session->learned.selection = {};
 }
+void Form::returnFromLearning(){
+  endLearning();auto &s=*session;
+  s.page=s.target.scope==Scope::repeaters?Session::Page::list:Session::Page::menu;
+  s.cursor=s.target.scope==Scope::repeaters?backend.itemCount(s.target):2;
+}
 void Form::close(Notice n) {
   if (session) {
     if (session->ticket)
@@ -241,7 +246,7 @@ void Form::turn(int direction, uint64_t now) {
     count = 2;
     break;
   case Session::Page::list:
-    count = backend.itemCount(s.target);
+    count = backend.itemCount(s.target)+(s.target.scope==Scope::repeaters?1:0);
     break;
   }
   if (count)
@@ -273,8 +278,10 @@ void Form::refused(Admission a, const char *reason) {
 }
 void Form::apply() {
   auto &s = *session;
-  const auto result = backend.apply(s.target, s.action, s.context, s.auth,
-                                    s.revision, allocator);
+  finishApply(backend.apply(s.target,s.action,s.context,s.auth,s.revision,allocator));
+}
+void Form::finishApply(const ApplyResult &result){
+  auto &s=*session;
   if (result.admission != Admission::accepted) {
     refused(result.admission, result.reason);
     return;
@@ -455,8 +462,13 @@ void Form::runLearn(uint64_t) {
     return;
   }
   if (result.admission != Admission::accepted) {
-    learnFault("Link not applied. Wait, then review explicitly.");
+    learnFault(s.target.scope==Scope::repeaters&&result.edit.desc&&*result.edit.desc?result.edit.desc:
+      "Link not applied. Wait, then review explicitly.");
     return;
+  }
+  if(s.target.scope==Scope::repeaters){
+    if(!result.edit.applied){learnFault(result.edit.desc&&*result.edit.desc?result.edit.desc:"Repeater not added. Review current list.");return;}
+    endLearning();finishApply({result.edit});return;
   }
   if (!result.edit.hasCounterResult) {
     endLearning();
@@ -596,6 +608,10 @@ void Form::activate(uint64_t now) {
     s.cursor = 0;
     break;
   case Session::Page::list: {
+    if(s.target.scope==Scope::repeaters&&s.cursor==backend.itemCount(s.target)){
+      if(backend.itemCount(s.target)>=7){status=Notice::capacity;return;}
+      s.page=Session::Page::learnStart;s.cursor=0;status=Notice::none;return;
+    }
     if (!backend.itemCount(s.target)) {
       close(Notice::none);
       return;
@@ -641,13 +657,11 @@ void Form::activate(uint64_t now) {
     break;
   case Session::Page::learnStart:
     if (!s.cursor) {
-      s.page = Session::Page::menu;
-      s.cursor = 2;
+      returnFromLearning();
       break;
     }
     if (!s.learned.candidates.begin(now)) {
-      s.page = Session::Page::menu;
-      s.cursor = 2;
+      returnFromLearning();
       status = Notice::busy;
       break;
     }
@@ -681,9 +695,7 @@ void Form::activate(uint64_t now) {
     return;
   case Session::Page::learnFault:
     if (!s.cursor) {
-      endLearning();
-      s.page = Session::Page::menu;
-      s.cursor = 2;
+      returnFromLearning();
     } else {
       s.page = s.returnPage;
       s.cursor = 0;
@@ -741,9 +753,7 @@ void Form::back(uint64_t now) {
   if (s.page == Session::Page::learnStart ||
       s.page == Session::Page::learnList ||
       s.page == Session::Page::learnFault) {
-    endLearning();
-    s.page = Session::Page::menu;
-    s.cursor = 2;
+    returnFromLearning();
     status = Notice::none;
     return;
   }
@@ -804,10 +814,10 @@ void Form::render(FormView &out) {
     if (s.page == Session::Page::learnStart) {
       strcpy(out.rows[1].label, "Begin observation");
       strcpy(out.hint,
-             "Future received commands may affect device; Link sends no RF.");
+             s.target.scope==Scope::repeaters?"Future frames may retransmit. Use only one repeater.":"Future received commands may affect device; Link sends no RF.");
     } else if (s.page == Session::Page::learnReview) {
       out.mode = Mode::learnReview;
-      strcpy(out.rows[1].label, "Link received remote");
+      strcpy(out.rows[1].label,s.target.scope==Scope::repeaters?"Add repeater":"Link received remote");
       snprintf(out.rows[2].label, sizeof(out.rows[2].label), "#%lu Code %u",
                static_cast<unsigned long>(s.learned.selection.address),
                unsigned(s.learned.selection.rollingCode));
@@ -834,16 +844,17 @@ void Form::render(FormView &out) {
                                            : "RTV",
                unsigned(s.learned.selection.bits), command ? command : rawCommand,
                signal);
-      strcpy(out.hint,
-             "Links address/counter; observed format is not a filter.");
+      strcpy(out.hint,s.target.scope==Scope::repeaters?
+        "Future frames may retransmit. One repeater controller only.":
+        "Links address/counter; observed format is not a filter.");
     } else if (s.page == Session::Page::learnPending) {
-      strcpy(out.title, s.fileOnly ? "File save queued" : "Link queued");
+      strcpy(out.title, s.fileOnly ? "File save queued" : s.target.scope==Scope::repeaters?"Repeater add queued":"Link queued");
       out.total = out.rowCount = 1;
       strcpy(out.rows[0].label, "Cancel queued operation");
       strcpy(out.hint,
              "FIFO; expires after 5s. Back cancels. No automatic retry.");
     } else if (s.page == Session::Page::learnFault) {
-      strcpy(out.title, "Link not applied");
+      strcpy(out.title,s.target.scope==Scope::repeaters?"Repeater not added":"Link not applied");
       strcpy(out.rows[0].label, "Cancel learning");
       strcpy(out.rows[1].label, s.returnPage == Session::Page::learnList
                                     ? "Choose received frame"
@@ -953,7 +964,7 @@ void Form::render(FormView &out) {
     }
   } else {
     out.total =
-        s.page == Session::Page::picker ? s.count : backend.itemCount(s.target);
+        s.page == Session::Page::picker ? s.count : backend.itemCount(s.target)+(s.target.scope==Scope::repeaters?1:0);
     out.offset = s.cursor / 3 * 3;
     if (!out.total) {
       out.total = out.rowCount = 1;
@@ -961,6 +972,9 @@ void Form::render(FormView &out) {
     } else
       for (uint8_t i = out.offset; i < out.total && out.rowCount < 3; i++) {
         auto &row = out.rows[out.rowCount++];
+        if(s.page==Session::Page::list&&s.target.scope==Scope::repeaters&&i==backend.itemCount(s.target)){
+          strcpy(row.label,"Learn/add repeater");strcpy(row.value,backend.itemCount(s.target)>=7?"Full":"Receive then review");continue;
+        }
         if (s.page == Session::Page::picker) {
           Choice label;
           if (!backend.targetLabel({s.target.scope, s.ids[i]}, s.slots[i],

@@ -122,6 +122,32 @@ class RuntimeBackend final : public Backend {
     return result;
   }
 
+  const char *repeaterCandidateRefusal(const LearnSelection &candidate){
+    if(!candidate.session||!candidate.revision||!candidate.address||candidate.address>0xffffff||
+      candidate.protocol>2||(candidate.bits!=56&&candidate.bits!=80))return "Invalid received remote selection.";
+    bool free=false;
+    for(const auto address:somfy.repeaters){if(address==candidate.address)return "Remote is already a repeater.";if(!address)free=true;}
+    return free?nullptr:"Repeater list is full; remove an entry first.";
+  }
+  LearnApplyResult linkObservedRepeater(Target target,const Context &context,Authorization auth,uint64_t history,
+      const LearnSelection &candidate,LearnPending &witness,ArduinoJson::Allocator &allocator){
+    ConfigurationLease lease;auto admission=admit(target,context,auth,history,&lease);
+    if(admission!=Admission::accepted)return {{},admission};
+    if(!somfy.transceiver.restartQuiescent())return {{},Admission::busy};
+    if(const auto *reason=repeaterCandidateRefusal(candidate))return {edit_result_t::error(reason),Admission::invalid};
+    JsonDocument payload(&allocator),expanded(&allocator);
+    payload[protoField(proto_field_t::remoteAddress).key]=candidate.address;
+    proto_error_buffer_t why={};const auto *error=expandEditPayload(model_edit_type_t::link_repeater,payload.as<JsonObjectConst>(),expanded,why);
+    if(payload.overflowed()||expanded.overflowed())return {{},Admission::noMemory};
+    if(error)return {{},Admission::invalid};
+    admission=admit(target,context,auth,history,&lease);if(admission!=Admission::accepted)return {{},admission};
+    admission=checkLearnContext(target,context,auth,history);if(admission!=Admission::accepted)return {{},admission};
+    if(!somfy.transceiver.restartQuiescent())return {{},Admission::busy};
+    if(const auto *reason=repeaterCandidateRefusal(candidate))return {edit_result_t::error(reason),Admission::invalid};
+    const auto fresh=witness.current(uint64_t(esp_timer_get_time())/1000);
+    if(fresh!=LearnQueueReason::ready)return {{},Admission::accepted,fresh};
+    model_edit_t edit;edit.type=model_edit_type_t::link_repeater;swap(edit.doc,expanded);return {applyModelEdit(edit)};
+  }
 public:
   PrimaryReadResult readPrimary(Target target,const Context &context,
       Authorization auth,uint64_t history,PrimaryCounterReview &out) override {
@@ -171,7 +197,7 @@ public:
     const auto identity = admittedIdentity(auth, history);
     if (identity != Admission::accepted)
       return identity;
-    if (target.scope != Scope::devices || !somfy.modelLoad.usable())
+    if ((target.scope != Scope::devices && target.scope != Scope::repeaters) || !somfy.modelLoad.usable())
       return Admission::stale;
     Context current;
     return capture(target, current) && expected.same(current)
@@ -189,6 +215,7 @@ public:
     admission = checkLearnContext(target, context, expected, history);
     if (admission != Admission::accepted)
       return {{}, admission};
+    if(target.scope==Scope::repeaters)return linkObservedRepeater(target,context,expected,history,candidate,witness,allocator);
     JsonDocument payload(&allocator), expanded(&allocator);
     payload[protoField(proto_field_t::shadeId).key] = target.id;
     payload[protoField(proto_field_t::remoteAddress).key] = candidate.address;

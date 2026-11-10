@@ -69,6 +69,7 @@ static LocalUi::EntityAdmin::OrderIds fileOrder[3]{};
 static int8_t fileRanks[3][32]{};
 static uint8_t fileCounts[3]{};
 static bool fileKnown=false,filePairedMarker=false;
+static uint32_t fileRepeaterAddress=0;
 static uint64_t settingsRevision=1;
 uint64_t deviceSettingsRevision(settings_section_t section) {return uint8_t(section)<5?settingsRevision:0;}
 bool readDeviceSettings(settings_section_t section,SettingsSnapshotSink &sink) {
@@ -139,6 +140,7 @@ static void snapshotFakeOrderFile() {
     for(uint8_t i=0;i<fileCounts[type];i++)fileRanks[type][i]=type==0?somfy.rooms[slots[i]].sortOrder:type==1?somfy.shades[slots[i]].sortOrder:somfy.groups[slots[i]].sortOrder;
   }
   const auto *marker=somfy.getShadeById(4);filePairedMarker=marker && marker->paired;
+  fileRepeaterAddress=0;for(const auto address:somfy.repeaters)if(address){fileRepeaterAddress=address;break;}
   fileKnown=true;
 }
 edit_result_t applyModelEdit(model_edit_t &edit) {
@@ -170,10 +172,13 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
     result.id=applied?shade->id:0;result.persistence={entitySaveState,ModelCommitStage::write};
     result.hasCounterResult=true;result.counterState=state;return result;
   }
-  if(edit.type==model_edit_type_t::set_paired || edit.type==model_edit_type_t::unlink_remote || edit.type==model_edit_type_t::unlink_repeater || edit.type==model_edit_type_t::unlink_from_group) {
+  if(edit.type==model_edit_type_t::set_paired || edit.type==model_edit_type_t::unlink_remote || edit.type==model_edit_type_t::unlink_repeater || edit.type==model_edit_type_t::unlink_from_group || edit.type==model_edit_type_t::link_repeater) {
     assert(gitUpdate.busy());auto object=edit.doc.as<JsonObject>();uint8_t id=0;
     if(edit.type==model_edit_type_t::set_paired){id=object["shadeId"];auto *shade=somfy.getShadeById(id);assert(shade);shade->paired=object["paired"].as<bool>();}
     else if(edit.type==model_edit_type_t::unlink_remote){id=object["shadeId"];auto *shade=somfy.getShadeById(id);assert(shade);for(auto &remote:shade->linkedRemotes)if(remote.address==object["remoteAddress"].as<uint32_t>())remote.address=0;}
+    else if(edit.type==model_edit_type_t::link_repeater){assert(object.size()==1&&object["rollingCode"].isNull());bool added=false;
+      GitUpdateOwnerToken competing;assert(!gitUpdate.acquireExternal(GitUpdateExternalOwner::counter,competing));
+      for(auto &entry:somfy.repeaters)if(!entry&&!added){entry=object["remoteAddress"];added=true;}assert(added);}
     else if(edit.type==model_edit_type_t::unlink_repeater){const auto address=object["remoteAddress"].as<uint32_t>();for(auto &remote:somfy.repeaters)if(remote==address)remote=0;}
     else {id=object["groupId"];auto *group=somfy.getGroupById(id);assert(group);for(auto &member:group->linkedShades)if(member==object["shadeId"].as<uint8_t>())member=0;}
     ++entityEdits;++somfy.configurationRevision;
@@ -959,6 +964,40 @@ int main(int argc,char **argv){
   // Fixture reset only: unknown NVS is never cleared by this production flow.
   somfy.transceiver.quarantine=CounterQuarantine::none;somfy.transceiver.blockedIdentity=0;primaryInjected=CounterDomainState::saved;
   somfy.transceiver.ready=true;
+  // Fixture recovery only; no live RF/NVS. Full protected repeater learn journey.
+  somfy.transceiver.quarantine=CounterQuarantine::none;somfy.transceiver.blockedIdentity=0;somfy.transceiver.quiescent=true;
+  for(auto &address:somfy.repeaters)address=0;++somfy.configurationRevision;snapshotFakeOrderFile();
+  const auto rfBeforeRepeater=submitted.size();const auto editsBeforeRepeater=entityEdits;
+  const auto counterWritesBeforeRepeater=learnedWrites+primaryWrites;
+  auto openRepeaterStart=[&](bool empty){openAdministration(3);click();idle();
+    assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Repeaters"));
+    if(!empty){rotate(-1);idle();}click();idle();
+    assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[1].label,"Begin observation")&&RuntimeTestAccess::administration(settingsUi).selected==0);
+  };
+  openRepeaterStart(true);assert(!receiveHub().active());saveFrame(preview,"runtime-repeater-start");
+  busBusy=true;rotate(1);click();assert(!receiveHub().active());busBusy=false;idle();click();idle();assert(receiveHub().active());
+  ReceiveObservation repeaterFrame;repeaterFrame.address=0xbe0051;repeaterFrame.rollingCode=700;repeaterFrame.protocol=0;repeaterFrame.bits=56;
+  repeaterFrame.flags=ReceiveObservation::validFlag;repeaterFrame.observedAt=testNow;
+  assert(receiveHub().publish(repeaterFrame));idle();assert(entityEdits==editsBeforeRepeater&&submitted.size()==rfBeforeRepeater);
+  click();idle();assert(RuntimeTestAccess::administration(settingsUi).selected==0&&captureProtected);
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[1].label,"Add repeater"));saveFrame(preview,"runtime-repeater-review");
+  busBusy=true;rotate(1);click();assert(entityEdits==editsBeforeRepeater);busBusy=false;idle();entitySaveState=ModelCommitState::failed;click();idle();
+  assert(entityEdits==editsBeforeRepeater+1&&somfy.repeaters[0]==repeaterFrame.address&&!fileRepeaterAddress&&!receiveHub().active());
+  assert(RuntimeTestAccess::administration(settingsUi).mode==EntityAdmin::Mode::result&&RuntimeTestAccess::administration(settingsUi).selected==1);
+  assert(submitted.size()==rfBeforeRepeater&&learnedWrites+primaryWrites==counterWritesBeforeRepeater);saveFrame(preview,"runtime-repeater-file-failed");
+  const auto commitsBeforeRepeaterRetry=entityCommits;busBusy=true;rotate(-1);click();assert(entityCommits==commitsBeforeRepeaterRetry);
+  busBusy=false;idle();entityCommitState=ModelCommitState::saved;click();idle();
+  assert(entityCommits==commitsBeforeRepeaterRetry+1&&entityEdits==editsBeforeRepeater+1&&fileRepeaterAddress==repeaterFrame.address);
+  click();idle();closeAdministration();entitySaveState=ModelCommitState::saved;
+  // Duplicate observation remains reviewable but cannot repeat the addition.
+  openRepeaterStart(false);rotate(1);idle();click();idle();repeaterFrame.observedAt=testNow;++repeaterFrame.rollingCode;
+  assert(receiveHub().publish(repeaterFrame));idle();click();idle();rotate(1);idle();click();idle();
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Repeater not added"));
+  assert(strstr(RuntimeTestAccess::administration(settingsUi).hint,"already a repeater"));saveFrame(preview,"runtime-repeater-duplicate");
+  assert(entityEdits==editsBeforeRepeater+1&&submitted.size()==rfBeforeRepeater&&learnedWrites+primaryWrites==counterWritesBeforeRepeater);
+  back();idle();assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Repeaters")&&!receiveHub().active());
+  back();idle();assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"More"));
+  closeAdministration();assert(!receiveHub().active()&&Settings::runtimeMemory().used()==0);
   free(allocated);allocated=nullptr;hasPsram=false;
   Runtime missing;missing.begin();assert(missing.failure()==GraphicsFailure::missing && !missing.tick(testNow,status,false,send,light));
   hasPsram=true;allocateOK=false;Runtime failed;failed.begin();assert(failed.failure()==GraphicsFailure::allocation && !failed.tick(testNow,status,false,send,light));
