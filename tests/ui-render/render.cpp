@@ -66,6 +66,9 @@ int main(int argc,char **argv) {
   v.entity={EntityKind::device,7};target.ref=v.entity;target.descriptor.group=false;target.descriptor.memberCount=0;
   strcpy(target.name,"Bedroom curtain");target.capabilities=allControlActions&~controlActionBit(Action::toggle);target.tiltPosition=20;
   v.screen=Screen::control;v.action=Action::count;canvas.paint(m,v,s);save(argv[1],"control-more",buffer);
+  target.lightUnavailable=true;canvas.paint(m,v,s);save(argv[1],"control-light-unavailable",buffer);
+  target.pendingRelayTilt=true;canvas.paint(m,v,s);save(argv[1],"control-tilt-light-unavailable",buffer);
+  target.pendingRelayTilt=target.lightUnavailable=false;
   v.screen=Screen::actions;v.selected=0;v.action=Action::position;canvas.paint(m,v,s);save(argv[1],"actions-position",buffer);
   v.selected=10;v.action=Action::sunOn;canvas.paint(m,v,s);save(argv[1],"actions-sun",buffer);
   v.screen=Screen::value;v.action=Action::position;v.draftValue=36;v.valueChoice=0;
