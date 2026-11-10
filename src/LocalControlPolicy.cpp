@@ -50,7 +50,14 @@ ControlMask repeatableControls(const ControlDescriptor &d) {
     controlActionBit(ControlAction::favourite)|controlActionBit(ControlAction::toggle)|
     controlActionBit(ControlAction::stepUp)|controlActionBit(ControlAction::stepDown)|
     controlActionBit(ControlAction::sunOn)|controlActionBit(ControlAction::sunOff);
-  return controlCapabilities(d)&mask;
+  ControlMask available=controlCapabilities(d)&mask;
+  // 56-bit Toggle becomes MY on air; explicit long repeats could program it.
+  if(d.bitLength!=80)available&=~controlActionBit(ControlAction::toggle);
+  // Individual Euro lift commands substitute TILT_REPEATS in the shared driver.
+  // Do not offer a count that the actual command will ignore.
+  if(!d.group && d.tiltType==tilt_types::euromode)
+    available&=~(controlActionBit(ControlAction::up)|controlActionBit(ControlAction::down));
+  return available;
 }
 bool allows(ControlAction action, const ControlDescriptor &d) {
   return (controlCapabilities(d) & controlActionBit(action)) != 0;

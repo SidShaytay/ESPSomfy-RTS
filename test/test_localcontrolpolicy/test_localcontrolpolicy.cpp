@@ -202,8 +202,23 @@ static void explicit_repeats_use_fresh_typed_commands_and_reject_stop_seek_gpio(
   TEST_ASSERT_EQUAL(int(ControlResult::unsupported),int(prepareControlRequest(ControlAction::up,d,7,-1,0,out,3)));
   TEST_ASSERT_EQUAL(73,out.id);
 }
+static void explicit_repeats_exclude_shared_domain_count_overrides() {
+  auto d=motor();d.tiltType=tilt_types::euromode;
+  shade_request_t out;out.id=73;
+  for(auto action:{ControlAction::up,ControlAction::down}) {
+    TEST_ASSERT_FALSE(repeatableControls(d)&controlActionBit(action));
+    TEST_ASSERT_EQUAL(int(ControlResult::unsupported),int(prepareControlRequest(action,d,7,-1,0,out,127)));
+    TEST_ASSERT_EQUAL(73,out.id);
+    TEST_ASSERT_EQUAL(int(ControlResult::done),int(prepareControlRequest(action,d,7,-1,0,out)));
+    out.id=73;
+  }
+  d.group=true;d.memberCount=1;d.commonActions=allControlActions;
+  TEST_ASSERT_EQUAL(int(ControlResult::done),int(prepareControlRequest(ControlAction::up,d,7,-1,0,out,127)));
+  TEST_ASSERT_EQUAL(127,out.repeat);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(explicit_repeats_exclude_shared_domain_count_overrides);
   RUN_TEST(explicit_repeats_use_fresh_typed_commands_and_reject_stop_seek_gpio);
   RUN_TEST(all_types_protocols_bits_and_tilt_modes_have_expected_capabilities);
   RUN_TEST(malformed_descriptors_and_actions_fail_closed);
