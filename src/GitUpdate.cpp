@@ -428,11 +428,12 @@ bool downloadOnce(const std::string &initial,Buffer &out,size_t &received,GitUpd
 bool temporaryDownload(const GitUpdateSnapshot &s,uint32_t serverWait){
   const auto &t=s.transport;
   if((t.certificateState&4) || t.certificateFailure || t.tlsFlags)return false;
+  const uint32_t code=t.tlsError<0?uint32_t(-int64_t(t.tlsError)):uint32_t(t.tlsError);
+  if(code && code!=0x7280 && code!=0x6800 && code!=0x50 && code!=0x4c)return false;
   if(s.reason==GitUpdateReason::transport){
     if(t.stage==GitUpdateTransportStage::status)return t.httpStatus==429 || (t.httpStatus==403 && serverWait) || t.httpStatus==500 || t.httpStatus==502 || t.httpStatus==503 || t.httpStatus==504;
     if(t.stage!=GitUpdateTransportStage::open || t.sdkError!=ESP_ERR_HTTP_CONNECT)return false;
-    const uint32_t code=t.tlsError<0?uint32_t(-int64_t(t.tlsError)):uint32_t(t.tlsError);
-    return !code || code==0x7280 || code==0x6800 || code==0x50 || code==0x4c;
+    return true;
   }
   const bool socketTemporary=t.socketError==EAGAIN || t.socketError==ECONNRESET || t.socketError==ETIMEDOUT ||
     t.socketError==ENETDOWN || t.socketError==ENETUNREACH || t.socketError==EHOSTUNREACH || t.socketError==ECONNABORTED || t.socketError==ENOTCONN;

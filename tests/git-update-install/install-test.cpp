@@ -79,6 +79,7 @@ int main(int argc,char **argv){
   if(scenario=="retryCert"){Fake::bundleResult=-77;Fake::bundleFlags=0x4000;}
   if(scenario=="retryMalformed")Fake::responses[apiUrl].body="{malformed";
   if(scenario=="retryBounds")Fake::responses[imageUrl].length=0;
+  if(scenario=="retryRecordTLS"){Fake::responses[imageUrl].truncateAt=10;Fake::responses[imageUrl].tlsError=-0x7180;Fake::onYield=[](){if(gitUpdate.snapshot().retryDelayMs)Fake::now+=gitUpdateInstallDurationMs;};}
   if(scenario=="retryPermanentTLS"){Fake::responses[apiUrl].openError=ESP_ERR_HTTP_CONNECT;Fake::responses[apiUrl].tlsError=-0x2700;}
   if(scenario=="retryDeadline" || scenario=="retryCancel"){
     Fake::responses[apiUrl].temporaryStatusFailures=10000;
