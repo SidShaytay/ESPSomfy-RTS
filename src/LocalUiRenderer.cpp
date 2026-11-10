@@ -168,7 +168,7 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
         const unsigned index=offset+row;const int y=40+row*34;const bool active=index==v.selected;
         bool available=true;
         if(actions)snprintf(label,sizeof(label),"%s",operations[index]);
-        else if(index>=3)snprintf(label,sizeof(label),"%s",index==3?(home?"Browse & settings":"Save shortcuts"):(home?"Manage shortcuts":"Cancel"));
+        else if(index>=3)snprintf(label,sizeof(label),"%s",index==3?(home?"Browse all":"Save shortcuts"):(home?"This controller":"Cancel"));
         else {
           const auto *binding=(home?m.quickAccess:v.quickDraft).at(index);const auto &entry=m.page.rows[index];
           if(binding->empty())snprintf(label,sizeof(label),"%u. Unassigned",index+1);
@@ -220,16 +220,27 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
       text(194, 146, label, false, s.battery.percent <= 15 ? amber : muted, 114);
     }
     text(12, 164, "Turn: Home   Hold: details", false, muted);
+  } else if(v.screen==Screen::controllerMenu || v.screen==Screen::configureMenu || v.screen==Screen::networkMenu) {
+    const char *controller[]={"Configure","Maintenance","Status","About","Diagnostics"};
+    const char *configure[]={"General","Security","Network","MQTT","Radio","Display","Quick entries","Rooms, devices & groups"};
+    const char *network[]={"Network settings","WiFi scan"};
+    const bool settings=v.screen==Screen::configureMenu, net=v.screen==Screen::networkMenu;
+    const auto labels=net?network:settings?configure:controller;const unsigned count=net?2:settings?8:5;
+    text(12,28,net?"Network":settings?"Configure":"This controller",true,white,230);
+    snprintf(label,sizeof(label),"%u/%u",unsigned(v.selected+1),count);text(250,27,label,false,muted,58);
+    for(unsigned row=0,offset=v.selected/3*3;row<3 && offset+row<count;++row){const int y=40+row*34;const bool active=offset+row==v.selected;
+      fillRoundRect(10,y,300,30,5,active?selected:bg);drawRoundRect(10,y,300,30,5,active?teal:line);text(18,y+21,labels[offset+row],false,white,284);}
+    text(12,164,v.notice!=Notice::none?notices[int(v.notice)]:"Turn: select   Press: open   Back",false,muted,298);
   } else if(v.screen==Screen::home || v.screen==Screen::roomKinds || v.screen==Screen::catalogue || v.screen==Screen::settings) {
     const char *home[]={"Rooms","Devices","Groups","Settings","Display settings","Status","Administration","System"};
     static_assert(sizeof(home)/sizeof(*home)==homeRows,"Every Home entry needs a label");
     const bool list=v.screen==Screen::catalogue;
     const bool roomKinds=v.screen==Screen::roomKinds;
     const bool settings=v.screen==Screen::settings;
-    const unsigned count=list?m.page.total:roomKinds?2:settings?1:homeRows;
+    const unsigned count=list?m.page.total:roomKinds?2:settings?1:m.quickReady?3:homeRows;
     const unsigned cursor=list?m.page.cursor:v.selected<count?v.selected:0;
     const unsigned offset=list?m.page.offset:cursor/catalogueRows*catalogueRows;
-    const char *title=v.screen==Screen::home?"Home":roomKinds?v.roomName:settings?"Settings":
+    const char *title=v.screen==Screen::home?(m.quickReady?"Browse all":"Home"):roomKinds?v.roomName:settings?"Settings":
       v.catalogue==CatalogueKind::rooms?"Rooms":v.catalogue==CatalogueKind::groups?"Groups":"Devices";
     text(12,28,title,true,white,230);
     snprintf(label,sizeof(label),"%u/%u",count?cursor+1:0,count);text(250,27,label,false,muted,58);

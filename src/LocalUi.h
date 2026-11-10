@@ -10,7 +10,7 @@
 namespace LocalUi {
 constexpr uint8_t detailsRowCount=14, detailsVisibleRows=6;
 constexpr uint8_t homeRows=8, administrationHomeIndex=6, systemHomeIndex=7;
-enum class Screen : uint8_t { status, home, catalogue, roomKinds, control, actions, value, repeatActions, repeatValue, details, brightness, unlock, settings, administration, system, favouriteObserve, favouriteConfirm, quickHome, quickManage, quickActions, quickSave };
+enum class Screen : uint8_t { status, home, catalogue, roomKinds, control, actions, value, repeatActions, repeatValue, details, brightness, unlock, settings, administration, system, favouriteObserve, favouriteConfirm, quickHome, quickManage, quickActions, quickSave, controllerMenu, configureMenu, networkMenu };
 using Action=ControlAction;
 enum class Notice : uint8_t { none, preview, queued, refused, idle, changed, wait, saved, saveFailed,
   unlockRequired, unlockWrong, unlockWait, unlockUnavailable, unlocked, done, partial, busy, cancelled, valueUnavailable, expired, stopNotQueued, holdToSend, quickSaved, quickSaveFailed, quickSaveUnknown, quickUnavailable };
@@ -67,6 +67,9 @@ struct View {
   QuickAccess quickDraft;
   bool quickEditing=false, quickPicking=false, quickOrigin=false;
   uint8_t quickSlot=0;
+  bool routed=false;
+  Screen returnScreen=Screen::home;
+  uint8_t returnSelection=0,settingsSection=255,systemSection=0;
   Notice notice=Notice::none;
   uint16_t credentialChoice=0;
   uint8_t credentialLength=0, credentialMaximum=0;
@@ -148,11 +151,12 @@ public:
     out=formInput; formInput={}; return true;
   }
   void openSettingsFromSystem() {
-    if(state.screen==Screen::system){formInput={};state.screen=Screen::settings;}
+    if(state.screen==Screen::system){formInput={};state.settingsSection=state.systemSection==3?1:4;state.screen=Screen::settings;}
   }
   void closeForm() {
-    formInput={};state.selected=state.screen==Screen::administration?administrationHomeIndex:state.screen==Screen::system?systemHomeIndex:3;
-    state.screen=Screen::home;
+    formInput={};
+    if(state.routed){state.screen=state.returnScreen;state.selected=state.returnSelection;state.routed=false;}
+    else {state.selected=state.screen==Screen::administration?administrationHomeIndex:state.screen==Screen::system?systemHomeIndex:3;state.screen=Screen::home;}
   }
   void setBrightness(uint8_t value);
   uint8_t preference() const { return state.level; }
