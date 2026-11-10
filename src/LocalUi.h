@@ -21,7 +21,7 @@ struct Target {
   uint64_t revision=0, token=0;
   ControlDescriptor descriptor;
   uint8_t movingCount=0;
-  bool pendingRelayTilt=false;
+  bool pendingRelayTilt=false,lightUnavailable=false;
   int8_t position=-1, tiltPosition=-1;
   bool exists=false, valid=false, moving=false, tiltMoving=false, stopLease=false;
 };

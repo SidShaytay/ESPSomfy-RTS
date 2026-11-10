@@ -105,6 +105,7 @@ bool readTarget(EntityRef ref,Target &target,TargetContext &context,uint32_t &mo
   if(ref.kind==EntityKind::device) {
     auto *shade=somfy.getShadeById(ref.id); if(!shade) return false;
     target.exists=true; label(target.name,shade->name);
+    target.lightUnavailable=shade->light; // Configured lamp capability, never observed lamp state.
     target.identity=raw.identity;
     target.revision=raw.revision;
     if(!makeControlTargetContext(raw,context)) return false;

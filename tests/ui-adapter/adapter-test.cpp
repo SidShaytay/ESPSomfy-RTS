@@ -69,6 +69,11 @@ int main(){
   auto model=snapshotModel(true,view);const auto stablePage=model.pageToken;
   one.value.currentPos=36;model=snapshotModel(true,view);assert(model.pageToken==stablePage);
   view.entity={EntityKind::device,7}; model=snapshotModel(true,view);
+  const auto lightRequests=submitted.size();const auto lightCounter=one.lastRollingCode;
+  const auto ordinaryCapabilities=model.target.capabilities;
+  assert(!model.target.lightUnavailable);one.light=true;model=snapshotModel(true,view);
+  assert(model.target.lightUnavailable&&one.light&&submitted.size()==lightRequests&&one.lastRollingCode==lightCounter);
+  assert(model.target.capabilities==ordinaryCapabilities);one.light=false;model=snapshotModel(true,view);assert(!model.target.lightUnavailable);
   view.openedToken=model.target.token;view.authorizedSelection=true;view.selectionAuthGeneration=security.generation;
   const auto unseen=submitted.size();assert(dispatch(command(view,Action::up))==DispatchResult::stale);
   assert(submitted.size()==unseen); // never-presented target, including STOP, cannot emit

@@ -112,8 +112,15 @@ accesses a bus that has not actually been initialized.
 Restore checks its claimed source before each namespace write and before live
 adoption. Expiry after a verified write leaves a truthful partial outcome and
 marks unadopted durable drafts uncertain; it never replays old values. No source
-or token failure becomes automatic recovery. New failed-namespace
-replacement flows remain pending Sid's choice and are not implemented here.
+or token failure becomes automatic recovery. Sid chose the existing recovery
+routes; no new whole-section LCD replacement wizard is included. Unreadable sections stay unavailable, while readable invalid fields
+retain their explicit Replace flow. Normal firmware flashing preserves NVS and
+therefore does not by itself repair damaged stored values. Backup restore covers
+its selected sections but omits WiFi/MQTT credentials and cannot reconstruct
+those secrets. Existing editors still refuse an unreadable whole section. If a
+validated supported restore cannot recover it, recovery needs a separately
+planned procedure; do not assume a normal reflash or partial backup repairs it.
+There is no automatic default/security reset or erasure.
 
 Native tests exercise actual loaders/writers/snapshots with fake NVS: complete
 absence, individual read failures, invalid originals, per-field IP repair,
