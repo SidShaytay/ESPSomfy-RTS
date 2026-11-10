@@ -895,6 +895,16 @@ uint32_t Transceiver::submitTx(somfy_tx_job_t &job, bool priority, uint16_t dela
   if(ticket) xTaskNotifyGive(txTaskHandle);
   return ticket;
 }
+bool Transceiver::cancelTx(uint32_t ticket) {
+  bool cancelled;
+  {
+    TxQueueLock lock;
+    cancelled = this->sched.cancel(ticket, millis());
+  }
+  // A removed delayed head may have been holding up an unrelated due job.
+  if(cancelled && txTaskHandle) xTaskNotifyGive(txTaskHandle);
+  return cancelled;
+}
 RadioUpdateActivity Transceiver::updateActivityLocked() const {
   RadioUpdateActivity out;out.observed=true;
   out.ready=!this->config.enabled || this->available();

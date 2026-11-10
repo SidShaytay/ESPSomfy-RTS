@@ -52,6 +52,11 @@ class RadioScheduler {
     bool keepSending(uint32_t ticket) const;
     // The job on air stopped, after every frame when complete.
     void ended(uint32_t ticket, bool complete, uint32_t now);
+    // Cancels only this ticket: a waiting job is dropped; a taken/on-air job
+    // is prevented from starting/continuing at the next frame boundary. No
+    // motor STOP is sent. Returns false for zero, unknown or ended tickets.
+    // Repeated cancellation of a still-taken ticket is harmless and true.
+    bool cancel(uint32_t ticket, uint32_t now);
     // Drops every waiting job and cuts short the one on air.
     void flush(uint32_t now);
     // Refuses new jobs until every reason (TX_SUSPEND_*) is resumed.  Flushes.
