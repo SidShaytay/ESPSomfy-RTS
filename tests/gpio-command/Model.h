@@ -25,7 +25,7 @@ struct SomfyRemote:RemoteSettings {
  void setRemoteAddress(uint32_t);uint32_t getRemoteAddress();somfy_commands transformCommand(somfy_commands);
  bool sendSensorCommand(int8_t,int8_t,uint8_t);bool sendCommand(somfy_commands);bool sendCommand(somfy_commands,uint8_t,uint8_t=0);
  send_result_t sendCommandAfter(somfy_commands,uint8_t,uint8_t,uint16_t,bool=false,bool=false);
- bool isLastCommand(somfy_commands);bool repeatFrame(uint8_t);bool peekNextRollingCode(uint16_t &code);void commitRollingCode(uint16_t);uint16_t setRollingCode(uint16_t);
+ bool isLastCommand(somfy_commands);bool repeatFrame(uint8_t);send_result_t repeatFrameReceipt(uint8_t);bool peekNextRollingCode(uint16_t &code);void commitRollingCode(uint16_t);uint16_t setRollingCode(uint16_t);
 };
 struct SomfyLinkedRemote:SomfyRemote{SomfyLinkedRemote();};
 struct SomfyShade:SomfyRemote,ShadeSettings,MotorLink,ShadeEvents {
@@ -50,7 +50,7 @@ struct SomfyShade:SomfyRemote,ShadeSettings,MotorLink,ShadeEvents {
  bool gpioCommandAllowed(somfy_commands)override;
  bool canGpioCommand(somfy_commands);bool canGpioSeek(bool=false);bool canGpioTilt(somfy_commands);
  void triggerGPIOs(somfy_frame_t &)override;
- bool sendCommand(somfy_commands);bool sendCommand(somfy_commands,uint8_t,uint8_t=0);
+ bool sendCommand(somfy_commands);bool sendCommand(somfy_commands,uint8_t,uint8_t=0);send_result_t sendCommandReceipt(somfy_commands,uint8_t,uint8_t=0);
  bool sendTiltCommand(somfy_commands);bool moveToTarget(float,float=-1);bool moveToTiltTarget(float);bool setMyPosition(int8_t,int8_t=-1);bool moveToMyPosition();bool programMyPositionHere(bool);
 };
 struct SomfyShadeController {

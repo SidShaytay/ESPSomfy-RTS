@@ -103,24 +103,25 @@ bool SomfyRemote::isLastCommand(somfy_commands cmd) {
   }
   return true;
 }
-bool SomfyRemote::repeatFrame(uint8_t repeat) {
-  if(!somfy.modelLoad.usable())return false;
+bool SomfyRemote::repeatFrame(uint8_t repeat) { return this->repeatFrameReceipt(repeat).sent; }
+send_result_t SomfyRemote::repeatFrameReceipt(uint8_t repeat) {
+  if(!somfy.modelLoad.usable())return {};
   if(!this->lastFrame.valid || !counterCommandAllowed(this->getRemoteAddress(),this->lastFrame.cmd) ||
-     somfy.transceiver.counterBlocksIdentity(this->lastFrame.remoteAddress))return false;
+     somfy.transceiver.counterBlocksIdentity(this->lastFrame.remoteAddress))return {};
   if((this->proto==radio_proto::GP_Remote || this->proto==radio_proto::GP_Relay) &&
-     !this->gpioCommandAllowed(this->lastFrame.cmd)) return false;
+     !this->gpioCommandAllowed(this->lastFrame.cmd)) return {};
   if(this->proto == radio_proto::GP_Relay)
-    return true;
+    return {true,0};
   else if(this->proto == radio_proto::GP_Remote) {
     this->triggerGPIOs(this->lastFrame);
-    return true;
+    return {true,0};
   }
   somfy_tx_job_t job;
   encodeRepeatJob(job, this->lastFrame, repeat);
-  if(!somfy.transceiver.submitTx(job)) return false;
+  if(!somfy.transceiver.submitTx(job)) return {};
   noteRepeatQueued(this->lastFrame, job);
   //somfy.processFrame(this->lastFrame, true);
-  return true;
+  return {true,job.ticket};
 }
 // The next rolling code is consumed by commitRollingCode once the frame using
 // it has been queued.  After that lastRollingCode holds what NVS does.
