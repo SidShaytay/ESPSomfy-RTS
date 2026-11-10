@@ -144,3 +144,32 @@ test('permanent current-model action remains available after durable event hides
     assert.deepEqual(h.calls.map(c => c.name), ['commitModel', 'commitModel']);
     assert.match(h.boxes.at(-1).inner.textContent, /uncertain/);
 });
+
+
+test('unchanged membership wire reply completes from cached target without event or false save claim', async () => {
+    const { ProtoClient } = require('../../data-src/js/client.js');
+    const { FakeSocket, FakeTimers, hello, sync } = require('./helpers.js');
+    FakeSocket.reset(); const timers = new FakeTimers();
+    const client = new ProtoClient({ host: 'device', token: 'test-token', WebSocket: FakeSocket, storage: null,
+        setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout });
+    client.connect(); const socket = FakeSocket.last; socket.open(); socket.deliver(hello);
+    for (const frame of sync) socket.deliver(frame);
+    client.schema.add({ T: [[37, 'linkToGroup']], F: [['ap', 'applied', 'b', 0], ['du', 'durable', 'b', 0]] });
+    const cached = { groupId: 9, linkedShades: [{ shadeId: 7 }] };
+    const h = setup(() => client.op('linkToGroup', { groupId: 9, shadeId: 7 }));
+    h.context.showModelSaveWarning({ modelSaveState: 1, desc: 'Earlier model file failure' });
+    const earlierWarning = h.context.modelSaveWarning;
+    let waits = 0, adopted = false;
+    h.context.proto.waitFor = () => { waits++; return new Promise(() => {}); };
+    const target = { event: 'group', idOf: () => 9, match: () => true, read: () => cached };
+    h.context.sendEdit('linkToGroup', { groupId: 9, shadeId: 7 }, target, (err, group) => {
+        assert.equal(err, null); assert.equal(group, cached); adopted = true;
+    });
+    const request = socket.sent.at(-1);
+    socket.deliver({ v: 2, t: 2, id: request.id, d: { k: 1, ap: 0, du: 0 } });
+    await settle();
+    assert.equal(adopted, true); assert.equal(waits, 0);
+    assert.equal(h.boxes.length, 1); assert.equal(h.context.modelSaveWarning, earlierWarning);
+    assert.equal(earlierWarning.removed, false);assert.deepEqual(h.calls.map(call => call.name), ['linkToGroup']);
+    client.close();
+});

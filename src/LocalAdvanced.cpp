@@ -17,15 +17,15 @@ struct Form::Session final : LearnPending {
   };
   // Only one interactive flow lives in the wiping slab. Keeping both would
   // crowd out Learn's existing bounded validation pools at execution time.
-  union { LearnState learned; PrimaryCounterDraft primary; };
-  bool primaryMode=false;
+  union { LearnState learned; PrimaryCounterDraft primary; MembershipDraft membership; };
+  bool primaryMode=false, membershipMode=false;
   uint64_t ticket = 0, queuedAt = 0;
   bool listening = false, fileOnly = false, canRetryFile = false,
        linkApplied = false, fileVerified = false;
   CounterDomainState counterOutcome = CounterDomainState::invalid;
   Session(Form &form, ReceiveHub &hub) : owner(form), learned(hub) {}
   ~Session() override {
-    if(primaryMode)primary.~PrimaryCounterDraft();else learned.~LearnState();
+    if(membershipMode)membership.~MembershipDraft();else if(primaryMode)primary.~PrimaryCounterDraft();else learned.~LearnState();
   }
   void openPrimary(const PrimaryCounterReview &review) {
     if(!primaryMode){learned.~LearnState();new(&primary)PrimaryCounterDraft();primaryMode=true;}
@@ -51,7 +51,8 @@ struct Form::Session final : LearnPending {
     learnPending,
     learnFault,
     learnResult,
-    primaryCounter
+    primaryCounter,
+    membership
   };
   Context context;
   OrderIds ids{}, slots{};
@@ -66,7 +67,7 @@ struct Form::Session final : LearnPending {
 };
 uint64_t Form::epoch() const { return session ? session->revision : 0; }
 void Form::endLearning() {
-  if (!session || session->primaryMode)
+  if (!session || session->primaryMode || session->membershipMode)
     return;
   if (session->listening || session->learned.selection.session ||
       session->learned.candidates.count())
@@ -82,6 +83,7 @@ void Form::close(Notice n) {
     session->ticket = 0;
     endLearning();
     if(session->primaryMode){session->primary.clear();privateProjectionDiscarded=true;}
+    if(session->membershipMode){session->membership.clear();privateProjectionDiscarded=true;}
     session->~Session();
     allocator.deallocate(session);
     session = nullptr;
@@ -120,6 +122,11 @@ bool Form::guard(uint64_t now) {
       close(Notice::changed);
       return false;
     }
+  }
+  if(s.membershipMode && s.membership.hasSelection() && !s.fileOnly){
+    const auto current=backend.membershipCurrent(s.target,s.context,s.auth,s.revision,s.membership.selection());
+    if(current==Admission::locked){close(Notice::locked);return false;}
+    if(current!=Admission::accepted){close(Notice::changed);return false;}
   }
   if(s.primaryMode && s.primary.review().address && !backend.primaryCurrent(s.target,s.primary.review())) {
     close(Notice::changed);return false;
@@ -203,6 +210,8 @@ bool Form::select() {
     if (!backend.paired(s.target, s.paired))
       return false;
     s.page = Session::Page::menu;
+  } else if(s.target.scope==Scope::groups) {
+    if(!openMembership(false))return false;
   } else
     s.page = Session::Page::list;
   s.cursor = 0;
@@ -220,6 +229,8 @@ void Form::turn(int direction, uint64_t now) {
     break;
   case Session::Page::primaryCounter:
     s.primary.turn(direction,now);return;
+  case Session::Page::membership:
+    s.membership.turn(direction);return;
   case Session::Page::menu:
     count = 4;
     break;
@@ -308,7 +319,7 @@ LearnQueueReason Form::learnCurrent(uint64_t now) {
   if (!session)
     return LearnQueueReason::stale;
   const auto &s = *session;
-  if ((s.page == Session::Page::learnPending || (s.primaryMode && s.primary.pending())) &&
+  if ((s.page == Session::Page::learnPending || (s.primaryMode && s.primary.pending()) || (s.membershipMode && s.membership.pending())) &&
       (now < s.queuedAt || now - s.queuedAt >= LearnQueue::maxAgeMs))
     return LearnQueueReason::expired;
   if (now < s.observedAt || now < s.activityAt ||
@@ -322,6 +333,10 @@ LearnQueueReason Form::learnCurrent(uint64_t now) {
     return LearnQueueReason::stale;
   if (s.fileOnly)
     return LearnQueueReason::ready;
+  if(s.membershipMode) {
+    const auto a=backend.membershipCurrent(s.target,s.context,s.auth,s.revision,s.membership.selection());
+    return a==Admission::accepted?LearnQueueReason::ready:a==Admission::locked?LearnQueueReason::locked:a==Admission::stale?LearnQueueReason::stale:LearnQueueReason::candidate;
+  }
   if(s.primaryMode)return backend.primaryCurrent(s.target,s.primary.review()) ? LearnQueueReason::ready : LearnQueueReason::stale;
   const auto check = session->learned.candidates.validate(s.learned.selection, now);
   return check == LearnCheck::ready     ? LearnQueueReason::ready
@@ -355,6 +370,7 @@ void Form::learnCancelled(LearnQueueReason reason) {
     close(Notice::changed);
     return;
   }
+  if(session->membershipMode){session->membership.busy();return;}
   if(session->primaryMode){session->primary.busy();return;}
   if (session->fileOnly) {
     session->page = Session::Page::learnResult;
@@ -391,6 +407,7 @@ void Form::queueLearn(uint64_t now, bool fileOnly) {
 void Form::runLearn(uint64_t) {
   if (!session)
     return;
+  if(session->membershipMode){runMembership();return;}
   if(session->primaryMode){runPrimary();return;}
   auto &s = *session;
   s.ticket = 0;
@@ -551,6 +568,53 @@ void Form::runPrimary() {
     if(!backend.capture(s.target,s.context)){close(Notice::changed);return;}
   }
 }
+bool Form::openMembership(bool adding) {
+  auto &s=*session;MembershipRows rows;
+  if(!backend.membershipRows(s.target,adding,rows))return false;
+  if(!s.membershipMode){endLearning();s.learned.~LearnState();new(&s.membership)MembershipDraft();s.membershipMode=true;}
+  privateProjectionDiscarded=true;s.page=Session::Page::membership;s.refusal[0]=0;
+  return s.membership.open(adding,rows);
+}
+void Form::membershipEffect(MembershipEffect effect,uint64_t now) {
+  if(!session || effect==MembershipEffect::none)return;
+  auto &s=*session;
+  if(effect==MembershipEffect::leave){close(Notice::none);return;}
+  if(effect==MembershipEffect::readMembers || effect==MembershipEffect::readCandidates){if(!openMembership(effect==MembershipEffect::readCandidates))close(Notice::changed);return;}
+  if(effect==MembershipEffect::discardReview){privateProjectionDiscarded=true;return;}
+  if(effect==MembershipEffect::select){
+    MembershipSelection selected;
+    if(!backend.selectMembership(s.target,s.context,s.membership.adding(),s.membership.rows(),s.membership.index(),selected) || !s.membership.select(selected))close(Notice::changed);
+    return;
+  }
+  const bool file=effect==MembershipEffect::queueFile;
+  const auto admission=file?backend.checkLearnContext(s.target,s.context,s.auth,s.revision):backend.membershipCurrent(s.target,s.context,s.auth,s.revision,s.membership.selection());
+  if(admission==Admission::locked){close(Notice::locked);return;}
+  if(admission==Admission::stale){close(Notice::changed);return;}
+  if(admission!=Admission::accepted){s.membership.busy();return;}
+  s.fileOnly=file;s.queuedAt=now;
+  const auto queued=backend.queueLearn(s,now);
+  if(queued.reason==LearnQueueReason::ready){s.ticket=queued.token;s.membership.queued();return;}
+  learnCancelled(queued.reason);
+}
+void Form::runMembership() {
+  auto &s=*session;s.ticket=0;
+  if(s.fileOnly){
+    const auto result=backend.retryMembershipFile(s.target,s.context,s.auth,s.revision,s);
+    if(result.freshness!=LearnQueueReason::ready){learnCancelled(result.freshness);return;}
+    if(result.admission==Admission::locked){close(Notice::locked);return;}
+    if(result.admission==Admission::stale){close(Notice::changed);return;}
+    if(result.admission!=Admission::accepted || result.report.refusal!=RestartReason::none){s.membership.busy();return;}
+    s.membership.fileComplete(result.report.file);return;
+  }
+  const auto result=backend.applyMembership(s.target,s.context,s.auth,s.revision,s.membership.selection(),s,allocator);
+  if(result.freshness!=LearnQueueReason::ready){learnCancelled(result.freshness);return;}
+  if(result.result.admission==Admission::locked){close(Notice::locked);return;}
+  if(result.result.admission==Admission::stale){close(Notice::changed);return;}
+  if(result.result.admission!=Admission::accepted){snprintf(s.refusal,sizeof(s.refusal),"%s",result.result.reason);s.membership.busy();return;}
+  const auto completed=s.membership.complete(result.result.edit);
+  if(completed==MembershipCompletion::unchanged){close(Notice::unchanged);return;}
+  if(completed==MembershipCompletion::applied){privateProjectionDiscarded=true;s.revision=backend.revision();if(!backend.capture(s.target,s.context))close(Notice::changed);}
+}
 void Form::activate(uint64_t now) {
   if (!guard(now))
     return;
@@ -567,6 +631,8 @@ void Form::activate(uint64_t now) {
     break;
   case Session::Page::primaryCounter:
     primaryEffect(s.primary.activate(now),now);return;
+  case Session::Page::membership:
+    membershipEffect(s.membership.activate(),now);return;
   case Session::Page::menu:
     if(s.cursor==3) {
       PrimaryCounterReview reviewed;
@@ -727,6 +793,7 @@ void Form::back(uint64_t now) {
     return;
   touch(now);
   auto &s = *session;
+  if(s.membershipMode){membershipEffect(s.membership.back(),now);return;}
   if(s.page==Session::Page::primaryCounter){primaryEffect(s.primary.back(now),now);return;}
   if (s.page == Session::Page::learnPending ||
       s.page == Session::Page::learnResult) {
@@ -790,6 +857,18 @@ void Form::render(FormView &out) {
       return;
     }
     snprintf(out.title, sizeof(out.title), "%s", label.label);
+  }
+  if(s.membershipMode){
+    s.membership.render(out,s.target.id,s.refusal);
+    for(uint8_t i=0;i<out.rowCount;++i){const auto index=uint8_t(out.offset+i);
+      if(!s.membership.needsLabel(index))continue;
+      Choice choice;char detail[48]={};
+      if(!backend.membershipLabel(s.target,s.membership.adding(),s.membership.rows(),index,choice,detail) ||
+         choice.value!=s.membership.rows().ids[index] || !memchr(choice.label,0,sizeof(choice.label)) || !memchr(detail,0,sizeof(detail))){close(Notice::changed);out={};out.notice=status;return;}
+      snprintf(out.rows[i].label,sizeof(out.rows[i].label),"%s",choice.label);
+      snprintf(out.rows[i].value,sizeof(out.rows[i].value),"%s",detail);
+    }
+    return;
   }
   if(s.page==Session::Page::primaryCounter){s.primary.render(out,s.target.id);return;}
   strcpy(out.hint, "Press: choose   Back: cancel");

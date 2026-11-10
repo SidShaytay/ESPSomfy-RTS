@@ -3,6 +3,9 @@
 #include "CounterEdit.h"
 #include "CounterRuntime.h"
 #include "GroupReadiness.h"
+#include "GroupMembership.h"
+#include "LocalMembershipRead.h"
+#include "ModelIdleForAdministration.h"
 #include "LocalEntityRuntime.h"
 #include "LocalOperationAdmission.h"
 #include "LocalUiAuthorizationAdapter.h"
@@ -122,7 +125,80 @@ class RuntimeBackend final : public Backend {
     return result;
   }
 
+  static MembershipApplyResult membershipRefused(Admission admission,const char *reason) {
+    MembershipApplyResult out;out.result.admission=admission;
+    snprintf(out.result.reason,sizeof(out.result.reason),"%s",reason);return out;
+  }
+  Admission membershipAdmit(Target target,const Context &context,Authorization auth,
+      uint64_t history,const MembershipSelection &selection,const ConfigurationLease *lease=nullptr) {
+    auto result=admit(target,context,auth,history,lease);
+    if(result!=Admission::accepted)return result;
+    result=membershipCurrent(target,context,auth,history,selection);
+    if(result!=Admission::accepted)return result;
+    if(!configuredShadesIdleForAdministration(somfy)||!somfy.transceiver.restartQuiescent()||somfy.transceiver.txSuspended())return Admission::busy;
+    // Configured aliases must remain visible through counter recovery. Missing
+    // references/unused sentinels remove no actual alias and stay repairable.
+    if(selection.hasCandidate&&selection.candidate.targetExists) {
+      if(somfy.transceiver.counterBlocksIdentity(context.raw.identity)||somfy.transceiver.counterBlocksIdentity(selection.candidate.identity))return Admission::busy;
+    }
+    return Admission::accepted;
+  }
 public:
+  bool membershipRows(Target target,bool candidates,MembershipRows &out) override {
+    out={};
+    if(!authorization().allowed||target.scope!=Scope::groups||!somfy.modelLoad.usable())return false;
+    MembershipReader<SomfyShadeController> reader(somfy);
+    return reader.read(target.id,candidates,EntityAdmin::runtimeBackend(),out);
+  }
+  bool membershipLabel(Target target,bool candidates,const MembershipRows &rows,uint8_t index,Choice &name,char (&detail)[48]) override {
+    if(!authorization().allowed||target.scope!=Scope::groups)return false;
+    MembershipReader<SomfyShadeController> reader(somfy);return reader.label(target.id,candidates,rows,index,name,detail);
+  }
+  bool selectMembership(Target target,const Context &context,bool candidates,const MembershipRows &rows,uint8_t index,MembershipSelection &out) override {
+    out={};Context current;
+    if(!authorization().allowed||target.scope!=Scope::groups||!capture(target,current)||!context.same(current))return false;
+    MembershipReader<SomfyShadeController> reader(somfy);return reader.select(target.id,candidates,rows,index,out);
+  }
+  Admission membershipCurrent(Target target,const Context &context,Authorization auth,uint64_t history,const MembershipSelection &selection) override {
+    const auto admitted=checkLearnContext(target,context,auth,history);
+    if(admitted!=Admission::accepted)return admitted;
+    if(target.scope!=Scope::groups)return Admission::invalid;
+    MembershipReader<SomfyShadeController> reader(somfy);
+    return reader.current(target.id,selection)?Admission::accepted:Admission::stale;
+  }
+  MembershipApplyResult applyMembership(Target target,const Context &context,Authorization auth,uint64_t history,
+      const MembershipSelection &selection,LearnPending &witness,ArduinoJson::Allocator &allocator) override {
+    auto admission=membershipAdmit(target,context,auth,history,selection);
+    if(admission!=Admission::accepted)return membershipRefused(admission,"Wait for movement, queued/radio work, recovery or restart.");
+    auto *group=somfy.getGroupById(target.id);
+    if(selection.adding&&!inspectGroupMembership(group->linkedShades,selection.id).freeSlots)return membershipRefused(Admission::invalid,"Group is full; remove an entry or unused placeholder first.");
+    ConfigurationLease lease;
+    admission=membershipAdmit(target,context,auth,history,selection,&lease);
+    if(admission!=Admission::accepted)return membershipRefused(admission,"Configuration is busy or the reviewed selection changed.");
+    const auto type=selection.adding?model_edit_type_t::link_to_group:model_edit_type_t::unlink_from_group;
+    JsonDocument payload(&allocator),expanded(&allocator);
+    payload[protoField(proto_field_t::groupId).key]=target.id;
+    payload[protoField(proto_field_t::shadeId).key]=selection.id;
+    proto_error_buffer_t why={};const auto error=expandEditPayload(type,payload.as<JsonObjectConst>(),expanded,why);
+    if(payload.overflowed()||expanded.overflowed())return membershipRefused(Admission::noMemory,"No draft memory; no membership change was applied.");
+    if(error)return membershipRefused(Admission::invalid,error);
+    admission=membershipAdmit(target,context,auth,history,selection,&lease);
+    if(admission!=Admission::accepted)return membershipRefused(admission,"Selection/work changed during preparation; review again.");
+    const auto fresh=witness.current(uint64_t(esp_timer_get_time())/1000);
+    if(fresh!=LearnQueueReason::ready)return {{},fresh};
+    model_edit_t edit;edit.type=type;swap(edit.doc,expanded);
+    MembershipApplyResult out;out.result.edit=applyModelEdit(edit);return out;
+  }
+  LearnFileResult retryMembershipFile(Target target,const Context &context,Authorization auth,uint64_t history,LearnPending &witness) override {
+    auto admission=admit(target,context,auth,history);
+    if(admission!=Admission::accepted)return {{},admission};
+    if(target.scope!=Scope::groups)return {{},Admission::invalid};
+    ConfigurationLease lease;admission=admit(target,context,auth,history,&lease);
+    if(admission!=Admission::accepted)return {{},admission};
+    const auto fresh=witness.current(uint64_t(esp_timer_get_time())/1000);
+    if(fresh!=LearnQueueReason::ready)return {{},Admission::accepted,fresh};
+    return {applyModelCommit({},ModelCommitMode::save)};
+  }
   PrimaryReadResult readPrimary(Target target,const Context &context,
       Authorization auth,uint64_t history,PrimaryCounterReview &out) override {
     out={};
@@ -171,7 +247,7 @@ public:
     const auto identity = admittedIdentity(auth, history);
     if (identity != Admission::accepted)
       return identity;
-    if (target.scope != Scope::devices || !somfy.modelLoad.usable())
+    if ((target.scope != Scope::devices && target.scope != Scope::groups) || !somfy.modelLoad.usable())
       return Admission::stale;
     Context current;
     return capture(target, current) && expected.same(current)
@@ -183,6 +259,7 @@ public:
                              const LearnSelection &candidate,
                              LearnPending &witness,
                              ArduinoJson::Allocator &allocator) override {
+    if(target.scope!=Scope::devices)return {{},Admission::invalid};
     auto admission = admit(target, context, expected, history);
     if (admission != Admission::accepted)
       return {{}, admission};
@@ -221,6 +298,7 @@ public:
   LearnFileResult retryLearnFile(Target target, const Context &context,
                                  Authorization expected, uint64_t history,
                                  LearnPending &witness) override {
+    if(target.scope!=Scope::devices)return {{},Admission::invalid};
     auto admission = admit(target, context, expected, history);
     if (admission != Admission::accepted)
       return {{}, admission};

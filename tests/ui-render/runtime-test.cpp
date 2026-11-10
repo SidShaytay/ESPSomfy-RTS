@@ -170,6 +170,15 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
     result.id=applied?shade->id:0;result.persistence={entitySaveState,ModelCommitStage::write};
     result.hasCounterResult=true;result.counterState=state;return result;
   }
+  if(edit.type==model_edit_type_t::link_to_group) {
+    assert(gitUpdate.busy());const auto object=edit.doc.as<JsonObjectConst>();
+    const auto id=object["groupId"].as<uint8_t>(),device=object["shadeId"].as<uint8_t>();
+    auto *group=somfy.getGroupById(id);assert(group&&somfy.getShadeById(device));
+    bool inserted=false;for(auto &member:group->linkedShades)if(!member){member=device;inserted=true;break;}assert(inserted);
+    ++entityEdits;++somfy.configurationRevision;
+    if(entitySaveState==ModelCommitState::saved)snapshotFakeOrderFile();
+    edit_result_t result;result.applied=true;result.ok=entitySaveState==ModelCommitState::saved;result.id=id;result.persistence={entitySaveState,ModelCommitStage::write};return result;
+  }
   if(edit.type==model_edit_type_t::set_paired || edit.type==model_edit_type_t::unlink_remote || edit.type==model_edit_type_t::unlink_repeater || edit.type==model_edit_type_t::unlink_from_group) {
     assert(gitUpdate.busy());auto object=edit.doc.as<JsonObject>();uint8_t id=0;
     if(edit.type==model_edit_type_t::set_paired){id=object["shadeId"];auto *shade=somfy.getShadeById(id);assert(shade);shade->paired=object["paired"].as<bool>();}
@@ -801,9 +810,14 @@ int main(int argc,char **argv){
   somfy.repeaters[6]=3567;somfy.transceiver.quiescent=true;++somfy.configurationRevision;
   snapshotFakeOrderFile();assert(!filePairedMarker);const auto rfBeforeAdvanced=submitted.size();
   auto openAdvanced=[&](unsigned type) {
-    openAdministration(type);for(unsigned i=0;i<2;i++){rotate(1);idle();}
+    openAdministration(type);
+    const auto entries=RuntimeTestAccess::administration(settingsUi);
+    const unsigned advance=(entries.total-1+entries.total-entries.selected)%entries.total;
+    assert(advance);for(unsigned i=1;i<advance;i++){rotate(1);idle();}
     busBusy=true;rotate(1);click();assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,type==1?"Devices":"Groups"));
     busBusy=false;idle();click();idle();
+    const auto openedAdvanced=RuntimeTestAccess::administration(settingsUi);
+    if(strcmp(openedAdvanced.title,type==1?"Advanced devices":"Advanced groups"))fprintf(stderr,"Advanced navigation: type=%u title=%s selected=%u total=%u id=%u\n",type,openedAdvanced.title,openedAdvanced.selected,openedAdvanced.total,openedAdvanced.id);
     assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,type==1?"Advanced devices":"Advanced groups"));
     click();idle();assert(RuntimeTestAccess::administration(settingsUi).id==4 && Settings::runtimeMemory().used()>0);
   };
@@ -826,11 +840,39 @@ int main(int argc,char **argv){
   const auto remoteBefore=entityEdits;click();idle();assert(entityEdits==remoteBefore && advancedShade.linkedRemotes[6].address==2748); // default Cancel
   click();idle();rotate(1);idle();click();idle();assert(!advancedShade.linkedRemotes[6].address && advancedShade.lastRollingCode==123);
   click();idle();closeAdministration();
-  openAdvanced(2);assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].value,"View only"));
-  const auto memberBefore=entityEdits;click();idle();assert(entityEdits==memberBefore);rotate(1);idle();click();idle();
-  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[1].label,"Remove #88"));saveFrame(preview,"runtime-advanced-missing-member-confirm");
+  openAdvanced(2);assert(RuntimeTestAccess::administration(settingsUi).total==33);
+  const auto memberBefore=entityEdits;click();idle();
+  assert(RuntimeTestAccess::administration(settingsUi).mode==EntityAdmin::Mode::membershipReview && RuntimeTestAccess::administration(settingsUi).selected==0);
+  assert(entityEdits==memberBefore && advancedGroup.linkedShades[0]==4);
+  saveFrame(preview,"runtime-membership-present-review");click();idle(); // Cancel, preserve physical slot0.
+  for(unsigned i=0;i<31;++i){rotate(1);idle();}click();idle();
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[1].label,"Remove ALL #88 entries"));
+  saveFrame(preview,"runtime-membership-missing-review");
   rotate(1);idle();click();idle();assert(!advancedGroup.linkedShades[31] && advancedGroup.linkedShades[0]==4 && entityEdits==memberBefore+1);
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Membership saved"));
   click();idle();closeAdministration();
+  auto &memberCandidate=somfy.shades[31];memberCandidate.id=9;memberCandidate.address=1099;
+  memberCandidate.proto=radio_proto::RTW;memberCandidate.bitLength=80;memberCandidate.paired=false;memberCandidate.idle=true;memberCandidate.gpioRelease=0;
+  strcpy(memberCandidate.name,"New device");++somfy.configurationRevision;
+  openAdvanced(2);for(unsigned i=0;i<32;++i){rotate(1);idle();}click();idle();click();idle();
+  auto addReview=RuntimeTestAccess::administration(settingsUi);
+  assert(addReview.mode==EntityAdmin::Mode::membershipReview&&addReview.selected==0&&strstr(addReview.rows[1].value,"RTW 80b"));
+  saveFrame(preview,"runtime-membership-add-review");
+  entitySaveState=ModelCommitState::failed;const auto addsBefore=entityEdits,filesBefore=entityCommits;
+  rotate(1);idle();click();idle();assert(entityEdits==addsBefore+1&&advancedGroup.linkedShades[1]==9&&!memberCandidate.paired);
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"File save failed"));
+  saveFrame(preview,"runtime-membership-file-failed");rotate(-1);idle();click();idle();
+  assert(entityEdits==addsBefore+1&&entityCommits==filesBefore+1&&!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Membership saved"));
+  click();idle();closeAdministration();entitySaveState=ModelCommitState::saved;
+  advancedGroup.linkedShades[30]=advancedGroup.linkedShades[31]=255;++somfy.configurationRevision;
+  openAdvanced(2);for(unsigned i=0;i<31;++i){rotate(1);idle();}click();idle();
+  auto placeholders=RuntimeTestAccess::administration(settingsUi);
+  assert(placeholders.mode==EntityAdmin::Mode::membershipReview&&strstr(placeholders.rows[1].label,"#255"));
+  saveFrame(preview,"runtime-membership-unused-review");rotate(1);idle();click();idle();
+  assert(!advancedGroup.linkedShades[30]&&!advancedGroup.linkedShades[31]&&advancedGroup.linkedShades[0]==4&&advancedGroup.linkedShades[1]==9);
+  assert(submitted.size()==rfBeforeAdvanced);click();idle();closeAdministration();
+  // Restore fixture preconditions for the existing counter/learning journeys.
+  memberCandidate.id=255;advancedGroup.linkedShades[1]=0;++somfy.configurationRevision;snapshotFakeOrderFile();
   openAdministration(3);assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"More"));click();idle();
   assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Repeaters"));click();idle();rotate(1);idle();
   const auto repeaterBefore=entityEdits;somfy.transceiver.quiescent=false;click();idle();
