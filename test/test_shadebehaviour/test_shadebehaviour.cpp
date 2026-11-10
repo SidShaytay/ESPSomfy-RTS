@@ -1,6 +1,7 @@
 #include <unity.h>
 #include <vector>
 #include "ShadeBehaviour.h"
+#include "LocalControlPolicy.h"
 
 // Scenario tests pinning what ShadeBehaviour does today, moved unchanged from
 // SomfyShade.  Where the copies of a rule disagree the test says "today:" so
@@ -278,6 +279,25 @@ static void test_a_group_step_after_move_to_target_sends_no_stop() {
   r.run(1000);
   ASSERT_POS(41, r.st().currentPos);
   TEST_ASSERT_EQUAL(before, r.link.sent.size());
+}
+static void test_lcd_repeated_toggle_cannot_emit_long_my() {
+  using namespace LocalUi;
+  Rig r;
+  ControlDescriptor d;d.proto=radio_proto::RTS;d.paired=true;d.shadeType=shade_types::garage1;d.bitLength=56;
+  shade_request_t request;
+  const auto result=prepareControlRequest(ControlAction::toggle,d,1,-1,0,request,127);
+  if(result==ControlResult::done)r.b.sendCommand(request.command,request.repeat,request.stepSize,r.now);
+  TEST_ASSERT_EQUAL(int(ControlResult::unsupported),int(result));
+  TEST_ASSERT_EQUAL(0,r.link.sent.size());
+  TEST_ASSERT_EQUAL(int(ControlResult::done),int(prepareControlRequest(ControlAction::toggle,d,1,-1,0,request)));
+  r.b.sendCommand(request.command,1,request.stepSize,r.now);
+  ASSERT_CMD(somfy_commands::My,r.lastSent().cmd);
+  TEST_ASSERT_EQUAL(1,r.lastSent().repeat);
+  d.bitLength=r.remote.bitLength=80;
+  TEST_ASSERT_EQUAL(int(ControlResult::done),int(prepareControlRequest(ControlAction::toggle,d,1,-1,0,request,127)));
+  r.b.sendCommand(request.command,request.repeat,request.stepSize,r.now);
+  ASSERT_CMD(somfy_commands::Toggle,r.lastSent().cmd);
+  TEST_ASSERT_EQUAL(127,r.lastSent().repeat);
 }
 static void test_toggle_on_a_56_bit_shade_sends_my() {
   Rig r;
@@ -762,6 +782,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_refused_stop_runs_on_to_the_limit);
   RUN_TEST(test_a_step_after_move_to_target_sends_no_stop);
   RUN_TEST(test_a_group_step_after_move_to_target_sends_no_stop);
+  RUN_TEST(test_lcd_repeated_toggle_cannot_emit_long_my);
   RUN_TEST(test_toggle_on_a_56_bit_shade_sends_my);
   RUN_TEST(test_flipped_shade_sends_the_other_way);
   RUN_TEST(test_remote_down_and_my_stop);
