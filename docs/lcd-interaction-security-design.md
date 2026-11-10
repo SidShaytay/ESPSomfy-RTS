@@ -113,7 +113,7 @@ single Back from an editor while moving. “More” opens capability-specific li
 tilt target/steps, favourite/MY, toggle, sun/light and other matrix operations. Do not
 show an unsupported action as an apparently valid UP/DOWN command for a toggle device.
 The menu derives capabilities from the shared domain rules for all 17 shade types,
-5 tilt modes and actual protocols; it does not assume every paired device is RTS.
+5 tilt modes and actual protocols; it does not assume every paired device is RTS. All mode settings remain available. Separate/Euro GP_Relay tilt is an existing unsupported driver path, so the LCD shows unavailable; ordinary supported lift and RF/GP_Remote behavior remain intact. A new actuator mapping is outside this port.
 
 ```text
 Kitchen curtain #09      moving
