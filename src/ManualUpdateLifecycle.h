@@ -103,7 +103,9 @@ public:
   }
   // SDK end succeeded: retain the owner across restart publication/admission.
   bool holdRestart(const GitUpdateOwnerToken &expected) {
-    if(!matches(expected) || !inFlight || !everOpened || resourceOpen || (phase!=Phase::receiving && !(kind==ManualUpdateKind::restore && phase==Phase::queued))) return false;
+    const bool recovered=kind==ManualUpdateKind::application&&phase==Phase::awaitingRecovery&&!filesystemUnavailable;
+    if(!matches(expected) || !inFlight || !everOpened || resourceOpen || expired ||
+       (phase!=Phase::receiving && !(kind==ManualUpdateKind::restore && phase==Phase::queued) && !recovered)) return false;
     phase=Phase::awaitingRestart;return true;
   }
   bool holdRecovery(const GitUpdateOwnerToken &expected,uint64_t now) {
