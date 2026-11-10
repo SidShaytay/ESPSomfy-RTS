@@ -43,13 +43,33 @@ ControlMask controlCapabilities(const ControlDescriptor &d) {
     mask |= controlActionBit(ControlAction::sunOn) | controlActionBit(ControlAction::sunOff);
   return mask;
 }
+ControlMask repeatableControls(const ControlDescriptor &d) {
+  if(!radio(d.proto)) return 0;
+  // Long MY can program/clear favourite; keep it in the staged admin flow.
+  constexpr ControlMask mask=controlActionBit(ControlAction::up)|controlActionBit(ControlAction::down)|
+    controlActionBit(ControlAction::favourite)|controlActionBit(ControlAction::toggle)|
+    controlActionBit(ControlAction::stepUp)|controlActionBit(ControlAction::stepDown)|
+    controlActionBit(ControlAction::sunOn)|controlActionBit(ControlAction::sunOff);
+  ControlMask available=controlCapabilities(d)&mask;
+  // 56-bit Toggle becomes MY on air; explicit long repeats could program it.
+  if(d.bitLength!=80)available&=~controlActionBit(ControlAction::toggle);
+  // Individual Euro lift commands substitute TILT_REPEATS in the shared driver.
+  // Do not offer a count that the actual command will ignore.
+  if(!d.group && d.tiltType==tilt_types::euromode)
+    available&=~(controlActionBit(ControlAction::up)|controlActionBit(ControlAction::down));
+  return available;
+}
 bool allows(ControlAction action, const ControlDescriptor &d) {
   return (controlCapabilities(d) & controlActionBit(action)) != 0;
 }
 ControlResult prepareControlRequest(ControlAction action, const ControlDescriptor &d, int32_t id,
-                                    int32_t value, int32_t step, shade_request_t &out) {
+                                    int32_t value, int32_t step, shade_request_t &out, int32_t repeat) {
   if(id <= 0 || id >= 255) return ControlResult::invalid;
   if(!allows(action, d)) return ControlResult::unsupported;
+  if(repeat != -1) {
+    if(repeat<1 || repeat>127) return ControlResult::invalid;
+    if(!(repeatableControls(d)&controlActionBit(action))) return ControlResult::unsupported;
+  }
   const bool target = action == ControlAction::position || action == ControlAction::tiltPosition;
   const bool stepping = action == ControlAction::stepUp || action == ControlAction::stepDown;
   if((target ? value < 0 || value > 100 : value != -1) ||
@@ -58,6 +78,7 @@ ControlResult prepareControlRequest(ControlAction action, const ControlDescripto
      (action == ControlAction::tiltStop && !d.tiltMoving)) return ControlResult::idle;
   shade_request_t request;
   request.id = uint8_t(id);
+  request.repeat = int8_t(repeat);
   request.type = d.group ? shade_request_type_t::group_command : shade_request_type_t::shade_command;
   switch(action) {
   case ControlAction::up: request.command = somfy_commands::Up; break;

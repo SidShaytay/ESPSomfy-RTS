@@ -12,5 +12,8 @@ speculative command that could operate the motor.
 
 If a configured GPIO relay device also has an unsupported separate/Euro tilt
 mapping, the footer shows **Tilt unavailable; Light unavailable**. Its configured
-modes remain saved. Those electrical mappings are still under investigation;
-the notice does not establish working tilt hardware support.
+modes remain saved and editable. The existing relay driver uses only Up/Down
+outputs and does not map tilt movement for either mode. Ordinary supported lift
+controls remain available; RF and GPIO-remote tilt behavior is unchanged. Enabling
+these relay modes needs a specified wiring/driver design and physical verification.
+Phase 2 preserves these modes but does not provide working separate/Euro relay tilt.

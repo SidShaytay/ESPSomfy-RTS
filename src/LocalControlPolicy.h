@@ -27,11 +27,14 @@ struct ControlDescriptor {
 };
 enum class ControlResult : uint8_t { unsupported, invalid, idle, done };
 ControlMask controlCapabilities(const ControlDescriptor &);
+ControlMask repeatableControls(const ControlDescriptor &);
 bool allows(ControlAction, const ControlDescriptor &);
 // Pure construction only: no model lookup, mutation, RF/GPIO, queue or storage.
 // value is -1 except for target actions (0..100); step is zero except for
 // step actions (1..127). On failure out stays unchanged. Only done authorizes using the constructed
 // request; the caller still revalidates identity, authorization and admission.
+// repeat=-1 retains configured defaults. Explicit 1..127 is supported only for
+// repeatable RF commands and always builds a fresh command, never last-frame reuse.
 ControlResult prepareControlRequest(ControlAction, const ControlDescriptor &, int32_t stableId,
-                                    int32_t value, int32_t step, shade_request_t &out);
+                                    int32_t value, int32_t step, shade_request_t &out, int32_t repeat=-1);
 }

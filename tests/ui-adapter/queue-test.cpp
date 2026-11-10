@@ -64,6 +64,25 @@ static void mixedGroup(View &v) {
   auto &group=somfy.groups[9];group.id=11;group.bitLength=56;group.linkedShades[0]=31;group.linkedShades[1]=22;group.linkedShades[2]=7;
   ++somfy.configurationRevision;open(v,{EntityKind::group,11});
 }
+static void explicit_repeats_preserve_tuple_and_fifo_recheck_every_admission() {
+  auto view=reset();auto &shade=somfy.shades[13];shade.bitLength=80;++shade.configurationRevision;
+  open(view,{EntityKind::device,7});auto repeated=command(view,Action::stepDown);repeated.step=23;repeated.repeat=127;
+  loop_item_t other;other.request.id=22;other.request.command=somfy_commands::Up;assert(loopQueue.submit(other));
+  assert(dispatch(repeated)==DispatchResult::queued && sent.empty());loopQueue.drain();
+  assert(sent.size()==2 && sent[0].id==22 && sent[1].id==7 && sent[1].repeat==127 && sent[1].stepSize==23 && sent[1].type==shade_request_type_t::shade_command);
+  assert(result()==DispatchResult::done);
+  auto bad=command(view,Action::stop);bad.repeat=3;assert(dispatch(bad)==DispatchResult::refused);
+  for(unsigned reason=0;reason<5;reason++) {
+    view=reset();repeated=command(view,Action::down);repeated.repeat=3;
+    assert(dispatch(repeated)==DispatchResult::queued);
+    if(reason==0) {assert(cancelUnsubmittedLocalControl());}
+    if(reason==1) ++somfy.shades[13].configurationRevision;
+    if(reason==2) {somfy.transceiver.suspended=true;}
+    if(reason==3) {authTestNow+=5000;}
+    if(reason==4) {authorization.configure(AuthMode::pin,"","1234");}
+    loopQueue.drain();assert(sent.empty());assert(result()!=DispatchResult::done);
+  }
+}
 static void deferred_fifo_backpressure_and_cancel() {
   auto view=reset();const auto up=command(view,Action::up);
   assert(dispatch(up)==DispatchResult::queued && sent.empty() && localControlPending());
@@ -268,7 +287,7 @@ int main() {
   static_assert(sizeof(loop_item_t)<=80,"Queue markers must not copy target contexts into 32 slots");
   queueAllocationOK=false;loopQueue.begin();auto noQueue=reset();
   assert(dispatch(command(noQueue,Action::up))==DispatchResult::busy && !localControlPending() && sent.empty());
-  queueAllocationOK=true;loopQueue.begin();learned_intents_share_real_fifo_age_and_exact_cancellation();accepted_mutation_history_follows_actual_queue_result();restart_seal_preserves_every_accepted_item_and_refuses_late_submission();deferred_fifo_backpressure_and_cancel();age_clock_context_and_freeze_guards();
+  queueAllocationOK=true;loopQueue.begin();explicit_repeats_preserve_tuple_and_fifo_recheck_every_admission();learned_intents_share_real_fifo_age_and_exact_cancellation();accepted_mutation_history_follows_actual_queue_result();restart_seal_preserves_every_accepted_item_and_refuses_late_submission();deferred_fifo_backpressure_and_cancel();age_clock_context_and_freeze_guards();
   invalid_or_active_replacement_sources_cannot_authorize_old_intents();
   stop_supersedes_only_same_authorized_context_at_fifo_tail();
   pending_stop_observes_idle_behind_a_held_head_and_never_gains_motion();
