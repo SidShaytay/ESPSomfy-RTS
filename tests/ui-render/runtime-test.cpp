@@ -1183,10 +1183,11 @@ int main(int argc,char **argv){
   assert(testNow<beforeInstallDeadline);tick(false,unsigned(beforeInstallDeadline-testNow));idle();
   assert(update.value.busy && update.cancels==updateCancelsBeforeSleep && authActivities==continuingActivity && !pollAuthorization().allowed);
   click();idle();assert(update.value.busy && update.cancels==updateCancelsBeforeSleep && !pollAuthorization().allowed); // Wake remains operation-scoped, not a new login.
-  // Locked controls cannot cancel; Back detaches without adopting authority.
-  click();idle();assert(update.cancels==updateCancelsBeforeSleep && update.value.busy && !pollAuthorization().allowed);
+  // The highlighted Back row detaches without cancelling or granting authority.
+  const auto lockedGeneration=pollAuthorization().generation;
+  assert(!strcmp(RuntimeTestAccess::system(settingsUi).rows[1].label,"Back to unlock menus"));
+  click();idle();assert(Settings::runtimeMemory().used()==0 && update.cancels==updateCancelsBeforeSleep && update.value.busy && !pollAuthorization().allowed && pollAuthorization().generation==lockedGeneration);
   const auto resumedChecks=update.checks,resumedInstalls=update.installs;const auto continuedOperation=update.value.operation;
-  back();idle();assert(Settings::runtimeMemory().used()==0 && update.value.busy && update.cancels==updateCancelsBeforeSleep);
   back();idle();assert(!RuntimeTestAccess::updatesActive(settingsUi) && update.value.busy && update.cancels==updateCancelsBeforeSleep); // Acknowledge the retained locked status.
   homeQuick();openController();selectMenu(1);click();idle();assert(lastQuery.screen==Screen::unlock && captureProtected);
   rotate(1);for(unsigned i=0;i<4;++i)click();for(unsigned i=0;i<96;++i)rotate(1);click();idle();
