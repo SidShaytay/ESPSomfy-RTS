@@ -28,6 +28,11 @@ struct RuntimeTestAccess {
   static uint16_t *losePixels(Runtime &ui) {auto *pixels=ui.memory.pixels;ui.memory.pixels=nullptr;return pixels;}
   static void restorePixels(Runtime &ui,uint16_t *pixels) {ui.memory.pixels=pixels;}
   static const View &view(const Runtime &ui) {return ui.controller.view();}
+  static bool fullyPresented(const Runtime &ui){return ui.hasPresented && ui.bandIndex==43;}
+  static uint32_t frameRevision(const Runtime &ui){return ui.revision;}
+  static uint8_t nextBand(const Runtime &ui){return ui.bandIndex;}
+  static uint8_t presentedSelection(const Runtime &ui){return ui.presentedView.selected;}
+  static Screen presentedScreen(const Runtime &ui){return ui.presentedView.screen;}
   static const Settings::FormView &settings(const Runtime &ui) {return ui.settingsForm.view();}
   static void settingsRestartReason(Runtime &ui,RestartReason reason) {const_cast<Settings::FormView &>(ui.settingsForm.view()).restartReason=reason;}
   static const EntityAdmin::FormView &administration(const Runtime &ui) {return ui.administration.view();}
@@ -328,6 +333,9 @@ static LocalUi::Authorization authorization;
 static LocalUi::View lastQuery;
 static unsigned bands=0,presentations=0,locks=0;
 static bool busBusy=false,captureProtected=true;
+static unsigned displayStride=22;
+static bool realisticDisplay=false,captureComplete=false;static unsigned spiRemainderUs=0,spiTickUs=0,maxSpiTickUs=0,spiBandCostUs=1500,dirtyWrites=0,maxDirtyWrites=0;
+static std::vector<uint8_t> attemptedBands;static int writesBeforeBusy=-1;
 #include "../ui-adapter/LoopHarness.h"
 #define ShadeRequests RecordingRequests
 #define snapshotModel adapterSnapshotModel
@@ -397,10 +405,13 @@ struct PreviewBackend final:Backend {
 Backend &runtimeBackend(){return previewBackend;}
 }}
 void LocalUi::setCaptureProtected(bool value){captureProtected=value;}
-void LocalUi::capturePoll(const uint16_t *,bool,uint8_t,uint32_t){}
+void LocalUi::capturePoll(const uint16_t *,bool complete,uint8_t,uint32_t){if(realisticDisplay)captureComplete=complete;}
 static bool send(uint8_t y,uint8_t rows,const uint8_t *data,size_t bytes){
   assert(data && rows && rows<=4 && y+rows<=170 && bytes==rows*640u);
-  if(busBusy)return false;++bands;return true;
+  if(realisticDisplay)attemptedBands.push_back(y);
+  if(busBusy||(realisticDisplay&&writesBeforeBusy==0))return false;
+  if(realisticDisplay){if(writesBeforeBusy>0)--writesBeforeBusy;++dirtyWrites;spiTickUs+=spiBandCostUs;spiRemainderUs+=spiBandCostUs;testNow+=spiRemainderUs/1000;spiRemainderUs%=1000;}
+  ++bands;return true;
 }
 static void light(uint8_t value){assert(value==0 || value==4 || value==32);}
 static void saveFrame(const char *directory,const char *name) {
@@ -428,12 +439,12 @@ int main(int argc,char **argv){
   Runtime *active=&ui;
   int ab=3;
   bool holdEncoder=false;
-  auto tick=[&](bool pressed=false,unsigned dt=50){testNow+=dt;authTestNow=testNow;RadioScan::scanSession.poll(testNow);loopQueue.drain();active->tick(testNow,status,pressed||holdEncoder,send,light);};
+  auto tick=[&](bool pressed=false,unsigned dt=50){spiTickUs=dirtyWrites=0;const auto previousFrame=RuntimeTestAccess::frameRevision(*active);testNow+=dt;authTestNow=testNow;RadioScan::scanSession.poll(testNow);loopQueue.drain();active->tick(testNow,status,pressed||holdEncoder,send,light);if(realisticDisplay){if(RuntimeTestAccess::frameRevision(*active)!=previousFrame)testNow+=7;maxSpiTickUs=std::max(maxSpiTickUs,spiTickUs);maxDirtyWrites=std::max(maxDirtyWrites,dirtyWrites);assert(spiTickUs<=10000 && dirtyWrites<=8);}};
   auto idle=[&](unsigned duration=140){for(unsigned t=0;t<duration;t+=2)tick(false,2);};
   auto rotate=[&](int direction){
     const int middle=direction>0?(ab==3?1:2):(ab==3?2:1);
-    testPins[4]=middle>>1;testPins[5]=middle&1;tick();
-    ab=ab==3?0:3;testPins[4]=ab>>1;testPins[5]=ab&1;tick();
+    testPins[4]=middle>>1;testPins[5]=middle&1;tick(false,realisticDisplay?displayStride:50);
+    ab=ab==3?0:3;testPins[4]=ab>>1;testPins[5]=ab&1;tick(false,realisticDisplay?displayStride:50);
   };
   auto click=[&]{tick(true);tick(true);tick(false);tick(false);tick(false,2);};
   auto back=[&]{testPins[6]=0;tick();tick();testPins[6]=1;tick();tick();};
@@ -443,7 +454,58 @@ int main(int argc,char **argv){
   busBusy=true;idle(20);assert(bands==0 && captureProtected && !ui.healthy());
   busBusy=false;idle();assert(bands==43 && !captureProtected && ui.healthy());
   assert(lastQuery.screen==Screen::status && submitted.empty());releaseHold();idle();
-  const auto unchanged=bands;idle();assert(bands==unchanged);
+  auto unchanged=bands;idle();assert(bands==unchanged);
+  // Measured hardware costs:1.5ms/4-row SPI plus7ms full paint. Model
+  // real22/32ms loop gaps; sparse selection must not cost43 loop passes.
+  // Measure remaining completion time AFTER the input/first retry tick. That
+  // tick may already paint/flush a bounded batch; this is not total key latency.
+  // At32ms,20 dirty selection bands require about118.5ms remaining under the
+  // SPI budget, so use125ms there and100ms at22ms; these are modeled bounds.
+  auto settleDisplay=[&](unsigned cadence,unsigned bound,const char *label){
+    const auto started=testNow;
+    for(unsigned i=0;i<100&&!RuntimeTestAccess::fullyPresented(ui);++i){
+      assert(!captureComplete);
+      tick(false,cadence);
+    }
+    printf("Realistic LCD %s cadence%ums: remaining%ums, maxSPI%uus maxDirty%u\n",label,cadence,unsigned(testNow-started),maxSpiTickUs,maxDirtyWrites);fflush(stdout);
+    assert(RuntimeTestAccess::fullyPresented(ui) && testNow-started<=bound);
+    tick(false,cadence);assert(captureComplete);
+  };
+  for(unsigned cadence:{22u,32u}){
+    const auto noRequests=submitted.size();displayStride=cadence;realisticDisplay=true;spiBandCostUs=1500;spiRemainderUs=0;
+    maxSpiTickUs=maxDirtyWrites=0;rotate(1);assert(RuntimeTestAccess::view(ui).screen==Screen::home);
+    settleDisplay(cadence,cadence==22?300:400,"full menu");
+    const auto beforeStep=RuntimeTestAccess::view(ui).selected;
+    rotate(1);assert(RuntimeTestAccess::view(ui).selected!=beforeStep);
+    settleDisplay(cadence,cadence==22?100:125,"selection step");
+    const auto presented=RuntimeTestAccess::presentedSelection(ui);
+    busBusy=true;rotate(-1);assert(!RuntimeTestAccess::fullyPresented(ui) && !captureComplete);
+    const auto failed=RuntimeTestAccess::nextBand(ui);assert(!attemptedBands.empty()&&attemptedBands.back()==failed*4);
+    for(unsigned i=0;i<3;++i){tick(false,cadence);assert(RuntimeTestAccess::nextBand(ui)==failed && !captureComplete && RuntimeTestAccess::presentedSelection(ui)==presented);}
+    const auto retryAt=attemptedBands.size();busBusy=false;tick(false,cadence);
+    assert(attemptedBands.size()>retryAt && attemptedBands[retryAt]==failed*4); // Exact failed band retried first.
+    settleDisplay(cadence,cadence==22?100:125,"bus retry selection");
+    assert(submitted.size()==noRequests);realisticDisplay=false;back();idle();assert(RuntimeTestAccess::view(ui).screen==Screen::status);
+  }
+  // A slower2ms callback must still yield within10ms(one bounded overshoot).
+  // Zero-time callbacks independently prove the dirty-write count cap.
+  for(unsigned cost:{2000u,0u}){
+    realisticDisplay=true;spiBandCostUs=cost;spiRemainderUs=0;maxSpiTickUs=maxDirtyWrites=0;
+    rotate(1);settleDisplay(32,400,cost?"2ms callback":"zero-cost count cap");
+    assert(maxSpiTickUs<=10000 && maxDirtyWrites<=8);
+    realisticDisplay=false;back();idle();assert(RuntimeTestAccess::view(ui).screen==Screen::status);
+  }
+  realisticDisplay=true;spiBandCostUs=1500;spiRemainderUs=0;writesBeforeBusy=2;
+  const auto beforePartial=bands;rotate(1);
+  assert(bands==beforePartial+2 && !RuntimeTestAccess::fullyPresented(ui) && !captureComplete);
+  assert(RuntimeTestAccess::presentedScreen(ui)==Screen::status); // Two successful bands cannot bless a new menu.
+  const auto blockedBand=RuntimeTestAccess::nextBand(ui);
+  for(unsigned i=0;i<3;++i){tick(false,32);assert(RuntimeTestAccess::nextBand(ui)==blockedBand && !captureComplete && RuntimeTestAccess::presentedScreen(ui)==Screen::status);}
+  const auto retryAfterPartial=attemptedBands.size();writesBeforeBusy=-1;tick(false,32);
+  assert(attemptedBands.size()>retryAfterPartial && attemptedBands[retryAfterPartial]==blockedBand*4);
+  settleDisplay(32,400,"busy after two bands");
+  realisticDisplay=false;back();idle();assert(RuntimeTestAccess::view(ui).screen==Screen::status);
+  unchanged=bands;
   // Health is reachable through the actual held Status input, not a test-only page.
   status.health={true,true,true,65536,32768,16384,6u*1024*1024,400,12345};
   ++status.uptimeSeconds;idle();assert(bands==unchanged); // other pages retain minute cadence

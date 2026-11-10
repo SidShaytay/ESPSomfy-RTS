@@ -322,17 +322,38 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
     framePageToken=model.pageToken;scene=desired;bandIndex=0;attempted=true;++revision;
   }
   capturePoll(memory.pixels,bandIndex==43,controller.brightness(),revision);
-  if(bandIndex==43 || uint32_t(now-lastBand)<2) return true;
-  lastBand=now;
-  const uint8_t y=bandIndex*bandHeight, rows=(screenHeight-y)<bandHeight?screenHeight-y:bandHeight;
-  const size_t count=screenWidth*rows,bytes=count*sizeof(uint16_t);
-  const auto *pixels=memory.pixels+y*screenWidth;const uint32_t content=hash(pixels,bytes);
-  if(!(validBands&(uint64_t(1)<<bandIndex)) || bandHashes[bandIndex]!=content) {
-    for(size_t i=0;i<count;i++) transfer[i]=(pixels[i]<<8)|(pixels[i]>>8);
-    if(!sendBand(y,rows,reinterpret_cast<uint8_t *>(transfer),bytes)) return true;
-    bandHashes[bandIndex]=content;validBands|=uint64_t(1)<<bandIndex;
+  if(bandIndex==43) return true;
+  // One band per model-loop pass made even unchanged rows cost a whole pass
+  // (43 passes per frame). Scan clean bands immediately and flush a bounded
+  // batch, releasing the shared SPI lock after EVERY existing callback.
+  constexpr uint8_t maxDirtyBands=8;
+  constexpr uint32_t spiBudgetUs=8000, flushBudgetUs=10000;
+  const uint32_t flushStart=micros();
+  const bool mayTransfer=uint32_t(now-lastBand)>=2;
+  uint8_t dirtyBands=0;
+  while(bandIndex<43 && uint32_t(micros()-flushStart)<flushBudgetUs) {
+    const uint8_t y=bandIndex*bandHeight, rows=(screenHeight-y)<bandHeight?screenHeight-y:bandHeight;
+    const size_t count=screenWidth*rows,bytes=count*sizeof(uint16_t);
+    const auto *pixels=memory.pixels+y*screenWidth;const uint32_t content=hash(pixels,bytes);
+    if(!(validBands&(uint64_t(1)<<bandIndex)) || bandHashes[bandIndex]!=content) {
+      if(!mayTransfer || dirtyBands==maxDirtyBands || uint32_t(micros()-flushStart)>=spiBudgetUs) break;
+      for(size_t i=0;i<count;i++) transfer[i]=(pixels[i]<<8)|(pixels[i]>>8);
+      // Copying is outside SPI ownership and can consume the remaining time.
+      if(uint32_t(micros()-flushStart)>=spiBudgetUs) break;
+      lastBand=now;
+      // A busy bus yields immediately. Do not advance or bless this band;
+      // the same unsent content is retried next pass without holding a lock.
+      if(!sendBand(y,rows,reinterpret_cast<uint8_t *>(transfer),bytes)) return true;
+      bandHashes[bandIndex]=content;validBands|=uint64_t(1)<<bandIndex;
+      ++dirtyBands;
+    }
+    ++bandIndex;
   }
-  if(++bandIndex==43) {
+  // After the 8ms SPI budget, only clean-band validation may use the 10ms
+  // absolute work budget (plus one hash). Do not spend another main-loop pass
+  // merely blessing already-visible trailing rows. A dirty band stays pending.
+  // Input/model servicing resumes on the next loop; each SPI hold is unchanged.
+  if(bandIndex==43) {
     if(frameView.screen==Screen::settings) {presentedSettings=frameSettings;presentedSettingsValid=true;}
     else presentedSettingsValid=false;
     if(frameView.screen==Screen::administration || frameView.screen==Screen::system) {presentedAdministration=frameAdministration;presentedAdministrationEpoch=frameAdministrationEpoch;presentedAdministrationValid=true;}
