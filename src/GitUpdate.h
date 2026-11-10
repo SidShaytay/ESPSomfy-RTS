@@ -20,6 +20,16 @@ struct GitUpdateCandidate {
   uint32_t size=0;
   char sourceSha[41]={}, version[48]={}, imageSha[65]={}, manifestSha[65]={};
 };
+enum class GitUpdateDownload : uint8_t { none,api,manifest,image };
+enum class GitUpdateTransportStage : uint8_t { none,init,setHeaders,open,headers,status,read,complete };
+// Numeric-only diagnostic of the current operation; never contains network/model identifiers.
+struct GitUpdateTransport {
+  GitUpdateDownload download=GitUpdateDownload::none;
+  GitUpdateTransportStage stage=GitUpdateTransportStage::none;
+  uint8_t certificateState=0,certificateFailure=0; // attached/leaf/bundle bits; date-failure enum
+  int32_t sdkError=0,httpStatus=0,socketError=0,tlsSdkError=0,tlsError=0,tlsFlags=0;
+};
+static_assert(sizeof(GitUpdateTransport)<=32,"Bound updater transport diagnostics");
 struct GitUpdateSnapshot {
   GitUpdatePhase phase=GitUpdatePhase::unavailable;
   GitUpdateReason reason=GitUpdateReason::notStarted;
@@ -30,6 +40,7 @@ struct GitUpdateSnapshot {
   uint64_t operation=0;
   char installed[48]={};
   GitUpdateCandidate candidate;
+  GitUpdateTransport transport;
   size_t minInternalFree=0,minLargestInternal=0,maxPsramUsed=0,workerStackMinimum=0;
   size_t tlsRequested=0,tlsPeak=0,tlsInternalRequested=0,tlsFailures=0;
 };

@@ -120,7 +120,7 @@ void Form::back(uint64_t now){
 void Form::render(FormView &out)const{
   out={};out.notice=notice;if(!session)return;
   const auto &s=*session;const auto value=backend.status();const auto boot=backend.boot();
-  out.mode=Mode::stackedRows;const char *title="System updates",*hint=message(value.reason);
+  out.mode=Mode::updateStatus;const char *title="System updates",*hint=message(value.reason);
   if(s.page==Session::Page::confirm){
     out.mode=Mode::updateReview;title="Install update?";hint="Firmware + Web; saves current state, then restarts.";
     out.rowCount=3;out.total=2;out.selected=s.cursor;
@@ -138,7 +138,7 @@ void Form::render(FormView &out)const{
     out.rowCount=out.total=3;out.selected=s.cursor;
     strcpy(out.rows[0].label,"Installed");snprintf(out.rows[0].value,sizeof(out.rows[0].value),"%s",value.installed);
     strcpy(out.rows[1].label,checkable(value,boot)?"Check GitHub release":"Back: System");
-    strcpy(out.rows[2].label,value.canInstall?"Review latest release":"Latest release");
+    strcpy(out.rows[2].label,value.canInstall?"Review release":"Latest release");
     snprintf(out.rows[2].value,sizeof(out.rows[2].value),"%s",value.candidate.version);
     if(boot.pending){title=boot.rollbackRequired?"Automatic rollback":"Verifying new firmware";hint=boot.rollbackRequired?bootRecoveryText(boot.recovery):"Waiting for continuous healthy operation.";}
     else if(notice==Notice::changed)hint="Release changed. Check and review it again.";

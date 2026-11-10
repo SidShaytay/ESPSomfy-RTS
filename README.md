@@ -1,5 +1,13 @@
 # ESPSomfy RTS for LILYGO CC1101 and CC1101 Plus
 
+**ENGINEERING BUILD — INCOMPLETE. Applies to all builds currently produced by this fork.**
+
+> WARNING: Please do not load these builds, these are still a preview of the final approach.
+
+An actual controller GitHub download and installation has **never yet completed**.
+Host/offline tests and successful desktop asset downloads do not prove that path.
+See the [remaining qualification](docs/lcd-completion-qualification.md).
+
 Control and administer Somfy shutters from the LILYGO display or browser. One
 shared firmware includes the LCD controls, administration, web interface and
 verified GitHub updater for both supported boards.

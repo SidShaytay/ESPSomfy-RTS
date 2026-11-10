@@ -14,7 +14,7 @@ with tempfile.TemporaryDirectory(prefix='espsomfy-worker-') as scratch:
     binary=Path(scratch)/'worker'
     shared=common+['-DESPSOMFY_LILYGO_T_EMBED_CC1101','-DGIT_UPDATE_HOST_TEST',str(root/'tests/git-update-worker/worker-test.cpp'),str(root/'src/GitUpdatePolicy.cpp'),str(root/'src/GitUpdateCertificate.cpp'),str(root/'src/GitUpdateImage.cpp'),str(root/'src/UpdateSha256.cpp'),'-Wl,--wrap=time','-l:libcrypto.so.3','-o',str(binary)]
     subprocess.run(shared,check=True)
-    for case in ('newweb','wrongmode','missingmode','entropyfail','reboot','valid','prepare','changedsource','changedimage','changedmanifest','changedversion','generation','failedrefresh',
+    for case in ('transport_eof','transport_http','transport_reset','newweb','wrongmode','missingmode','entropyfail','reboot','valid','prepare','changedsource','changedimage','changedmanifest','changedversion','generation','failedrefresh',
         'admission','lowmem','fragmented','clock','boot','assets','layout','wrongrepo','draft','prerelease','nul','types','features','boards','oldschema','huge','digest',
         'chunkapi','chunkmanifest','truncated','unclean','encoding','redirect','redirectbad','redirectloop','cancel','cancelattest','timeout','allocation','memorynotready','createfail','notifyfail','allocationpartial','metadata_budget','duplicateassets','missingdigest','boolfeatures','floatnumeric','notpublished',
         'duplicatelocation','longlocation','redirectrepo','sameversion','downgrade','generationlarge','generationmax','externalinvalidates','wrapclock','expiredcert','futurecert','expiredintermediate','missingverify','bundlefailure'):

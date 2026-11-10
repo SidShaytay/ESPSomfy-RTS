@@ -48,4 +48,5 @@ PYCODE
 "$scratch/capture"
 bash "$repo/tools/test-local-ui-adapter.sh"
 bash "$repo/tools/test-local-control-queue.sh"
+bash "$repo/tools/preview-local-updates.sh" "$out"
 python3 "$repo/tools/local_ui_previews.py" "$out"

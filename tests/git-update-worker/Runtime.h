@@ -71,6 +71,7 @@ inline size_t internalFree=100000,internalLargest=80000;
 inline std::map<std::string,std::string> seenAccept;
 struct Response {
   int status=200;
+  int openError=0,socketError=0,tlsSdkError=0,tlsError=0,tlsFlags=0;
   std::string body;
   int64_t length=-2; // -2 => actual body length
   bool chunked=false,connection=true,clean=true;
@@ -247,6 +248,7 @@ inline esp_err_t esp_http_client_set_header(esp_http_client_handle_t c,const cha
 inline esp_err_t esp_http_client_open(esp_http_client_handle_t c,int) {
   if(c->response.requireJsonAccept && c->accept!="application/vnd.github+json") c->response.status=415;
   Fake::now+=10;
+  if(c->response.openError)return c->response.openError;
   if(!c->response.connection || c->config.crt_bundle_attach(&c->ssl)!=ESP_OK) return ESP_FAIL;
   if(Fake::missingVerify) return ESP_OK; // service must reject absent leaf verification
   uint32_t chainFlags=0;
@@ -259,6 +261,11 @@ inline esp_err_t esp_http_client_open(esp_http_client_handle_t c,int) {
     chainFlags|=flags;
   }
   return chainFlags ? ESP_FAIL : ESP_OK;
+}
+inline int esp_http_client_get_errno(esp_http_client_handle_t c) { assert(Fake::criticalDepth==0);return c->response.socketError; }
+inline esp_err_t esp_http_client_get_and_clear_last_tls_error(esp_http_client_handle_t c,int *error,int *flags) {
+  assert(Fake::criticalDepth==0);*error=c->response.tlsError;*flags=c->response.tlsFlags;
+  const auto result=c->response.tlsSdkError;c->response.tlsError=c->response.tlsFlags=c->response.tlsSdkError=0;return result;
 }
 inline int64_t esp_http_client_fetch_headers(esp_http_client_handle_t c) {
   auto header=[&](const char *name,std::string &value) {

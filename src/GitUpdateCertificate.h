@@ -19,6 +19,7 @@ public:
   Failure failure() const { return timeFailure; }
   bool complete() const { return attached && leafSeen && !bundleFailed && timeFailure==Failure::none; }
   bool rejectedByBundle() const { return bundleFailed; }
+  uint8_t diagnosticState() const { return (attached?1:0)|(leafSeen?2:0)|(bundleFailed?4:0); }
   // Dynamic factory scope is task-local and nestable. Verify callbacks retain
   // the per-config pointer; they never consult the factory after attachment.
   class Scope {
