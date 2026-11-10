@@ -556,7 +556,7 @@ int main(int argc,char **argv){
     assert(unsigned(lastQuery.draftValue)==count);click();idle();assert(lastQuery.valueChoice==2);
     rotate(-1);idle();if(!arm)return uint32_t(0);beginHold();idle();
     assert(submitted.size()==before+1 && submitted.back().command==(desired==Action::stepUp?somfy_commands::StepUp:somfy_commands::Up) && unsigned(submitted.back().repeat)==count && submitted.back().stepSize==step && submitted.back().id==7);
-    assert(localControlPending() && lastQuery.screen==Screen::control && lastQuery.action==Action::stop);
+    assert(localControlPending() && lastQuery.screen==Screen::control && lastQuery.action==Action::stop && RuntimeTestAccess::view(ui).repeatHeld);
     if(onAir)txEvent(lastOwnedTicket,tx_event_t::started);return lastOwnedTicket;
   };
   const bool beforeWakeOneIdle=one.idle,beforeWakeTwoIdle=two.idle;
@@ -573,6 +573,8 @@ int main(int argc,char **argv){
   }
   {const auto ticket=admitRepeatedUp(2);const auto requests=submitted.size();
     txEvent(ticket,tx_event_t::finished);idle(1000);assert(!localControlPending() && submitted.size()==requests);
+    assert(!RuntimeTestAccess::view(ui).repeatHeld && RuntimeTestAccess::view(ui).notice==Notice::done);
+    saveFrame(preview,"runtime-repeat-held-complete");idle(800);assert(submitted.size()==requests);
     releaseHold();idle();assert(submitted.size()==requests);controlFromStatus();} // Count exhausted while held never rearms or sends STOP.
   one.bitLength=80;idle();controlFromStatus();
   {const auto ticket=admitRepeatedUp(3,true,Action::stepUp,7);const auto requests=submitted.size();
