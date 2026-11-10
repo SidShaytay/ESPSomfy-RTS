@@ -274,7 +274,8 @@ void loop() {
   const auto action=otaHealth.poll(updateNetworkReady,bootMicros<0?UINT64_MAX:uint64_t(bootMicros)/1000);
   if(action==GitUpdateBootHealth::Action::confirm) {
     if(esp_ota_mark_app_valid_cancel_rollback()==ESP_OK) {
-      otaHealth.confirmed();otaPending=false;ESP_LOGI(TAG,"Updated firmware passed continuous boot health");
+      otaHealth.confirmed();otaPending=false;
+      Serial.println("OTA health confirmed=1");
     } else ESP_LOGE(TAG,"Unable to confirm updated firmware; keeping confirmation pending");
   } else if(action==GitUpdateBootHealth::Action::rollbackRequired) {
     ESP_LOGE(TAG,"Updated firmware failed boot health; rollback required");
