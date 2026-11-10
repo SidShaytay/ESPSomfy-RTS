@@ -54,6 +54,14 @@ after recovery serializes current counters, not a pre-upload snapshot. Protocol
 and log messages distinguish this deferral without claiming an old disk file was
 retained while its partition may have been replaced.
 
+The existing manual lifecycle now has preparation/ready/adoption transitions
+binding a nonce, security revision and exact image byte count. Ready adoption
+is exclusive; stale sources and expired clocks cannot claim receiving. A distinct
+filesystem-unavailable resource prevents owner release or restart even when no
+SDK operation was ever acquired. Expired sources may enter reducing mount
+recovery, but cannot regain receive/SDK claims. This metadata is bounded to80
+bytes under the same updater lock; it is not a second transfer owner.
+
 Remaining implementation: finish the live-filesystem entry-point audit and
 choose the smallest bounded browser admission handshake that preserves the SAME
 manual owner and does not create a second upload broker. Tests must inject reader
