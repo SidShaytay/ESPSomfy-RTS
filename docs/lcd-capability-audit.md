@@ -1,6 +1,6 @@
 # Issue #25 capability implementation audit
 
-Original inventory baseline: `c72ac0a` / 4.4.0; acceptance corrections below reflect local main through `e321142`. This audit describes source behavior, not the installed image or a published release. Classification of all 83 rows does not establish full acceptance: R3, R4 and R8 remain open. See the [remaining qualification plan](lcd-completion-qualification.md).
+Original inventory baseline: `c72ac0a` / 4.4.0; acceptance corrections include the reviewed hold/release implementation at `728bc3d`. This audit describes source behavior, not the installed image or a published release. Classification of all 83 rows does not establish full acceptance: R3 software behavior is implemented and tested offline; R4 preserves the original driver support boundary; R8 physical qualification remains open. See the [remaining qualification plan](lcd-completion-qualification.md).
 All 83 inventory rows are classified below. The [design inventory](lcd-web-capability-matrix.md)
 records the original domain and acceptance requirements.
 
@@ -22,7 +22,7 @@ Accepted scope includes one shared CC1101/Plus image with bundled web assets,
 English rotary entry with unchanged UTF-8 names preserved, the existing web
 credential for local access, and the bounded continuing-movement STOP grace.
 There is no whole-section settings repair wizard. Configured lamps show
-**Light unavailable**. Separate-motor/Euro GPIO relay tilt currently remains unavailable while configuration and ordinary supported lift controls stay intact; an exception to working tilt has not been accepted.
+**Light unavailable**. Separate-motor/Euro GPIO relay tilt is a pre-existing limitation of the original web-backed driver. The LCD preserves those configurations and ordinary supported lift controls, and discloses unavailable tilt rather than inventing a new driver. This port does not require a new mapping or an accepted waiver.
 
 ## Acceptance requirements
 
@@ -30,12 +30,12 @@ There is no whole-section settings repair wizard. Configured lamps show
 |---|---|
 | R1 | Implemented: protected room/device/group status, current/target lift/tilt estimates, favourites, weather and membership. Group positions are not invented. |
 | R2 | Implemented: explicit repeater observation, candidate review and Add; future retransmission consequence, exact list/auth checks and file-only retry. |
-| R3 | Incomplete: hold/release cancellation remains pending. Retained tickets, terminal forwarding and Back/auth/context/recovery/timeout cancellation after admission are implemented and tested offline. Current interface supports explicit 1–127 repeats with a fresh typed action/step/target. STOP is one-shot; MY/56-bit Toggle repeats, individual Euro lift count overrides and unsupported GPIO/seek/tilt repeat parameters are unavailable. Ordinary controls stay available. |
-| R4 | Unresolved acceptance: separate-motor/Euro GPIO relay tilt. Both modes remain stored/editable. Existing driver tests characterize all five modes under both output polarities; neither mode has a tilt output mapping. Working tilt or an explicit accepted exception is still required; no wiring is inferred. |
+| R3 | Implemented/tested offline: final default-Cancel review selects Hold to send; an eligible 800 ms hold sends one fresh typed action/step/count (1–127 repeats). A tap sends nothing; raw release cancels future frames without MY/STOP. Exact ticket ownership and Back/auth/context/recovery/timeout cancellation persist through terminal forwarding. Outcomes remain visible while held; completion never rearms the gesture. STOP stays one-shot. MY/56-bit Toggle repeats, individual Euro lift count overrides and unsupported GPIO/seek/tilt repeat parameters are unavailable; ordinary controls stay available. Physical qualification remains separate under R8. |
+| R4 | Ported existing configuration/support boundary: all five tilt modes remain stored/editable. The original `07bff` relay mapping uses tilt direction only for Integrated/Tilt-only; with lift idle, Separate/Euro tilt requests leave relay outputs off. Source tracing and 20 fake-GPIO cases characterize this pre-existing limitation, not physical operation. LCD tilt is honestly unavailable for those two relay modes; ordinary supported lift and RF/GP_Remote paths remain intact. A new relay driver is outside this port, not a completion/waiver gate. |
 | R5 | Implemented: compatible 80-bit native group Favorite uses one group identity and updates estimates. Obsolete member positioning/programming/deferred MY is cancelled without appending member commands. |
 | R6 | Implemented: protected live WiFi/Ethernet details with explicit unavailable states. |
 | R7 | Browser-owned: LCD guidance for frame-log copying; no LCD clipboard or hybrid transfer flow. |
-| R8 | Incomplete: scoped software reviews/tests and normal boot/state evidence exist, but required combined TLS/full-staging/edit/reconnect/fragmentation/long-idle measurements remain outstanding. Installed updater identity is development and refuses GitHub checks; prepare an eligible canonical release build without bypassing the guard. |
+| R8 | Incomplete: scoped software reviews/tests and normal boot/state evidence exist, but required combined TLS/full-staging/edit/reconnect/fragmentation/long-idle measurements remain outstanding. Eligible tagged source, reviewed published assets and an actual GitHub download are separate gates; do not bypass release identity guards. |
 
 ## Evidence in the current source
 
@@ -73,14 +73,14 @@ There is no whole-section settings repair wizard. Configured lamps show
 | E04 | MY (`2260`, `3572`) | Implemented: LocalUi/LocalUiAdapter/LocalControlPolicy and actual adapter/runtime/FIFO tests; normal capability/auth/context admission. |
 | E05 | Explicit Stop (`index.html:793`) | Implemented: LocalUi/LocalUiAdapter/LocalControlPolicy and actual adapter/runtime/FIFO tests; normal capability/auth/context admission. |
 | E06 | Position slider (`index.js:3935`, `3959`) | Implemented: LocalUi/LocalUiAdapter/LocalControlPolicy and actual adapter/runtime/FIFO tests; normal capability/auth/context admission. |
-| E07 | Tilt long-press / slider (`2337`, `3648`, `3942`) | Implemented: supported tilt paths; R4 retains separate/Euro relay mapping gap and visible refusal. |
+| E07 | Tilt long-press / slider (`2337`, `3648`, `3942`) | Implemented for supported shared-driver paths; R4 documents the original Separate/Euro relay limitation and visible LCD refusal, not missing configuration or a new driver requirement. |
 | E08 | Toggle (`index.html:800`, `index.js:2262`) | Implemented: LocalUi/LocalUiAdapter/LocalControlPolicy and actual adapter/runtime/FIFO tests; normal capability/auth/context admission. |
 | E09 | Sun automation flag on/off (`index.js:2318`) | Implemented: LocalUi/LocalUiAdapter/LocalControlPolicy and actual adapter/runtime/FIFO tests; normal capability/auth/context admission. |
 | E10 | Visible light button (`2257`, `2316`) | Implemented: accepted alternative: read-only Light unavailable, configuration preserved; actual adapter/render/no-request checks. |
 | E11 | Set/Clear MY favourite (`2648`, `2727`) | Implemented: explicit movement/observed-stop/Set-or-Clear journey; exact observation history, typed programming-here requests, actual UI/FIFO and failure tests. See [Favourite](lcd-favourite.md). |
 | E12 | Group Up/Down/MY, sun flag (`2530`, `3644`) | Implemented: LocalUi/LocalUiAdapter/LocalControlPolicy and actual adapter/runtime/FIFO tests; normal capability/auth/context admission. |
 | E13 | Virtual remote target picker (`index.html:780`, `index.js:3593`) | Implemented: LocalUi/LocalUiAdapter/LocalControlPolicy and actual adapter/runtime/FIFO tests; normal capability/auth/context admission. |
-| E14 | Virtual remote button hold/repeat (`index.js:3580`, `3590`, `3593`) | Incomplete: hold/release input remains pending (R3); Back/auth/context/timeout cancellation after admission is implemented. Existing interface provides explicit bounded repeats for supported fresh RF actions; step size/count review, Cancel-first confirmation, protected presentation and FIFO guards. MY/STOP/56-bit Toggle repeats and individual Euro lift count overrides unavailable; ordinary controls retained. |
+| E14 | Virtual remote button hold/repeat (`index.js:3580`, `3590`, `3593`) | Implemented/tested offline: reviewed RF action/step/maximum count, initial-press completed-frame witness, 800 ms hold sends once, release/Back/auth/context/timeout cancel future frames by exact ticket. Tap, invalid/wake input and later frame completion cannot arm a press; terminal feedback while held and no-rearm/release-no-STOP regressions pass through Controller and actual encoder/GFX. Unsupported MY/STOP/56-bit Toggle and individual Euro lift repeats remain unavailable; ordinary controls retained. Physical timing/RF qualification remains open. |
 | E15 | 80-bit StepUp/StepDown + 1..127 step size (`index.html:804`) | Implemented: LCD/protocol/domain stepping and browser group step-size/repeat forwarding; initial/held/release regressions. |
 | E16 | 80-bit Favorite (`index.html:820`) | Implemented: compatible80-bit device/group Favorite; group frame uses one identity and updates member estimates without additional member commands. Obsolete programming/position sequences cancelled. |
 

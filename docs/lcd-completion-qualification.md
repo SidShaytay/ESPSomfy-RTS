@@ -2,15 +2,17 @@
 
 Issue #25 remains open. Installed firmware, host tests and a capability inventory are evidence for their specific checks; they do not establish full hardware acceptance. The [normative requirements](https://github.com/SidShaytay/ESPSomfy-RTS/issues/25#issuecomment-6753845395) remain authoritative.
 
-## Current checkpoint
+## Verified installed checkpoint
 
-Controller 4.5.0, source `dcdb588`, has exact-image, normal-boot, valid-OTA and unchanged-settings/counter evidence. Its actual updater identity is `dev-dcdb588eea14`; it intentionally refuses GitHub checking before network access. A clean, release-tagged canonical build is required for that path. Do not bypass the identity guard. Building locally, publishing a release and installing it are separate stages.
+On November 10, 2026, controller **4.5.2**, source `535a355065ee603ed2e28b91833d87745cbaf44d`, is verified in app0 with OTA sequence 17 marked valid. Exact-image/readback, successful health confirmation, normal reboot and unchanged settings/entities/counters were checked. Its stable `v4.5.2` updater identity is eligible for verified GitHub updates; this does not prove a GitHub download or install.
 
-Remaining software acceptance includes the remaining hold/release input for everyday repeats (Back/auth/context/timeout cancellation after admission is implemented), and working separate/Euro wired-relay tilt unless Sid explicitly accepts an exception. Settings preservation and an unavailable notice alone do not meet the latter requirement. These are separate from the hardware measurements below.
+No newer reviewed release has been published at this checkpoint. Building locally, publishing source/tag/assets, installing an image and qualifying its behavior remain separate stages. Do not bypass release identity guards or treat publication as authorized by this plan.
+
+The reviewed candidate adds everyday repeat hold/release; this is not installed behavior of the 4.5.2 checkpoint. It is implemented and reviewed offline: tap sends nothing, an eligible 800 ms hold emits one reviewed finite request, and release cancels future frames without MY/STOP. Controller, completed-frame and actual encoder/GFX regressions cover invalid input, release, terminal feedback and no rearm while held. These checks do not qualify physical input/RF timing or the combined workload below. Separate/Euro wired-relay tilt is an original driver limitation, not a new LCD implementation or waiver gate. The port retains all modes/settings and ordinary supported lift, discloses unsupported tilt, and leaves RF/GP_Remote behavior intact. Designing new relay tilt actuation is outside this port.
 
 ## Completed partial measurement
 
-On November 10, 2026, a 60-second concurrent read-only run completed 12 LCD screenshots and 12 WebSocket schema/five-settings reconnects: 24 successful operations, no errors, and exact settings/entity/counter comparisons throughout.
+On November 10, 2026, an earlier **4.5.0 / `dcdb588`** 60-second concurrent read-only run completed 12 LCD screenshots and 12 WebSocket schema/five-settings reconnects: 24 successful operations, no errors, and exact settings/entity/counter comparisons throughout.
 
 | Observation | Result |
 |---|---:|
@@ -41,9 +43,9 @@ Durations below bound the proposed experiment; they are not previously agreed pe
 | TLS and full staging | With an eligible release identity and repository release, overlap captures/reconnects with the GitHub downloader's own staging. Record TLS allocation peaks, internal free/largest minima, PSRAM use, worker stack, loop and SPI timings. | GitHub and manual uploads share exclusive ownership. Independent TLS and manual-upload operations cannot be combined to simulate this path. A complete install can write the inactive slot and restart. |
 | Recovery and idle | Verify operation cleanup and exact settings/entities/counters; observe two hours idle with sparse passive samples. | Extend the soak only when evidence warrants it. Any reset or unintended mutation requires investigation before escalating load. |
 
-The installed 4.5.0 image does not expose updater allocation/worker counters through HTTP: `/firmwareStatus` reports the current manual operation's state/progress. New builds add a numeric-only `LCD update` line to the existing private serial diagnostics every 30 seconds: `minInternalB`, `minLargestInternalB`, `maxPsramUsedB`, `workerStackMinB`, `tlsRequestedB`, `tlsPeakRequestedB`, `tlsInternalPeakRequestedB` and `tlsFailures`.
+Installed 4.5.2 provides a numeric-only `LCD update` line in the existing private serial diagnostics every 30 seconds. These metrics are not exposed through HTTP; `/firmwareStatus` reports the current manual operation's state/progress. The fields are: `minInternalB`, `minLargestInternalB`, `maxPsramUsedB`, `workerStackMinB`, `tlsRequestedB`, `tlsPeakRequestedB`, `tlsInternalPeakRequestedB` and `tlsFailures`.
 
-Worker extrema are sampled; zero means unsampled, not a zero-byte requirement. Stack high-water units are bytes. The global allocator counters measure requested bytes including bookkeeping and other mbedTLS users such as HMAC, not just network TLS or physical SDK overhead. The bounded snapshot copy does not measure the whole loop stack. Collect the existing protocol heap/loop and LCD/SPI timing samples alongside this line; sparse samples alone cannot establish every allocation peak. This instrumentation does not qualify TLS on a development image.
+Worker extrema are sampled; zero means unsampled, not a zero-byte requirement. Stack high-water units are bytes. The global allocator counters measure requested bytes including bookkeeping and other mbedTLS users such as HMAC, not just network TLS or physical SDK overhead. The bounded snapshot copy does not measure the whole loop stack. Collect the existing protocol heap/loop and LCD/SPI timing samples alongside this line; sparse samples alone cannot establish every allocation peak. The presence of these counters does not qualify TLS, full staging or the combined workload. No TLS peak measurements are claimed here.
 
 Stop escalation on unexpected reset or mutation, credential/capture leakage, graphics failure, persistent recovered-memory loss or unresponsive servicing. Preserve evidence and inspect exact operation/boot identity before recovery. Record failures as failures, rather than replacing them with a later successful idle sample.
 

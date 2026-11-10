@@ -113,7 +113,7 @@ single Back from an editor while moving. “More” opens capability-specific li
 tilt target/steps, favourite/MY, toggle, sun/light and other matrix operations. Do not
 show an unsupported action as an apparently valid UP/DOWN command for a toggle device.
 The menu derives capabilities from the shared domain rules for all 17 shade types,
-5 tilt modes and actual protocols; it does not assume every paired device is RTS.
+5 tilt modes and actual protocols; it does not assume every paired device is RTS. All mode settings remain available. Separate/Euro GP_Relay tilt is an existing unsupported driver path, so the LCD shows unavailable; ordinary supported lift and RF/GP_Remote behavior remain intact. A new actuator mapping is outside this port.
 
 ```text
 Kitchen curtain #09      moving
@@ -126,11 +126,9 @@ Press: send   Back: devices
 ```
 
 Rotation and navigation never send RF, mutate settings, save or advance calibration.
-Push release activates the presented item. Hold and Back cancel navigation/editor state;
-Back never saves an admin draft. Preserve held-at-boot, bounce, turn-while-pressed,
-wake-only and simultaneous-input suppression. Returning from an operation resets focus
-to STOP or a neutral menu item, never the next destructive action. No automatic repeats
-from a held encoder button; protocol-specific repeated commands use explicit domain ops.
+Push release activates ordinary presented items. Hold and Back cancel navigation/editor state, except on the final everyday repeat review: **Hold to send** requires about 800 ms after debounce and sends one reviewed finite action/count. A short tap sends nothing. The exact completed target/action/count/step and authorization are captured at the initial raw press; a screen completing later cannot make that held press eligible. Release cancels future frames without sending MY/STOP. Terminal or refusal feedback remains visible while the private gesture stays consumed until release; maximum-count completion never rearms it.
+
+Back never saves an admin draft. Preserve held-at-boot, bounce, turn-while-pressed, wake-only and simultaneous-input suppression. Returning from an operation resets focus to STOP or a neutral menu item, never the next destructive action. Ordinary one-shots, intermediate step editing and staged programming batches keep their existing interactions. See [everyday repeats](lilygo-local-ui.md#hold-to-send-repeats).
 
 Numbers have a bounded draft and explicit Apply/Cancel; rotation changes only the draft.
 Lift/tilt drafts use displayed coordinates and the domain's flip transform exactly once.
