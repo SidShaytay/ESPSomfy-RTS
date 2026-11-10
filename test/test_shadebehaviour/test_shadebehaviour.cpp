@@ -603,6 +603,13 @@ static void test_group_sun_flag_needs_a_sensor() {
  * The favorite
  ********************************************************************/
 // The LCD's programming stage must never start a positioning sequence.
+static void favorite_observation_revision_catches_fractional_changes_and_return_to_same_position() {
+  Rig r;r.b.restore(30,0,70,-1);const auto before=r.b.favouriteObservationRevision();
+  r.b.setPosition(30.1f,-1);const auto away=r.b.favouriteObservationRevision();TEST_ASSERT_TRUE(away>before);
+  r.b.setPosition(30,-1);TEST_ASSERT_TRUE(r.b.favouriteObservationRevision()>away);
+  const auto same=r.b.favouriteObservationRevision();r.b.setPosition(30,-1);TEST_ASSERT_EQUAL(same,r.b.favouriteObservationRevision());
+  r.press(somfy_commands::My);TEST_ASSERT_TRUE(r.b.favouriteObservationRevision()>same);
+}
 static void test_explicit_favorite_set_and_clear_never_implicitly_move() {
   Rig r;r.b.restore(30,0,70,-1);
   TEST_ASSERT_TRUE(r.b.programMyPositionHere(false,r.now));
@@ -856,6 +863,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_group_down_and_step);
   RUN_TEST(test_group_step_preserves_transmitted_size_for_member_estimates);
   RUN_TEST(test_group_sun_flag_needs_a_sensor);
+  RUN_TEST(favorite_observation_revision_catches_fractional_changes_and_return_to_same_position);
   RUN_TEST(test_explicit_favorite_set_and_clear_never_implicitly_move);
   RUN_TEST(test_explicit_favorite_clear_elsewhere_refuses_without_move_or_program);
   RUN_TEST(test_explicit_favorite_tilt_uses_exact_observed_positions);

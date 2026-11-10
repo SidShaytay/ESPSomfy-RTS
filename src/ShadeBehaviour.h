@@ -68,6 +68,7 @@ class ShadeBehaviour {
     ShadeBehaviour &operator=(const ShadeBehaviour &) = delete;
     const State &state() const { return this->s; }
     bool isIdle() const;
+    uint64_t favouriteObservationRevision() const { return observationRevision; }
     // Read-only admission for configuration/persistence/shutdown operations.
     // An idle position estimate can still have held input or unresolved TX.
     bool idleForAdministration() const {
@@ -124,6 +125,8 @@ class ShadeBehaviour {
     const uint8_t &shadeId;
     const char *name;
     State s;
+    uint64_t observationRevision = 1;
+    void invalidateFavouriteObservation() { if(observationRevision) ++observationRevision; }
     uint32_t moveStart = 0;
     uint32_t tiltStart = 0;
     ShadeSensors sensors;
