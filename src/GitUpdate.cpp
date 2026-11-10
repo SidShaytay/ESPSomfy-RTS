@@ -1,10 +1,15 @@
-#if defined(ARDUINO) && defined(GIT_UPDATE_HOST_TEST)
+#if defined(ARDUINO) && (defined(GIT_UPDATE_HOST_TEST) || defined(GIT_UPDATE_TRANSFER_CLOCK_TEST))
 #error "Updater host test hooks are forbidden in firmware"
 #endif
 #include "GitUpdate.h"
 #include "GitUpdatePolicy.h"
 #include "GitUpdateImage.h"
 #include "ManualUpdateLifecycle.h"
+#if defined(ARDUINO)
+#include <esp_timer.h>
+#elif defined(GIT_UPDATE_TRANSFER_CLOCK_TEST)
+uint64_t gitUpdateTransferClockNow();
+#endif
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -25,6 +30,17 @@ struct Guard { Guard() { portENTER_CRITICAL(&serviceLock); } ~Guard() { portEXIT
 std::mutex serviceLock;
 struct Guard { std::lock_guard<std::mutex> lock; Guard():lock(serviceLock) {} };
 #endif
+// Called only after Guard acquisition. Caller snapshots can arrive out of
+// timestamp order across HTTP and loop tasks; they are not clock rollback.
+uint64_t manualTransferClock(uint64_t supplied) {
+#if defined(ARDUINO)
+  (void)supplied;return uint64_t(esp_timer_get_time())/1000;
+#elif defined(GIT_UPDATE_TRANSFER_CLOCK_TEST)
+  (void)supplied;return gitUpdateTransferClockNow();
+#else
+  return supplied; // Existing deterministic host-policy callers.
+#endif
+}
 enum class Owner : uint8_t { none,check,prepare,manual,restore,counter,restart,configuration,install };
 Owner owner=Owner::none;
 uint64_t ownerGeneration=0;
@@ -98,7 +114,7 @@ bool GitUpdateClass::releaseExternal(const GitUpdateOwnerToken &token) {
   owner=Owner::none;return true;
 }
 bool GitUpdateClass::beginTransfer(const GitUpdateOwnerToken &token,ManualUpdateKind kind,uint64_t now) {
-  Guard guard;return owns(token) && manualTransfer.begin(token,kind,now);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.begin(token,kind,now);
 }
 bool GitUpdateClass::prepareApplication(const GitUpdateOwnerToken &token,const ManualApplicationSource &source,uint64_t now) {
   Guard guard;return owns(token) && manualTransfer.prepareApplication(token,source,now);
@@ -116,13 +132,13 @@ bool GitUpdateClass::cancelApplicationPreparation(const GitUpdateOwnerToken &tok
   Guard guard;return owns(token) && manualTransfer.cancelPreparation(token,source);
 }
 bool GitUpdateClass::claimTransfer(const GitUpdateOwnerToken &token,uint64_t now,bool queuedRestore) {
-  Guard guard;return owns(token) && manualTransfer.claim(token,now,queuedRestore);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.claim(token,now,queuedRestore);
 }
 bool GitUpdateClass::transferContinuing(const GitUpdateOwnerToken &token) const {
   Guard guard;return owns(token) && manualTransfer.continuing(token);
 }
 bool GitUpdateClass::transferContinuing(const GitUpdateOwnerToken &token,uint64_t now) {
-  Guard guard;return owns(token) && manualTransfer.continuing(token,now);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.continuing(token,now);
 }
 bool GitUpdateClass::transferResource(const GitUpdateOwnerToken &token,bool opened) {
   Guard guard;return owns(token) && manualTransfer.resource(token,opened);
@@ -137,22 +153,22 @@ bool GitUpdateClass::holdTransferRestart(const GitUpdateOwnerToken &token) {
   Guard guard;return owns(token) && manualTransfer.holdRestart(token);
 }
 bool GitUpdateClass::holdTransferRecovery(const GitUpdateOwnerToken &token,uint64_t now) {
-  Guard guard;return owns(token) && manualTransfer.holdRecovery(token,now);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.holdRecovery(token,now);
 }
 bool GitUpdateClass::claimTransferRecovery(const GitUpdateOwnerToken &token,uint64_t now) {
-  Guard guard;return owns(token) && manualTransfer.claimRecovery(token,now);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.claimRecovery(token,now);
 }
 bool GitUpdateClass::transferRestoreClaimed(const GitUpdateOwnerToken &token,uint64_t now) {
-  Guard guard;return owns(token) && manualTransfer.restoreClaimed(token,now);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.restoreClaimed(token,now);
 }
 bool GitUpdateClass::transferRestartHeld(const GitUpdateOwnerToken &token,uint64_t now) {
-  Guard guard;return owns(token) && manualTransfer.restartHeld(token,now);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.restartHeld(token,now);
 }
 bool GitUpdateClass::transferRestartReady(const GitUpdateOwnerToken &token,uint64_t now) {
   Guard guard;return owns(token) && manualTransfer.restartReady(token,now);
 }
 bool GitUpdateClass::acquireRestart(GitUpdateOwnerToken &result,uint64_t now,const GitUpdateOwnerToken &expected) {
-  Guard guard;
+  Guard guard;now=manualTransferClock(now);
   if(ownerGeneration==UINT64_MAX) return false;
   if(expected.generation) {
     if(!owns(expected) || !manualTransfer.handoffRestart(expected,now)) return false;
@@ -161,18 +177,18 @@ bool GitUpdateClass::acquireRestart(GitUpdateOwnerToken &result,uint64_t now,con
   result={ownerGeneration,GitUpdateExternalOwner::restart};return true;
 }
 bool GitUpdateClass::releaseRestartSource(const GitUpdateOwnerToken &token,uint64_t now) {
-  Guard guard;
+  Guard guard;now=manualTransferClock(now);
   if(!owns(token) || !manualTransfer.cancelRestart(token,now)) return false;
   owner=Owner::none;return true;
 }
 bool GitUpdateClass::finishTransfer(const GitUpdateOwnerToken &token,uint64_t now,bool progress) {
-  Guard guard;return owns(token) && manualTransfer.finish(token,now,progress);
+  Guard guard;now=manualTransferClock(now);return owns(token) && manualTransfer.finish(token,now,progress);
 }
 bool GitUpdateClass::retireTransfer(const GitUpdateOwnerToken &token) {
   Guard guard;return owns(token) && manualTransfer.retire(token);
 }
 ManualUpdateCleanup GitUpdateClass::claimTransferCleanup(uint64_t now) {
-  Guard guard;if(installLease)return {};const auto work=manualTransfer.cleanup(now);
+  Guard guard;now=manualTransferClock(now);if(installLease)return {};const auto work=manualTransfer.cleanup(now);
   return owns(work.token) ? work : ManualUpdateCleanup{};
 }
 ManualUpdateCleanup GitUpdateClass::claimTransferCleanup(const GitUpdateOwnerToken &expected,uint64_t now) {
