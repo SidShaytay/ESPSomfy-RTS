@@ -895,6 +895,8 @@ bool Transceiver::updateActivity(RadioUpdateActivity &out) const {
   TxQueueLock queue(0);if(!queue.locked)return false;
   RxTaskLock receiveLock;out=this->updateActivityLocked();return true;
 }
+bool radioInstallPaused(){return somfy.transceiver.installPaused();}
+
 bool Transceiver::pauseForInstall(RadioInstallToken &out){return pauseForAdministration(out,true);}
 bool Transceiver::pauseForRestore(RadioInstallToken &out){return pauseForAdministration(out,false);}
 void Transceiver::serviceUntrustedReceive(){

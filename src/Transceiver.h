@@ -82,7 +82,8 @@ class Transceiver {
     CounterEditSafety counterEdits;
     uint64_t installGeneration=0,installConfigurationRevision=0;
     LivePinClaims livePinClaims;
-    bool installActive=false,installResumeReceive=false;
+    std::atomic<bool> installActive{false};
+    bool installResumeReceive=false;
     RadioUpdateActivity updateActivityLocked() const;
     bool pauseForAdministration(RadioInstallToken &,bool requireReady);
     void startTxTask();
@@ -97,6 +98,7 @@ class Transceiver {
     // Nonblocking read-only LCD snapshot; outputs are unchanged if busy.
     bool displayStatus(bool &ready, float &frequency) const;
     uint64_t retainedPinClaims()const{return livePinClaims.snapshot();}
+    bool installPaused() const {return installActive.load();}
     bool available() const { return _available.load() && !_administrationPaused.load(); }
     bool printBuffer = false;
     bool fromJSON(JsonObject& obj);

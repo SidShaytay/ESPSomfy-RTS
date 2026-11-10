@@ -52,7 +52,7 @@ struct SomfyShadeController {
   struct Radio {
     uint64_t configurationRevision=1;
     struct Config {uint8_t type=56;} config;
-    bool ready=true,suspended=false,room=true,quiescent=true;
+    bool ready=true,suspended=false,room=true,quiescent=true,installPaused=false;
     bool restartQuiescent()const{return quiescent;}
     CounterQuarantine quarantine=CounterQuarantine::none;
     CounterQuarantine counterQuarantine()const{return quarantine;}
@@ -79,6 +79,7 @@ struct SomfyShadeController {
 };
 
 extern SomfyShadeController somfy;
+inline bool radioInstallPaused(){return somfy.transceiver.installPaused;}
 inline bool SomfyShade::isInGroup(){
   for(const auto &group:somfy.groups)if(group.id!=255)
     for(const auto member:group.linkedShades)if(member==id)return true;

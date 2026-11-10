@@ -31,8 +31,14 @@ bool LoopQueue::submit(const loop_item_t &item, bool first) {
   if(restartSealed.load() || !protoSocket.acceptsMutation(item)) {producers.fetch_sub(1);return false;}
   // async_tcp also services the sockets, so it must never wait on loop() or
   // the radio.
+  loop_item_t admitted=item;
+  admitted.radioPauseAtAdmission=radioInstallPaused();
+  if(admitted.radioPauseAtAdmission &&
+     (item.type==loop_item_type_t::local_control || item.type==loop_item_type_t::local_advanced) && item.localRadio) {
+    producers.fetch_sub(1);return false;
+  }
   QueueHandle_t q = static_cast<QueueHandle_t>(this->queue);
-  const bool accepted=(first ? xQueueSendToFront(q, &item, 0) : xQueueSend(q, &item, 0)) == pdTRUE;
+  const bool accepted=(first ? xQueueSendToFront(q, &admitted, 0) : xQueueSend(q, &admitted, 0)) == pdTRUE;
   if(accepted && loopItemMutates(item))noteRestartOperationAccepted();
   producers.fetch_sub(1);
   if(!accepted) {
@@ -90,6 +96,19 @@ void LoopQueue::drain() {
       }
     }
 #endif
+    // Install admission is published only while the empty FIFO is sealed.
+    // Classify the mutable model here, never on an HTTP/MQTT producer task.
+    // Retain refusals across resume: delayed RF must never become movement.
+    if((item.radioPauseAtAdmission || radioInstallPaused()) && item.type==loop_item_type_t::shade_request && shadeRequestUsesRadio(item.request.type)) {
+      const auto *shade=somfy.getShadeById(item.request.id);
+      const bool radio=shadeRequestIsForGroup(item.request.type) || item.request.type==shade_request_type_t::unpair ||
+        !shade || (shade->proto!=radio_proto::GP_Relay && shade->proto!=radio_proto::GP_Remote);
+      if(radio) {
+        xQueueReceive(q,&item,0);
+        protoSocket.replyRequest(item.replyTo,item.request,shade_request_result_t::radio_refused);
+        continue;
+      }
+    }
     if(holdLoopItem(item, somfy.transceiver.txSuspended(), somfy.transceiver.txHasRoom())) break;
     // loop() is the only consumer so this is the item we peeked.
     xQueueReceive(q, &item, 0);

@@ -44,7 +44,7 @@ static Command command(const View &v,Action action) {
 }
 static DispatchResult result() {DispatchResult r;assert(takeLocalControlResult(r));return r;}
 static View reset() {
-  securityOverride=false;advanceOnSend=0;refuseAt=0;modelEditHook=nullptr;duringSend=nullptr;
+  somfy.transceiver.installPaused=false;securityOverride=false;advanceOnSend=0;refuseAt=0;modelEditHook=nullptr;duringSend=nullptr;
   setLocalControlsFrozen(true);somfy.transceiver.room=somfy.transceiver.ready=true;somfy.transceiver.suspended=false;pendingRestart=false;
   loopQueue.drain();DispatchResult ignored;while(takeLocalControlResult(ignored)) {}
   setLocalControlsFrozen(false);authTestNow+=1000000;authorization.configure(AuthMode::none,"","");
@@ -264,11 +264,30 @@ static void learned_intents_share_real_fifo_age_and_exact_cancellation() {
   admission=submitLocalLearn(full,authTestNow);full.token=admission.token;full.validity=LearnQueueReason::candidate;loopQueue.drain();
   assert(!full.effects && full.last==LearnQueueReason::candidate && !localLearnTokenActive(full.token));
 }
+static void install_pause_refuses_rf_without_blocking_gpio_or_replaying_after_resume() {
+  for(auto type:{shade_request_type_t::unpair,shade_request_type_t::shade_command,shade_request_type_t::group_command})
+  for(auto protocol:{radio_proto::GP_Remote,radio_proto::GP_Relay})
+  for(bool resumeBeforeDrain:{false,true}) {
+    reset();somfy.shades[31].proto=protocol;
+    somfy.transceiver.suspended=true;somfy.transceiver.installPaused=true;
+    loop_item_t rf;rf.request.id=7;rf.request.type=type;
+    loop_item_t wired;wired.request.id=22;wired.request.command=somfy_commands::My;
+    assert(loopQueue.submit(rf));assert(loopQueue.submit(wired));
+    if(resumeBeforeDrain){somfy.transceiver.installPaused=false;somfy.transceiver.suspended=false;}
+    loopQueue.drain();
+    assert(loopQueue.pending()==0 && sent.size()==1 && sent[0].id==22);
+  }
+  auto view=reset();somfy.transceiver.installPaused=true;
+  assert(dispatch(command(view,Action::up))==DispatchResult::busy && !localControlPending());
+  // Already accepted work prevents the short pause-publication seal.
+  reset();loop_item_t accepted;accepted.request.id=7;assert(loopQueue.submit(accepted));
+  assert(!loopQueue.sealForRestart());loopQueue.drain();assert(sent.size()==1);
+}
 int main() {
   static_assert(sizeof(loop_item_t)<=80,"Queue markers must not copy target contexts into 32 slots");
   queueAllocationOK=false;loopQueue.begin();auto noQueue=reset();
   assert(dispatch(command(noQueue,Action::up))==DispatchResult::busy && !localControlPending() && sent.empty());
-  queueAllocationOK=true;loopQueue.begin();learned_intents_share_real_fifo_age_and_exact_cancellation();accepted_mutation_history_follows_actual_queue_result();restart_seal_preserves_every_accepted_item_and_refuses_late_submission();deferred_fifo_backpressure_and_cancel();age_clock_context_and_freeze_guards();
+  queueAllocationOK=true;loopQueue.begin();install_pause_refuses_rf_without_blocking_gpio_or_replaying_after_resume();learned_intents_share_real_fifo_age_and_exact_cancellation();accepted_mutation_history_follows_actual_queue_result();restart_seal_preserves_every_accepted_item_and_refuses_late_submission();deferred_fifo_backpressure_and_cancel();age_clock_context_and_freeze_guards();
   invalid_or_active_replacement_sources_cannot_authorize_old_intents();
   stop_supersedes_only_same_authorized_context_at_fifo_tail();
   pending_stop_observes_idle_behind_a_held_head_and_never_gains_motion();

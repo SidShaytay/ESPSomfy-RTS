@@ -33,10 +33,14 @@ enum class loop_item_type_t : uint8_t {
   local_control,  // loop-owned LCD intent token, freshly revalidated on drain
   local_advanced  // bounded loop-owned learned-link/file-recovery intent
 };
+// Any-task atomic driver observation; no model/SPI access.
+bool radioInstallPaused();
+
 struct model_edit_t;
 struct settings_save_t;
 struct loop_item_t {
   loop_item_type_t type = loop_item_type_t::shade_request;
+  bool radioPauseAtAdmission = false; // retained even if install ends before drain
   shade_request_t request;        // shade_request
   bool restartAfterCommit = false; // model_commit: only after verified save
   uint8_t restoreParts = 0;       // restore_shades: RESTORE_* bits
@@ -75,7 +79,8 @@ inline bool loopItemUsesRadio(const loop_item_t &item) {
 // anyway so nothing is held back then, except an unpair, which waits until TX
 // resumes rather than leave the shade paired.  Everything queued
 // behind it waits too, protocol 2 replies included, so a frequency scan
-// started after an unpair delays them until it ends.
+// started after an unpair delays them until it ends. Install pauses instead
+// reject RF before this hold rule; GPIO remains independent.
 inline bool holdLoopItem(const loop_item_t &item, bool txSuspended, bool txHasRoom) {
   if(txSuspended) return item.type == loop_item_type_t::shade_request && item.request.type == shade_request_type_t::unpair;
   return loopItemUsesRadio(item) && !txHasRoom;
