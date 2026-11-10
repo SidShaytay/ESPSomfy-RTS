@@ -765,6 +765,19 @@ void ShadeBehaviour::onGroupCommand(somfy_commands cmd, uint8_t repeat, uint32_t
         this->p_tiltTarget(this->s.currentTiltPos);
       }
       break;
+    case somfy_commands::Favorite:
+      // The physical 80-bit group frame already commands the native favourite.
+      // Mirror it locally without simMy issuing member-addressed movement.
+      // Displace unfinished local positioning/programming and delayed button
+      // handling; otherwise tick/onWaitingFrame could append a member STOP or
+      // long MY. Keep accepted TX tickets: their actual outcomes still matter.
+      this->settingPos = this->settingTiltPos = this->settingMyPos = false;
+      this->awaitMy = this->lastFrame.await = 0;
+      this->lastFrame.processed = true;
+      if(this->s.myTiltPos >= 0.0f && this->s.myTiltPos <= 100.0f) this->p_tiltTarget(this->s.myTiltPos);
+      if(this->s.myPos >= 0.0f && this->s.myPos <= 100.0f && this->settings.tiltType != tilt_types::tiltonly) this->p_target(this->s.myPos);
+      this->pinTiltOnlyLift();
+      break;
     case somfy_commands::StepUp:
       // Match the transmitted frame; zero retains the protocol default of one.
       if(!this->applyStep(-1, stepSize == 0 ? 1 : stepSize)) return;

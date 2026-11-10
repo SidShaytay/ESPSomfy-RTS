@@ -119,6 +119,20 @@ int main(int argc, char **argv) {
   shade.setShadeId(7);
   shade.setRemoteAddress(700);
   shade.upTime = shade.downTime = 100;
+  if(mode=="favorite") {
+    group.bitLength=shade.bitLength=80;group.linkedShades[31]=7;
+    shade.restore(0,0,50,-1);
+    assert(group.sendCommand(somfy_commands::Favorite,3));
+    assert(radioCalls==1 && nvsCalls==1 && group.lastFrame.cmd==somfy_commands::Favorite);
+    assert(shade.state().target==50 && !shade.idleForAdministration());
+    assert(requestRestart(1).reason==RestartReason::activeMovement);
+    // Native motor movement completes without any member-addressed STOP or
+    // programming. The fake member transport above rejects every such send.
+    nowMs+=1000;shade.checkMovement();
+    assert(shade.state().currentPos==50 && shade.state().myPos==50);
+    assert(shade.idleForAdministration() && radioCalls==1 && nvsCalls==1);
+    puts("Group Favorite: one group transmission, member estimate and completion without member RF");return 0;
+  }
   const bool unknown = mode.rfind("unknown", 0) == 0, empty = mode == "empty",
              dangling = mode == "dangling";
   const bool up = mode == "up" || mode == "moving" || dangling;
