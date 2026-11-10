@@ -13,9 +13,9 @@ and physical-verification limits.
 
 ## Navigation versions
 
-The paths below describe approved navigation implemented in source `015ac39`, intended for the next release and **not yet deployed**. Current installed **4.7.3** still has the older navigation. Check the exact running build before following a path.
+The paths in this guide apply to **4.8.0 and later**. Version **4.7.3** uses the older navigation shown below. Check the running version in Details before following a path.
 
-| Task | Installed 4.7.3 | Upcoming navigation in source |
+| Task | 4.7.3 | 4.8.0 and later |
 |---|---|---|
 | Browse targets | Quick access → Browse & settings → Rooms / Devices / Groups | Quick access → Browse all → Rooms / Devices / Groups |
 | Settings and administration | Browse & settings → Settings / Administration | This controller → Configure → named section / Rooms, devices & groups |
@@ -25,7 +25,7 @@ The paths below describe approved navigation implemented in source `015ac39`, in
 | WiFi scan | Browse & settings → System → WiFi scan | This controller → Configure → Network → WiFi scan |
 | Status and About | Browse & settings → Status; hold Status for Details | This controller → Status / About |
 
-Both versions retain the same protected forms, explicit confirmations and supported commands. Current 4.7.3 still requires the original installation session to remain valid, with its 120-second inactivity limit. The newly requested 30-minute installation lifetime and temporary-download retries are **not implemented by this navigation change**.
+Both versions retain protected forms, explicit confirmations and supported commands. Version 4.7.3 requires its original installation session to remain valid. **4.8.0 and later** combine this navigation with the confirmed-install 30-minute window and temporary-download retries; ordinary menu authorization still expires after 120 seconds. See [GitHub updates](lcd-github-updates.md) for cancellation, unlock and failure behavior.
 
 ## Start on the LCD
 

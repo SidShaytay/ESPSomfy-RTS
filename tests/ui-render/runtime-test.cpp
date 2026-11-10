@@ -401,24 +401,32 @@ LocalUi::AuthResult LocalUi::unlockAuthorization(Credentials &given){auto result
 namespace LocalUi {namespace Updates {
 struct PreviewBackend final:Backend {
   GitUpdateSnapshot value;GitUpdateBootStatus bootValue;
-  unsigned checks=0,installs=0,cancels=0;uint64_t next=400;
+  unsigned checks=0,installs=0,cancels=0;uint64_t next=400,installAcceptedAt=0;uint32_t installConfiguration=0;
   PreviewBackend(){value.supported=true;value.phase=GitUpdatePhase::idle;value.reason=GitUpdateReason::none;strcpy(value.installed,"v4.0.2");}
   SecuritySnapshot authorization()override{return pollAuthorization();}
   void activity()override{authorizationActivity();}
-  GitUpdateSnapshot status()override{return value;}
+  GitUpdateSnapshot status()override{
+    auto out=value;
+    if(out.installContinuation){
+      const bool sameConfig=pollAuthorization().configurationGeneration==installConfiguration;
+      out.installContinuation=sameConfig;
+      out.installRemainingMs=sameConfig && testNow>=installAcceptedAt && testNow-installAcceptedAt<1800000?1800000-(testNow-installAcceptedAt):0;
+    }
+    return out;
+  }
   GitUpdateBootStatus boot()override{return bootValue;}
   GitUpdateRequest check(uint32_t session,uint32_t security,uint64_t &operation)override{
     const auto auth=pollAuthorization();assert(auth.allowed && auth.generation==session && auth.configurationGeneration==security);
-    ++checks;operation=value.operation=++next;value.busy=value.cancellable=true;value.canInstall=false;value.phase=GitUpdatePhase::checking;return GitUpdateRequest::accepted;
+    ++checks;value.installContinuation=false;operation=value.operation=++next;value.busy=value.cancellable=true;value.canInstall=false;value.phase=GitUpdatePhase::checking;return GitUpdateRequest::accepted;
   }
   GitUpdateRequest install(uint64_t candidate,uint32_t session,uint32_t security,uint64_t &operation)override{
     const auto auth=pollAuthorization();assert(auth.allowed && auth.generation==session && auth.configurationGeneration==security);
     if(candidate!=value.candidate.generation)return GitUpdateRequest::invalidCandidate;
-    ++installs;operation=value.operation=++next;value.busy=value.cancellable=true;value.canInstall=false;value.phase=GitUpdatePhase::downloading;return GitUpdateRequest::accepted;
+    ++installs;installAcceptedAt=testNow;installConfiguration=auth.configurationGeneration;value.installContinuation=true;operation=value.operation=++next;value.busy=value.cancellable=true;value.canInstall=false;value.phase=GitUpdatePhase::downloading;return GitUpdateRequest::accepted;
   }
   bool cancel(uint64_t operation,uint32_t,uint32_t)override{
     if(operation!=value.operation || !value.cancellable)return false;
-    ++cancels;value.busy=value.cancellable=false;value.phase=GitUpdatePhase::cancelled;value.reason=GitUpdateReason::cancelled;return true;
+    ++cancels;value.installContinuation=false;value.busy=value.cancellable=false;value.phase=GitUpdatePhase::cancelled;value.reason=GitUpdateReason::cancelled;return true;
   }
 } previewBackend;
 Backend &runtimeBackend(){return previewBackend;}
@@ -1139,6 +1147,8 @@ int main(int argc,char **argv){
     openMaintenance();selectSystem(0);click();idle();
     assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"System updates"));
   };
+  authorization.configure(AuthMode::pin,"","!!!!");Credentials installLogin;strcpy(installLogin.secret,"!!!!");
+  assert(authorization.unlock(installLogin,testNow)==AuthResult::unlocked);installLogin.clear();
   auto &update=Updates::previewBackend;openUpdates();assert(!update.checks && captureProtected);
   saveFrame(preview,"runtime-updates-home");click();idle();assert(update.checks==1 && !update.installs);
   saveFrame(preview,"runtime-updates-checking");
@@ -1151,12 +1161,66 @@ int main(int argc,char **argv){
   assert(!strcmp(updateReview.rows[2].value,update.value.candidate.version));saveFrame(preview,"runtime-updates-confirm-wide");
   click();idle();assert(!update.installs);rotate(1);idle();click();idle();busBusy=true;rotate(1);click();assert(!update.installs);
   busBusy=false;idle();click();idle();assert(update.installs==1 && update.value.busy);saveFrame(preview,"runtime-updates-downloading");
-  const auto installActivity=authActivities;tick(false,21000);idle();
-  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::system && update.value.busy && update.cancels==updateCancelsBeforeSleep && authActivities==installActivity && lastLight!=0);
-  click();idle();assert(update.value.busy && update.cancels==updateCancelsBeforeSleep); // DIM wake only during download.
-  update.value.progress=60;update.value.phase=GitUpdatePhase::writing;idle();saveFrame(preview,"runtime-updates-writing");
-  back();idle();assert(update.cancels==1 && Settings::runtimeMemory().used()==0 && !update.value.busy);back();idle();
+  const auto installActivity=authActivities;tick(false,120001);idle();
+  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::system && update.value.busy && update.cancels==updateCancelsBeforeSleep && authActivities==installActivity && lastLight!=0 && !pollAuthorization().allowed);
+  click();idle();assert(update.value.busy && update.cancels==updateCancelsBeforeSleep && !pollAuthorization().allowed); // DIM wake does not unlock other controls.
+  const auto lockedInstallView=RuntimeTestAccess::system(settingsUi);
+  assert(!strcmp(lockedInstallView.rows[1].label,"Back to unlock menus") && strstr(lockedInstallView.hint,"Install continues") && !strstr(lockedInstallView.hint,"Back cancels"));
+  saveFrame(preview,"runtime-updates-locked-install");
+  const auto retryActivity=authActivities;update.value.phase=GitUpdatePhase::retryWaiting;
+  update.value.retryCount=2;update.value.retryDelayMs=5000;idle();
+  auto retryView=RuntimeTestAccess::system(settingsUi);assert(!strcmp(retryView.title,"Waiting to retry") && !strcmp(retryView.rows[0].label,"Retry 2 in 5s"));
+  for(const auto &row:retryView.rows)assert(!strchr(row.label,'%'));
+  assert(strstr(retryView.hint,"Install continues") && !strstr(retryView.hint,"Back cancels"));
+  saveFrame(preview,"runtime-updates-retry-wait");
+  std::vector<uint16_t> retryPixels(static_cast<uint16_t*>(allocated),static_cast<uint16_t*>(allocated)+320*170);
+  update.value.retryCount=3;idle();assert(memcmp(retryPixels.data(),allocated,320*170*sizeof(uint16_t)));
+  retryPixels.assign(static_cast<uint16_t*>(allocated),static_cast<uint16_t*>(allocated)+320*170);
+  update.value.retryDelayMs=9000;idle();assert(memcmp(retryPixels.data(),allocated,320*170*sizeof(uint16_t)));
+  assert(update.installs==1 && update.cancels==updateCancelsBeforeSleep && authActivities==retryActivity && !pollAuthorization().allowed);
+  update.value.retryDelayMs=0;update.value.phase=GitUpdatePhase::downloading;idle();
+  const auto continuingActivity=authActivities;const auto beforeInstallDeadline=update.installAcceptedAt+1800000-30000;
+  assert(testNow<beforeInstallDeadline);tick(false,unsigned(beforeInstallDeadline-testNow));idle();
+  assert(update.value.busy && update.cancels==updateCancelsBeforeSleep && authActivities==continuingActivity && !pollAuthorization().allowed);
+  click();idle();assert(update.value.busy && update.cancels==updateCancelsBeforeSleep && !pollAuthorization().allowed); // Wake remains operation-scoped, not a new login.
+  // The highlighted Back row detaches without cancelling or granting authority.
+  const auto lockedGeneration=pollAuthorization().generation;
+  assert(!strcmp(RuntimeTestAccess::system(settingsUi).rows[1].label,"Back to unlock menus"));
+  click();idle();assert(Settings::runtimeMemory().used()==0 && update.cancels==updateCancelsBeforeSleep && update.value.busy && !pollAuthorization().allowed && pollAuthorization().generation==lockedGeneration);
+  const auto resumedChecks=update.checks,resumedInstalls=update.installs;const auto continuedOperation=update.value.operation;
+  back();idle();assert(!RuntimeTestAccess::updatesActive(settingsUi) && update.value.busy && update.cancels==updateCancelsBeforeSleep); // Acknowledge the retained locked status.
+  homeQuick();openController();selectMenu(1);click();idle();assert(lastQuery.screen==Screen::unlock && captureProtected);
+  rotate(1);for(unsigned i=0;i<4;++i)click();for(unsigned i=0;i<96;++i)rotate(1);click();idle();
+  assert(pollAuthorization().allowed && lastQuery.screen==Screen::controllerMenu);click();idle();selectSystem(0);click();idle();
+  assert(RuntimeTestAccess::updatesActive(settingsUi) && update.value.operation==continuedOperation && update.value.busy && update.checks==resumedChecks && update.installs==resumedInstalls);
+  saveFrame(preview,"runtime-updates-resumed");click();idle();assert(update.cancels==1 && !update.value.busy);
+  back();idle();assert(Settings::runtimeMemory().used()==0);back();idle();authorization.configure(AuthMode::none,"","");
   assert(submitted.size()==beforeDiagnosticsRequests && settingsSaves==beforeWifiSaves);
+  auto admitInstallFixture=[&]{
+    authorization.configure(AuthMode::none,"","");update.value.reason=GitUpdateReason::none;update.value.phase=GitUpdatePhase::available;
+    update.value.busy=update.value.cancellable=update.value.installContinuation=false;update.value.canInstall=true;
+    update.next+=1000;update.value.candidate.generation=++update.next;strcpy(update.value.candidate.version,"v4.9.0");
+    openUpdates();rotate(1);idle();click();idle();assert(RuntimeTestAccess::system(settingsUi).selected==0);
+    rotate(1);idle();click();idle();assert(update.value.busy && update.value.installContinuation);
+  };
+  for(unsigned reason=0;reason<3;++reason){
+    admitInstallFixture();const auto priorCancel=update.cancels,priorInstall=update.installs;auto priorActivity=authActivities;
+    if(reason==0){tick(false,900000);idle();rotate(1);idle();rotate(1);idle();priorActivity=authActivities;tick(false,unsigned(update.installAcceptedAt+1800001-testNow));}
+    else if(reason==1){authorization.configurationChanged();idle();}
+    else{authorization.configure(AuthMode::pin,"","####");idle();}
+    idle();assert(update.cancels==priorCancel+1 && !update.value.busy && update.installs==priorInstall && authActivities==priorActivity);
+    assert(RuntimeTestAccess::view(settingsUi).screen==Screen::system && captureProtected && Settings::runtimeMemory().used()==0);
+    if(reason==0)saveFrame(preview,"runtime-updates-install-deadline");
+    authorization.configure(AuthMode::none,"","");
+  }
+  for(bool manual:{false,true}){
+    update.value.busy=update.value.cancellable=true;update.value.manual=manual;update.value.installContinuation=manual;update.value.phase=manual?GitUpdatePhase::downloading:GitUpdatePhase::checking;
+    update.installAcceptedAt=testNow;update.installConfiguration=pollAuthorization().configurationGeneration;update.value.operation=++update.next;
+    const auto foreignChecks=update.checks,foreignInstalls=update.installs,foreignCancels=update.cancels;
+    openUpdates();assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"System updates"));back();idle();
+    assert(update.value.busy && update.checks==foreignChecks && update.installs==foreignInstalls && update.cancels==foreignCancels);
+    update.value.busy=update.value.cancellable=update.value.manual=update.value.installContinuation=false;
+  }
   // Slow terminal results remain in the update context until explicit acknowledgement.
   update.value.reason=GitUpdateReason::none;openUpdates();click();idle();
   update.value.busy=update.value.cancellable=false;update.value.phase=GitUpdatePhase::error;update.value.reason=GitUpdateReason::transport;idle();

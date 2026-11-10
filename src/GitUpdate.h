@@ -7,7 +7,7 @@
 
 // One shared updater service. Installation callbacks are an unfinished draft:
 // startup/UI wiring and postboot acceptance remain unfinished.
-enum class GitUpdatePhase : uint8_t { unavailable, idle, queued, checking, available, current, preparing, prepared, changed, cancelled, error, downloading, verifying, writing, written, cleanupPending };
+enum class GitUpdatePhase : uint8_t { unavailable, idle, queued, checking, available, current, preparing, prepared, changed, cancelled, error, downloading, verifying, writing, written, cleanupPending, retryWaiting };
 enum class GitUpdateReason : uint8_t {
   none, unsupported, notStarted, development, memory, admission, clock, hardware,
   layout, bootloader, assets, transport, headers, redirect, notPublished, body,
@@ -30,12 +30,16 @@ struct GitUpdateTransport {
   int32_t sdkError=0,httpStatus=0,socketError=0,tlsSdkError=0,tlsError=0,tlsFlags=0;
 };
 static_assert(sizeof(GitUpdateTransport)<=32,"Bound updater transport diagnostics");
+constexpr uint32_t gitUpdateInstallDurationMs=30u*60u*1000u;
 struct GitUpdateSnapshot {
   GitUpdatePhase phase=GitUpdatePhase::unavailable;
   GitUpdateReason reason=GitUpdateReason::notStarted;
   bool supported=false, busy=false, compatible=false, cancellable=false, canPrepare=false,manual=false;
   // Metadata-only prepared state never claims installation is available.
   bool canInstall=false;
+  bool installContinuation=false;
+  uint16_t retryCount=0;
+  uint32_t retryDelayMs=0,installRemainingMs=0;
   uint8_t progress=0;
   uint64_t operation=0;
   char installed[48]={};
@@ -84,7 +88,7 @@ public:
   bool activateInstall(uint64_t operation);
   void finishInstallRestart(uint64_t operation,bool mayClean);
   bool requestCancel();
-  bool requestCancel(uint64_t expectedOperation);
+  bool requestCancel(uint64_t expectedOperation,GitUpdateReason reason=GitUpdateReason::cancelled);
   bool acquireExternal(GitUpdateExternalOwner kind,GitUpdateOwnerToken &token);
   bool releaseExternal(const GitUpdateOwnerToken &token);
   bool ownsExternal(const GitUpdateOwnerToken &token) const;

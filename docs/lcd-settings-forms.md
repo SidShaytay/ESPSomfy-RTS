@@ -1,6 +1,6 @@
 # LCD settings forms
 
-**Navigation version:** Paths below describe source `015ac39`, intended for the next release and not yet deployed. Installed 4.7.3 uses the older menus; see the [installed-version path map](lilygo-local-ui.md#navigation-versions).
+**Navigation version:** These paths apply to **4.8.0 and later**. For 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
 
 The local settings component covers General, Network, MQTT, Security and Radio. It reads field lists, lengths, ranges and non-contiguous choices from the same tables as socket settings validation. Ethernet fields appear only on Ethernet-capable builds. The shared board's fixed radio GPIOs and its valid WiFi-only connection setting are shown read-only.
 

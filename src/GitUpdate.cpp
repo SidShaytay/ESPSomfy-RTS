@@ -13,6 +13,7 @@ uint64_t gitUpdateTransferClockNow();
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <cerrno>
 #if defined(GIT_UPDATE_HOST_TEST)
 #include "../tests/git-update-worker/Runtime.h"
 #elif defined(ARDUINO)
@@ -45,6 +46,9 @@ enum class Owner : uint8_t { none,check,prepare,manual,restore,counter,restart,c
 Owner owner=Owner::none;
 uint64_t ownerGeneration=0;
 GitUpdateSnapshot view;
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+std::atomic<uint32_t> operationStart{0},operationBudget{180000};
+#endif
 ManualUpdateLifecycle manualTransfer;
 GitUpdateInstallHooks installHooks;
 uint64_t installLease=0;
@@ -64,7 +68,7 @@ bool acquire(Owner kind) {
 }
 }
 const char *gitUpdatePhase(GitUpdatePhase phase) {
-  static const char *const names[]={"unavailable","idle","queued","checking","available","current","preparing","prepared","changed","cancelled","error","downloading","verifying","writing","written","cleanupPending"};
+  static const char *const names[]={"unavailable","idle","queued","checking","available","current","preparing","prepared","changed","cancelled","error","downloading","verifying","writing","written","cleanupPending","retryWaiting"};
   const size_t index=static_cast<size_t>(phase);
   return index<sizeof(names)/sizeof(*names) ? names[index] : "unavailable";
 }
@@ -100,7 +104,7 @@ bool GitUpdateClass::acquireExternal(GitUpdateExternalOwner kind,GitUpdateOwnerT
   Guard guard;
   if(!acquire(requested)) return false;
   token.generation=ownerGeneration;token.kind=kind;
-  view.operation=0;view.manual=false;view.transport={};
+  view.operation=0;view.manual=false;view.installContinuation=false;view.retryCount=0;view.retryDelayMs=0;view.transport={};
   view.compatible=false;view.canPrepare=false;view.candidate={};
   if(view.phase!=GitUpdatePhase::unavailable) view.phase=GitUpdatePhase::idle;
   return true;
@@ -209,7 +213,10 @@ bool GitUpdateClass::closeTransfer(const GitUpdateOwnerToken &token) {
 bool GitUpdateClass::busy() const { Guard guard;return owner!=Owner::none; }
 GitUpdateSnapshot GitUpdateClass::snapshot() const {
   Guard guard;
-  auto copy=view;copy.busy=owner!=Owner::none;
+  auto copy=view;copy.busy=owner!=Owner::none;copy.installContinuation=copy.busy && view.installContinuation;
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  if(copy.installContinuation){const uint32_t elapsed=uint32_t(millis()-operationStart);copy.installRemainingMs=elapsed<gitUpdateInstallDurationMs?gitUpdateInstallDurationMs-elapsed:0;}
+#endif
 #ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101
   copy.supported=true;
   copy.canInstall=!copy.busy && copy.compatible && copy.canPrepare && installHooks.current && installHooks.prepare && installHooks.cleanup && installHooks.written;
@@ -270,7 +277,8 @@ constexpr size_t API_LIMIT=65536,MANIFEST_LIMIT=4096,JSON_BUDGET=192u*1024;
 constexpr size_t INTERNAL_FREE=48u*1024,INTERNAL_LARGEST=16u*1024;
 std::atomic<TaskHandle_t> workerTask{nullptr};
 std::atomic<bool> cancelled{false};
-std::atomic<uint32_t> operationStart{0};
+std::atomic<GitUpdateReason> cancellationReason{GitUpdateReason::cancelled};
+
 bool startingWorker=false;
 uint8_t admissionPending=0;
 uint64_t runningLease=0,candidateGeneration=0;
@@ -279,8 +287,8 @@ GitUpdateReadAdmission (*admitCallback)()=nullptr;
 void *jsonAcquire(size_t size) { return heap_caps_aligned_alloc(alignof(max_align_t),size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT); }
 void jsonRelease(void *p) { heap_caps_free(p); }
 GitUpdateReason stoppedReason() {
-  if(cancelled.load()) return GitUpdateReason::cancelled;
-  return uint32_t(millis()-operationStart)>OPERATION_MS ? GitUpdateReason::timeout : GitUpdateReason::none;
+  if(uint32_t(millis()-operationStart)>=operationBudget.load())return GitUpdateReason::timeout;
+  return cancelled.load()?cancellationReason.load():GitUpdateReason::none;
 }
 bool stopped() { return stoppedReason()!=GitUpdateReason::none; }
 void cooperate() { vTaskDelay(1); }
@@ -316,7 +324,15 @@ struct Buffer {
   ~Buffer() { heap_caps_free(data); }
   Buffer(const Buffer &)=delete;
 };
-struct Headers { char location[2048]={};bool invalid=false,sawLocation=false; };
+struct Headers {
+  char location[2048]={};bool invalid=false,sawLocation=false;
+  bool hasRetry=false,hasRemaining=false,hasReset=false;
+  uint64_t retry=0,remaining=0,reset=0;
+};
+bool decimalHeader(const char *text,uint64_t &out){
+  const size_t length=strnlen(text,21);if(!length || length>20)return false;out=0;
+  for(size_t i=0;i<length;i++){const unsigned d=unsigned(text[i]-'0');if(d>9 || out>(UINT64_MAX-d)/10)return false;out=out*10+d;}return true;
+}
 esp_err_t headerEvent(esp_http_client_event_t *event) {
   if(event->event_id!=HTTP_EVENT_ON_HEADER) return ESP_OK;
   auto &headers=*static_cast<Headers *>(event->user_data);
@@ -327,11 +343,19 @@ esp_err_t headerEvent(esp_http_client_event_t *event) {
     else memcpy(headers.location,event->header_value,length+1);
     headers.sawLocation=true;
   }
+  auto numeric=[&](const char *name,bool &seen,uint64_t &value){
+    if(strcasecmp(event->header_key,name))return;
+    if(seen || !decimalHeader(event->header_value,value))headers.invalid=true;
+    seen=true;
+  };
+  numeric("Retry-After",headers.hasRetry,headers.retry);
+  numeric("x-ratelimit-remaining",headers.hasRemaining,headers.remaining);
+  numeric("x-ratelimit-reset",headers.hasReset,headers.reset);
   if(strcasecmp(event->header_key,"Content-Encoding")==0 && strcasecmp(event->header_value,"identity")!=0) headers.invalid=true;
   return ESP_OK;
 }
-bool download(const std::string &initial,Buffer &out,size_t &received,GitUpdateDownload kind) {
-  std::string url=initial;received=0;const bool api=kind==GitUpdateDownload::api;
+bool downloadOnce(const std::string &initial,Buffer &out,size_t &received,GitUpdateDownload kind,uint32_t &serverWait) {
+  std::string url=initial;received=0;serverWait=0;const bool api=kind==GitUpdateDownload::api;
   { Guard guard;view.transport={};view.transport.download=kind;view.transport.stage=GitUpdateTransportStage::init; }
   for(unsigned hop=0;hop<4;hop++) {
     if(stopped()) { fail(GitUpdateReason::cancelled);return false; }
@@ -372,13 +396,20 @@ bool download(const std::string &initial,Buffer &out,size_t &received,GitUpdateD
     measure();
     const int64_t length=esp_http_client_fetch_headers(client);
     const int code=esp_http_client_get_status_code(client);
-    if(headers.invalid || length<0) { trace(GitUpdateTransportStage::headers,0,code);fail(GitUpdateReason::headers);return false; }
+    if(headers.invalid || length<0) { trace(GitUpdateTransportStage::headers,headers.invalid?0:-1,code);fail(GitUpdateReason::headers);return false; }
     if(code==301 || code==302 || code==303 || code==307 || code==308) {
       trace(GitUpdateTransportStage::status,0,code);
       if(!headers.location[0] || !GitUpdatePolicy::allowedUrl(headers.location)) { trace(GitUpdateTransportStage::status,0,code);fail(GitUpdateReason::redirect);return false; }
       url=headers.location;continue;
     }
-    if(code!=200) { trace(GitUpdateTransportStage::status,0,code);fail(code==404 ? GitUpdateReason::notPublished : GitUpdateReason::transport);return false; }
+    if(code!=200) {
+      uint64_t seconds=0;
+      if(headers.hasRetry)seconds=headers.retry;
+      else if(headers.hasRemaining && !headers.remaining && headers.hasReset){const auto now=std::time(nullptr);if(now>=0 && headers.reset>uint64_t(now))seconds=headers.reset-uint64_t(now);}
+      if(!seconds && (code==429 || (code==403 && (headers.hasRetry || (headers.hasRemaining && !headers.remaining)))))seconds=60;
+      if(seconds)serverWait=seconds>gitUpdateInstallDurationMs/1000?gitUpdateInstallDurationMs+1:uint32_t(seconds*1000);
+      trace(GitUpdateTransportStage::status,0,code);fail(code==404 ? GitUpdateReason::notPublished : GitUpdateReason::transport);return false;
+    }
     const GitUpdateTransfer::Bounds bounds{out.capacity,length,esp_http_client_is_chunked_response(client),api};
     const auto result=GitUpdateTransfer::readBody(bounds,out.data,received,
       [&](uint8_t *destination,size_t count) { return esp_http_client_read(client,reinterpret_cast<char *>(destination),count); },
@@ -387,10 +418,48 @@ bool download(const std::string &initial,Buffer &out,size_t &received,GitUpdateD
         { Guard guard;view.progress=total ? static_cast<uint8_t>((count*100)/total) : 0; }
         cooperate();
       });
-    if(result!=GitUpdateTransfer::Result::Complete || stopped()) { trace(GitUpdateTransportStage::read,0,code);fail(GitUpdateReason::body);return false; }
+    if(result!=GitUpdateTransfer::Result::Complete || stopped()) { trace(GitUpdateTransportStage::read,static_cast<int>(result),code);fail(GitUpdateReason::body);return false; }
     trace(GitUpdateTransportStage::complete,0,code);return true;
   }
   fail(GitUpdateReason::redirect);return false;
+}
+// Retries are limited to the same admitted GitHub installation and download.
+// Certificate/identity/content validation and all flash/activation work stay terminal.
+bool temporaryDownload(const GitUpdateSnapshot &s,uint32_t serverWait){
+  const auto &t=s.transport;
+  if((t.certificateState&4) || t.certificateFailure || t.tlsFlags)return false;
+  const uint32_t code=t.tlsError<0?uint32_t(-int64_t(t.tlsError)):uint32_t(t.tlsError);
+  if(code && code!=0x7280 && code!=0x6800 && code!=0x50 && code!=0x4c)return false;
+  if(s.reason==GitUpdateReason::transport){
+    if(t.stage==GitUpdateTransportStage::status)return t.httpStatus==429 || (t.httpStatus==403 && serverWait) || t.httpStatus==500 || t.httpStatus==502 || t.httpStatus==503 || t.httpStatus==504;
+    if(t.stage!=GitUpdateTransportStage::open || t.sdkError!=ESP_ERR_HTTP_CONNECT)return false;
+    return true;
+  }
+  const bool socketTemporary=t.socketError==EAGAIN || t.socketError==ECONNRESET || t.socketError==ETIMEDOUT ||
+    t.socketError==ENETDOWN || t.socketError==ENETUNREACH || t.socketError==EHOSTUNREACH || t.socketError==ECONNABORTED || t.socketError==ENOTCONN;
+  return (s.reason==GitUpdateReason::headers && t.sdkError<0 && socketTemporary) ||
+    (s.reason==GitUpdateReason::body && t.sdkError==int(GitUpdateTransfer::Result::Truncated));
+}
+bool download(const std::string &url,Buffer &out,size_t &received,GitUpdateDownload kind){
+  const auto original=gitUpdate.snapshot();
+  for(;;){
+    uint32_t serverWait=0;
+    if(downloadOnce(url,out,received,kind,serverWait)){Guard guard;view.retryDelayMs=0;return true;}
+    const auto failed=gitUpdate.snapshot();
+    if(!original.installContinuation || original.manual || stopped() || !temporaryDownload(failed,serverWait))return false;
+    const unsigned shift=std::min(unsigned(failed.retryCount),5u);
+    const bool rateLimit=(failed.transport.httpStatus==403 || failed.transport.httpStatus==429) && serverWait>=60000;
+    const uint32_t backoff=rateLimit?(60000u<<std::min(unsigned(failed.retryCount),4u)):std::min(1000u<<shift,30000u);
+    const uint32_t delay=std::max(backoff,serverWait);
+    {Guard guard;if(view.retryCount!=UINT16_MAX)++view.retryCount;view.retryDelayMs=delay;view.phase=GitUpdatePhase::retryWaiting;view.cancellable=true;view.reason=GitUpdateReason::none;view.progress=0;view.candidate=original.candidate;}
+    const uint32_t waitStart=millis();
+    while(uint32_t(millis()-waitStart)<delay){
+      if(stopped()){fail(stoppedReason());Guard guard;view.retryDelayMs=0;return false;}
+      {Guard guard;view.retryDelayMs=delay-uint32_t(millis()-waitStart);}
+      cooperate();
+    }
+    {Guard guard;view.retryDelayMs=0;view.phase=original.phase;view.reason=GitUpdateReason::none;}
+  }
 }
 bool digestMatches(const uint8_t *data,size_t size,const std::string &expected) {
   if(expected.size()!=64) return false;
@@ -508,7 +577,7 @@ bool metadata(bool prepare,const GitUpdateCandidate &expected,GitUpdatePolicy::M
   const bool same=prepare && matches(found,expected);
   const auto stop=stoppedReason();
   Guard guard;
-  if(stop!=GitUpdateReason::none || cancelled.load()) { terminalLocked(cancelled.load() ? GitUpdateReason::cancelled : stop);return false; }
+  if(stop!=GitUpdateReason::none || cancelled.load()) { terminalLocked(stoppedReason());return false; }
   if(!same) {
     if(candidateGeneration==UINT64_MAX) { terminalLocked(GitUpdateReason::invalidCandidate);return false; }
     found.generation=++candidateGeneration;
@@ -631,9 +700,9 @@ GitUpdateRequest queue(bool prepare,const GitUpdateCandidate &expected,uint64_t 
   if(prepare && (!view.compatible || !view.canPrepare || !expected.generation || !matches(view.candidate,expected))) return GitUpdateRequest::invalidCandidate;
   if(candidateGeneration==UINT64_MAX){terminalLocked(GitUpdateReason::freshness);return GitUpdateRequest::unavailable;}
   if(!acquire(prepare ? Owner::prepare : Owner::check)) return GitUpdateRequest::unavailable;
-  view.operation=++candidateGeneration;view.manual=false;view.transport={};if(operation)*operation=view.operation;
+  view.operation=++candidateGeneration;view.manual=false;view.installContinuation=false;view.retryCount=0;view.retryDelayMs=0;operationBudget=OPERATION_MS;view.transport={};if(operation)*operation=view.operation;
   operationExpected=expected;runningLease=ownerGeneration;
-  cancelled.store(false);admissionPending=prepare ? 2 : 1;
+  cancellationReason=GitUpdateReason::cancelled;cancelled.store(false);admissionPending=prepare ? 2 : 1;
   view.phase=GitUpdatePhase::queued;view.reason=GitUpdateReason::none;view.cancellable=true;view.progress=0;
   if(!prepare) { view.compatible=false;view.canPrepare=false;view.candidate={}; }
   return GitUpdateRequest::accepted;
@@ -666,7 +735,7 @@ void GitUpdateClass::loop() {
   uint8_t command;uint64_t lease,install,operation;bool active,uncertain;
   { Guard guard;command=admissionPending;lease=runningLease;install=installLease;operation=view.operation;active=installWorkerActive;uncertain=installUncertain || installFinal;if(!active)admissionPending=0; }
   if(install){
-    if(!installHooks.current(operation))cancelled=true;
+    if(!installHooks.current(operation) && !cancelled.load()){cancellationReason=GitUpdateReason::admission;cancelled=true;}
     bool cleanup,written;GitUpdateOwnerToken source;RadioInstallToken radio;
     {Guard guard;cleanup=installCleanup || stopped();written=installWritten;source=installSource;radio=installRadio;}
     if(active || uncertain)return; // Cancellation signals the worker; it cannot resume controls.
@@ -676,7 +745,7 @@ void GitUpdateClass::loop() {
       return;
     }
     if(command==3){
-      if(!installHooks.current(operation)){cancelled=true;return;}
+      if(!installHooks.current(operation)){if(!cancelled.load()){cancellationReason=GitUpdateReason::admission;cancelled=true;}return;}
       GitUpdateOwnerToken prepared;
       {Guard guard;const auto now=manualTransferClock(transferNow());prepared={installLease,GitUpdateExternalOwner::manual};
         if(!installSource.generation){owner=Owner::manual;installSource=prepared;
@@ -697,7 +766,7 @@ void GitUpdateClass::loop() {
     Guard guard;
     if(ownerGeneration!=lease || (owner!=Owner::check && owner!=Owner::prepare && owner!=Owner::install)) return;
     if(!admitted || cancelled.load()) {
-      terminalLocked(cancelled.load() ? GitUpdateReason::cancelled : GitUpdateReason::admission);
+      terminalLocked(cancelled.load() ? stoppedReason() : GitUpdateReason::admission);
       if(owner==Owner::install)installCleanup=true;else owner=Owner::none;
       return;
     }
@@ -721,7 +790,7 @@ GitUpdateRequest GitUpdateClass::requestInstall(const GitUpdateCandidate &expect
   if(!view.compatible || !view.canPrepare || !matches(expected,view.candidate))return GitUpdateRequest::invalidCandidate;
   if(candidateGeneration==UINT64_MAX){terminalLocked(GitUpdateReason::freshness);return GitUpdateRequest::unavailable;}
   if(!acquire(Owner::install))return GitUpdateRequest::unavailable;
-  installLease=runningLease=ownerGeneration;operationExpected=expected;cancelled=false;admissionPending=1;operationStart=millis();
+  installLease=runningLease=ownerGeneration;operationExpected=expected;cancellationReason=GitUpdateReason::cancelled;cancelled=false;admissionPending=1;operationStart=millis();operationBudget=gitUpdateInstallDurationMs;view.installContinuation=true;view.retryCount=0;view.retryDelayMs=0;
   operation=view.operation=++candidateGeneration;view.manual=false;view.transport={};view.phase=GitUpdatePhase::queued;view.reason=GitUpdateReason::none;view.progress=0;view.cancellable=true;
   return GitUpdateRequest::accepted;
 }
@@ -732,7 +801,7 @@ bool GitUpdateClass::reserveManualInstall(const GitUpdateOwnerToken &source,uint
      !workerTask.load() || !installHooks.manual || !candidateGeneration || candidateGeneration==UINT64_MAX ||
      !manualTransfer.firmwareQueuedClaimed(source,now))return false;
   reservedManualLease=source.generation;operation=view.operation=++candidateGeneration;view.transport={};
-  view.manual=true;view.compatible=view.canPrepare=view.cancellable=false;view.candidate={};
+  view.manual=true;view.installContinuation=false;view.retryCount=0;view.retryDelayMs=0;view.compatible=view.canPrepare=view.cancellable=false;view.candidate={};
   view.phase=GitUpdatePhase::queued;view.reason=GitUpdateReason::none;view.progress=0;
   return true;
 }
@@ -757,9 +826,9 @@ GitUpdateRequest GitUpdateClass::requestManualInstall(const GitUpdateOwnerToken 
     reservedManualLease=0;
     staged->data=bytes;bytes=nullptr;installImage=std::move(staged);
     installLease=runningLease=source.generation;installSource=source;operationExpected={};
-    operation=view.operation=ticket;view.manual=true;view.transport={};view.compatible=view.canPrepare=false;view.candidate={};
+    operation=view.operation=ticket;view.manual=true;view.installContinuation=false;operationBudget=OPERATION_MS;view.transport={};view.compatible=view.canPrepare=false;view.candidate={};
     view.phase=GitUpdatePhase::verifying;view.reason=GitUpdateReason::none;view.progress=0;view.cancellable=true;
-    cancelled=false;operationStart=millis();installWorkerActive=true;
+    cancellationReason=GitUpdateReason::cancelled;cancelled=false;operationStart=millis();installWorkerActive=true;
   }
   if(xTaskNotify(workerTask.load(),6,eSetValueWithOverwrite)!=pdPASS){Guard guard;installWorkerActive=false;installCleanup=true;terminalLocked(GitUpdateReason::admission);}
   return GitUpdateRequest::accepted;
@@ -795,11 +864,12 @@ void GitUpdateClass::finishInstallRestart(uint64_t operation,bool mayClean) {
 }
 GitUpdateRequest GitUpdateClass::requestPrepare(const GitUpdateCandidate &expected) { return queue(true,expected); }
 bool GitUpdateClass::requestCancel(){return requestCancel(0);}
-bool GitUpdateClass::requestCancel(uint64_t expectedOperation) {
+bool GitUpdateClass::requestCancel(uint64_t expectedOperation,GitUpdateReason reason) {
   Guard guard;
   if(expectedOperation && expectedOperation!=view.operation)return false;
   if((owner!=Owner::check && owner!=Owner::prepare && !installLease) || !view.cancellable) return false;
-  cancelled.store(true);return true;
+  if(reason!=GitUpdateReason::cancelled && reason!=GitUpdateReason::admission)return false;
+  if(!cancelled.load()){cancellationReason=reason;cancelled.store(true);}return true;
 }
 
 #else
@@ -814,5 +884,5 @@ GitUpdateRequest GitUpdateClass::requestManualInstall(const GitUpdateOwnerToken 
 bool GitUpdateClass::activateInstall(uint64_t){return false;}
 void GitUpdateClass::finishInstallRestart(uint64_t,bool){}
 bool GitUpdateClass::requestCancel() { return false; }
-bool GitUpdateClass::requestCancel(uint64_t){return false;}
+bool GitUpdateClass::requestCancel(uint64_t,GitUpdateReason){return false;}
 #endif

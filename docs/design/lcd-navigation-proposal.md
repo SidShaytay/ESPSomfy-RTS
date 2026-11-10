@@ -1,6 +1,6 @@
 # Approved LCD navigation
 
-Sid approved this navigation tree. It is implemented in source `015ac39` and awaits release, deployment and physical acceptance. Installed 4.7.3 still uses the older menus; see the [versioned path map](../lilygo-local-ui.md#navigation-versions).
+Sid approved this navigation tree. It is implemented and released in **4.8.0**; these paths apply to 4.8.0 and later. See the [versioned path map](../lilygo-local-ui.md#navigation-versions) for 4.7.3. Release and installation do not establish physical navigation acceptance or full raw-flash qualification; those checks remain separate.
 
 The original action inventory used baseline `8b746f2`. The approved layout keeps three daily shortcuts together, separates browsing devices and groups from configuring the controller, and retains existing operations and privacy rules. Navigation adds no backend action or permission.
 

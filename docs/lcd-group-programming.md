@@ -1,6 +1,6 @@
 # Pair or unpair a motor with a group
 
-**Navigation version:** Paths below describe source `015ac39`, intended for the next release and not yet deployed. Installed 4.7.3 uses the older menus; see the [installed-version path map](lilygo-local-ui.md#navigation-versions).
+**Navigation version:** These paths apply to **4.8.0 and later**. For 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
 
 Use the LCD to send the motor and group programming requests, then separately save the group’s controller list. The guide is integrated and independently reviewed with offline input/renderer/adapter/FIFO coverage; physical motor programming remains unverified.
 
