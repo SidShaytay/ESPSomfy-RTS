@@ -21,6 +21,9 @@ static uint64_t advanceOnSend=0;
 static unsigned refuseAt=0;
 static void (*duringSend)()=nullptr;
 struct RecordingRequests {
+  shade_request_result_t runOwnedRepeat(const shade_request_t &request,owned_repeat_receipt_t &receipt) {
+    const auto result=run(request);receipt.ticket=result==shade_request_result_t::done?123:0;return result;
+  }
   shade_request_result_t run(const shade_request_t &request) {
     sent.push_back(request);authTestNow+=advanceOnSend;
     if(duringSend) {auto callback=duringSend;duringSend=nullptr;callback();}
@@ -43,9 +46,12 @@ static Command command(const View &v,Action action) {
   const auto auth=pollAuthorization();return {v.entity,v.openedToken,action,-1,0,auth.allowed?auth.generation:auth.expiredSessionGeneration};
 }
 static DispatchResult result() {DispatchResult r;assert(takeLocalControlResult(r));return r;}
+static void radioEvent(tx_event_t type,uint32_t ticket=123) {
+ somfy_tx_event_t event;event.type=type;event.ticket=ticket;localControlTxEvent(event);
+}
 static View reset() {
   somfy.transceiver.installPaused=false;securityOverride=false;advanceOnSend=0;refuseAt=0;modelEditHook=nullptr;duringSend=nullptr;
-  setLocalControlsFrozen(true);somfy.transceiver.room=somfy.transceiver.ready=true;somfy.transceiver.suspended=false;pendingRestart=false;
+  setLocalControlsFrozen(true);radioEvent(tx_event_t::aborted);somfy.transceiver.room=somfy.transceiver.ready=true;somfy.transceiver.suspended=false;pendingRestart=false;
   loopQueue.drain();DispatchResult ignored;while(takeLocalControlResult(ignored)) {}
   setLocalControlsFrozen(false);authTestNow+=1000000;authorization.configure(AuthMode::none,"","");
   sent.clear();loopReads=0;++somfy.configurationRevision;
@@ -70,7 +76,7 @@ static void explicit_repeats_preserve_tuple_and_fifo_recheck_every_admission() {
   loop_item_t other;other.request.id=22;other.request.command=somfy_commands::Up;assert(loopQueue.submit(other));
   assert(dispatch(repeated)==DispatchResult::queued && sent.empty());loopQueue.drain();
   assert(sent.size()==2 && sent[0].id==22 && sent[1].id==7 && sent[1].repeat==127 && sent[1].stepSize==23 && sent[1].type==shade_request_type_t::shade_command);
-  assert(result()==DispatchResult::done);
+  radioEvent(tx_event_t::finished);assert(result()==DispatchResult::done);
   auto bad=command(view,Action::stop);bad.repeat=3;assert(dispatch(bad)==DispatchResult::refused);
   for(unsigned reason=0;reason<5;reason++) {
     view=reset();repeated=command(view,Action::down);repeated.repeat=3;
@@ -340,11 +346,73 @@ static void install_pause_refuses_rf_without_blocking_gpio_or_replaying_after_re
   reset();loop_item_t accepted;accepted.request.id=7;assert(loopQueue.submit(accepted));
   assert(!loopQueue.sealForRestart());loopQueue.drain();assert(sent.size()==1);
 }
+static void admitted_repeat_keeps_ownership() {
+ auto view=reset();auto cmd=command(view,Action::up);cmd.repeat=127;
+ assert(dispatch(cmd)==DispatchResult::queued);loopQueue.drain();
+ assert(localControlPending());
+ radioEvent(tx_event_t::started);authTestNow+=6000;refreshLocalControl();
+ assert(localControlPending() && !pendingControl.cancelled); // not the 5s queue TTL
+ radioEvent(tx_event_t::finished);assert(!localControlPending() && result()==DispatchResult::done);
+ // Each invalidation cancels this ticket, retains ownership, and ignores
+ // unrelated/duplicate outcomes until the actual matching terminal event.
+ for(unsigned why=0;why<7;++why) {
+  view=reset();cmd=command(view,Action::up);cmd.repeat=127;
+  assert(dispatch(cmd)==DispatchResult::queued);loopQueue.drain();radioEvent(tx_event_t::started);
+  somfy.transceiver.cancelledTicket=0;
+  if(why==0)assert(cancelUnsubmittedLocalControl());
+  if(why==1){++somfy.shades[13].configurationRevision;refreshLocalControl();}
+  if(why==2)setLocalControlsFrozen(true);
+  if(why==3)invalidateControlPresentation();
+  if(why==4){suppliedSecurity=pollAuthorization();securityOverride=true;suppliedSecurity.expiredSessionGeneration=suppliedSecurity.generation;++suppliedSecurity.generation;suppliedSecurity.allowed=false;refreshLocalControl();}
+  if(why==5){authTestNow+=pendingControl.airMaxMs;refreshLocalControl();}
+  if(why==6){--authTestNow;refreshLocalControl();}
+  assert(localControlPending() && somfy.transceiver.cancelledTicket==123);
+  radioEvent(tx_event_t::finished,999);assert(localControlPending());
+  radioEvent(tx_event_t::aborted);assert(!localControlPending());
+  radioEvent(tx_event_t::aborted);(void)result();
+ }
+ // Same-target explicit STOP cancels repeats but remains at FIFO tail; old
+ // terminal arriving before/after STOP execution cannot consume its marker.
+ for(bool terminalFirst:{false,true}) {
+  view=reset();cmd=command(view,Action::up);cmd.repeat=127;
+  assert(dispatch(cmd)==DispatchResult::queued);loopQueue.drain();radioEvent(tx_event_t::started);
+  loop_item_t read;read.type=loop_item_type_t::proto_read;assert(loopQueue.submit(read));
+  assert(dispatch(command(view,Action::stop))==DispatchResult::queued);
+  assert(somfy.transceiver.cancelledTicket==123 && loopQueue.pending()==2);
+  if(terminalFirst)radioEvent(tx_event_t::aborted);
+  loopQueue.drain();assert(sent.size()==2 && sent.back().command==somfy_commands::My && loopReads==1);
+  if(!terminalFirst){assert(localControlPending());radioEvent(tx_event_t::aborted);}
+  assert(!localControlPending() && result()==DispatchResult::done);
+ }
+ view=reset();cmd=command(view,Action::up);cmd.repeat=127;
+ assert(dispatch(cmd)==DispatchResult::queued);loopQueue.drain();
+ assert(dispatch(command(view,Action::stop))==DispatchResult::queued);
+ // Model observes dropped-before-start as idle BEFORE forwarding the outcome.
+ somfy.shades[13].idle=true;radioEvent(tx_event_t::dropped);loopQueue.drain();
+ assert(sent.size()==1 && !localControlPending() && result()==DispatchResult::idle); // no MY/favourite
+ view=reset();cmd=command(view,Action::up);cmd.repeat=127;
+ assert(dispatch(cmd)==DispatchResult::queued);loopQueue.drain();radioEvent(tx_event_t::started);
+ loop_item_t read;read.type=loop_item_type_t::proto_read;
+ for(unsigned i=0;i<LOOP_QUEUE_SIZE;++i)assert(loopQueue.submit(read));
+ assert(dispatch(command(view,Action::stop))==DispatchResult::cancelledBusy);
+ assert(localControlPending() && somfy.transceiver.cancelledTicket==123);
+ loopQueue.drain();assert(sent.size()==1);radioEvent(tx_event_t::aborted);
+ assert(!localControlPending() && result()==DispatchResult::cancelledBusy);
+ view=reset();pinSession(view);cmd=command(view,Action::up);cmd.repeat=127;
+ assert(dispatch(cmd)==DispatchResult::queued);loopQueue.drain();radioEvent(tx_event_t::started);
+ suppliedSecurity=pollAuthorization();securityOverride=true;
+ suppliedSecurity.expiredSessionGeneration=suppliedSecurity.generation;
+ ++suppliedSecurity.generation;suppliedSecurity.allowed=false;suppliedSecurity.stopGrace=true;
+ refreshLocalControl();assert(localControlPending() && somfy.transceiver.cancelledTicket==123);
+ assert(dispatch(command(view,Action::stop))==DispatchResult::queued);
+ loopQueue.drain();radioEvent(tx_event_t::aborted);
+ assert(sent.size()==2 && sent.back().command==somfy_commands::My && result()==DispatchResult::done);
+}
 int main() {
   static_assert(sizeof(loop_item_t)<=80,"Queue markers must not copy target contexts into 32 slots");
   queueAllocationOK=false;loopQueue.begin();auto noQueue=reset();
   assert(dispatch(command(noQueue,Action::up))==DispatchResult::busy && !localControlPending() && sent.empty());
-  queueAllocationOK=true;loopQueue.begin();install_pause_refuses_rf_without_blocking_gpio_or_replaying_after_resume();scan_refuses_new_rf_without_holding_gpio_or_later_replaying_unpair();explicit_repeats_preserve_tuple_and_fifo_recheck_every_admission();learned_intents_share_real_fifo_age_and_exact_cancellation();accepted_mutation_history_follows_actual_queue_result();restart_seal_preserves_every_accepted_item_and_refuses_late_submission();deferred_fifo_backpressure_and_cancel();age_clock_context_and_freeze_guards();
+  queueAllocationOK=true;loopQueue.begin();admitted_repeat_keeps_ownership();install_pause_refuses_rf_without_blocking_gpio_or_replaying_after_resume();scan_refuses_new_rf_without_holding_gpio_or_later_replaying_unpair();explicit_repeats_preserve_tuple_and_fifo_recheck_every_admission();learned_intents_share_real_fifo_age_and_exact_cancellation();accepted_mutation_history_follows_actual_queue_result();restart_seal_preserves_every_accepted_item_and_refuses_late_submission();deferred_fifo_backpressure_and_cancel();age_clock_context_and_freeze_guards();
   invalid_or_active_replacement_sources_cannot_authorize_old_intents();
   favourite_programming_requires_unchanged_observation_at_admission_and_execution();
   stop_supersedes_only_same_authorized_context_at_fifo_tail();

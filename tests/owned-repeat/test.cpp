@@ -58,6 +58,20 @@ int main() {
   assert(shade.lastFrame.remoteAddress==shade.getRemoteAddress());
   assert(shade.lastFrame.proto==shade.proto && shade.lastFrame.bitLength==expectedBits);
  }
+ // Separate LCD intents use command variants and consume fresh counters even
+ // when the last wire command matches. A second UP can stop the actual motor.
+ req.type=shade_request_type_t::shade_command;
+ auto before=shade.lastRollingCode;assert(ops.sendOwnedRepeat(req));
+ assert(shade.lastRollingCode==uint16_t(before+1));
+ before=shade.lastRollingCode;assert(ops.sendOwnedRepeat(req));
+ assert(shade.lastRollingCode==uint16_t(before+1));
+ req.type=shade_request_type_t::group_command;req.command=somfy_commands::Down;
+ before=group.lastRollingCode;assert(ops.sendOwnedRepeat(req));
+ assert(group.lastRollingCode==uint16_t(before+1));
+ before=group.lastRollingCode;assert(ops.sendOwnedRepeat(req));
+ assert(group.lastRollingCode==uint16_t(before+1));
+ req.type=shade_request_type_t::shade_repeat;req.command=somfy_commands::Up;
+ shade.lastFrame.valid=false;assert(ops.sendOwnedRepeat(req));
  // Zero configured bits can still repeat when its effective default matches.
  shade.bitLength=0;const auto code=shade.lastRollingCode;
  assert(ops.sendOwnedRepeat(req) && shade.lastRollingCode==code);
