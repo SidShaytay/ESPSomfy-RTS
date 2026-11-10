@@ -89,8 +89,8 @@ bool SomfyShadeOps::sendGroupSensorCommand(uint8_t groupId, int8_t windy, int8_t
 
 uint32_t SomfyShadeOps::sendOwnedRepeat(const shade_request_t &req) {
   if(!somfy.modelLoad.usable() || !validOwnedRepeatRequest(req)) return 0;
-  const bool grouped=req.type==shade_request_type_t::group_repeat;
-  if(!grouped && req.type!=shade_request_type_t::shade_repeat) return 0;
+  const bool grouped=req.type==shade_request_type_t::group_repeat || req.type==shade_request_type_t::group_command;
+  if(!grouped && req.type!=shade_request_type_t::shade_repeat && req.type!=shade_request_type_t::shade_command) return 0;
   auto *shade=grouped?nullptr:somfy.getShadeById(req.id);
   auto *group=grouped?somfy.getGroupById(req.id):nullptr;
   SomfyRemote *remote=grouped?static_cast<SomfyRemote *>(group):static_cast<SomfyRemote *>(shade);
@@ -102,7 +102,8 @@ uint32_t SomfyShadeOps::sendOwnedRepeat(const shade_request_t &req) {
   const bool step=req.command==somfy_commands::StepUp || req.command==somfy_commands::StepDown;
   if(step ? req.stepSize<1 || req.stepSize>127 : req.stepSize!=0) return 0;
   const auto wire=remote->transformCommand(req.command);
-  if(remote->isLastCommand(wire) && remote->lastFrame.stepSize==req.stepSize &&
+  if((req.type==shade_request_type_t::shade_repeat || req.type==shade_request_type_t::group_repeat) &&
+     remote->isLastCommand(wire) && remote->lastFrame.stepSize==req.stepSize &&
      remote->lastFrame.remoteAddress==remote->getRemoteAddress() &&
      remote->lastFrame.proto==remote->proto && remote->lastFrame.bitLength==bits)
     return remote->repeatFrameReceipt(req.repeat).ticket;

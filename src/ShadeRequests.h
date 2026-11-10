@@ -116,6 +116,8 @@ class ShadeRequests {
   public:
     explicit ShadeRequests(ShadeOps &ops) : ops(ops) {}
     shade_request_result_t run(const shade_request_t &req);
+    // Explicit-count command variants always start a fresh intent/counter;
+    // repeat variants may reuse the matching current wire frame.
     shade_request_result_t runOwnedRepeat(const shade_request_t &, owned_repeat_receipt_t &);
   private:
     ShadeOps &ops;

@@ -7,6 +7,7 @@
 #include "ModelIdleForAdministration.h"
 #include "Somfy.h"
 #include "ShadeRequests.h"
+#include "TxBuffer.h"
 #include "LoopQueue.h"
 #include "Utils.h"
 #include <esp_timer.h>
@@ -34,7 +35,10 @@ struct PendingControl {
   TargetContext guard;
   Command command;
   uint64_t token=0, admittedAt=0, observedAt=0;
-  uint32_t eligible=0, securityGeneration=0;
+  uint32_t eligible=0, securityGeneration=0, ticket=0, airMaxMs=0;
+  uint64_t airStarted=0;
+  DispatchResult deferredResult=DispatchResult::cancelled;
+  bool completionDeferred=false;
   bool active=false, executing=false, cancelled=false;
 } pendingControl;
 static_assert(sizeof(PendingControl)<=704,"One local intent owns one bounded exact context");
@@ -43,6 +47,10 @@ bool resultReady=false;
 DispatchResult lastResult=DispatchResult::cancelled;
 uint64_t controlNow() {return uint64_t(esp_timer_get_time())/1000;}
 void finishControl(DispatchResult result) {
+  if(pendingControl.ticket) {
+    pendingControl.executing=true;pendingControl.completionDeferred=true;
+    pendingControl.deferredResult=result;return;
+  }
   pendingControl={};lastResult=result;resultReady=true;
 }
 
@@ -210,7 +218,9 @@ DispatchResult validateControl(Target &target,uint32_t &moving) {
   if(!pendingControl.active || pendingControl.cancelled) return DispatchResult::cancelled;
   const uint64_t now=controlNow();
   if(now<pendingControl.admittedAt || now<pendingControl.observedAt ||
-     now-pendingControl.admittedAt>=controlQueueMaxAgeMs) return DispatchResult::expired;
+     (pendingControl.airStarted && pendingControl.command.action!=Action::stop ?
+       now-pendingControl.airStarted>=pendingControl.airMaxMs :
+       now-pendingControl.admittedAt>=controlQueueMaxAgeMs)) return DispatchResult::expired;
   pendingControl.observedAt=now;
   if(controlsFrozen || restartPending()) return DispatchResult::refused;
   TargetContext current;
@@ -244,6 +254,7 @@ DispatchResult validateControl(Target &target,uint32_t &moving) {
 bool localControlsFrozen() { return controlsFrozen; }
 CatalogueSource &runtimeCatalogue() {static RuntimeCatalogue source;return source;}
 void invalidateControlPresentation() {
+  cancelUnsubmittedLocalControl();
   presentedRef={};presentedToken=0;
   focusedContext={};focusedToken=0;hasFocus=false;
   focusedMoving=leasedMoving=0;stopLease={};
@@ -262,15 +273,40 @@ bool takeLocalControlResult(DispatchResult &result) {
 }
 bool cancelUnsubmittedLocalControl() {
   if(!pendingControl.active) return false;
-  if(pendingControl.executing) pendingControl.cancelled=true;
-  else finishControl(DispatchResult::cancelled);
+  if(pendingControl.executing || pendingControl.ticket) {
+    pendingControl.cancelled=true;pendingControl.completionDeferred=true;
+    pendingControl.deferredResult=DispatchResult::cancelled;pendingControl.executing=true;
+    if(pendingControl.ticket) somfy.transceiver.cancelTx(pendingControl.ticket);
+  } else finishControl(DispatchResult::cancelled);
   return true;
 }
 void refreshLocalControl() {
   if(!pendingControl.active) return;
   Target target;uint32_t moving=0;
   const auto result=validateControl(target,moving);
-  if(result!=DispatchResult::queued && !pendingControl.executing) finishControl(result);
+  if(result!=DispatchResult::queued) {
+    if(pendingControl.ticket) {
+      if(!pendingControl.cancelled) {
+        pendingControl.cancelled=true;pendingControl.executing=true;
+        pendingControl.completionDeferred=true;pendingControl.deferredResult=result;
+        somfy.transceiver.cancelTx(pendingControl.ticket);
+      }
+    } else if(!pendingControl.executing) finishControl(result);
+  }
+}
+void localControlTxEvent(const somfy_tx_event_t &event) {
+  if(!pendingControl.active || !pendingControl.ticket || event.ticket!=pendingControl.ticket) return;
+  if(event.type==tx_event_t::started) {
+    if(!pendingControl.airStarted) pendingControl.airStarted=controlNow();
+    return;
+  }
+  if(event.type!=tx_event_t::finished && event.type!=tx_event_t::aborted && event.type!=tx_event_t::dropped) return;
+  pendingControl.ticket=0;pendingControl.airStarted=0;
+  // A queued STOP uses the same exact context, but is a distinct FIFO marker.
+  // Its dispatch/completion must not be consumed by the old repeat outcome.
+  if(!pendingControl.executing) return;
+  finishControl(pendingControl.completionDeferred?pendingControl.deferredResult:
+    event.type==tx_event_t::finished?DispatchResult::done:DispatchResult::cancelled);
 }
 DisplayPreferences loadPreferences() {
   DisplayPreferences out; Preferences prefs;
@@ -367,11 +403,18 @@ DispatchResult dispatch(const Command &cmd) {
   if(pendingControl.active) {
     // A fresh, presented STOP retracts only this unchanged target's local
     // unsubmitted start. The replacement always joins the GLOBAL FIFO tail.
-    if(cmd.action!=Action::stop || pendingControl.command.action==Action::stop || pendingControl.executing ||
+    if(cmd.action!=Action::stop || pendingControl.command.action==Action::stop || (pendingControl.executing && !pendingControl.ticket) ||
        !pendingControl.guard.same(current)) return DispatchResult::busy;
-    finishControl(DispatchResult::cancelled);resultReady=false;superseded=true;
+    if(pendingControl.ticket) {
+      somfy.transceiver.cancelTx(pendingControl.ticket);
+      pendingControl.executing=pendingControl.cancelled=pendingControl.completionDeferred=false;
+    } else finishControl(DispatchResult::cancelled);
+    resultReady=false;superseded=true;
   }
-  if(cmd.action==Action::stop && !eligible) return superseded?DispatchResult::cancelled:DispatchResult::idle;
+  if(cmd.action==Action::stop && !eligible) {
+    if(pendingControl.ticket) finishControl(DispatchResult::cancelled);
+    return superseded?DispatchResult::cancelled:DispatchResult::idle;
+  }
   if(intentSerial==UINT64_MAX) return superseded?DispatchResult::cancelledBusy:DispatchResult::refused;
   const uint64_t now=controlNow(), token=++intentSerial;
   pendingControl.guard=current;pendingControl.command=cmd;
@@ -379,7 +422,11 @@ DispatchResult dispatch(const Command &cmd) {
   pendingControl.eligible=eligible;pendingControl.securityGeneration=security.configurationGeneration;
   pendingControl.active=true;
   loop_item_t item;item.type=loop_item_type_t::local_control;item.localToken=token;item.localRadio=rf(target.descriptor.proto);
-  if(!loopQueue.submit(item)) {pendingControl={};return superseded?DispatchResult::cancelledBusy:DispatchResult::busy;}
+  if(!loopQueue.submit(item)) {
+    if(pendingControl.ticket) finishControl(DispatchResult::cancelledBusy);
+    else pendingControl={};
+    return superseded?DispatchResult::cancelledBusy:DispatchResult::busy;
+  }
   return DispatchResult::queued;
 #endif
 }
@@ -394,6 +441,21 @@ void runLocalControl(uint64_t token) {
   if(cmd.action!=Action::stop) {
     if(prepareControlRequest(cmd.action,target.descriptor,cmd.ref.id,cmd.value,cmd.step,request,cmd.repeat)!=ControlResult::done)
       {finishControl(DispatchResult::refused);return;}
+    if(cmd.repeat>=0) {
+      owned_repeat_receipt_t receipt;
+      const auto result=shadeRequests.runOwnedRepeat(request,receipt);
+      if(result!=shade_request_result_t::done || !receipt.ticket) {
+        finishControl(pendingControl.cancelled?DispatchResult::cancelled:DispatchResult::refused);return;
+      }
+      pendingControl.ticket=receipt.ticket;
+      pendingControl.admittedAt=pendingControl.observedAt=controlNow();
+      // Upper bound from sendFrame: <=188ms initial frame and <=141ms per
+      // repeat (SYMBOL=640us, 56/80-bit sync/payload/silence), plus the existing
+      // 5s scheduling allowance. A valid 127-repeat job must survive 5 seconds.
+      pendingControl.airMaxMs=188u+141u*uint32_t(cmd.repeat)+controlQueueMaxAgeMs;
+      if(pendingControl.cancelled) somfy.transceiver.cancelTx(receipt.ticket);
+      return;
+    }
     const auto result=shadeRequests.run(request);
     finishControl(result==shade_request_result_t::done?DispatchResult::done:DispatchResult::refused);return;
   }
