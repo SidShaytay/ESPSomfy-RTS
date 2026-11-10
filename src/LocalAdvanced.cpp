@@ -69,7 +69,7 @@ struct Form::Session final : LearnPending {
     remoteMenu,remoteRepeat,remoteConfirm,remotePending,remoteResult,
     groupIntent,
     groupPick,
-sensorDraft, sensorRepeat, sensorReview, sensorPending, sensorResult
+    sensorDraft, sensorRepeat, sensorReview, sensorPending, sensorResult
   };
   Context context;
   OrderIds ids{}, slots{};
@@ -1341,7 +1341,7 @@ void Form::render(FormView &out) {
       else if(i==7)strcpy(row.label,"Sensor simulation");
       else if(i==0){strcpy(row.label,"Paired marker");strcpy(row.value,s.paired?"Paired":"Unpaired");}
       else strcpy(row.label,i==1?"Linked remotes":i==2?"Learn received remote":"Primary rolling code");
-      if((s.target.scope==Scope::groups&&i==1)||(s.target.scope==Scope::devices&&i==4))
+      if(i==7)
         strcpy(row.value,backend.supportsSensor(s.target)?"RF status":"Unavailable");
     }
     if(status==Notice::invalid&&s.cursor==6)strcpy(out.hint,"Programming needs a supported RF target. Nothing sent.");

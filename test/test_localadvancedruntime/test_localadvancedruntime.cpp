@@ -49,7 +49,6 @@ struct Shade {
   bool idleForAdministration() { return idle&&!gpioRelease; }
 };
 struct Group {
-  radio_proto proto=radio_proto::RTS;uint8_t bitLength=80;
   int8_t direction = 1;
   somfy_frame_t lastFrame;
   uint8_t id = 255;
