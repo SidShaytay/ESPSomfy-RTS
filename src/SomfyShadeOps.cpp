@@ -102,7 +102,9 @@ uint32_t SomfyShadeOps::sendOwnedRepeat(const shade_request_t &req) {
   const bool step=req.command==somfy_commands::StepUp || req.command==somfy_commands::StepDown;
   if(step ? req.stepSize<1 || req.stepSize>127 : req.stepSize!=0) return 0;
   const auto wire=remote->transformCommand(req.command);
-  if(remote->isLastCommand(wire) && remote->lastFrame.stepSize==req.stepSize)
+  if(remote->isLastCommand(wire) && remote->lastFrame.stepSize==req.stepSize &&
+     remote->lastFrame.remoteAddress==remote->getRemoteAddress() &&
+     remote->lastFrame.proto==remote->proto && remote->lastFrame.bitLength==bits)
     return remote->repeatFrameReceipt(req.repeat).ticket;
   return grouped?group->sendCommandReceipt(req.command,req.repeat,req.stepSize).ticket:
                  shade->sendCommandReceipt(req.command,req.repeat,req.stepSize).ticket;
