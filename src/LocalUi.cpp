@@ -365,7 +365,7 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
   if(state.quickEditing && (!m.authorized || m.authGeneration!=quickGuard.authGeneration ||
      m.authConfigurationGeneration!=quickGuard.authConfigurationGeneration ||
      m.modelRevision!=quickGuard.modelRevision || m.restoreRevision!=quickGuard.restoreRevision || m.quickRevision!=quickGuard.quickRevision)) {
-    discardQuick();state.screen=Screen::quickHome;state.selected=4;
+    discardQuick();if(state.routed)closeForm();else {state.screen=Screen::quickHome;state.selected=4;}
     state.notice=m.authorized?Notice::changed:Notice::unlockRequired;noticeSince=now;consumed=consumed || pressed || raw || stable;
   }
   state.retryAfterMs=m.retryAfterMs;

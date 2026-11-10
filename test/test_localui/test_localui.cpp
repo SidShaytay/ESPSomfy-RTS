@@ -473,14 +473,14 @@ static void quick_revocation_consumes_only_an_existing_press() {
   d.manageQuick();
   if(held){d.tick(0,true);d.tick(0,true);}
   ++d.f.base.modelRevision;d.tick(0,held);
-  TEST_ASSERT_EQUAL(Screen::quickHome,d.c.view().screen);TEST_ASSERT_FALSE(d.c.view().quickEditing);
+  TEST_ASSERT_EQUAL(Screen::configureMenu,d.c.view().screen);TEST_ASSERT_FALSE(d.c.view().quickEditing);
   QuickPreferenceRequest save;Command command;
   if(held) {
-   d.tick(0,true,true,false,900);TEST_ASSERT_EQUAL(Screen::quickHome,d.c.view().screen);
-   d.tick();d.tick();TEST_ASSERT_EQUAL(Screen::quickHome,d.c.view().screen);
+   d.tick(0,true,true,false,900);TEST_ASSERT_EQUAL(Screen::configureMenu,d.c.view().screen);
+   d.tick();d.tick();TEST_ASSERT_EQUAL(Screen::configureMenu,d.c.view().screen);
   }
   TEST_ASSERT_FALSE(d.c.takeQuickSave(save));TEST_ASSERT_FALSE(d.c.take(command));
-  d.click();TEST_ASSERT_EQUAL(Screen::controllerMenu,d.c.view().screen);d.click();for(unsigned i=0;i<6;i++)d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::quickManage,d.c.view().screen);TEST_ASSERT_TRUE(d.c.view().quickEditing);
+  d.click();TEST_ASSERT_EQUAL(Screen::quickManage,d.c.view().screen);TEST_ASSERT_TRUE(d.c.view().quickEditing);
  }
 }
 static void approved_controller_navigation_preserves_explicit_origins(){
