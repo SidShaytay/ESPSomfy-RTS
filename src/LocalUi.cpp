@@ -324,7 +324,7 @@ bool Controller::repeatCurrent(const Model &m) const {
     state.openedToken==repeatWitness.token;
 }
 void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, bool visible,
-                      bool backPressed) {
+                      bool backPressed,bool keepNavigationContext) {
   if(!started) {
     started = true;
     activity = now;
@@ -417,7 +417,11 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
   const bool moving=m.anyMoving;
   if(moving)
     touch(now);
-  if(state.offSeconds && uint32_t(now - activity) >= uint32_t(state.offSeconds) * 1000)
+  // Critical update context may dim, but never enters security sleep or
+  // refreshes activity/authority merely because an update is still running.
+  const bool keepUpdate=keepNavigationContext && state.screen==Screen::system;
+  if(keepUpdate)asleep=false;
+  if(!keepUpdate && state.offSeconds && uint32_t(now - activity) >= uint32_t(state.offSeconds) * 1000)
     asleep = true;
   else if(state.dimSeconds && uint32_t(now - activity) >= uint32_t(state.dimSeconds) * 1000)
     dimmed = true;
@@ -588,7 +592,7 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
     }
   }
   // Inactivity returns to status but never navigates away during estimated motion.
-  if(!moving && uint32_t(now - activity) >= (state.offSeconds ? uint32_t(state.offSeconds) * 1000 : 30000)) {
+  if(!moving && !keepUpdate && uint32_t(now - activity) >= (state.offSeconds ? uint32_t(state.offSeconds) * 1000 : 30000)) {
     if(state.screen == Screen::unlock) { editor.cancel(); editorView(); }
     if(state.screen == Screen::brightness) { setPreferences(brightnessBefore); savePending=false; }
     cancelValue();discardQuick();

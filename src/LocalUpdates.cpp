@@ -125,7 +125,16 @@ void Form::back(uint64_t now){
   else discard();
 }
 void Form::render(FormView &out)const{
-  out={};out.notice=notice;if(!session)return;
+  out={};out.notice=notice;
+  if(!session) {
+    if(notice==Notice::none)return;
+    const auto value=backend.status();out.mode=Mode::updateStatus;
+    strcpy(out.title,"System updates");out.rowCount=out.total=3;out.selected=2;
+    strcpy(out.rows[0].label,notice==Notice::expired?"Session expired":notice==Notice::locked?"Unlock required":"Session ended");
+    strcpy(out.rows[1].label,value.busy?"Update still active":"No active update");
+    strcpy(out.rows[2].label,"Back: System");out.rows[2].selected=true;
+    snprintf(out.hint,sizeof(out.hint),"%s",message(value.reason));return;
+  }
   const auto &s=*session;const auto value=backend.status();const auto boot=backend.boot();
   out.mode=Mode::updateStatus;const char *title="System updates",*hint=message(value.reason);
   if(s.page==Session::Page::confirm){

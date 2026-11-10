@@ -125,7 +125,7 @@ class Controller {
   void shortPress(uint32_t now,const Model &,bool visible);
   void openCatalogue(CatalogueKind,uint8_t room);
 public:
-  void tick(uint32_t now,const Model &,int8_t turn,bool pressed,bool visible,bool backPressed=false);
+  void tick(uint32_t now,const Model &,int8_t turn,bool pressed,bool visible,bool backPressed=false,bool keepNavigationContext=false);
   // No writes/domain calls. The Runtime separately locks authorization, cancels
   // admitted queue work and discards its Form/presentation state on graphics loss.
   void discardTransient();

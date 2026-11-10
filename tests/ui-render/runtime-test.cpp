@@ -393,7 +393,8 @@ LocalUi::SecuritySnapshot LocalUi::pollAuthorization(){
   const bool allowed=authorization.allowed(testNow);
   return {authorization.configuredMode(),allowed,authorization.stopGraceAllowed(),authorization.generation(),authorization.configurationGeneration(),authorization.retryAfter(testNow),authorization.expiredSessionGeneration()};
 }
-void LocalUi::authorizationActivity(){authorization.activity(testNow);}
+static unsigned authActivities=0;
+void LocalUi::authorizationActivity(){++authActivities;authorization.activity(testNow);}
 void LocalUi::lockAuthorization(){++locks;authorization.lock();}
 LocalUi::AuthResult LocalUi::unlockAuthorization(Credentials &given){auto result=authorization.unlock(given,testNow);given.clear();return result;}
 namespace LocalUi {namespace Updates {
@@ -430,7 +431,8 @@ static bool send(uint8_t y,uint8_t rows,const uint8_t *data,size_t bytes){
   if(realisticDisplay){if(writesBeforeBusy>0)--writesBeforeBusy;++dirtyWrites;spiTickUs+=spiBandCostUs;spiRemainderUs+=spiBandCostUs;testNow+=spiRemainderUs/1000;spiRemainderUs%=1000;}
   ++bands;return true;
 }
-static void light(uint8_t value){assert(value==0 || value==4 || value==32);}
+static uint8_t lastLight=0;
+static void light(uint8_t value){lastLight=value;assert(value==0 || value==4 || value==32);}
 static void saveFrame(const char *directory,const char *name) {
   if(!directory) return;
   char path[512];snprintf(path,sizeof(path),"%s/%s.ppm",directory,name);
@@ -1137,15 +1139,39 @@ int main(int argc,char **argv){
   };
   auto &update=Updates::previewBackend;openUpdates();assert(!update.checks && captureProtected);
   saveFrame(preview,"runtime-updates-home");click();idle();assert(update.checks==1 && !update.installs);
-  saveFrame(preview,"runtime-updates-checking");update.value.busy=update.value.cancellable=false;update.value.phase=GitUpdatePhase::available;update.value.canInstall=true;
+  saveFrame(preview,"runtime-updates-checking");
+  const auto updateCancelsBeforeSleep=update.cancels;const auto updateActivityBeforeSleep=authActivities;
+  tick(false,21000);idle();assert(RuntimeTestAccess::view(settingsUi).screen==Screen::system && update.value.busy && update.cancels==updateCancelsBeforeSleep && authActivities==updateActivityBeforeSleep && lastLight!=0);
+  click();idle();assert(update.value.busy && update.cancels==updateCancelsBeforeSleep); // DIM wake only, never Cancel.
+  update.value.busy=update.value.cancellable=false;update.value.phase=GitUpdatePhase::available;update.value.canInstall=true;
   update.value.candidate.generation=600;strcpy(update.value.candidate.version,"v4294967295.4294967295.4294967295");idle();
   auto updateReview=RuntimeTestAccess::system(settingsUi);assert(updateReview.mode==EntityAdmin::Mode::updateReview && updateReview.selected==0);
   assert(!strcmp(updateReview.rows[2].value,update.value.candidate.version));saveFrame(preview,"runtime-updates-confirm-wide");
   click();idle();assert(!update.installs);rotate(1);idle();click();idle();busBusy=true;rotate(1);click();assert(!update.installs);
   busBusy=false;idle();click();idle();assert(update.installs==1 && update.value.busy);saveFrame(preview,"runtime-updates-downloading");
+  const auto installActivity=authActivities;tick(false,21000);idle();
+  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::system && update.value.busy && update.cancels==updateCancelsBeforeSleep && authActivities==installActivity && lastLight!=0);
+  click();idle();assert(update.value.busy && update.cancels==updateCancelsBeforeSleep); // DIM wake only during download.
   update.value.progress=60;update.value.phase=GitUpdatePhase::writing;idle();saveFrame(preview,"runtime-updates-writing");
   back();idle();assert(update.cancels==1 && Settings::runtimeMemory().used()==0 && !update.value.busy);back();idle();
   assert(submitted.size()==beforeDiagnosticsRequests && settingsSaves==beforeWifiSaves);
+  // Slow terminal results remain in the update context until explicit acknowledgement.
+  update.value.reason=GitUpdateReason::none;openUpdates();click();idle();
+  update.value.busy=update.value.cancellable=false;update.value.phase=GitUpdatePhase::error;update.value.reason=GitUpdateReason::transport;idle();
+  const auto terminalCancels=update.cancels,terminalChecks=update.checks;const auto terminalActivity=authActivities;
+  tick(false,21000);idle();assert(RuntimeTestAccess::view(settingsUi).screen==Screen::system && update.cancels==terminalCancels && authActivities==terminalActivity);
+  assert(strstr(RuntimeTestAccess::system(settingsUi).hint,"download failed"));click();idle();assert(update.checks==terminalChecks);back();idle();back();idle();
+  // No periodic activity renews the 120-second child authority. Expiry cancels
+  // reversible work but keeps a private read-only outcome; a wake sends nothing.
+  update.value.reason=GitUpdateReason::none;openUpdates();click();idle();const auto expiryCancels=update.cancels,expiryChecks=update.checks;
+  const auto expiryActivity=authActivities;tick(false,120001);idle();
+  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::system && update.cancels==expiryCancels+1 && !update.value.busy && authActivities==expiryActivity);
+  const auto expiryView=RuntimeTestAccess::system(settingsUi);assert(expiryView.notice==EntityAdmin::Notice::expired && expiryView.mode==EntityAdmin::Mode::updateStatus && captureProtected && Settings::runtimeMemory().used()==0);
+  click();idle();assert(update.checks==expiryChecks && update.cancels==expiryCancels+1);saveFrame(preview,"runtime-updates-expired");back();idle();back();idle();
+  // Graphics loss still tears down an owned reversible operation exactly once.
+  update.value.reason=GitUpdateReason::none;openUpdates();click();idle();const auto lossCancels=update.cancels;
+  savedPixels=RuntimeTestAccess::losePixels(settingsUi);assert(!settingsUi.tick(testNow,status,false,send,light));
+  assert(update.cancels==lossCancels+1 && Settings::runtimeMemory().used()==0);RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();openBrowseHome();
   for(unsigned i=0;i<homeRows;i++){rotate(-1);idle();}for(unsigned i=0;i<systemHomeIndex;i++){rotate(1);idle();}
   click();idle();click();idle(); // default Restart confirmation
 
