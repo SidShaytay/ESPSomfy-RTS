@@ -67,6 +67,7 @@ public:
   // Scan handoff stages SSID only; nullptr selects manual entry with no draft.
   bool openNetworkSSID(const char *ssid, uint64_t now, Authorization expected,
                        uint64_t expectedNetworkRevision);
+  bool openRadioFrequency(float frequency,uint64_t now,Authorization expected,uint64_t expectedRadioRevision);
   void tick(uint64_t now);
   void turn(int direction, uint64_t now);
   void activate(uint64_t now);

@@ -249,8 +249,8 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
         if(input.activate && presentedAdministrationValid && sameAdministration(systemView,presentedAdministration))systemForm.activate(settingsNow);
       }
     }
-    if(systemChild==SystemChild::none && (systemForm.wantsWifiScan() || systemForm.wantsDiagnostics())) {
-      systemChild=systemForm.wantsWifiScan()?SystemChild::wifi:SystemChild::diagnostics;
+    if(systemChild==SystemChild::none && (systemForm.wantsWifiScan() || systemForm.wantsDiagnostics() || systemForm.wantsRadioScan())) {
+      systemChild=systemForm.wantsWifiScan()?SystemChild::wifi:systemForm.wantsDiagnostics()?SystemChild::diagnostics:SystemChild::radio;
       visitSystemChild([&](auto &form){form.open(settingsNow);});
       presentedAdministrationValid=false;attempted=false;
     }
@@ -262,6 +262,15 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
         Settings::Authorization auth{expected.allowed,expected.generation,expected.configurationGeneration};
         settingsForm.openNetworkSSID(ssid[0]?ssid:nullptr,settingsNow,auth,networkRevision);
         for(auto &byte:ssid)static_cast<volatile char&>(byte)=0;
+        settingsActive=true;presentedSettingsValid=false;attempted=false;controller.openSettingsFromSystem();
+      }
+    }
+    if(systemChild==SystemChild::radio){
+      float frequency=0;SecuritySnapshot expected;uint64_t radioRevision=0;
+      if(radioScanForm.takeFrequency(frequency,expected,radioRevision,settingsNow)){
+        discardSystemChild();systemForm.finishChild();
+        Settings::Authorization auth{expected.allowed,expected.generation,expected.configurationGeneration};
+        settingsForm.openRadioFrequency(frequency,settingsNow,auth,radioRevision);
         settingsActive=true;presentedSettingsValid=false;attempted=false;controller.openSettingsFromSystem();
       }
     }
