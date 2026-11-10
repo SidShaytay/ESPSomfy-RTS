@@ -21,9 +21,9 @@ browser companion or separate LCD web-image upload.
 
 Installation saves the current model and checks that movement and pending work
 have finished. If the release or controller state changes, it can refuse and
-require a new review. No failed operation retries automatically.
+require a new review. A terminal failure needs a new explicit request; temporary download errors during an active confirmed installation follow the retry rules below.
 
-In 4.7.3 and later, display inactivity dims the screen while keeping update progress or its result visible. It does not return to Home. An expired session shows a protected read-only result; wake the display, then press **Back: System** to leave. This does not extend authentication.
+In 4.7.3 and later, display inactivity dims the screen while keeping update progress or its result visible. It does not return to Home. Ordinary Check or review sessions still expire and show a protected read-only result. Confirmed 4.8.0 installations continue after the menus lock, as described below. Keeping the screen does not extend authentication.
 
 During reversible work, **Cancel update** or the Back button cancels the
 operation. Controls resume after cleanup finishes. The Cancel action disappears
