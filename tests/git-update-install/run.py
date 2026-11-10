@@ -50,7 +50,7 @@ with tempfile.TemporaryDirectory(prefix='espsomfy-install-') as scratch:
     image = make_image(payload)
     firmware = Path(scratch) / 'firmware.bin'
     firmware.write_bytes(image)
-    for mode in ('rateAfter','rateReset','rateDefault','rateOrdinary403','rateMalformed','rateBeyond','retryHeaderEOF','retryBadHeaders','retryApi','retryManifest','retryImage','retryCert','retryMalformed','retryBounds','retryPermanentTLS','retryDeadline','retryCancel','invalid', 'valid', 'cancelWrite', 'abortFailure', 'cleanupBusy', 'sourcePrepare', 'notifyFail', 'beginFail', 'endFail', 'writeFail',
+    for mode in ('retryRecordTLS','rateAfter','rateReset','rateDefault','rateOrdinary403','rateMalformed','rateBeyond','retryHeaderEOF','retryBadHeaders','retryApi','retryManifest','retryImage','retryCert','retryMalformed','retryBounds','retryPermanentTLS','retryDeadline','retryCancel','invalid', 'valid', 'cancelWrite', 'abortFailure', 'cleanupBusy', 'sourcePrepare', 'notifyFail', 'beginFail', 'endFail', 'writeFail',
                  'notifyWrite', 'allocationWrite', 'cancelBegin', 'cancelEnd', 'expireWrite', 'expireEnd', 'sourceWrite', 'cancelStage', 'refuseAdmission', 'shortImage',
                  'activateOkay', 'activateFailure', 'activateWrongSlot', 'activateWrongSubtype', 'activateBadReadback'):
         subprocess.run([str(binary), mode, str(firmware), compat], check=True)
