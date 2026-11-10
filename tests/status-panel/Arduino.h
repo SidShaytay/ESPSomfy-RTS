@@ -2,6 +2,8 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdio.h>
+#include <string>
+#include <cassert>
 #define HIGH 1
 #define LOW 0
 #define INPUT_PULLUP 2
@@ -17,5 +19,15 @@ inline void digitalWrite(int p, int v) { pins[p] = v; }
 inline int digitalRead(int p) { return pins[p]; }
 inline bool ledcAttach(int, int, int) { return attachOK; }
 inline bool ledcWrite(int, int v) { pins[21] = v; return true; }
-struct SerialStub { template<class... T> void printf(const char *, T...) {} };
+extern bool owned, updaterSampling;
+struct SerialStub {
+  std::string output;
+  template<class... T> void printf(const char *format, T... values) {
+    assert(!owned && !updaterSampling);
+    char text[768];
+    const int count=snprintf(text,sizeof(text),format,values...);
+    assert(count>=0 && size_t(count)<sizeof(text));
+    output+=text;
+  }
+};
 extern SerialStub Serial;

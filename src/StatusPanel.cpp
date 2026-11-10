@@ -11,6 +11,8 @@
 #include "BoardProfile.h"
 #include "DisplayBus.h"
 #include "StatusDisplay.h"
+#include "GitUpdate.h"
+#include "GitUpdateMemory.h"
 #ifdef ESPSOMFY_LOCAL_UI
 #include "LocalUiRuntime.h"
 #include "LocalUiCapture.h"
@@ -187,6 +189,23 @@ void loop(bool running) {
 #ifdef ESPSOMFY_LOCAL_UI
     Serial.printf("LCD UI PSRAM=%u paintUs=%lu fallback=%u\n", unsigned(ui.failure()==LocalUi::GraphicsFailure::none?LocalUi::graphicsBytes:0), (unsigned long)ui.maxPaintUs, unsigned(ui.failure()));
 #endif
+    // Keep the full updater snapshot transient; never print its identity fields.
+    // Both accessors release their own locks before the first Serial call below.
+    struct UpdateMetrics {size_t minInternal, minLargest, maxPsram, workerStack;};
+    static_assert(sizeof(GitUpdateSnapshot)<=512, "Bound diagnostic snapshot stack");
+    const auto update=[] {
+      const auto sampled=gitUpdate.snapshot();
+      return UpdateMetrics{sampled.minInternalFree,sampled.minLargestInternal,
+        sampled.maxPsramUsed,sampled.workerStackMinimum};
+    }();
+    const auto tls=gitUpdateMemoryStats();
+    // Heap/stack extrema are sampled; workerStack=0 is unsampled.
+    // TLS requested counts include allocator bookkeeping, not SDK heap overhead.
+    Serial.printf("LCD update minInternalB=%lu minLargestInternalB=%lu maxPsramUsedB=%lu workerStackMinB=%lu tlsRequestedB=%lu tlsPeakRequestedB=%lu tlsInternalPeakRequestedB=%lu tlsFailures=%lu\n",
+      (unsigned long)update.minInternal,(unsigned long)update.minLargest,
+      (unsigned long)update.maxPsram,(unsigned long)update.workerStack,
+      (unsigned long)tls.requested,(unsigned long)tls.peak,
+      (unsigned long)tls.internalPeak,(unsigned long)tls.failures);
     Serial.printf("LCD battery state=%u percent=%u mV=%u mA=%d\n", unsigned(s.battery.state),
       unsigned(s.battery.percent), unsigned(s.battery.millivolts), int(s.battery.milliamps));
     Serial.printf("LCD internal=%u PSRAM=%u maxRowUs=%lu maxBusUs=%lu busySkips=%lu\n",
