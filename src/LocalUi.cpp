@@ -346,7 +346,7 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
      m.authConfigurationGeneration!=quickGuard.authConfigurationGeneration ||
      m.modelRevision!=quickGuard.modelRevision || m.restoreRevision!=quickGuard.restoreRevision || m.quickRevision!=quickGuard.quickRevision)) {
     discardQuick();state.screen=Screen::quickHome;state.selected=4;
-    state.notice=m.authorized?Notice::changed:Notice::unlockRequired;noticeSince=now;consumed=true;
+    state.notice=m.authorized?Notice::changed:Notice::unlockRequired;noticeSince=now;consumed=consumed || pressed || raw || stable;
   }
   state.retryAfterMs=m.retryAfterMs;
   if(state.screen==Screen::catalogue && m.pageValid && m.catalogue==state.catalogue && m.room==state.room) {
