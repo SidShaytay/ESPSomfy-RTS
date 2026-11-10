@@ -75,6 +75,8 @@ struct Response {
   std::string body;
   int64_t length=-2; // -2 => actual body length
   bool chunked=false,connection=true,clean=true;
+  unsigned temporaryOpenFailures=0,temporaryStatusFailures=0,temporaryTruncations=0,temporaryHeaderFailures=0;
+  int temporaryStatusCode=503;std::string retryAfter,rateRemaining,rateReset;
   std::string location,encoding;
   bool duplicateLocation=false;
   size_t readLimit=4096,truncateAt=SIZE_MAX;
@@ -212,7 +214,7 @@ constexpr uint16_t ESP_CHIP_ID_ESP32S3=9;
 extern "C" unsigned char *SHA256(const unsigned char *,size_t,unsigned char *);
 inline int mbedtls_sha256(const unsigned char *data,size_t bytes,unsigned char *out,int) { return SHA256(data,bytes,out) ? 0 : -1; }
 
-constexpr int HTTP_EVENT_ON_HEADER=1,HTTP_TRANSPORT_OVER_SSL=2;
+constexpr int HTTP_EVENT_ON_HEADER=1,HTTP_TRANSPORT_OVER_SSL=2,ESP_ERR_HTTP_CONNECT=0x7002;
 struct esp_http_client_event_t { int event_id;void *user_data;char *header_key;char *header_value; };
 struct esp_http_client_config_t {
   const char *url=nullptr;int timeout_ms=0;bool disable_auto_redirect=false;bool is_async=false;int max_authorization_retries=0;
@@ -238,7 +240,12 @@ inline esp_http_client_handle_t esp_http_client_init(const esp_http_client_confi
   ++Fake::activeClients;auto *client=new FakeClient;client->config=*config;client->url=config->url;Fake::urls.push_back(client->url);
   auto found=Fake::responses.find(client->url);
   if(found==Fake::responses.end()) client->response.status=404;
-  else client->response=found->second;
+  else {client->response=found->second;
+    if(found->second.temporaryOpenFailures){--found->second.temporaryOpenFailures;client->response.openError=ESP_ERR_HTTP_CONNECT;client->response.tlsError=-0x7280;}
+    if(found->second.temporaryStatusFailures){--found->second.temporaryStatusFailures;client->response.status=found->second.temporaryStatusCode;}
+    if(found->second.temporaryHeaderFailures){--found->second.temporaryHeaderFailures;client->response.length=-1;client->response.socketError=104;}
+    if(found->second.temporaryTruncations){--found->second.temporaryTruncations;client->response.truncateAt=10;}
+  }
   return client;
 }
 inline esp_err_t esp_http_client_cleanup(esp_http_client_handle_t client) { delete client;--Fake::activeClients;return ESP_OK; }
@@ -272,6 +279,7 @@ inline int64_t esp_http_client_fetch_headers(esp_http_client_handle_t c) {
     if(value.empty()) return;
     esp_http_client_event_t event{HTTP_EVENT_ON_HEADER,c->config.user_data,const_cast<char *>(name),value.data()};c->config.event_handler(&event);
   };
+  header("Retry-After",c->response.retryAfter);header("x-ratelimit-remaining",c->response.rateRemaining);header("x-ratelimit-reset",c->response.rateReset);
   header("Location",c->response.location);
   if(c->response.duplicateLocation) header("Location",c->response.location);
   header("Content-Encoding",c->response.encoding);

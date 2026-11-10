@@ -189,6 +189,8 @@ int main(int argc,char **argv){
   }
   if(controllerScenario=="moving" || controllerScenario=="queued" || controllerScenario=="localPending" || controllerScenario=="radioWork")CHECK(!modelSaves && !Fake::otaBegins);
   if(controllerScenario=="saveFailure" || controllerScenario=="sourceSave" || controllerScenario=="configSave")CHECK(!Fake::otaBegins);
+  if(controllerScenario=="deadlineStage")CHECK(gitUpdate.snapshot().reason==GitUpdateReason::timeout);
+  if(controllerScenario=="sourceWrite" || controllerScenario=="sourceSave" || controllerScenario=="configSave")CHECK(gitUpdate.snapshot().reason==GitUpdateReason::admission);
   CHECK(!shutdownCalls && !Fake::otaActivations && !gitUpdateControllerPaused() && !gitUpdate.busy());
   CHECK(!Fake::activeClients && !Fake::activeAllocations && !queueHeld && !somfy.transceiver.held);
 }
