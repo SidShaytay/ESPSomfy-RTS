@@ -306,7 +306,10 @@ ModelCommitReport applyModelCommit(const proto_reply_to_t &,ModelCommitMode mode
 }
 #include "../../src/LocalEntityRuntime.cpp"
 static std::vector<shade_request_t> submitted;
-struct RecordingRequests {shade_request_result_t run(const shade_request_t &r){submitted.push_back(r);return shade_request_result_t::done;}} shadeRequests;
+struct RecordingRequests {shade_request_result_t run(const shade_request_t &r){
+  if(r.command==somfy_commands::Prog){assert(gitUpdate.busy());GitUpdateOwnerToken competitor;assert(!gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,competitor));}
+  submitted.push_back(r);return shade_request_result_t::done;
+}}shadeRequests;
 #define ShadeRequests RecordingRequests
 #include "../../src/LocalAdvancedRuntime.cpp"
 #undef ShadeRequests
@@ -1191,6 +1194,33 @@ int main(int argc,char **argv){
   back();idle();assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Repeaters")&&!receiveHub().active());
   back();idle();assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"More"));
   closeAdministration();assert(!receiveHub().active()&&Settings::runtimeMemory().used()==0);
+  // Full physical-input/display guide with fake RF and existing marker writer.
+  advancedShade.paired=false;filePairedMarker=false;++somfy.configurationRevision;
+  const auto rfBeforeGuide=submitted.size();
+  const auto editsBeforeGuide=entityEdits;
+  openAdvanced(1);for(unsigned i=0;i<6;++i){rotate(1);idle();}click();idle();
+  rotate(1);idle();click();idle(); // Pair intent
+  rotate(1);idle();click();idle(); // operator observed motor learn mode
+  rotate(1);idle();rotate(1);idle();click();idle(); // draft review, default Cancel
+  auto guideReview=RuntimeTestAccess::administration(settingsUi);
+  assert(guideReview.mode==EntityAdmin::Mode::programmingReview&&guideReview.selected==0&&captureProtected);
+  assert(submitted.size()==rfBeforeGuide&&entityEdits==editsBeforeGuide);saveFrame(preview,"runtime-programming-send-review");
+  busBusy=true;rotate(1);click();assert(submitted.size()==rfBeforeGuide);busBusy=false;idle();click();idle();
+  assert(submitted.size()==rfBeforeGuide+1&&submitted.back().type==shade_request_type_t::shade_command&&submitted.back().command==somfy_commands::Prog&&submitted.back().repeat==1);
+  assert(!advancedShade.paired&&entityEdits==editsBeforeGuide);
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[2].label,"Request accepted"));saveFrame(preview,"runtime-programming-observe");
+  rotate(1);idle();click();idle(); // operator verified intended result, still no marker write
+  assert(!advancedShade.paired&&entityEdits==editsBeforeGuide&&RuntimeTestAccess::administration(settingsUi).selected==0);
+  saveFrame(preview,"runtime-programming-marker-review");
+  busBusy=true;rotate(1);click();assert(!advancedShade.paired&&entityEdits==editsBeforeGuide);busBusy=false;idle();click();idle();
+  assert(advancedShade.paired&&filePairedMarker&&entityEdits==editsBeforeGuide+1&&submitted.size()==rfBeforeGuide+1);
+  click();idle();closeAdministration();
+  advancedShade.shadeType=shade_types::garage1;++somfy.configurationRevision;
+  openAdvanced(1);for(unsigned i=0;i<6;++i){rotate(1);idle();}click();idle();rotate(1);idle();click();idle();rotate(1);idle();click();idle();
+  rotate(1);idle();rotate(1);idle();click();idle();
+  assert(strstr(RuntimeTestAccess::administration(settingsUi).hint,"move"));saveFrame(preview,"runtime-programming-one-button-review");
+  back();idle();back();idle();closeAdministration();assert(submitted.size()==rfBeforeGuide+1);
+  advancedShade.shadeType=shade_types::shutter;++somfy.configurationRevision;
   free(allocated);allocated=nullptr;hasPsram=false;
   Runtime missing;missing.begin();assert(missing.failure()==GraphicsFailure::missing && !missing.tick(testNow,status,false,send,light));
   hasPsram=true;allocateOK=false;Runtime failed;failed.begin();assert(failed.failure()==GraphicsFailure::allocation && !failed.tick(testNow,status,false,send,light));

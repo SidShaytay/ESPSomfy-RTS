@@ -22,6 +22,8 @@ struct Form::Session final : LearnPending {
   bool programMode=false;
   RemoteProgram program;
   bool programSent=false;
+  bool guideMode=false;
+  ProgrammingGuide guide;
   uint64_t ticket = 0, queuedAt = 0;
   bool listening = false, fileOnly = false, canRetryFile = false,
        linkApplied = false, fileVerified = false;
@@ -37,7 +39,7 @@ struct Form::Session final : LearnPending {
   LearnQueueReason current(uint64_t now) override {
     return owner.learnCurrent(now);
   }
-  bool usesRadio() const override { return programMode; }
+  bool usesRadio() const override { return programMode||guideMode; }
   void execute(uint64_t now) override { owner.runLearn(now); }
   void cancelled(LearnQueueReason reason) override {
     owner.learnCancelled(reason);
@@ -234,6 +236,7 @@ void Form::turn(int direction, uint64_t now) {
     return;
   touch(now);
   auto &s = *session;
+  if(s.guideMode){s.guide.turn(direction);return;}
   uint8_t count = 0;
   switch (s.page) {
   case Session::Page::picker:
@@ -246,7 +249,7 @@ void Form::turn(int direction, uint64_t now) {
   case Session::Page::groupMenu:count=3;break;
   case Session::Page::details:count=entityStatusRows;break;
   case Session::Page::menu:
-    count = 6;
+    count = 7;
     break;
   case Session::Page::remoteMenu:
     count=6;
@@ -355,15 +358,16 @@ LearnQueueReason Form::learnCurrent(uint64_t now) {
   if (now < s.observedAt || now < s.activityAt ||
       now - s.activityAt >= timeoutMs)
     return LearnQueueReason::expired;
-  const auto admission = s.programMode
+  const auto admission = s.guideMode?backend.checkPairingContext(s.target,s.context,s.auth,s.revision):s.programMode
       ? backend.checkProgrammingContext(s.target,s.context,s.auth,s.revision)
       : backend.checkLearnContext(s.target, s.context, s.auth, s.revision);
   if (admission == Admission::locked)
     return LearnQueueReason::locked;
+  if(s.guideMode&&admission==Admission::busy)return LearnQueueReason::busy;
   if (admission != Admission::accepted)
     return LearnQueueReason::stale;
   if(s.programMode)return LearnQueueReason::ready;
-  if (s.fileOnly)
+  if (s.fileOnly || s.guideMode)
     return LearnQueueReason::ready;
   if(s.membershipMode) {
     const auto a=backend.membershipCurrent(s.target,s.context,s.auth,s.revision,s.membership.selection());
@@ -403,6 +407,7 @@ void Form::learnCancelled(LearnQueueReason reason) {
     return;
   }
   if(session->membershipMode){session->membership.busy();return;}
+  if(session->guideMode){session->guide.complete(false);return;}
   if(session->primaryMode){session->primary.busy();return;}
   if(session->programMode){session->programSent=false;session->page=Session::Page::remoteResult;return;}
   if (session->fileOnly) {
@@ -432,6 +437,7 @@ void Form::queueLearn(uint64_t now, bool fileOnly) {
       s.cursor = 1;
       return;
     }
+    if(s.guideMode){learnCancelled(queued.reason);return;}
     learnFault("Queue unavailable/full. Wait, then review explicitly.");
     return;
   }
@@ -441,6 +447,13 @@ void Form::runLearn(uint64_t) {
   if (!session)
     return;
   if(session->membershipMode){runMembership();return;}
+  if(session->guideMode){
+    auto &s=*session;s.ticket=0;
+    const auto result=backend.sendPairing(s.target,s.context,s.auth,s.revision,s.guide.repeats(),s);
+    if(result.admission==Admission::locked){close(Notice::locked);return;}
+    if(result.admission==Admission::stale){close(Notice::changed);return;}
+    s.guide.complete(result.admission==Admission::accepted&&result.result==shade_request_result_t::done);return;
+  }
   if(session->primaryMode){runPrimary();return;}
   auto &s = *session;
   s.ticket = 0;
@@ -666,6 +679,18 @@ void Form::activate(uint64_t now) {
     return;
   touch(now);
   auto &s = *session;
+  if(s.guideMode){
+    const auto effect=s.guide.activate();
+    if(effect==ProgrammingEffect::close){close(Notice::none);return;}
+    if(effect==ProgrammingEffect::enqueue){queueLearn(now,false);return;}
+    if(effect==ProgrammingEffect::markPaired||effect==ProgrammingEffect::markUnpaired){
+      const bool desired=effect==ProgrammingEffect::markPaired;
+      if(desired==s.paired){close(Notice::unchanged);return;}
+      s.guideMode=false;s.action={};s.action.kind=ActionKind::setPaired;s.action.paired=desired;
+      s.returnPage=Session::Page::menu;s.page=Session::Page::confirm;apply();
+    }
+    return;
+  }
   switch (s.page) {
   case Session::Page::picker:
     if (!s.count) {
@@ -690,6 +715,11 @@ void Form::activate(uint64_t now) {
     if((s.target.scope==Scope::devices&&s.cursor==5) || (s.target.scope==Scope::groups&&s.cursor==2)) {
       if(!backend.supportsProgramming(s.target)){status=Notice::invalid;return;}
       endLearning();s.programMode=true;s.program={};s.page=Session::Page::remoteMenu;s.cursor=0;return;
+    }
+    if(s.cursor==6){
+      bool oneButton=false;
+      if(!backend.pairingAvailable(s.target,oneButton)){status=Notice::invalid;return;}
+      endLearning();s.guideMode=true;s.guide.begin(s.paired,oneButton);status=Notice::none;return;
     }
     if(s.cursor==3) {
       PrimaryCounterReview reviewed;
@@ -876,6 +906,7 @@ void Form::back(uint64_t now) {
   if(s.page==Session::Page::remoteMenu){s.programMode=false;s.page=s.target.scope==Scope::groups?Session::Page::groupMenu:Session::Page::menu;s.cursor=s.target.scope==Scope::groups?2:5;return;}
   if(s.page==Session::Page::primaryCounter){primaryEffect(s.primary.back(now),now);return;}
   if(s.page==Session::Page::details){s.page=s.target.scope==Scope::groups?Session::Page::groupMenu:Session::Page::menu;s.cursor=s.target.scope==Scope::groups?1:4;return;}
+  if(s.guideMode){if(s.guide.back()==ProgrammingEffect::close)close(Notice::none);return;}
   if (s.page == Session::Page::learnPending ||
       s.page == Session::Page::learnResult) {
     close(Notice::none);
@@ -983,6 +1014,7 @@ void Form::render(FormView &out) {
     }return;
   }
 
+  if(s.guideMode){s.guide.render(out);return;}
   strcpy(out.hint, "Press: choose   Back: cancel");
   if (s.page == Session::Page::learnStart ||
       s.page == Session::Page::learnReview ||
@@ -1137,14 +1169,16 @@ void Form::render(FormView &out) {
     strcpy(out.rows[1].label, "Close");
     strcpy(out.hint, "Applied already. Retry saves the model file only.");
   } else if (s.page == Session::Page::menu) {
-    out.total=6;out.offset=s.cursor/3*3;
-    for(uint8_t i=out.offset;i<6 && out.rowCount<3;++i) {
+    out.total=7;out.offset=s.cursor/3*3;
+    for(uint8_t i=out.offset;i<7 && out.rowCount<3;++i) {
       auto &row=out.rows[out.rowCount++];
       if(i==5)strcpy(row.label,"Advanced remote");
       else if(i==4)strcpy(row.label,"Status details");
+      else if(i==6){bool oneButton=false;strcpy(row.label,"Pair/unpair guide");strcpy(row.value,backend.pairingAvailable(s.target,oneButton)?"Motor procedure":"Unavailable");}
       else if(i==0){strcpy(row.label,"Paired marker");strcpy(row.value,s.paired?"Paired":"Unpaired");}
       else strcpy(row.label,i==1?"Linked remotes":i==2?"Learn received remote":"Primary rolling code");
     }
+    if(status==Notice::invalid&&s.cursor==4)strcpy(out.hint,"Programming needs a supported RF target. Nothing sent.");
   } else {
     out.total =
         s.page == Session::Page::picker ? s.count : backend.itemCount(s.target)+(s.target.scope==Scope::repeaters?1:0);
