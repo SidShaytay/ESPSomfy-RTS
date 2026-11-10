@@ -51,12 +51,12 @@ for scenario in unchanged changed; do
     /usr/bin/git diff --exit-code --quiet
     if [[ "$scenario" == unchanged ]]; then
       [[ "$after" == "$before" ]]
-      ! rg -q '^(commit|push)( |$)' "$RELEASE_GIT_LOG"
+      ! grep -Eq '^(commit|push)( |$)' "$RELEASE_GIT_LOG"
     else
       [[ "$after" != "$before" && "$(/usr/bin/git rev-list --count "$before..$after")" == 1 ]]
       [[ "$(cat data-src/appversion)" == 99.0.7 ]]
-      rg -q '^commit -am chore: bump version to v99.0.7$' "$RELEASE_GIT_LOG"
-      rg -q '^push origin HEAD:main$' "$RELEASE_GIT_LOG"
+      grep -Eq '^commit -am chore: bump version to v99.0.7$' "$RELEASE_GIT_LOG"
+      grep -Eq '^push origin HEAD:main$' "$RELEASE_GIT_LOG"
     fi
   )
 done
