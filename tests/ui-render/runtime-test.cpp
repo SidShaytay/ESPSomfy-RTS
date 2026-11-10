@@ -312,13 +312,14 @@ ModelCommitReport applyModelCommit(const proto_reply_to_t &,ModelCommitMode mode
 static std::vector<shade_request_t> submitted;
 static uint32_t lastOwnedTicket=1000;
 static std::map<uint32_t,uint32_t> ownedAddresses;
+static std::map<uint32_t,somfy_commands> ownedCommands;
 struct RecordingRequests {shade_request_result_t run(const shade_request_t &r){
   if(r.command==somfy_commands::Prog||r.type==shade_request_type_t::shade_sensor||r.type==shade_request_type_t::group_sensor){assert(gitUpdate.busy());GitUpdateOwnerToken competitor;assert(!gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,competitor));}
   submitted.push_back(r);return shade_request_result_t::done;
 }
 shade_request_result_t runOwnedRepeat(const shade_request_t &r,owned_repeat_receipt_t &receipt){
   const auto result=run(r);receipt.ticket=result==shade_request_result_t::done?++lastOwnedTicket:0;
-  if(receipt.ticket)ownedAddresses[receipt.ticket]=somfy.getShadeById(r.id)->address;return result;
+  if(receipt.ticket){ownedAddresses[receipt.ticket]=somfy.getShadeById(r.id)->address;ownedCommands[receipt.ticket]=r.command;}return result;
 }}shadeRequests;
 #define ShadeRequests RecordingRequests
 #include "../../src/LocalAdvancedRuntime.cpp"
@@ -426,7 +427,8 @@ int main(int argc,char **argv){
   Runtime ui;ui.begin();assert(ui.failure()==GraphicsFailure::none && allocated && !ui.healthy());
   Runtime *active=&ui;
   int ab=3;
-  auto tick=[&](bool pressed=false,unsigned dt=50){testNow+=dt;authTestNow=testNow;RadioScan::scanSession.poll(testNow);loopQueue.drain();active->tick(testNow,status,pressed,send,light);};
+  bool holdEncoder=false;
+  auto tick=[&](bool pressed=false,unsigned dt=50){testNow+=dt;authTestNow=testNow;RadioScan::scanSession.poll(testNow);loopQueue.drain();active->tick(testNow,status,pressed||holdEncoder,send,light);};
   auto idle=[&](unsigned duration=140){for(unsigned t=0;t<duration;t+=2)tick(false,2);};
   auto rotate=[&](int direction){
     const int middle=direction>0?(ab==3?1:2):(ab==3?2:1);
@@ -435,8 +437,12 @@ int main(int argc,char **argv){
   };
   auto click=[&]{tick(true);tick(true);tick(false);tick(false);tick(false,2);};
   auto back=[&]{testPins[6]=0;tick();tick();testPins[6]=1;tick();tick();};
+  auto releaseHold=[&]{holdEncoder=false;tick(false);tick(false);tick(false,2);};
+  auto beginHold=[&]{const auto before=submitted.size();holdEncoder=true;tick(true);tick(true);tick(true,749);assert(submitted.size()==before);tick(true,51);tick(true,2);};
+  holdEncoder=true; // Physical encoder already held at initialization cannot arm anything.
   busBusy=true;idle(20);assert(bands==0 && captureProtected && !ui.healthy());
   busBusy=false;idle();assert(bands==43 && !captureProtected && ui.healthy());
+  assert(lastQuery.screen==Screen::status && submitted.empty());releaseHold();idle();
   const auto unchanged=bands;idle();assert(bands==unchanged);
   // Health is reachable through the actual held Status input, not a test-only page.
   status.health={true,true,true,65536,32768,16384,6u*1024*1024,400,12345};
@@ -507,20 +513,25 @@ int main(int argc,char **argv){
   assert(lastQuery.draftValue==2 && submitted.size()==beforeRepeats);
   click();idle();assert(lastQuery.valueChoice==2);
   busBusy=true;rotate(-1);click();assert(submitted.size()==beforeRepeats);
-  busBusy=false;idle();click();idle();assert(submitted.size()==beforeRepeats+1);
+  beginHold();assert(submitted.size()==beforeRepeats); // Initial press did not see Apply.
+  busBusy=false;idle();tick(true,900);assert(submitted.size()==beforeRepeats); // Presentation recovery cannot arm a held cycle.
+  releaseHold();idle();
+  click();idle();assert(submitted.size()==beforeRepeats); // A tap on Apply cannot start held RF.
+  saveFrame(preview,"runtime-repeat-hold-review");
+  beginHold();idle();assert(submitted.size()==beforeRepeats+1);
   assert(submitted.back().repeat==2 && submitted.back().id==7 && submitted.back().command==somfy_commands::Up && submitted.back().type==shade_request_type_t::shade_command);
   assert(lastQuery.screen==Screen::control && lastQuery.action==Action::stop);
   assert(localControlPending()); // Admitted repeat still owns its exact RF job.
   saveFrame(preview,"runtime-repeat-active");
   auto txEvent=[&](uint32_t ticket,tx_event_t type){somfy_tx_event_t event;
-    event.ticket=ticket;event.type=type;event.cmd=somfy_commands::Up;event.remoteAddress=ownedAddresses.count(ticket)?ownedAddresses[ticket]:700;event.at=testNow;
+    event.ticket=ticket;event.type=type;event.cmd=ownedCommands.count(ticket)?ownedCommands[ticket]:somfy_commands::Up;event.remoteAddress=ownedAddresses.count(ticket)?ownedAddresses[ticket]:700;event.at=testNow;
     localControlTxEvent(event);
   };
   const auto firstOwned=lastOwnedTicket;
   txEvent(firstOwned+10000,tx_event_t::finished);assert(localControlPending());
   back();assert(localControlPending() && somfy.transceiver.cancelledTicket==firstOwned);
   assert(submitted.size()==beforeRepeats+1); // Cancellation is not a MY/STOP request.
-  txEvent(firstOwned,tx_event_t::aborted);assert(!localControlPending());idle();click();idle();
+  txEvent(firstOwned,tx_event_t::aborted);assert(!localControlPending());releaseHold();idle();click();idle();
   assert(lastQuery.screen==Screen::control && lastQuery.action==Action::stop);
   auto controlFromStatus=[&]{
     for(unsigned i=0;i<10&&RuntimeTestAccess::view(ui).screen!=Screen::status;++i){back();idle();}
@@ -528,20 +539,46 @@ int main(int argc,char **argv){
     rotate(1);idle();rotate(1);idle();click();idle();click();idle();
     assert(lastQuery.screen==Screen::control && lastQuery.entity.id==7);
   };
-  auto admitRepeatedUp=[&](unsigned count){
+  auto admitRepeatedUp=[&](unsigned count,bool onAir=true,Action desired=Action::up,unsigned step=0,bool arm=true){
     assert(lastQuery.screen==Screen::control && lastQuery.action==Action::stop);
     const auto before=submitted.size();somfy.transceiver.cancelledTicket=0;
     rotate(1);idle();rotate(1);idle();click();idle();assert(lastQuery.screen==Screen::actions);
     for(unsigned i=0;i<20&&lastQuery.action!=repeatsNavigation;++i){rotate(1);idle();}
     click();idle();assert(lastQuery.screen==Screen::repeatActions && lastQuery.action==Action::up);
-    click();idle();assert(lastQuery.screen==Screen::repeatValue);
+    for(unsigned i=0;i<20&&lastQuery.action!=desired;++i){rotate(1);idle();}
+    assert(lastQuery.action==desired);click();idle();
+    if(step){assert(lastQuery.screen==Screen::value);
+      for(unsigned i=0;i<130&&unsigned(lastQuery.draftValue)<step;++i){rotate(1);idle();}
+      assert(unsigned(lastQuery.draftValue)==step);click();idle();assert(lastQuery.valueChoice==2);
+      rotate(-1);idle();click();idle();}
+    assert(lastQuery.screen==Screen::repeatValue);
     for(unsigned i=0;i<130&&unsigned(lastQuery.draftValue)<count;++i){rotate(1);idle();}
     assert(unsigned(lastQuery.draftValue)==count);click();idle();assert(lastQuery.valueChoice==2);
-    rotate(-1);idle();click();idle();
-    assert(submitted.size()==before+1 && submitted.back().command==somfy_commands::Up && unsigned(submitted.back().repeat)==count);
+    rotate(-1);idle();if(!arm)return uint32_t(0);beginHold();idle();
+    assert(submitted.size()==before+1 && submitted.back().command==(desired==Action::stepUp?somfy_commands::StepUp:somfy_commands::Up) && unsigned(submitted.back().repeat)==count && submitted.back().stepSize==step && submitted.back().id==7);
     assert(localControlPending() && lastQuery.screen==Screen::control && lastQuery.action==Action::stop);
-    txEvent(lastOwnedTicket,tx_event_t::started);return lastOwnedTicket;
+    if(onAir)txEvent(lastOwnedTicket,tx_event_t::started);return lastOwnedTicket;
   };
+  const bool beforeWakeOneIdle=one.idle,beforeWakeTwoIdle=two.idle;
+  one.idle=two.idle=true;idle();
+  admitRepeatedUp(2,true,Action::up,0,false);const auto beforeWakeHold=submitted.size();
+  tick(false,21000);assert(RuntimeTestAccess::view(ui).screen==Screen::status);
+  beginHold();idle();assert(submitted.size()==beforeWakeHold && lastQuery.screen==Screen::status);
+  releaseHold();idle();one.idle=beforeWakeOneIdle;two.idle=beforeWakeTwoIdle;idle();controlFromStatus(); // Wake-only input never revives the expired repeat review.
+  for(unsigned onAir=0;onAir<2;++onAir){
+    const auto ticket=admitRepeatedUp(2,onAir);const auto requests=submitted.size();
+    releaseHold();idle();assert(localControlPending() && somfy.transceiver.cancelledTicket==ticket);
+    assert(submitted.size()==requests);saveFrame(preview,onAir?"runtime-repeat-release-ending":"runtime-repeat-queued-ending");
+    txEvent(ticket,onAir?tx_event_t::aborted:tx_event_t::dropped);idle();assert(!localControlPending());controlFromStatus();
+  }
+  {const auto ticket=admitRepeatedUp(2);const auto requests=submitted.size();
+    txEvent(ticket,tx_event_t::finished);idle(1000);assert(!localControlPending() && submitted.size()==requests);
+    releaseHold();idle();assert(submitted.size()==requests);controlFromStatus();} // Count exhausted while held never rearms or sends STOP.
+  one.bitLength=80;idle();controlFromStatus();
+  {const auto ticket=admitRepeatedUp(3,true,Action::stepUp,7);const auto requests=submitted.size();
+    releaseHold();idle();assert(localControlPending() && somfy.transceiver.cancelledTicket==ticket && submitted.size()==requests);
+    txEvent(ticket,tx_event_t::aborted);idle();assert(!localControlPending());}
+  one.bitLength=56;idle();controlFromStatus();
   // These travel through production Runtime, Adapter, FIFO and completed GFX
   // frames; only the RF request/event boundary is fake.
   for(unsigned cause=0;cause<4;++cause){
@@ -557,11 +594,11 @@ int main(int argc,char **argv){
     txEvent(ticket,tx_event_t::aborted);assert(!localControlPending());
     one.address=address;authorization.configure(AuthMode::none,"","");
     if(pixels)RuntimeTestAccess::restorePixels(ui,pixels);
-    idle();controlFromStatus();
+    releaseHold();idle();controlFromStatus();
   }
   const auto longTicket=admitRepeatedUp(127);tick(false,6000);
   assert(localControlPending() && !somfy.transceiver.cancelledTicket); // Not the old5s admission timeout.
-  const auto beforeExplicitStop=submitted.size();click();idle();
+  const auto beforeExplicitStop=submitted.size();releaseHold();assert(submitted.size()==beforeExplicitStop);click();idle();
   assert(somfy.transceiver.cancelledTicket==longTicket && localControlPending());
   txEvent(longTicket,tx_event_t::aborted);idle();
   assert(!localControlPending() && submitted.size()==beforeExplicitStop+1 && submitted.back().command==somfy_commands::My && submitted.back().id==7 && submitted.back().repeat==-1);
