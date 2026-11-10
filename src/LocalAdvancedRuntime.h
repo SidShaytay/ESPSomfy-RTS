@@ -3,7 +3,7 @@
 #include "LocalAdvanced.h"
 namespace LocalUi {
 namespace Advanced {
-// Loop-owned configuration-only backend. No retained model/frame copy.
+// Loop-owned metadata and explicitly confirmed programming backend. No retained model/frame copy.
 Backend &runtimeBackend();
 } // namespace Advanced
 } // namespace LocalUi

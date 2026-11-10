@@ -61,6 +61,7 @@ struct Model : Advanced::Backend {
   }
   ReceiveHub &receivedFrames() override { return received; }
   LearnQueued queueLearn(LearnPending &pending, uint64_t now) override {
+    programmingMarker=pending.usesRadio();
     auto result = learnedQueue.reserve(pending, now);
     learnedToken = result.token;
     return result;
@@ -108,6 +109,15 @@ struct Model : Advanced::Backend {
     result.report.file = {ModelCommitState::saved};
     result.report.refusal = fileRetryRefusal;
     return result;
+  }
+  unsigned programmingSends=0;uint8_t programmingRepeats=0;bool programmingMarker=false;
+  bool pairingAvailable(Target target,bool &oneButton)override{oneButton=false;return target.scope==Scope::devices;}
+  Admission checkPairingContext(Target target,const Context &context,Authorization auth,uint64_t history)override{return checkLearnContext(target,context,auth,history);}
+  PairingSendResult sendPairing(Target target,const Context &context,Authorization auth,uint64_t history,
+                                uint8_t repeats,LearnPending &witness)override{
+    const auto admission=checkPairingContext(target,context,auth,history);
+    if(admission!=Admission::accepted||witness.current(40)!=LearnQueueReason::ready)return {shade_request_result_t::radio_refused,Admission::stale};
+    ++programmingSends;programmingRepeats=repeats;return {shade_request_result_t::done};
   }
   Authorization authorization() override { return auth; }
   uint64_t revision() override { return history; }
@@ -692,7 +702,7 @@ static void sensor_zero_and_observed_format_are_honest_without_fake_rssi() {
 static void openPrimary(Advanced::Form &form) {
   TEST_ASSERT_TRUE(form.open(Scope::devices,1));form.activate(2);
   for(unsigned i=0;i<3;i++)form.turn(1,3+i);
-  FormView view;form.render(view);TEST_ASSERT_EQUAL(4,view.total);TEST_ASSERT_EQUAL(3,view.offset);TEST_ASSERT_EQUAL_STRING("Primary rolling code",view.rows[0].label);
+  FormView view;form.render(view);TEST_ASSERT_EQUAL(5,view.total);TEST_ASSERT_EQUAL(3,view.offset);TEST_ASSERT_EQUAL_STRING("Primary rolling code",view.rows[0].label);
   form.activate(6);form.render(view);TEST_ASSERT_EQUAL(Mode::counterReview,view.mode);TEST_ASSERT_EQUAL(0,view.selected);
 }
 static void editPrimary(Advanced::Form &form,bool change=true) {
@@ -746,8 +756,61 @@ static void primary_editor_expiry_and_old_ticket_cannot_execute_reopened_session
   TEST_ASSERT_NOT_EQUAL(old,replacement);model.learnedQueue.run(old,40);TEST_ASSERT_EQUAL(0,model.corrections);TEST_ASSERT_TRUE(model.learnedQueue.active(replacement));
   model.learnedQueue.run(replacement,40);TEST_ASSERT_EQUAL(1,model.corrections);form.discard();TEST_ASSERT_EQUAL(0,memory.used());
 }
+static void openProgrammingReview(Advanced::Form &form,bool pair=true){
+  TEST_ASSERT_TRUE(form.open(Scope::devices,10));form.activate(11);
+  for(unsigned i=0;i<4;++i)form.turn(1,12+i);form.activate(16); // guide
+  form.turn(1,17);if(!pair)form.turn(1,18);form.activate(19); // explicit intent
+  form.turn(1,20);form.activate(21); // operator observed learn mode
+  form.turn(1,22);form.turn(1,23);form.activate(24); // review, default Cancel
+}
+static void programming_is_queued_once_then_observation_and_marker_save_are_separate(){
+  for(bool pair:{false,true}){
+    Model model;model.marked=!pair;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);
+    openProgrammingReview(form,pair);FormView view;form.render(view);TEST_ASSERT_EQUAL(0,view.selected);TEST_ASSERT_TRUE(view.rows[0].selected);
+    form.activate(25);TEST_ASSERT_EQUAL(0,model.programmingSends);TEST_ASSERT_FALSE(model.learnedQueue.active());
+    form.activate(26);form.turn(1,27);form.activate(28);
+    TEST_ASSERT_TRUE(model.learnedQueue.active());TEST_ASSERT_TRUE(model.programmingMarker);TEST_ASSERT_EQUAL(0,model.saves);
+    model.learnedQueue.run(model.learnedToken,40);TEST_ASSERT_EQUAL(1,model.programmingSends);TEST_ASSERT_EQUAL(1,model.programmingRepeats);
+    TEST_ASSERT_EQUAL(0,model.saves);TEST_ASSERT_EQUAL(!pair,model.marked);
+    form.turn(1,41);form.activate(42);TEST_ASSERT_EQUAL(0,model.saves); // response, not marker yet
+    form.render(view);TEST_ASSERT_EQUAL(0,view.selected);form.turn(1,43);form.activate(44);
+    TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(1,model.saves);TEST_ASSERT_EQUAL(pair,model.marked);TEST_ASSERT_EQUAL(1,model.programmingSends);
+    TEST_ASSERT_EQUAL(0,memory.used());
+  }
+}
+static void programming_queue_cancel_age_and_authority_changes_never_send(){
+  for(unsigned change=0;change<5;++change){
+    Model model;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);openProgrammingReview(form);
+    form.turn(1,25);form.activate(26);
+    if(change==0)form.back(27);
+    if(change==1)model.auth.allowed=false;
+    if(change==2)++model.auth.generation;
+    if(change==3)++model.history;
+    model.learnedQueue.run(model.learnedToken,change==4?5026:40);
+    TEST_ASSERT_EQUAL(0,model.programmingSends);TEST_ASSERT_EQUAL(0,model.saves);form.discard();TEST_ASSERT_EQUAL(0,memory.used());
+  }
+}
+static void programming_marker_file_retry_never_replays_programming(){
+  Model model;model.file=ModelCommitState::failed;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);
+  openProgrammingReview(form);form.turn(1,25);form.activate(26);model.learnedQueue.run(model.learnedToken,40);
+  form.turn(1,41);form.activate(42);form.turn(1,43);form.activate(44);
+  TEST_ASSERT_EQUAL(1,model.saves);TEST_ASSERT_TRUE(model.marked);TEST_ASSERT_FALSE(form.closed());
+  form.turn(-1,45);form.activate(46);TEST_ASSERT_EQUAL(1,model.retries);TEST_ASSERT_EQUAL(1,model.programmingSends);
+  TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(0,memory.used());
+}
+static void programming_does_not_rewrite_an_already_matching_marker(){
+  Model model;model.marked=true;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);
+  openProgrammingReview(form);form.turn(1,25);form.activate(26);model.learnedQueue.run(model.learnedToken,40);
+  form.turn(1,41);form.activate(42);form.turn(1,43);form.activate(44);
+  TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_TRUE(model.marked);TEST_ASSERT_EQUAL(0,model.saves);
+  TEST_ASSERT_EQUAL(1,model.programmingSends);TEST_ASSERT_EQUAL(Notice::unchanged,form.notice());TEST_ASSERT_EQUAL(0,memory.used());
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(programming_does_not_rewrite_an_already_matching_marker);
+  RUN_TEST(programming_is_queued_once_then_observation_and_marker_save_are_separate);
+  RUN_TEST(programming_queue_cancel_age_and_authority_changes_never_send);
+  RUN_TEST(programming_marker_file_retry_never_replays_programming);
   RUN_TEST(primary_queue_back_age_auth_and_unknown_storage_never_replay);
   RUN_TEST(primary_editor_expiry_and_old_ticket_cannot_execute_reopened_session);
   RUN_TEST(primary_correction_requires_explicit_draft_apply_confirm_and_file_only_recovery);

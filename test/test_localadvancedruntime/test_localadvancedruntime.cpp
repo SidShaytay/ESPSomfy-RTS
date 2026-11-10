@@ -36,6 +36,7 @@ struct Shade {
   uint32_t address = 100;
   uint64_t configurationRevision = 1;
   bool paired = false, idle = true;
+  radio_proto proto=radio_proto::RTS;uint8_t bitLength=80;shade_types shadeType=shade_types::roller;
   Remote linkedRemotes[7];
   uint8_t getShadeId() { return id; }
   uint32_t getRemoteAddress() { return address; }
@@ -59,7 +60,9 @@ struct SomfyShadeController {
   uint32_t repeaters[7]{};
   struct {
     uint64_t configurationRevision = 1;
-    bool quiet = true;
+    bool quiet = true,ready=true,suspended=false;
+    struct {uint8_t type=80;}config;
+    bool available()const{return ready;}bool txSuspended()const{return suspended;}
     uint32_t blocked = 0;
     CounterQuarantine quarantine = CounterQuarantine::none;
     CounterQuarantine counterQuarantine() { return quarantine; }
@@ -232,7 +235,13 @@ Backend &runtimeBackend() {
 } // namespace EntityAdmin
 } // namespace LocalUi
 #include "../../src/GitUpdate.cpp"
+static unsigned pairingSends=0;static shade_request_t pairingRequest;
+struct RecordingRequests{shade_request_result_t run(const shade_request_t &request){
+  TEST_ASSERT_TRUE(gitUpdate.busy());++pairingSends;pairingRequest=request;return shade_request_result_t::done;
+}}shadeRequests;
+#define ShadeRequests RecordingRequests
 #include "../../src/LocalAdvancedRuntime.cpp"
+#undef ShadeRequests
 #include "../../src/LocalLearnQueueRuntime.cpp"
 void setUp() {
   somfy = {};
@@ -248,6 +257,7 @@ void setUp() {
   linkState = CounterDomainState::saved;
   queueAccepts = true;
   expireAllocation = restartAllocation = memberMoves = blockAllocation = false;
+  pairingSends=0;pairingRequest={};
   pendingRestart = false;primaryWrites=0;primaryMatches=true;afterPrimaryRead=nullptr;
   file = ModelCommitState::saved;
   TEST_ASSERT_FALSE(gitUpdate.busy());
@@ -628,8 +638,52 @@ static void primary_final_read_side_effect_and_witness_changes_refuse_without_co
     TEST_ASSERT_EQUAL(0,primaryWrites);
   }
 }
+static void pairing_uses_typed_prog_under_owner_without_inventing_paired_state(){
+  Target target{Scope::devices,7};Context context;TEST_ASSERT_TRUE(source().capture(target,context));
+  const auto auth=source().authorization();const auto history=source().revision();bool oneButton=true;
+  TEST_ASSERT_TRUE(source().pairingAvailable(target,oneButton));TEST_ASSERT_FALSE(oneButton);
+  Witness witness;const auto result=source().sendPairing(target,context,auth,history,127,witness);
+  TEST_ASSERT_EQUAL(Admission::accepted,result.admission);TEST_ASSERT_EQUAL(shade_request_result_t::done,result.result);
+  TEST_ASSERT_EQUAL(1,pairingSends);TEST_ASSERT_EQUAL(shade_request_type_t::shade_command,pairingRequest.type);
+  TEST_ASSERT_EQUAL(somfy_commands::Prog,pairingRequest.command);TEST_ASSERT_EQUAL(127,pairingRequest.repeat);
+  TEST_ASSERT_EQUAL(7,pairingRequest.id);TEST_ASSERT_FALSE(somfy.shades[0].paired);TEST_ASSERT_EQUAL(0,applies);
+  somfy.shades[0].shadeType=shade_types::garage1;TEST_ASSERT_TRUE(source().pairingAvailable(target,oneButton));TEST_ASSERT_TRUE(oneButton);
+  somfy.shades[0].proto=radio_proto::GP_Relay;TEST_ASSERT_FALSE(source().pairingAvailable(target,oneButton));somfy.shades[0].proto=radio_proto::RTS;
+  TEST_ASSERT_EQUAL(Admission::invalid,source().sendPairing(target,context,auth,history,0,witness).admission);
+  TEST_ASSERT_EQUAL(1,pairingSends);TEST_ASSERT_FALSE(gitUpdate.busy());
+}
+static void pairing_rechecks_authority_context_owner_radio_motion_and_final_witness(){
+  for(unsigned change=0;change<13;++change){
+    setUp();const Target target{Scope::devices,7};Context context;
+    TEST_ASSERT_TRUE(source().capture(target,context));
+    const auto auth=source().authorization();const auto history=source().revision();Witness witness;
+    GitUpdateOwnerToken owner;
+    switch(change){
+      case 0:LocalUi::security.allowed=false;break;
+      case 1:++LocalUi::security.generation;break;
+      case 2:++somfy.shades[0].configurationRevision;break;
+      case 3:TEST_ASSERT_TRUE(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,owner));break;
+      case 4:pendingCount=1;break;
+      case 5:pendingRestart=true;break;
+      case 6:somfy.shades[0].idle=false;break;
+      case 7:somfy.transceiver.ready=false;break;
+      case 8:somfy.transceiver.suspended=true;break;
+      case 9:somfy.transceiver.quiet=false;break;
+      case 10:somfy.transceiver.blocked=100;break;
+      case 11:witness.state=LearnQueueReason::expired;break;
+      case 12:somfy.shades[0].bitLength=72;break;
+    }
+    const auto result=source().sendPairing(target,context,auth,history,1,witness);
+    TEST_ASSERT_NOT_EQUAL(Admission::accepted,result.admission);
+    TEST_ASSERT_EQUAL(0,pairingSends);TEST_ASSERT_EQUAL(0,applies);TEST_ASSERT_FALSE(somfy.shades[0].paired);
+    if(change==3)TEST_ASSERT_TRUE(gitUpdate.releaseExternal(owner));
+    TEST_ASSERT_FALSE(gitUpdate.busy());
+  }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(pairing_rechecks_authority_context_owner_radio_motion_and_final_witness);
+  RUN_TEST(pairing_uses_typed_prog_under_owner_without_inventing_paired_state);
   RUN_TEST(primary_counter_read_and_final_apply_share_fresh_context_without_nested_owner);
   RUN_TEST(primary_final_read_side_effect_and_witness_changes_refuse_without_correction);
   RUN_TEST(checked_link_uses_only_address_counter_and_domain_owned_lease);

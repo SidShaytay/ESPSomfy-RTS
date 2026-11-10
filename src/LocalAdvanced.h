@@ -3,6 +3,8 @@
 #include "LocalLearnCandidates.h"
 #include "LocalLearnQueue.h"
 #include "LocalTargetRead.h"
+#include "LocalProgrammingGuide.h"
+#include "ShadeRequests.h"
 namespace LocalUi {
 enum class PrimaryCounterEffect : uint8_t;
 namespace Advanced {
@@ -48,8 +50,8 @@ struct Action {
   uint8_t slot = 0;
   bool paired = false;
 };
-// Stage1 has no RF method. All mutation is configuration only. Runtime checks
-// fresh authority/history/raw context and queue/restart/owner/idle admission.
+// Metadata Actions change configuration only. The guide has a separate typed
+// Prog request with fresh authority/context/queue/radio/owner/idle checks.
 struct LearnApplyResult {
   edit_result_t edit;
   EntityAdmin::Admission admission = EntityAdmin::Admission::accepted;
@@ -69,9 +71,18 @@ struct PrimaryApplyResult {
   EntityAdmin::Admission admission = EntityAdmin::Admission::accepted;
   LearnQueueReason freshness = LearnQueueReason::ready;
 };
+struct PairingSendResult {
+  shade_request_result_t result=shade_request_result_t::radio_refused;
+  EntityAdmin::Admission admission=EntityAdmin::Admission::accepted;
+};
 class Backend {
 public:
   virtual ~Backend() = default;
+  virtual bool pairingAvailable(Target,bool &oneButton){oneButton=false;return false;}
+  virtual EntityAdmin::Admission checkPairingContext(Target,const Context &,EntityAdmin::Authorization,uint64_t){return EntityAdmin::Admission::stale;}
+  virtual PairingSendResult sendPairing(Target,const Context &,EntityAdmin::Authorization,uint64_t,uint8_t,LearnPending &){
+    return {shade_request_result_t::radio_refused,EntityAdmin::Admission::invalid};
+  }
   virtual PrimaryReadResult readPrimary(Target, const Context &,
       EntityAdmin::Authorization, uint64_t, PrimaryCounterReview &) = 0;
   // Live aliases/quarantine only; no NVS/owner/allocation. Safe in a final

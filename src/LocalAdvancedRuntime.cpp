@@ -16,6 +16,7 @@
 #include <string.h>
 extern SomfyShadeController somfy;
 extern LoopQueue loopQueue;
+extern ShadeRequests shadeRequests;
 namespace LocalUi {
 namespace Advanced {
 using namespace EntityAdmin;
@@ -37,6 +38,18 @@ public:
   bool owns() const { return held && gitUpdate.ownsExternal(token); }
 };
 class RuntimeBackend final : public Backend {
+  bool pairingRequest(Target target,uint8_t repeats,shade_request_t &out,bool *oneButton=nullptr){
+    if(target.scope!=Scope::devices||!repeats||repeats>127)return false;
+    auto *shade=somfy.getShadeById(target.id);if(!shade)return false;
+    const auto protocol=shade->proto;const auto bits=shade->bitLength?shade->bitLength:somfy.transceiver.config.type;
+    const auto address=shade->getRemoteAddress();
+    if(!address||address>0xffffff||(protocol!=radio_proto::RTS&&protocol!=radio_proto::RTW&&protocol!=radio_proto::RTV)||
+       (bits!=56&&bits!=80))return false;
+    shade_request_t request;request.type=shade_request_type_t::shade_command;request.id=target.id;
+    request.command=somfy_commands::Prog;request.repeat=int8_t(repeats);out=request;
+    if(oneButton)*oneButton=isToggleShade(shade->shadeType);
+    return true;
+  }
   bool validTarget(Target target) {
     if (target.scope == Scope::repeaters)
       return !target.id;
@@ -123,6 +136,32 @@ class RuntimeBackend final : public Backend {
   }
 
 public:
+  bool pairingAvailable(Target target,bool &oneButton)override{
+    oneButton=false;shade_request_t request;
+    return authorization().allowed&&somfy.modelLoad.usable()&&pairingRequest(target,1,request,&oneButton);
+  }
+  Admission checkPairingContext(Target target,const Context &expected,Authorization auth,uint64_t history)override{
+    const auto identity=admittedIdentity(auth,history);if(identity!=Admission::accepted)return identity;
+    bool oneButton=false;Context current;
+    if(!pairingAvailable(target,oneButton)||!capture(target,current)||!expected.same(current))return Admission::stale;
+    if(!idle(target)||!somfy.transceiver.available()||somfy.transceiver.txSuspended())return Admission::busy;
+    return Admission::accepted;
+  }
+  PairingSendResult sendPairing(Target target,const Context &expected,Authorization auth,uint64_t history,
+                                uint8_t repeats,LearnPending &witness)override{
+    ConfigurationLease lease;
+    auto admission=admit(target,expected,auth,history,&lease);
+    if(admission!=Admission::accepted)return {shade_request_result_t::radio_refused,admission};
+    admission=checkPairingContext(target,expected,auth,history);
+    if(admission!=Admission::accepted)return {shade_request_result_t::radio_refused,admission};
+    if(!somfy.transceiver.restartQuiescent()||somfy.transceiver.counterBlocksIdentity(expected.raw.identity))
+      return {shade_request_result_t::radio_refused,Admission::busy};
+    shade_request_t request;
+    if(!pairingRequest(target,repeats,request))return {shade_request_result_t::radio_refused,Admission::invalid};
+    if(witness.current(uint64_t(esp_timer_get_time())/1000)!=LearnQueueReason::ready)
+      return {shade_request_result_t::radio_refused,Admission::stale};
+    return {shadeRequests.run(request)};
+  }
   PrimaryReadResult readPrimary(Target target,const Context &context,
       Authorization auth,uint64_t history,PrimaryCounterReview &out) override {
     out={};
