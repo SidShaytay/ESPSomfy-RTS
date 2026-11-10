@@ -5,7 +5,7 @@ All agreed implementation, tests, documentation, independent reviews and five st
 
 **NO RF/motor/wired-GPIO shutter commands, live scans/programming/calibration, HA actions, live GitHub downloads or rollback/load fault tests were performed.** Read-only live checks establish boot/configuration/counter/LCD health, not physicalmotor/RF reliability or TLS/loadstress. User permitted phaseflashes/read-only checks while sleeping, and forbade shutter disturbance. These restrictions persist until explicitly changed.
 
-Main dcdb588 and finalversionworktree clean. Source remains UNPUSHED; remote mainfc5a294 unchanged. No tag/release/PR/publication performed. GitHub25/12/26–30 finalstatuses updated tocompletedauthorizedscope withpublication/owneracceptanceopen; exactfinalreadback must be confirmed from roottoolsession19198 ifnotyetconsumed. Parentbody /tmp/i25-complete-parent.md; childbodies /tmp/i25-complete-child-{12,26..30}.md. No issue was silentlyclosed before sourcepublication/owneracceptance.
+Main dcdb588 and finalversionworktree clean. Source remains UNPUSHED; remote mainfc5a294 unchanged. No further authorized implementation/deployment work remains. No tag/release/PR/publication performed. GitHub25/12/26–30 finalstatuses updated tocompletedauthorizedscope withpublication/owneracceptanceopen; all seven final issue bodies were read back exactly after updating (25/12/26–30). Parentbody /tmp/i25-complete-parent.md; childbodies /tmp/i25-complete-child-{12,26..30}.md. No issue was silentlyclosed before sourcepublication/owneracceptance.
 
 ## Final artifacts and proof
 Finalsharedfirmware:
