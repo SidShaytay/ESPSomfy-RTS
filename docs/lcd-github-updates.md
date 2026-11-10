@@ -25,11 +25,13 @@ require a new review. No failed operation retries automatically.
 
 In 4.7.3 and later, display inactivity dims the screen while keeping update progress or its result visible. It does not return to Home. An expired session shows a protected read-only result; wake the display, then press **Back: System** to leave. This does not extend authentication.
 
-During reversible work, **Cancel update** or the Back button cancels the
-operation. Controls resume after cleanup finishes. The Cancel action disappears
-during final restart checks; Back then leaves the status screen. The original
-session must remain valid, and progress updates do not extend its two-minute
-inactivity timeout.
+After you confirm **Install and restart**, that exact GitHub operation has up to **30 minutes from the original confirmation** to finish. Inactivity does not cancel it. PIN/password menus still lock after two minutes; progress does not renew access to controls or administration. None mode remains open as configured.
+
+Temporary connection interruptions, incomplete downloads and supported temporary server errors retry automatically within that same window. The display shows the retry count and wait. GitHub throttling delays are respected. Retries keep the same confirmed release and do not reset the deadline. Certificate, identity, digest, malformed-data and flash-write failures stop; writing and activation are never automatically retried.
+
+While unlocked and the operation is reversible, **Cancel update** or Back cancels it. When locked, **Back to unlock menus** leaves the progress view without cancelling. Unlock normally and reopen GitHub updates to view or cancel that same operation. Reopening does not start a new installation or extend its deadline. Changes to credentials or relevant controller configuration invalidate the operation. Controls resume only after cleanup finishes.
+
+At the final restart checks, cancellation is no longer available. Keep power connected. These continuation and retry rules apply to confirmed LCD GitHub installs, not metadata checking or browser manual-file transfers.
 
 After restart, **Verifying new firmware** means that continuous boot-health
 checks are still running. Confirmation needs 60 healthy seconds. A failure at
@@ -40,7 +42,7 @@ postpones it again. An unavailable previous image shows **Rollback needs attenti
 
 **Controls paused** or **Update needs recovery** means cleanup or activation
 could not be verified. Leaving the screen does not release those locks or start
-another update. A later check does not silently retry the failed installation.
+another update. A later check does not silently retry a terminal failure or repeat a flash write.
 
 Use **This controller → Maintenance → Browser files & Web** for the existing browser backup, restore
 and manual firmware file workflows.

@@ -25,7 +25,7 @@ The paths below describe approved navigation implemented in source `015ac39`, in
 | WiFi scan | Browse & settings → System → WiFi scan | This controller → Configure → Network → WiFi scan |
 | Status and About | Browse & settings → Status; hold Status for Details | This controller → Status / About |
 
-Both versions retain the same protected forms, explicit confirmations and supported commands. Current 4.7.3 still requires the original installation session to remain valid, with its 120-second inactivity limit. The newly requested 30-minute installation lifetime and temporary-download retries are **not implemented by this navigation change**.
+Both versions retain protected forms, explicit confirmations and supported commands. Installed 4.7.3 still requires its original installation session to remain valid. The upcoming **4.8.0** combines this navigation with the confirmed-install 30-minute window and temporary-download retries; ordinary menu authorization still expires after 120 seconds. See [GitHub updates](lcd-github-updates.md) for cancellation, unlock and failure behavior.
 
 ## Start on the LCD
 
