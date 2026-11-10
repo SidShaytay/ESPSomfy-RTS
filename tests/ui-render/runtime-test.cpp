@@ -14,6 +14,8 @@
 #include "LoopQueue.h"
 #include "LocalEntityRuntime.h"
 #include "LocalAdvancedRuntime.h"
+#include "LocalFrequencyScan.h"
+#include "ModelIdleForAdministration.h"
 #include "SomfyEditor.h"
 #include "CounterRuntime.h"
 #include "ModelCommitService.h"
@@ -318,6 +320,32 @@ struct RecordingRequests {shade_request_result_t run(const shade_request_t &r){s
 #undef markControlPresented
 #undef snapshotModel
 #undef ShadeRequests
+namespace LocalUi {namespace RadioScan {
+class Driver final:public ::FrequencyScan::Backend {
+public:
+ unsigned starts=0,stops=0;
+ bool current(const ::FrequencyScan::Source &source)override{const auto auth=pollAuthorization();return auth.allowed&&auth.generation==source.session&&auth.configurationGeneration==source.configuration&&source.radioRevision==settingsRevision;}
+ bool acquire(GitUpdateOwnerToken &owner)override{return somfy.transceiver.ready&&somfy.transceiver.quiescent&&!loopQueue.pending()&&modelIdleForAdministration(somfy)&&gitUpdate.acquireExternal(GitUpdateExternalOwner::configuration,owner);}
+ bool owns(const GitUpdateOwnerToken &owner)override{return gitUpdate.ownsExternal(owner);}
+ bool begin()override{++starts;loopScanActive=true;return true;}
+ void stop()override{++stops;loopScanActive=false;}
+ bool active()override{return loopScanActive;}
+ bool sample(::FrequencyScan::Sample &out)override{out={433.42f,433.43f,-60,-55};return true;}
+ bool release(const GitUpdateOwnerToken &owner)override{return gitUpdate.releaseExternal(owner);}
+} driver;
+static ::FrequencyScan::Session scanSession(driver,42);
+class UiBackend final:public Backend {
+public:
+ SecuritySnapshot authorization()override{return pollAuthorization();}
+ void activity()override{authorizationActivity();}
+ ::FrequencyScan::Source capture()override{const auto auth=authorization();return {::FrequencyScan::SourceKind::lcd,0,auth.generation,auth.configurationGeneration,1,settingsRevision};}
+ bool begin(const ::FrequencyScan::Source &source,FrequencyScanToken &token)override{return scanSession.start(source,authTestNow,token);}
+ bool stop(const ::FrequencyScan::Source &source,const FrequencyScanToken &token)override{return scanSession.stop(token,source,authTestNow);}
+ ::FrequencyScan::Snapshot status()override{return scanSession.snapshot();}
+ bool peak(const ::FrequencyScan::Source &source,const FrequencyScanToken &token,float &frequency)override{return scanSession.peak(token,source,frequency);}
+};
+Backend &runtimeBackend(){static UiBackend backend;return backend;}
+}}
 LocalUi::Model LocalUi::snapshotModel(bool running,const View &view){lastQuery=view;return adapterSnapshotModel(running,view);}
 void LocalUi::markControlPresented(EntityRef ref,uint64_t token,bool allowed,uint32_t generation){++presentations;adapterMarkControlPresented(ref,token,allowed,generation);}
 LocalUi::SecuritySnapshot LocalUi::pollAuthorization(){
@@ -358,7 +386,7 @@ int main(int argc,char **argv){
   Runtime ui;ui.begin();assert(ui.failure()==GraphicsFailure::none && allocated);
   Runtime *active=&ui;
   int ab=3;
-  auto tick=[&](bool pressed=false,unsigned dt=50){testNow+=dt;authTestNow=testNow;loopQueue.drain();active->tick(testNow,status,pressed,send,light);};
+  auto tick=[&](bool pressed=false,unsigned dt=50){testNow+=dt;authTestNow=testNow;RadioScan::scanSession.poll(testNow);loopQueue.drain();active->tick(testNow,status,pressed,send,light);};
   auto idle=[&](unsigned duration=140){for(unsigned t=0;t<duration;t+=2)tick(false,2);};
   auto rotate=[&](int direction){
     const int middle=direction>0?(ab==3?1:2):(ab==3?2:1);
@@ -799,6 +827,34 @@ int main(int argc,char **argv){
   assert(!settingsUi.tick(testNow,status,false,send,light));assert(!wifiScanFeed().pending() && Settings::runtimeMemory().used()==0);
   RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();click();idle();
   if(RuntimeTestAccess::view(settingsUi).screen==Screen::status){click();idle();}
+  // Real System child, protected presentation, exact-owned scan context and
+  // separate Radio settings draft; RF boundaries remain fake.
+  for(auto &shade:somfy.shades)shade.idle=true;
+  for(auto &group:somfy.groups){group.direction=0;group.lastFrame.valid=false;}
+  const bool priorRadioReady=somfy.transceiver.ready;somfy.transceiver.ready=true;somfy.transceiver.quiescent=true;
+  auto &wired=somfy.shades[0];wired.id=6;wired.address=600;wired.proto=radio_proto::GP_Relay;wired.idle=true;
+  for(unsigned i=0;i<homeRows;++i){rotate(-1);idle();}for(unsigned i=0;i<systemHomeIndex;++i){rotate(1);idle();}
+  click();idle();for(unsigned i=0;i<5;++i){rotate(1);idle();}click();idle();
+  const auto scanStarts=RadioScan::driver.starts;const auto scanSaves=settingsSaves;
+  assert(!strcmp(RuntimeTestAccess::system(settingsUi).rows[0].label,"Cancel")&&captureProtected);
+  saveFrame(preview,"runtime-radio-start-confirm");click();idle();assert(RadioScan::driver.starts==scanStarts);
+  click();idle();busBusy=true;rotate(1);click();assert(RadioScan::driver.starts==scanStarts);
+  busBusy=false;idle();click();idle();assert(loopScanActive&&gitUpdate.busy());
+  assert(!strcmp(RuntimeTestAccess::system(settingsUi).rows[0].label,"Stop scan"));
+  const auto scanRequests=submitted.size();loop_item_t wiredRequest;wiredRequest.request.id=6;wiredRequest.request.command=somfy_commands::Down;
+  loop_item_t refusedRf;refusedRf.request.id=7;refusedRf.request.type=shade_request_type_t::unpair;
+  assert(loopQueue.submit(refusedRf)&&loopQueue.submit(wiredRequest));idle();
+  assert(submitted.size()==scanRequests+1&&submitted.back().id==6&&loopScanActive);
+  saveFrame(preview,"runtime-radio-scanning");click();idle();assert(!loopScanActive&&!gitUpdate.busy());
+  assert(!strcmp(RuntimeTestAccess::system(settingsUi).rows[0].label,"Close"));saveFrame(preview,"runtime-radio-review");
+  busBusy=true;rotate(1);click();assert(settingsSaves==scanSaves);
+  busBusy=false;idle();click();idle();assert(lastQuery.screen==Screen::settings);
+  assert(!strcmp(RuntimeTestAccess::settings(settingsUi).title,"Radio")&&RuntimeTestAccess::settings(settingsUi).dirty&&settingsSaves==scanSaves);
+  saveFrame(preview,"runtime-radio-settings-draft");back();idle();
+  // Back discards the staged change without saving.
+  assert(settingsSaves==scanSaves);somfy.transceiver.ready=priorRadioReady;
+  if(lastQuery.screen==Screen::system){back();idle();}
+  const auto beforeDiagnosticsRequests=submitted.size();
   // Diagnostics receives copied observations only; it never changes RX mode.
   for(unsigned i=0;i<homeRows;i++){rotate(-1);idle();}for(unsigned i=0;i<systemHomeIndex;i++){rotate(1);idle();}
   click();idle();for(unsigned i=0;i<3;i++){rotate(1);idle();}click();idle();
@@ -810,7 +866,7 @@ int main(int argc,char **argv){
   diagnosticFrame.address=0x123456;diagnosticFrame.rollingCode=432;diagnosticFrame.command=2;
   assert(receiveHub().publish(diagnosticFrame,{diagnosticPulses,3,false}));idle();click();idle();
   assert(!receiveHub().active() && !strcmp(RuntimeTestAccess::system(settingsUi).title,"Received frame"));
-  assert(submitted.size()==beforeWifiRF && settingsSaves==beforeWifiSaves && captureProtected);
+  assert(submitted.size()==beforeDiagnosticsRequests && settingsSaves==beforeWifiSaves && captureProtected);
   saveFrame(preview,"runtime-receive-diagnostics");back();idle();
   assert(RuntimeTestAccess::systemContains(settingsUi,"123456"));
   busBusy=true;back();
@@ -843,7 +899,7 @@ int main(int argc,char **argv){
   for(unsigned i=0;i<5 && RuntimeTestAccess::view(settingsUi).screen!=Screen::home;++i){
     if(RuntimeTestAccess::view(settingsUi).screen==Screen::status)click();else back();idle();
   }
-  assert(submitted.size()==beforeWifiRF && settingsSaves==beforeWifiSaves);
+  assert(submitted.size()==beforeDiagnosticsRequests && settingsSaves==beforeWifiSaves);
   for(unsigned i=0;i<homeRows;i++){rotate(-1);idle();}for(unsigned i=0;i<systemHomeIndex;i++){rotate(1);idle();}
   click();idle();click();idle(); // default Restart confirmation
 

@@ -272,8 +272,16 @@ static void queueDeviceOp(AsyncWebSocketClient *client, const proto_message_t &m
     save->ip = client->remoteIP();
     item.save = save;
   }
-  // An unpair waits at the head of the queue while a frequency scan runs, so
-  // the scan's end goes ahead of it.
+  if(msg.type==uint8_t(proto_type_t::endFrequencyScan)||msg.type==uint8_t(proto_type_t::getFrequencyScanResult)) {
+    const auto value=d[protoField(proto_field_t::scanToken).key];
+    const auto text=value.as<JsonString>();
+    FrequencyScanToken token;
+    if(!value.is<const char *>()||!parseFrequencyScanToken(text.c_str(),text.size(),token)) {
+      replyError(client,msg.id,proto_error_t::badRequest,"An exact scan token is required");return;
+    }
+    item.setScanToken(token);
+  }
+  // An exact Stop may reduce an owned scan ahead of unrelated queued work.
   const bool first = msg.type == static_cast<uint8_t>(proto_type_t::endFrequencyScan);
   if(loopQueue.submit(item, first)) return;
   if(item.save) freeSettingsSave(item.save);

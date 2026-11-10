@@ -14,6 +14,7 @@
 #include "ModelCommitService.h"
 #include "SafeRestart.h"
 #include "RestoreExecution.h"
+#include "FrequencyScanAdmission.h"
 
 static const char *TAG = "LoopQueue";
 
@@ -32,7 +33,9 @@ bool LoopQueue::submit(const loop_item_t &item, bool first) {
   // async_tcp also services the sockets, so it must never wait on loop() or
   // the radio.
   QueueHandle_t q = static_cast<QueueHandle_t>(this->queue);
-  const bool accepted=(first ? xQueueSendToFront(q, &item, 0) : xQueueSend(q, &item, 0)) == pdTRUE;
+  loop_item_t admitted=item;admitted.radioScanAtAdmission=frequencyScanActive();
+  if(admitted.radioScanAtAdmission && item.localRadio) {producers.fetch_sub(1);return false;}
+  const bool accepted=(first ? xQueueSendToFront(q, &admitted, 0) : xQueueSend(q, &admitted, 0)) == pdTRUE;
   if(accepted && loopItemMutates(item))noteRestartOperationAccepted();
   producers.fetch_sub(1);
   if(!accepted) {
@@ -90,6 +93,17 @@ void LoopQueue::drain() {
       }
     }
 #endif
+    if((item.radioScanAtAdmission||frequencyScanActive()) && item.type==loop_item_type_t::shade_request && shadeRequestUsesRadio(item.request.type)) {
+      bool rf=shadeRequestIsForGroup(item.request.type)||item.request.type==shade_request_type_t::unpair;
+      if(!rf) {
+        auto *shade=somfy.getShadeById(item.request.id);
+        rf=!shade || (shade->proto!=radio_proto::GP_Relay&&shade->proto!=radio_proto::GP_Remote);
+      }
+      if(rf) {
+        xQueueReceive(q,&item,0);
+        protoSocket.replyRequest(item.replyTo,item.request,shade_request_result_t::radio_refused);continue;
+      }
+    }
     if(holdLoopItem(item, somfy.transceiver.txSuspended(), somfy.transceiver.txHasRoom())) break;
     // loop() is the only consumer so this is the item we peeked.
     xQueueReceive(q, &item, 0);

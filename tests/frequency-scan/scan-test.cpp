@@ -1,5 +1,6 @@
 #include "RadioScheduler.h"
 #include "RadioUpdateActivity.h"
+#include "FrequencyScanSample.h"
 #include <atomic>
 #include <cassert>
 #include <cstdio>
@@ -8,6 +9,8 @@ static unsigned driverCalls=0,preemptions=0,suspensions=0;
 static bool radioBusy=false,queueBusy=false,resourcesReady=true,rxHeld=false;
 static constexpr unsigned portMAX_DELAY=1000;
 static constexpr int INPUT=0,CHANGE=1,waiting_synchro=0;
+static std::atomic<bool> scanActive{false};
+struct {bool sealed=false;bool sealForRestart(){if(sealed)return false;sealed=true;return true;}void reopenAfterRefusedRestart(){sealed=false;}} loopQueue;
 static uint8_t rxmode=1;
 static unsigned scanStart=0,lastScan=0;
 static bool scanResumeReceive=false,rxPausedForInstall=false,noiseDetected=false;
@@ -50,7 +53,8 @@ struct Transceiver {
  void enableReceive(){io();rxmode=1;ELECHOUSE_cc1101.SetRx();}
  static void handleReceive(){}
  bool txSuspended();
- void beginFrequencyScan();void endFrequencyScan();void processFrequencyScan(bool=false);void emitFrequencyScan(){}
+ bool readFrequencyScan(FrequencyScan::Sample &);
+ bool beginFrequencyScan();void endFrequencyScan();void processFrequencyScan(bool=false);void emitFrequencyScan(){}
 };
 #include "production-scan.inc"
 static somfy_tx_job_t job(){somfy_tx_job_t j;j.frame.remoteAddress=123;j.tx.bit_length=56;return j;}
@@ -58,31 +62,33 @@ static void reset(){rxmode=1;scanStopRequested=false;rxPausedForInstall=false;sc
 static void untouched(Transceiver &r){assert(!driverCalls&&!preemptions&&!suspensions&&rxmode==1&&!r._administrationPaused.load());}
 int main(){
  reset();Transceiver accepted;auto j=job();assert(accepted.sched.submit(j,false,0,0));
- accepted.beginFrequencyScan();assert(accepted.sched.hasPendingFor(123));untouched(accepted);
+ assert(!accepted.beginFrequencyScan());assert(accepted.sched.hasPendingFor(123));untouched(accepted);
  // Taken/on-air work and not-yet-consumed outcomes also prevent retuning.
  for(unsigned phase=0;phase<3;++phase){
   reset();Transceiver r;auto queued=job();const auto ticket=r.sched.submit(queued,false,0,0);
   somfy_tx_job_t taken;uint32_t wait=0;assert(r.sched.next(0,taken,wait));
   if(phase>0)assert(r.sched.start(ticket,0));
   if(phase>1)r.sched.ended(ticket,true,1);
-  r.beginFrequencyScan();assert(r.sched.hasWork());untouched(r);
+  assert(!r.beginFrequencyScan());assert(r.sched.hasWork());untouched(r);
  }
  reset();Transceiver suspended;suspended.sched.suspend(TX_SUSPEND_OTA,0);
- suspended.beginFrequencyScan();assert(suspended.sched.suspended());untouched(suspended);
+ assert(!suspended.beginFrequencyScan());assert(suspended.sched.suspended());untouched(suspended);
  for(unsigned which=0;which<10;++which){
   reset();Transceiver r;
   switch(which){case 0:radioBusy=true;break;case 1:queueBusy=true;break;case 2:resourcesReady=false;break;
    case 3:rx_queue.length=1;break;case 4:tx_queue.length=1;break;case 5:somfy_rx.partial=true;break;
    case 6:r.counterBusy=true;break;case 7:rxPausedForInstall=true;break;
    case 8:r.config.enabled=false;break;case 9:r._available=false;break;}
-  r.beginFrequencyScan();untouched(r);
+  assert(!r.beginFrequencyScan());untouched(r);
  }
  for(unsigned prior:{0u,1u}){
-  reset();Transceiver r;rxmode=prior;r.beginFrequencyScan();
+  reset();Transceiver r;rxmode=prior;assert(r.beginFrequencyScan());
+  FrequencyScan::Sample sample;assert(r.readFrequencyScan(sample));assert(sample.frequency==currFreq&&sample.peakFrequency==markFreq);
+  radioBusy=true;sample.frequency=99;assert(!r.readFrequencyScan(sample)&&sample.frequency==99);radioBusy=false;
   assert(rxmode==3&&r.sched.sealedForRestart()&&!r.available()&&!rxPausedForInstall);
   assert(r.txSuspended() && "Existing admission must observe scan-paused RF, not defer commands until scan ends");
   auto next=job();assert(!r.sched.submit(next,true,0,0));
-  const unsigned started=driverCalls;r.beginFrequencyScan();assert(driverCalls==started);
+  const unsigned started=driverCalls;assert(!r.beginFrequencyScan());assert(driverCalls==started);
   rx_queue.length=2;somfy_rx.partial=true;noiseDetected=true;noiseCount=17;
   queueBusy=true;r.endFrequencyScan();assert(rxmode==3&&scanStopRequested.load()&&r.sched.sealedForRestart());
   const unsigned pending=driverCalls;r.processFrequencyScan();assert(driverCalls==pending);

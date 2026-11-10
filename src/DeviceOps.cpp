@@ -23,6 +23,7 @@
 #include "Utils.h"
 #include "entryPoints/Web.h"
 #include "outputs/ProtoSocket.h"
+#include "FrequencyScanService.h"
 
 static const char *TAG = "DeviceOps";
 
@@ -172,20 +173,30 @@ void runDeviceOp(const loop_item_t &item) {
       protoSocket.beginReply(item.replyTo);
       protoSocket.endReply(item.replyTo);
       break;
-    case proto_type_t::beginFrequencyScan:
-      if(!somfy.transceiver.config.enabled) {
-        protoSocket.replyRefused(item.replyTo, proto_error_t::radioUnavailable, "The radio is disabled");
-        break;
+    case proto_type_t::beginFrequencyScan: {
+      FrequencyScanToken token;
+      if(!FrequencyScan::begin(FrequencyScan::webSource(item.replyTo.client),token)) {
+        protoSocket.replyRefused(item.replyTo,proto_error_t::busy,"Radio scan admission refused; accepted work was preserved");break;
       }
-      somfy.transceiver.beginFrequencyScan();
-      protoSocket.beginReply(item.replyTo);
-      protoSocket.endReply(item.replyTo);
-      break;
+      char text[42];
+      if(!formatFrequencyScanToken(token,text,sizeof(text))) {
+        FrequencyScan::stop(FrequencyScan::webSource(item.replyTo.client),token);
+        protoSocket.replyRefused(item.replyTo,proto_error_t::internal,"Scan identity unavailable");break;
+      }
+      auto reply=protoSocket.beginReply(item.replyTo);reply.add(proto_field_t::scanToken,text);protoSocket.endReply(item.replyTo);break;
+    }
     case proto_type_t::endFrequencyScan:
-      somfy.transceiver.endFrequencyScan();
-      protoSocket.beginReply(item.replyTo);
-      protoSocket.endReply(item.replyTo);
-      break;
+      if(!FrequencyScan::stop(FrequencyScan::webSource(item.replyTo.client),item.scanToken)) {
+        protoSocket.replyRefused(item.replyTo,proto_error_t::badRequest,"Scan source is stale or belongs to another session");break;
+      }
+      protoSocket.beginReply(item.replyTo);protoSocket.endReply(item.replyTo);break;
+    case proto_type_t::getFrequencyScanResult: {
+      float frequency=0;
+      if(!FrequencyScan::peak(FrequencyScan::webSource(item.replyTo.client),item.scanToken,frequency)) {
+        protoSocket.replyRefused(item.replyTo,proto_error_t::badRequest,"No current completed signal result for this scan");break;
+      }
+      auto reply=protoSocket.beginReply(item.replyTo);reply.add(proto_field_t::frequency,frequency);protoSocket.endReply(item.replyTo);break;
+    }
     case proto_type_t::reboot: {
       const auto admission=requestRestart(500);
       if(!admission.admitted) {

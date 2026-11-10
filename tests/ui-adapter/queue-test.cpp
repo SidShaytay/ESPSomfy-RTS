@@ -301,11 +301,23 @@ static void favourite_programming_requires_unchanged_observation_at_admission_an
   shade.idle=true;assert(dispatch(clear)==DispatchResult::queued);loopQueue.drain();
   assert(result()==DispatchResult::done && sent.size()==1 && sent[0].type==shade_request_type_t::clear_favorite_here);
 }
+static void scan_refuses_new_rf_without_holding_gpio_or_later_replaying_unpair() {
+  reset();somfy.shades[0].id=7;somfy.shades[0].proto=radio_proto::RTS;
+  somfy.shades[1].id=8;somfy.shades[1].proto=radio_proto::GP_Relay;
+  loopScanActive=true;somfy.transceiver.suspended=true;
+  loop_item_t rf;rf.request.type=shade_request_type_t::unpair;rf.request.id=7;
+  loop_item_t gpio;gpio.request.id=8;gpio.request.command=somfy_commands::Down;
+  assert(loopQueue.submit(rf)&&loopQueue.submit(gpio));loopQueue.drain();
+  assert(loopQueue.pending()==0 && sent.size()==1 && sent[0].id==8);
+  assert(loopQueue.submit(rf)); // Queued during the scan, drained only after Stop.
+  loopScanActive=false;somfy.transceiver.suspended=false;loopQueue.drain();
+  assert(sent.size()==1);
+}
 int main() {
   static_assert(sizeof(loop_item_t)<=80,"Queue markers must not copy target contexts into 32 slots");
   queueAllocationOK=false;loopQueue.begin();auto noQueue=reset();
   assert(dispatch(command(noQueue,Action::up))==DispatchResult::busy && !localControlPending() && sent.empty());
-  queueAllocationOK=true;loopQueue.begin();explicit_repeats_preserve_tuple_and_fifo_recheck_every_admission();learned_intents_share_real_fifo_age_and_exact_cancellation();accepted_mutation_history_follows_actual_queue_result();restart_seal_preserves_every_accepted_item_and_refuses_late_submission();deferred_fifo_backpressure_and_cancel();age_clock_context_and_freeze_guards();
+  queueAllocationOK=true;loopQueue.begin();scan_refuses_new_rf_without_holding_gpio_or_later_replaying_unpair();explicit_repeats_preserve_tuple_and_fifo_recheck_every_admission();learned_intents_share_real_fifo_age_and_exact_cancellation();accepted_mutation_history_follows_actual_queue_result();restart_seal_preserves_every_accepted_item_and_refuses_late_submission();deferred_fifo_backpressure_and_cancel();age_clock_context_and_freeze_guards();
   invalid_or_active_replacement_sources_cannot_authorize_old_intents();
   favourite_programming_requires_unchanged_observation_at_admission_and_execution();
   stop_supersedes_only_same_authorized_context_at_fifo_tail();

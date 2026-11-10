@@ -8,6 +8,17 @@ json="${ARDUINOJSON_DIR:-$repo/.pio/libdeps/native/ArduinoJson/src}"
 mkdir -p "$out"
 scratch="$(mktemp -d)"
 trap 'rm -rf -- "$scratch"' EXIT
+# Compile the production completed-frame identity predicate unchanged.
+python3 - "$repo/src/LocalUiRuntime.cpp" "$scratch/production-local-presentation.inc" <<'PYCODE'
+from pathlib import Path
+import sys
+text=Path(sys.argv[1]).read_text();start=text.index('bool sameMeaning(');brace=text.index('{',start);end=brace+1;depth=1
+while depth:
+    depth+=(text[end]=='{')-(text[end]=='}');end+=1
+Path(sys.argv[2]).write_text(text[start:end]+'\n')
+PYCODE
+"${CXX:-c++}" -std=c++17 -include initializer_list -I"$scratch" -I"$repo/test/stubs" -I"$repo/src" "$repo/tests/ui-render/presentation-test.cpp" -o "$scratch/presentation"
+"$scratch/presentation"
 "${CXX:-c++}" -std=c++17 -O2 -DARDUINO=10800 -DLOCAL_UI_HOST_PREVIEW \
   -I"$repo/tests/ui-render" -I"$repo/tests/ui-adapter" -I"$repo/test/stubs" -I"$repo/src" -I"$gfx" \
   "$repo/tests/ui-render/render.cpp" "$repo/src/LocalUiRenderer.cpp" "$repo/src/LocalControlPolicy.cpp" "$repo/src/StatusDisplay.cpp" "$gfx/Adafruit_GFX.cpp" \
@@ -27,7 +38,7 @@ trap 'rm -rf -- "$scratch"' EXIT
   "$repo/tests/ui-render/runtime-test.cpp" "$repo/src/LocalUiRuntime.cpp" "$repo/src/LocalUiRenderer.cpp" \
   "$repo/src/LocalUi.cpp" "$repo/src/LocalControlPolicy.cpp" "$repo/src/ShadeRequests.cpp" "$repo/src/ShadeMotion.cpp" "$repo/src/SomfyFrame.cpp" "$repo/src/StatusDisplay.cpp" \
   "$repo/src/LocalSettingsForm.cpp" "$repo/src/LocalSettingsRuntime.cpp" "$repo/src/LocalSettingsMemory.cpp" "$repo/src/LocalSettingsRenderer.cpp" \
-  "$repo/src/LocalWifiScan.cpp" "$repo/src/LocalWifiScanRuntime.cpp" "$repo/src/WifiScanFeed.cpp" "$repo/src/LocalReceive.cpp" "$repo/src/LocalLearnCandidates.cpp" "$repo/src/LocalDiagnostics.cpp" "$repo/src/LocalDiagnosticsRuntime.cpp" "$repo/src/LocalSystem.cpp" "$repo/src/LocalSystemRuntime.cpp" "$repo/src/LocalAdministration.cpp" "$repo/src/LocalAdvanced.cpp" "$repo/src/LocalPrimaryCounter.cpp" "$repo/src/LocalMembership.cpp" "$scratch/configuration-owner.o" "$repo/src/LocalOrder.cpp" "$repo/src/LocalEntityForm.cpp" "$repo/src/LocalEntityRenderer.cpp" "$repo/src/EntityFields.cpp" "$repo/src/ProtoEdits.cpp" \
+  "$repo/src/LocalFrequencyScan.cpp" "$repo/src/LocalWifiScan.cpp" "$repo/src/LocalWifiScanRuntime.cpp" "$repo/src/WifiScanFeed.cpp" "$repo/src/LocalReceive.cpp" "$repo/src/LocalLearnCandidates.cpp" "$repo/src/LocalDiagnostics.cpp" "$repo/src/LocalDiagnosticsRuntime.cpp" "$repo/src/LocalSystem.cpp" "$repo/src/LocalSystemRuntime.cpp" "$repo/src/LocalAdministration.cpp" "$repo/src/LocalAdvanced.cpp" "$repo/src/LocalPrimaryCounter.cpp" "$repo/src/LocalMembership.cpp" "$scratch/configuration-owner.o" "$repo/src/LocalOrder.cpp" "$repo/src/LocalEntityForm.cpp" "$repo/src/LocalEntityRenderer.cpp" "$repo/src/EntityFields.cpp" "$repo/src/ProtoEdits.cpp" \
   "$repo/src/ProtoSettings.cpp" "$repo/src/ProtoParse.cpp" "$repo/src/ProtoSchema.cpp" "$repo/src/JsonFormatter.cpp" "$gfx/Adafruit_GFX.cpp" \
   -o "$scratch/runtime"
 "$scratch/runtime" "$out"
