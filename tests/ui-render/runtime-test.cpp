@@ -1164,6 +1164,21 @@ int main(int argc,char **argv){
   const auto installActivity=authActivities;tick(false,120001);idle();
   assert(RuntimeTestAccess::view(settingsUi).screen==Screen::system && update.value.busy && update.cancels==updateCancelsBeforeSleep && authActivities==installActivity && lastLight!=0 && !pollAuthorization().allowed);
   click();idle();assert(update.value.busy && update.cancels==updateCancelsBeforeSleep && !pollAuthorization().allowed); // DIM wake does not unlock other controls.
+  const auto lockedInstallView=RuntimeTestAccess::system(settingsUi);
+  assert(!strcmp(lockedInstallView.rows[1].label,"Back to unlock menus") && strstr(lockedInstallView.hint,"Install continues") && !strstr(lockedInstallView.hint,"Back cancels"));
+  saveFrame(preview,"runtime-updates-locked-install");
+  const auto retryActivity=authActivities;update.value.phase=GitUpdatePhase::retryWaiting;
+  update.value.retryCount=2;update.value.retryDelayMs=5000;idle();
+  auto retryView=RuntimeTestAccess::system(settingsUi);assert(!strcmp(retryView.title,"Waiting to retry") && !strcmp(retryView.rows[0].label,"Retry 2 in 5s"));
+  for(const auto &row:retryView.rows)assert(!strchr(row.label,'%'));
+  assert(strstr(retryView.hint,"Install continues") && !strstr(retryView.hint,"Back cancels"));
+  saveFrame(preview,"runtime-updates-retry-wait");
+  std::vector<uint16_t> retryPixels(static_cast<uint16_t*>(allocated),static_cast<uint16_t*>(allocated)+320*170);
+  update.value.retryCount=3;idle();assert(memcmp(retryPixels.data(),allocated,320*170*sizeof(uint16_t)));
+  retryPixels.assign(static_cast<uint16_t*>(allocated),static_cast<uint16_t*>(allocated)+320*170);
+  update.value.retryDelayMs=9000;idle();assert(memcmp(retryPixels.data(),allocated,320*170*sizeof(uint16_t)));
+  assert(update.installs==1 && update.cancels==updateCancelsBeforeSleep && authActivities==retryActivity && !pollAuthorization().allowed);
+  update.value.retryDelayMs=0;update.value.phase=GitUpdatePhase::downloading;idle();
   const auto continuingActivity=authActivities;const auto beforeInstallDeadline=update.installAcceptedAt+1800000-30000;
   assert(testNow<beforeInstallDeadline);tick(false,unsigned(beforeInstallDeadline-testNow));idle();
   assert(update.value.busy && update.cancels==updateCancelsBeforeSleep && authActivities==continuingActivity && !pollAuthorization().allowed);
