@@ -115,6 +115,18 @@ void Canvas::paintEntity(const EntityAdmin::FormView &view) {
     text(12, 161, "Press or Back: return", false, muted, 296);
     return;
   }
+  if(view.mode==Mode::updateStatus) {
+    // Version and label share one line. Keep the lower two lines for a complete
+    // update failure/status hint rather than crowding the next selected action.
+    for(uint8_t i=0;i<view.rowCount && i<3;++i) {
+      const auto &row=view.rows[i];const int top=38+i*28;
+      if(row.selected)fillRoundRect(8,top,304,26,4,selection);
+      text(14,top+19,row.label,false,foreground,row.value[0]?176:284);
+      text(200,top+19,row.value,false,row.selected?accent:muted,106);
+    }
+    char first[48],second[48];lines(*this,view.hint,first,second);
+    text(12,143,first,false,muted,296);text(12,166,second,false,muted,296);return;
+  }
   if (view.mode == Mode::stackedRows) {
     for(uint8_t i=0;i<view.rowCount && i<3;i++) {
       const int top=36+i*29;
