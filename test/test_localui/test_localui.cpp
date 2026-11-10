@@ -388,6 +388,12 @@ static void repeat_hold_binds_raw_press_and_release_never_becomes_stop() {
   x.tick(0,true,true,false,1000);TEST_ASSERT_FALSE(x.c.take(out));
   x.tick();x.tick();TEST_ASSERT_FALSE(x.c.take(out));
  }
+ Drive lateFrame;openRepeats(lateFrame,Action::up);lateFrame.click();lateFrame.tick(-1);
+ lateFrame.tick(0,true,false); // raw press sees an incomplete reviewed frame
+ lateFrame.tick(0,true,true); // SPI completes before the debounce transition
+ lateFrame.tick(0,true,true,false,1000);TEST_ASSERT_FALSE(lateFrame.c.take(out));
+ lateFrame.tick();lateFrame.tick();TEST_ASSERT_FALSE(lateFrame.c.take(out));
+ lateFrame.holdSend();TEST_ASSERT_TRUE(lateFrame.c.take(out)); // fresh press may qualify
  Drive obscured;openRepeats(obscured,Action::up);obscured.click();obscured.tick(-1);
  obscured.tick(0,true);obscured.tick(0,true,false);obscured.tick(0,true,true,false,1000);
  TEST_ASSERT_FALSE(obscured.c.take(out));
