@@ -11,8 +11,11 @@
 #include "LocalUpdates.h"
 #include "LocalFrequencyScan.h"
 #include <type_traits>
+#include <new>
 namespace LocalUi {
-static_assert(sizeof(System::Form)+sizeof(WifiScan::Form)+sizeof(Diagnostics::Form)+sizeof(RadioScan::Form)+sizeof(Updates::Form)+2<=160,"System observation state borrows existing presentation storage");
+constexpr size_t largerSystemChild(size_t a,size_t b){return a>b?a:b;}
+constexpr size_t systemChildBytes=largerSystemChild(largerSystemChild(sizeof(WifiScan::Form),sizeof(Diagnostics::Form)),largerSystemChild(sizeof(RadioScan::Form),sizeof(Updates::Form)));
+static_assert(sizeof(System::Form)+systemChildBytes+2<=160,"System children share one bounded handle and existing presentation storage");
 class Runtime {
 #ifdef UI_RUNTIME_HOST_TEST
   friend struct RuntimeTestAccess;
@@ -25,10 +28,14 @@ class Runtime {
   Settings::FormView frameSettings, presentedSettings;
   Administration administration;
   System::Form systemForm{System::runtimeBackend()};
-  WifiScan::Form wifiScanForm{WifiScan::runtimeBackend(),Settings::runtimeMemory()};
-  Diagnostics::Form diagnosticsForm{Diagnostics::runtimeBackend(),Settings::runtimeMemory()};
-  Updates::Form updatesForm{Updates::runtimeBackend(),Settings::runtimeMemory()};
-  RadioScan::Form radioScanForm{RadioScan::runtimeBackend(),Settings::runtimeMemory()};
+  // Exactly one child is alive. Its destructor cancels observers/owned work
+  // before another handle can reuse this storage; sessions keep the wiping pool.
+  union {
+    WifiScan::Form wifiScanForm;
+    Diagnostics::Form diagnosticsForm;
+    RadioScan::Form radioScanForm;
+    Updates::Form updatesForm;
+  };
   enum class SystemChild:uint8_t {none,wifi,diagnostics,radio,updates} systemChild=SystemChild::none;
   bool systemActive=false;
   template<typename Action> void visitSystemChild(Action action) {
@@ -52,8 +59,20 @@ class Runtime {
     frameAdministrationEpoch=presentedAdministrationEpoch=0;presentedAdministrationValid=false;
   }
   void discardSystemChild(){
-    wifiScanForm.discard();diagnosticsForm.discard();radioScanForm.discard();updatesForm.discard();systemChild=SystemChild::none;
+    visitSystemChild([](auto &form){using Child=typename std::remove_reference<decltype(form)>::type;form.~Child();});
+    systemChild=SystemChild::none;
     discardPrivateProjection();
+  }
+  void beginSystemChild(SystemChild next){
+    discardSystemChild();
+    switch(next){
+      case SystemChild::wifi:new(&wifiScanForm)WifiScan::Form(WifiScan::runtimeBackend(),Settings::runtimeMemory());break;
+      case SystemChild::diagnostics:new(&diagnosticsForm)Diagnostics::Form(Diagnostics::runtimeBackend(),Settings::runtimeMemory());break;
+      case SystemChild::radio:new(&radioScanForm)RadioScan::Form(RadioScan::runtimeBackend(),Settings::runtimeMemory());break;
+      case SystemChild::updates:new(&updatesForm)Updates::Form(Updates::runtimeBackend(),Settings::runtimeMemory());break;
+      case SystemChild::none:break;
+    }
+    systemChild=next;
   }
   bool childClosed()const {
     return systemChild==SystemChild::wifi?wifiScanForm.closed():systemChild==SystemChild::diagnostics?diagnosticsForm.closed():systemChild==SystemChild::radio?radioScanForm.closed():systemChild==SystemChild::updates?updatesForm.closed():false;
@@ -80,6 +99,7 @@ class Runtime {
 
 public:
   Runtime();
+  ~Runtime(){discardSystemChild();}
   uint32_t maxPaintUs = 0;
   void begin();
   DisplayPreferences preferences() const { return controller.preferences(); }
