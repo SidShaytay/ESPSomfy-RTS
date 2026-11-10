@@ -159,6 +159,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     void emitCommand(somfy_commands cmd, const char *source, uint32_t sourceAddress);
     // False when the radio refused a command it sent.
     bool setMyPosition(int8_t pos, int8_t tilt = -1);
+    bool programMyPositionHere(bool clear);
     bool moveToMyPosition();
     void processWaitingFrame();
     void publish();

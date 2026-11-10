@@ -51,6 +51,12 @@ bool SomfyShadeOps::setMyPosition(uint8_t shadeId, int8_t pos, int8_t tilt) {
   }
   return accepted;
 }
+bool SomfyShadeOps::programMyPositionHere(uint8_t shadeId, bool clear) {
+  auto *shade = somfy.getShadeById(shadeId);
+  const bool accepted = shade && shade->programMyPositionHere(clear);
+  if(accepted) { ++shade->configurationRevision; ++somfy.configurationRevision; }
+  return accepted;
+}
 void SomfyShadeOps::setPositions(uint8_t shadeId, float pos, float tilt) {
   SomfyShade *shade = somfy.getShadeById(shadeId);
   ++somfy.configurationRevision;

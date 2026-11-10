@@ -37,6 +37,7 @@ class FakeShadeOps : public ShadeOps {
       return log("sendSensorCommand %u windy=%d sunny=%d repeat=%u", id, windy, sunny, repeat);
     }
     bool setMyPosition(uint8_t id, int8_t pos, int8_t tilt) override { return log("setMyPosition %u %d %d", id, pos, tilt); }
+    bool programMyPositionHere(uint8_t id, bool clear) override { return log("programMyPositionHere %u clear=%u", id, unsigned(clear)); }
     void setPositions(uint8_t id, float pos, float tilt) override { log("setPositions %u %g %g", id, pos, tilt); }
     void setUnpaired(uint8_t id) override { log("setUnpaired %u", id); }
     shade_request_result_t setRollingCode(uint8_t id, uint16_t code) override { log("setRollingCode %u %u", id, code);return counterOutcome; }
@@ -390,10 +391,24 @@ static void checked_counter_outcome_is_returned_without_claiming_success() {
     ops.counterOutcome=result;TEST_ASSERT_EQUAL(result,requests.run(req));
   }
 }
+static void explicit_favorite_requests_keep_actions_distinct_and_ignore_position_fields() {
+  ops.shades[4]=flippedShade();
+  for(auto type:{shade_request_type_t::set_favorite_here,shade_request_type_t::clear_favorite_here}) {
+    ops.calls.clear();auto req=request(type);req.position=90;req.tiltPosition=20;req.target=40;
+    TEST_ASSERT_TRUE(shadeRequestUsesRadio(type));TEST_ASSERT_FALSE(shadeRequestIsForGroup(type));
+    TEST_ASSERT_EQUAL(shade_request_result_t::done,requests.run(req));
+    TEST_ASSERT_EQUAL_STRING(type==shade_request_type_t::set_favorite_here?"programMyPositionHere 4 clear=0":"programMyPositionHere 4 clear=1",ops.calls.c_str());
+    ops.shades[4].idle=false;ops.calls.clear();
+    TEST_ASSERT_EQUAL(shade_request_result_t::shade_moving,requests.run(req));TEST_ASSERT_EQUAL_STRING("",ops.calls.c_str());
+    ops.shades[4].idle=true;ops.radioTakes=false;
+    TEST_ASSERT_EQUAL(shade_request_result_t::radio_refused,requests.run(req));ops.radioTakes=true;
+  }
+}
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(explicit_favorite_requests_keep_actions_distinct_and_ignore_position_fields);
   RUN_TEST(checked_counter_outcome_is_returned_without_claiming_success);
   RUN_TEST(test_a_missing_shade_is_not_found);
   RUN_TEST(test_a_missing_group_is_not_found);
