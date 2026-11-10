@@ -2,7 +2,7 @@
 
 **Discussion only. No navigation change is implemented or authorized by this document.** This maps existing actions at source baseline `8b746f2`; implementation, deployment and physical acceptance remain separate. Broader navigation stays frozen until Sid approves the complete tree.
 
-The proposal keeps three daily shortcuts together, separates browsing shutters from configuring the controller, and retains every current LCD operation. Labels below describe destinations, not new domain operations.
+The proposal keeps three daily shortcuts together, separates browsing devices and groups from configuring the controller, and retains every current LCD operation. Labels below describe destinations, not new domain operations.
 
 ## Top-level tree
 
@@ -81,14 +81,13 @@ Room editing retains name and sort order. Device editing retains name, room, add
 
 The five settings forms retain **all current shared fields**, conditional board/protocol applicability, secret Keep/Replace semantics, explicit Save/Cancel and persistence results. This includes General identity/discovery/time; Security mode/account/PIN/password; Network adapter/WiFi/Ethernet/IP/DNS; MQTT connection/account/discovery/topics; Radio enable/protocol/frame/noise/pins/frequency/bandwidth/deviation/power. WiFi and frequency scans still only populate a draft; selection never connects, saves or installs by itself.
 
-Status is the existing wake-up page, not a new status submenu or widget. About reuses only current Details data: firmware/application versions, existing uptime/power/link/address/web/radio/frequency/build rows and internal-memory/PSRAM/loop health rows. It introduces no hardware identity field. Diagnostics' Network details and receive data retain their current protected presentation and authorization; they must not become public merely by being moved.
+Status is the existing wake-up page, not a new status submenu or widget. About reuses only current Details data: firmware/application versions, existing uptime/power/link/address/web/radio/frequency/build rows and internal-memory/PSRAM/loop health rows. It introduces no hardware identity field. **Privacy requirements:** Every moved page retains its current authorization and screenshot protection. Public wake/Details views must not acquire protected Network, entity or receive data. These requirements are unchanged and do not need a new decision.
 
 ## Choices needing final approval
 
 1. **Where model administration lives.** The tree above keeps one intact Administration destination under Configure. An equally coherent alternative is target-context management from Browse all. If that alternative is chosen, use the same exact selected target/form and Back origin; do not create independent duplicate edit/programming flows. Daily quick entries should still open ordinary controls directly.
-2. **About and sensitive details.** Current wake/Details and protected Network/entity/receive details have different access rules. Preserve each existing rule. Reusing About must not copy protected identifiers or diagnostics into a newly public page. Whether to split the existing mixed Details page later is not approved here.
-3. **Repeated destinations.** Place WiFi scan only under Network; frequency scan only under Diagnostics; copy-log guidance only under Diagnostics. Maintenance keeps the other four browser-guidance entries. About retains existing health rows rather than adding a second Health page.
-4. **Quick-entry management and wake behavior.** Moving Manage shortcuts into Configure removes its separate top-level row, not the feature. The requested Status destination opens the current wake screen directly; any change to when boot/wake automatically lands on Status versus Home still needs explicit final agreement and must preserve wake-only input, held-button suppression, moving STOP and critical update retention.
+2. **Repeated destinations.** Place WiFi scan only under Network; frequency scan only under Diagnostics; copy-log guidance only under Diagnostics. Maintenance keeps the other four browser-guidance entries. About retains existing health rows rather than adding a second Health page.
+3. **Quick-entry management and wake behavior.** Moving Manage shortcuts into Configure removes its separate top-level row, not the feature. The requested Status destination opens the current wake screen directly; any change to when boot/wake automatically lands on Status versus Home still needs explicit final agreement and must preserve wake-only input, held-button suppression, moving STOP and critical update retention.
 
 No current operation is intentionally unassigned. There is no new lock/reset/repair wizard, clipboard, file-transfer session, raw-frame action or estimated-position correction UI in this proposal.
 
