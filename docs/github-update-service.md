@@ -1,6 +1,6 @@
 # GitHub update service and installer
 
-`GitUpdateClass` is the single shared service reconciled from the issue #12 audit. It supplies latest-release Check, candidate-bound metadata Prepare, and installation through the controller adapter described below. Canonical startup initializes it and its loop adapter without scheduling network requests. The standalone LCD and canonical browser file adapters are implemented on the isolated feature branch; independent review and integration remain unfinished. `prepared` means verified metadata only; `canInstall` remains false unless all installation callbacks are supplied. Web and LCD adapters must use this service rather than create another installer.
+`GitUpdateClass` is the single shared service reconciled from the issue #12 audit. It supplies latest-release Check, candidate-bound metadata Prepare, and installation through the controller adapter described below. Canonical startup initializes it and its loop adapter without scheduling network requests. The standalone LCD and canonical browser file adapters are integrated in main with independent combined review and offline qualification. `prepared` means verified metadata only; `canInstall` remains false unless all installation callbacks are supplied. Web and LCD adapters must use this service rather than create another installer.
 
 ## Ownership and candidate confirmation
 
@@ -126,8 +126,8 @@ commands and stores no credentials in its source record.
 
 Startup invokes the adapter after global TLS allocator initialization. The main
 loop services network/UI while `gitUpdateControllerPaused()` and defers normal
-model/queue execution until cleanup or final shutdown. Independent review and integration remain unfinished;
-these tests do not establish complete updater acceptance. The LCD adapter is described in
+model/queue execution until cleanup or final shutdown. Combined integration and independent review are complete;
+these tests do not establish a physical update or rollback. The LCD adapter is described in
 [lcd-github-updates.md](lcd-github-updates.md).
 
 `tools/test-update-worker.sh` compiles production service/policy/certificate code against scripted SDK boundaries and local SHA256. It exercises valid and changed candidates, stale/reboot generations, cancellation/deadlines, ownership races, malformed metadata/digests/redirects, allocation/resource failures and certificate errors. Fakes assert no critical-section SDK calls, leaks, partition writes or model effects. A mutation removing manifest-digest binding fails the changed-manifest regression.
