@@ -38,6 +38,7 @@ struct RuntimeTestAccess {
   static const Settings::FormView &settings(const Runtime &ui) {return ui.settingsForm.view();}
   static void settingsRestartReason(Runtime &ui,RestartReason reason) {const_cast<Settings::FormView &>(ui.settingsForm.view()).restartReason=reason;}
   static const EntityAdmin::FormView &administration(const Runtime &ui) {return ui.administration.view();}
+  static bool updatesActive(const Runtime &ui){return ui.systemChild==Runtime::SystemChild::updates;}
   static EntityAdmin::FormView system(const Runtime &ui) {EntityAdmin::FormView out;ui.renderSystem(out);return out;}
   static bool systemContains(const Runtime&ui,const char*needle) {
     for(const auto*view:{&ui.frameAdministration,&ui.presentedAdministration}) {
@@ -1167,7 +1168,13 @@ int main(int argc,char **argv){
   const auto expiryActivity=authActivities;tick(false,120001);idle();
   assert(RuntimeTestAccess::view(settingsUi).screen==Screen::system && update.cancels==expiryCancels+1 && !update.value.busy && authActivities==expiryActivity);
   const auto expiryView=RuntimeTestAccess::system(settingsUi);assert(expiryView.notice==EntityAdmin::Notice::expired && expiryView.mode==EntityAdmin::Mode::updateStatus && captureProtected && Settings::runtimeMemory().used()==0);
-  click();idle();assert(update.checks==expiryChecks && update.cancels==expiryCancels+1);saveFrame(preview,"runtime-updates-expired");back();idle();back();idle();
+  const auto expiryInstalls=update.installs;const auto expiryAuthorization=pollAuthorization();
+  click();idle();assert(update.checks==expiryChecks && update.cancels==expiryCancels+1 && RuntimeTestAccess::updatesActive(settingsUi)); // First DIM press only wakes.
+  saveFrame(preview,"runtime-updates-expired");
+  const auto acknowledged=RuntimeTestAccess::system(settingsUi);assert(acknowledged.selected==2 && !strcmp(acknowledged.rows[2].label,"Back: System"));
+  click();idle(); // Fresh encoder press acknowledges the completed private frame.
+  assert(!RuntimeTestAccess::updatesActive(settingsUi) && update.checks==expiryChecks && update.installs==expiryInstalls && update.cancels==expiryCancels+1 && Settings::runtimeMemory().used()==0);
+  assert(pollAuthorization().generation==expiryAuthorization.generation && pollAuthorization().allowed==expiryAuthorization.allowed);back();idle();
   // Graphics loss still tears down an owned reversible operation exactly once.
   update.value.reason=GitUpdateReason::none;openUpdates();click();idle();const auto lossCancels=update.cancels;
   savedPixels=RuntimeTestAccess::losePixels(settingsUi);assert(!settingsUi.tick(testNow,status,false,send,light));
