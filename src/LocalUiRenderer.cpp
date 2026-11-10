@@ -179,7 +179,7 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
         text(18,y+21,label,false,available?white:muted,284);
       }
     }
-    const char *hint=home?(m.quickStatus==QuickAccessLoad::missing?"Suggested; Manage to save":m.quickStatus==QuickAccessLoad::valid?"Press: controls   Back: status":"Shortcuts unavailable; Manage"):
+    const char *hint=home?(m.quickStatus==QuickAccessLoad::missing?"Suggested; save in Quick entries":m.quickStatus==QuickAccessLoad::valid?"Press: controls   Back: status":"Shortcuts unavailable; Manage"):
       "Draft only; explicit Save required";
     text(12,164,v.notice!=Notice::none?notices[int(v.notice)]:hint,false,v.notice!=Notice::none?amber:muted,298);
   } else if(v.screen == Screen::status) {

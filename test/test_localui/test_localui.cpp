@@ -490,10 +490,23 @@ static void approved_controller_navigation_preserves_explicit_origins(){
  d.click();TEST_ASSERT_EQUAL(Screen::settings,d.c.view().screen);TEST_ASSERT_EQUAL(0,d.c.view().settingsSection);d.c.closeForm();TEST_ASSERT_EQUAL(Screen::configureMenu,d.c.view().screen);TEST_ASSERT_EQUAL(0,d.c.view().selected);
  d.tick(1);d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::networkMenu,d.c.view().screen);d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::system,d.c.view().screen);TEST_ASSERT_EQUAL(3,d.c.view().systemSection);d.c.closeForm();TEST_ASSERT_EQUAL(Screen::networkMenu,d.c.view().screen);TEST_ASSERT_EQUAL(1,d.c.view().selected);
  d.back();d.back();d.tick(1);d.click();TEST_ASSERT_EQUAL(1,d.c.view().systemSection);d.c.closeForm();TEST_ASSERT_EQUAL(Screen::controllerMenu,d.c.view().screen);TEST_ASSERT_EQUAL(1,d.c.view().selected);
- d.tick(1);d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::details,d.c.view().screen);d.back();TEST_ASSERT_EQUAL(Screen::controllerMenu,d.c.view().screen);TEST_ASSERT_EQUAL(3,d.c.view().selected);TEST_ASSERT_FALSE(d.c.take(command));
+ d.tick(1);d.tick(1);d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::system,d.c.view().screen);TEST_ASSERT_EQUAL(2,d.c.view().systemSection);d.c.openSettingsFromSystem();TEST_ASSERT_EQUAL(Screen::settings,d.c.view().screen);d.c.closeForm();TEST_ASSERT_EQUAL(Screen::system,d.c.view().screen);TEST_ASSERT_EQUAL(2,d.c.view().systemSelection);d.c.closeForm();TEST_ASSERT_EQUAL(Screen::controllerMenu,d.c.view().screen);d.tick(-1);d.click();TEST_ASSERT_EQUAL(Screen::details,d.c.view().screen);d.back();TEST_ASSERT_EQUAL(Screen::controllerMenu,d.c.view().screen);TEST_ASSERT_EQUAL(3,d.c.view().selected);TEST_ASSERT_FALSE(d.c.take(command));
+}
+static void routed_display_revocation_returns_to_its_visible_origin(){
+ for(unsigned cause=0;cause<4;++cause){
+  Drive d;d.f.base.quickReady=true;d.f.base.quickRevision=3;d.f.base.anyMoving=false;d.tick();
+  for(unsigned i=0;i<4;i++)d.tick(1);d.click();d.click();for(unsigned i=0;i<5;i++)d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::brightness,d.c.view().screen);
+  const bool held=cause&1;if(held){d.tick(0,true);d.tick(0,true);}
+  if(cause&2)d.f.base.authorized=false;else ++d.f.base.authConfigurationGeneration;
+  d.tick(0,held);TEST_ASSERT_EQUAL(Screen::configureMenu,d.c.view().screen);TEST_ASSERT_EQUAL(5,d.c.view().selected);
+  if(held){d.tick(0,true,true,false,900);d.tick();d.tick();TEST_ASSERT_EQUAL(Screen::configureMenu,d.c.view().screen);}
+  DisplayPreferences prefs;Command command;TEST_ASSERT_FALSE(d.c.takePreferences(prefs));TEST_ASSERT_FALSE(d.c.take(command));
+  d.click();TEST_ASSERT_EQUAL(cause&2?Screen::unlock:Screen::brightness,d.c.view().screen);
+ }
 }
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(routed_display_revocation_returns_to_its_visible_origin);
   RUN_TEST(approved_controller_navigation_preserves_explicit_origins);
   RUN_TEST(quick_revocation_consumes_only_an_existing_press);
   RUN_TEST(quick_home_only_navigates_and_keeps_browse_and_drafts_separate);
