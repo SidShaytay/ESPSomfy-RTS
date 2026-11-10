@@ -141,7 +141,7 @@ void Form::render(EntityAdmin::FormView &out) const {
       title="Restart controller?";hint="Interrupts service. Finish all movement and operations first.";
       out.total=out.rowCount=2;strcpy(out.rows[0].label,"Cancel");strcpy(out.rows[1].label,"Restart now");
     } else if(page==Page::guidance) {
-      title=files[file];hint=guidance[file];out.total=out.rowCount=1;strcpy(out.rows[0].label,"Back to files");
+      title=files[file];hint=guidance[file];out.total=out.rowCount=1;strcpy(out.rows[0].label,menu==Menu::diagnostics?"Back: Diagnostics":"Back to files");
     } else {
       title=statusUnknown?"Restart status unknown":admitted?(stopped?"Restart stopped":"Restart scheduled"):"Restart refused";
       hint=statusUnknown?"Restart status unavailable. No automatic retry.":refusal(reason);out.total=out.rowCount=1;strcpy(out.rows[0].label,"Back: System");
