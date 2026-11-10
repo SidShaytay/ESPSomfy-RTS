@@ -25,6 +25,15 @@ struct Fixture : CatalogueSource {
     Model m=base; m.catalogue=v.catalogue; m.room=v.room;
     m.pageValid=v.catalogue==CatalogueKind::rooms?roomCataloguePage(*this,v.cursor,m.page,v.anchorId,v.anchored):
       cataloguePage(*this,v.catalogue,v.cursor,v.room,m.page,v.anchorId,v.anchored);
+    if(base.quickReady && (v.screen==Screen::quickHome || v.screen==Screen::quickManage || v.screen==Screen::quickActions || v.screen==Screen::quickSave)) {
+      m.page={};m.page.count=3;m.page.total=5;m.pageValid=true;
+      const auto &bindings=v.quickEditing?v.quickDraft:m.quickAccess;
+      for(size_t i=0;i<quickAccessSlots;i++) {
+        const auto &b=*bindings.at(i);const auto &source=b.ref.kind==EntityKind::group?groups:devices;
+        const size_t cap=b.ref.kind==EntityKind::group?16:32;
+        for(size_t j=0;j<cap;j++)if(source[j].id==b.ref.id && source[j].identity==b.identity)m.page.rows[i]=source[j];
+      }
+    }
     m.pageToken=11;
     if(v.entity!=m.target.ref) m.target={};
     return m;
@@ -434,8 +443,49 @@ static void repeats_are_bounded_explicit_presented_and_cancel_without_effects() 
     TEST_ASSERT_EQUAL(Action::stop,cancelled.c.view().action);
   }
 }
+static void quick_home_only_navigates_and_keeps_browse_and_drafts_separate() {
+ Drive d;d.f.base.anyMoving=false;d.f.base.quickReady=true;d.f.base.quickRevision=3;
+ d.f.groups[0]={1,0,0,"Both",500,2,-1,false,true};
+ d.f.base.quickAccess.assign(0,{EntityKind::group,1},500);
+ d.f.base.target.ref={EntityKind::group,1};d.f.base.target.identity=500;d.f.base.target.revision=2;
+ d.tick();TEST_ASSERT_EQUAL(Screen::quickHome,d.c.view().screen);
+ Command command;d.click();d.tick();TEST_ASSERT_EQUAL(Screen::control,d.c.view().screen);
+ TEST_ASSERT_TRUE(d.c.view().quickOrigin);TEST_ASSERT_EQUAL(Action::stop,d.c.view().action);TEST_ASSERT_FALSE(d.c.take(command));
+ d.back();TEST_ASSERT_EQUAL(Screen::quickHome,d.c.view().screen);
+ d.tick(1);d.tick(1);d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::home,d.c.view().screen);
+ d.back();TEST_ASSERT_EQUAL(Screen::quickHome,d.c.view().screen);
+ d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::quickManage,d.c.view().screen);TEST_ASSERT_TRUE(d.c.view().quickEditing);
+ d.click();TEST_ASSERT_EQUAL(Screen::quickActions,d.c.view().screen);
+ d.tick(1);d.tick(1);d.click();TEST_ASSERT_TRUE(d.c.view().quickDraft.at(0)->empty());
+ TEST_ASSERT_FALSE(d.f.base.quickAccess.at(0)->empty());
+ d.tick(1);d.tick(1);d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::quickSave,d.c.view().screen);
+ TEST_ASSERT_EQUAL(0,d.c.view().valueChoice);QuickPreferenceRequest save;TEST_ASSERT_FALSE(d.c.takeQuickSave(save));
+ d.tick(1);d.click();TEST_ASSERT_TRUE(d.c.takeQuickSave(save));TEST_ASSERT_TRUE(save.value.at(0)->empty());
+ TEST_ASSERT_EQUAL_UINT32(2,save.authGeneration);TEST_ASSERT_FALSE(d.c.take(command));
+ d.c.quickSaveResult(d.now,QuickPreferenceSave::unknown);TEST_ASSERT_EQUAL(Notice::quickSaveUnknown,d.c.view().notice);
+ d.back();d.back();TEST_ASSERT_FALSE(d.c.view().quickEditing);TEST_ASSERT_FALSE(d.c.view().quickPicking);
+ TEST_ASSERT_TRUE(d.c.view().quickDraft.at(0)->empty());
+}
+static void quick_revocation_consumes_only_an_existing_press() {
+ for(bool held:{false,true}) {
+  Drive d;d.f.base.anyMoving=false;d.f.base.quickReady=true;d.f.base.quickRevision=3;d.tick();
+  for(unsigned i=0;i<4;i++)d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::quickManage,d.c.view().screen);
+  if(held){d.tick(0,true);d.tick(0,true);}
+  ++d.f.base.modelRevision;d.tick(0,held);
+  TEST_ASSERT_EQUAL(Screen::quickHome,d.c.view().screen);TEST_ASSERT_FALSE(d.c.view().quickEditing);
+  QuickPreferenceRequest save;Command command;
+  if(held) {
+   d.tick(0,true,true,false,900);TEST_ASSERT_EQUAL(Screen::quickHome,d.c.view().screen);
+   d.tick();d.tick();TEST_ASSERT_EQUAL(Screen::quickHome,d.c.view().screen);
+  }
+  TEST_ASSERT_FALSE(d.c.takeQuickSave(save));TEST_ASSERT_FALSE(d.c.take(command));
+  d.click();TEST_ASSERT_EQUAL(Screen::quickManage,d.c.view().screen);TEST_ASSERT_TRUE(d.c.view().quickEditing);
+ }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(quick_revocation_consumes_only_an_existing_press);
+  RUN_TEST(quick_home_only_navigates_and_keeps_browse_and_drafts_separate);
   RUN_TEST(repeat_hold_binds_raw_press_and_release_never_becomes_stop);
   RUN_TEST(repeat_final_apply_tap_never_transmits);
   RUN_TEST(repeats_are_bounded_explicit_presented_and_cancel_without_effects);

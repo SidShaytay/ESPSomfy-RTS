@@ -107,3 +107,11 @@ inline bool SomfyShade::isInGroup(){
 }
 // Exercise the production GPIO query against this bounded fake model.
 #include "../../src/ShadeGpioCommands.cpp"
+
+#ifndef LOCAL_QUICK_EXTERNAL_IO
+#include "LocalQuickAccessNvs.h"
+namespace LocalUi {
+inline QuickAccessLoad readQuickAccessPreferences(QuickAccess &out){out={};return QuickAccessLoad::missing;}
+inline QuickPreferenceSave writeQuickAccessPreferences(const QuickAccess &,QuickPreferenceWitness &){return QuickPreferenceSave::failed;}
+}
+#endif

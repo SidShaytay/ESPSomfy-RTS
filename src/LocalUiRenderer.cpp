@@ -22,7 +22,7 @@ const char *notices[] = {"",
                          "Unlock required", "Invalid credentials", "Too many attempts - wait",
                          "Local unlock unavailable", "Unlocked - select action again",
                          "Command accepted", "Partially accepted - review",
-                         "Busy - retry", "Pending action cancelled", "Estimate unavailable - no draft", "Action expired - retry", "Cancelled; STOP not queued", "Hold to send; release ends repeats"};
+                         "Busy - retry", "Pending action cancelled", "Estimate unavailable - no draft", "Action expired - retry", "Cancelled; STOP not queued", "Hold to send; release ends repeats", "Shortcuts saved", "Not saved; retry when idle", "Save not verified; review again", "Shortcut unavailable"};
 } // namespace
 void Canvas::drawPixel(int16_t x, int16_t y, uint16_t color) {
   if(pixels && x >= 0 && x < screenWidth && y >= 0 && y < screenHeight)
@@ -147,7 +147,42 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
       text(8, 16 + i * 18, page.lines[i], false, i == 0 ? teal : muted);
     return;
   }
-  if(v.screen == Screen::status) {
+  if(v.screen==Screen::quickHome || v.screen==Screen::quickManage || v.screen==Screen::quickActions || v.screen==Screen::quickSave) {
+    const bool home=v.screen==Screen::quickHome, actions=v.screen==Screen::quickActions, confirm=v.screen==Screen::quickSave;
+    text(12,28,home?"Quick access":actions?"Edit shortcut":confirm?"Save shortcuts?":"Manage shortcuts",true,white);
+    if(confirm) {
+      for(unsigned i=0;i<3;i++) {
+        const auto &entry=m.page.rows[i];const auto *binding=v.quickDraft.at(i);
+        snprintf(label,sizeof(label),binding->empty()?"%u. Unassigned":"%u. #%s%u %s",i+1,
+          binding->ref.kind==EntityKind::group?"G":"D",unsigned(binding->ref.id),entry.name);
+        text(12,51+i*19,label,false,muted,298);
+      }
+      const char *choices[]={"Cancel","Save"};
+      for(unsigned i=0;i<2;i++){const int x=12+i*152;const bool active=v.valueChoice==i;
+        fillRoundRect(x,114,144,30,4,active?selected:bg);drawRoundRect(x,114,144,30,4,active?teal:line);
+        text(x+35,136,choices[i],false,active?teal:white,108);}
+    } else {
+      const unsigned total=actions?6:5, offset=(v.selected/3)*3;
+      const char *operations[]={"Pin device","Pin group","Remove shortcut","Move up","Move down","Back"};
+      for(unsigned row=0;row<3 && offset+row<total;row++) {
+        const unsigned index=offset+row;const int y=40+row*34;const bool active=index==v.selected;
+        bool available=true;
+        if(actions)snprintf(label,sizeof(label),"%s",operations[index]);
+        else if(index>=3)snprintf(label,sizeof(label),"%s",index==3?(home?"Browse & settings":"Save shortcuts"):(home?"Manage shortcuts":"Cancel"));
+        else {
+          const auto *binding=(home?m.quickAccess:v.quickDraft).at(index);const auto &entry=m.page.rows[index];
+          if(binding->empty())snprintf(label,sizeof(label),"%u. Unassigned",index+1);
+          else snprintf(label,sizeof(label),"#%s%u %s",binding->ref.kind==EntityKind::group?"G":"D",unsigned(binding->ref.id),entry.name);
+          available=!home || entry.available;
+        }
+        fillRoundRect(10,y,300,30,5,active?selected:bg);drawRoundRect(10,y,300,30,5,active?teal:line);
+        text(18,y+21,label,false,available?white:muted,284);
+      }
+    }
+    const char *hint=home?(m.quickStatus==QuickAccessLoad::missing?"Suggested; Manage to save":m.quickStatus==QuickAccessLoad::valid?"Press: controls   Back: status":"Shortcuts unavailable; Manage"):
+      "Draft only; explicit Save required";
+    text(12,164,v.notice!=Notice::none?notices[int(v.notice)]:hint,false,v.notice!=Notice::none?amber:muted,298);
+  } else if(v.screen == Screen::status) {
     text(12, 29, "Controller", true, white);
     drawFastHLine(12, 40, 296, line);
     // Simple radio aerial and Wi-Fi bars; no unsupported battery/USB glyph.
@@ -220,7 +255,7 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
         } else if(v.catalogue==CatalogueKind::groups) text(247,y+21,"Group",false,muted,59);
       } else text(22,y+21,settings?"Settings unavailable":roomKinds?(index?"Groups":"Devices"):home[index],false,white,280);
     }
-    const char *footer=v.notice!=Notice::none?notices[int(v.notice)]:list?"Press: open   Estimates only":"Turn: select   Press: open";
+    const char *footer=v.notice!=Notice::none?notices[int(v.notice)]:v.quickPicking?"Press: pin shortcut":list?"Press: open   Estimates only":"Turn: select   Press: open";
     text(12,164,footer,false,v.notice==Notice::none?muted:amber);
   } else if(v.screen == Screen::brightness) {
     text(12, 28, "Display settings", true, white);
@@ -332,7 +367,7 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
     else if(v.notice!=Notice::none) text(12,163,notices[int(v.notice)],false,amber);
     else if(!m.authorized) text(12,163,t.stopLease?"STOP only; unlock other actions":"Press: unlock   Back: return",false,amber);
     else text(12,163,t.lightUnavailable?(t.pendingRelayTilt?"Tilt unavailable; Light unavailable":"Light unavailable"):
-      t.pendingRelayTilt?"Separate relay tilt unavailable":"Press: select   Back: return",false,t.pendingRelayTilt||t.lightUnavailable?amber:muted);
+      t.pendingRelayTilt?"Separate relay tilt unavailable":v.quickOrigin?"Press: select   Back: Quick access":"Press: select   Back: return",false,t.pendingRelayTilt||t.lightUnavailable?amber:muted);
   }
 }
 } // namespace LocalUi

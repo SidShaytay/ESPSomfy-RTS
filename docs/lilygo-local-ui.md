@@ -14,18 +14,44 @@ and physical-verification limits.
 ## Start on the LCD
 
 1. Wake the display with one input; that first input sends no command.
-2. Turn or press on Status to open Home. Choose Rooms, Devices or Groups and
-   select the target by its visible ID/name.
+2. Quick access shows three pinned devices or groups together. Select one to
+   open its controls; opening sends no command. **Browse & settings** retains
+   the complete Rooms, Devices, Groups, Settings, Administration and System menus.
 3. Unlock with the configured web PIN/password when requested. Ordinary controls
    appear only for the selected target’s supported capabilities. Read the action
    and confirmation on the display before pressing.
-4. Use Back to return to controls or Home. Hold on Status for Details. For a
-   software update, open **Home → System → GitHub updates** and follow its
+4. From shortcut controls, Back returns directly to Quick access. Hold on Status
+   for Details. For a software update, open **Browse & settings → System → GitHub updates** and follow its
    separate default-Cancel release review.
 
 Displayed movement and percentages are estimates. STOP uses MY on ordinary RTS
 motors; it is not a physical emergency-stop system. One-button Toggle devices
 have different stop/reverse semantics and no ordinary STOP action.
+
+## Choose daily shortcuts
+
+**Manage shortcuts** edits the three Quick access slots. Select a slot, then
+**Pin device**, **Pin group**, **Remove shortcut**, **Move up** or **Move down**.
+Choose **Save shortcuts**, review all three targets, then turn from **Cancel** to
+**Save** and press. The configured web credential also protects these edits.
+Back or **Cancel** on the Manage screen discards the unsaved draft, as does an
+expired session. **Cancel** on the final Save review returns to Manage and keeps
+your draft. Selecting a target
+or changing the draft sends no motor command.
+
+Without saved shortcuts, the UI suggests group ID 1 and device IDs 1 and 2 when
+those targets exist. Suggestions stay in memory until you explicitly save them.
+Saved empty slots remain empty. A missing target or changed radio identity shows
+**Unavailable**; it never selects another device. Restoring the same target ID and
+radio identity makes its shortcut usable again after fresh checks.
+Names follow the current configuration. Shortcut pins are separate from the
+motor's MY/Favourite position.
+
+The old Home menu remains under **Browse & settings**; the paths below use
+**Home** for that full menu. Startup opens Quick access when the model is ready
+and no movement or pending control needs attention. Ordinary idle navigation
+returns to Status before sleep; waking Status returns to Quick access. Waking a
+control page preserves it, keeping its existing STOP access and expiry rules.
 
 ## Find a workflow
 
@@ -48,7 +74,7 @@ have different stop/reverse semantics and no ordinary STOP action.
 ## Use the encoder
 
 - First input after dim/off wakes only. A button held during boot is ignored until released.
-- From Status, turn or press to open Home. Hold for Details; turn there to scroll all fourteen diagnostic rows. Details distinguishes compiled Firmware from installed web-file Application version. Press or Back returns to Status.
+- From Status, turn or press to open Quick access. Choose **Browse & settings** for the full Home menu. Hold for Details; turn there to scroll all fourteen diagnostic rows. Details distinguishes compiled Firmware from installed web-file Application version. Press or Back returns to Status.
 - On Home, turn to Rooms, Devices, Groups, Settings, Display, Status or Administration, then press. Rooms includes All rooms and Unassigned filters. Catalogues show three rows at a time, keep the selected device ID when entries reorder, and handle every configured device/group. Names can repeat; the visible stable ID identifies each target.
 - **Administration → Rooms / Devices / Groups** adds, edits and deletes configuration through protected local forms. Apply changes only the draft; Save performs the edit. Device/group Save and all Delete confirmations start with Cancel selected. Full lists show every stable ID; Add is marked full when no slots remain. If an edit applies but its model file is not saved, Retry saves the current file without repeating the edit. See [entity administration](lcd-entity-administration.md).
 - **More → Repeats** opens supported everyday RF actions. Steps ask for their size before the repeat count. Follow [Hold to send repeats](#hold-to-send-repeats) below; the final review differs from an ordinary one-shot Apply.

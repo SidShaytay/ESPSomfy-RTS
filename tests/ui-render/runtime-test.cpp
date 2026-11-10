@@ -1,9 +1,11 @@
 #include "LocalUiRuntime.h"
+#include "LocalQuickAccessNvs.h"
 #include "LocalReceive.h"
 #include "SafeRestart.h"
 #include "LocalUiAdapter.h"
 #include "LocalUiCapture.h"
 #include "LocalUiAuthorizationAdapter.h"
+#define LOCAL_QUICK_EXTERNAL_IO
 #include "../ui-adapter/Model.h"
 #include <assert.h>
 #include <vector>
@@ -59,6 +61,21 @@ static RestartResult systemRestartResult{true,RestartReason::none};
 static RestartSnapshot systemRestartStatus;
 RestartSnapshot restartStatus(){return systemRestartStatus;}
 RestartResult requestRestart(uint32_t) {++systemRestarts;if(systemRestartResult.admitted){systemRestartStatus.phase=RestartPhase::admitted;++systemRestartStatus.generation;}return systemRestartResult;}
+// Bounded preference I/O boundary only. Production NVS/commit/readback has
+// independent coverage; these journeys exercise the real UI and adapter.
+static LocalUi::QuickAccessLoad quickReadState=LocalUi::QuickAccessLoad::missing;
+static LocalUi::QuickAccess quickStored;
+static unsigned quickReads=0,quickWrites=0;
+static LocalUi::QuickPreferenceSave quickWriteResult=LocalUi::QuickPreferenceSave::saved;
+LocalUi::QuickAccessLoad LocalUi::readQuickAccessPreferences(QuickAccess &out){
+  ++quickReads;out={};if(quickReadState==QuickAccessLoad::valid)out=quickStored;return quickReadState;
+}
+LocalUi::QuickPreferenceSave LocalUi::writeQuickAccessPreferences(const QuickAccess &value,QuickPreferenceWitness &witness){
+  assert(gitUpdate.busy());++quickWrites;
+  if(!witness.current())return QuickPreferenceSave::failed;
+  if(quickWriteResult!=QuickPreferenceSave::failed){quickStored=value;quickReadState=QuickAccessLoad::valid;}
+  return quickWriteResult;
+}
 static unsigned settingsSaves=0;
 static RestartReason settingsRestartCause=RestartReason::none;
 static unsigned entityEdits=0,entityCommits=0;
@@ -450,6 +467,15 @@ int main(int argc,char **argv){
   auto back=[&]{testPins[6]=0;tick();tick();testPins[6]=1;tick();tick();};
   auto releaseHold=[&]{holdEncoder=false;tick(false);tick(false);tick(false,2);};
   auto beginHold=[&]{const auto before=submitted.size();holdEncoder=true;tick(true);tick(true);tick(true,749);assert(submitted.size()==before);tick(true,51);tick(true,2);};
+  auto openBrowseHome=[&]{
+    if(RuntimeTestAccess::view(*active).screen==Screen::status){rotate(1);idle();}
+    if(RuntimeTestAccess::view(*active).screen==Screen::quickHome){
+      for(unsigned i=0;i<5&&RuntimeTestAccess::view(*active).selected!=3;++i){rotate(RuntimeTestAccess::view(*active).selected<3?1:-1);idle();}
+      click();idle();
+    }
+    assert(RuntimeTestAccess::view(*active).screen==Screen::home);
+    for(unsigned i=0;i<homeRows&&RuntimeTestAccess::view(*active).selected;++i){rotate(-1);idle();}
+  };
   holdEncoder=true; // Physical encoder already held at initialization cannot arm anything.
   busBusy=true;idle(20);assert(bands==0 && captureProtected && !ui.healthy());
   busBusy=false;idle();assert(bands==43 && !captureProtected && ui.healthy());
@@ -473,7 +499,7 @@ int main(int argc,char **argv){
   };
   for(unsigned cadence:{22u,32u}){
     const auto noRequests=submitted.size();displayStride=cadence;realisticDisplay=true;spiBandCostUs=1500;spiRemainderUs=0;
-    maxSpiTickUs=maxDirtyWrites=0;rotate(1);assert(RuntimeTestAccess::view(ui).screen==Screen::home);
+    maxSpiTickUs=maxDirtyWrites=0;rotate(1);assert(RuntimeTestAccess::view(ui).screen==Screen::quickHome);
     settleDisplay(cadence,cadence==22?300:400,"full menu");
     const auto beforeStep=RuntimeTestAccess::view(ui).selected;
     rotate(1);assert(RuntimeTestAccess::view(ui).selected!=beforeStep);
@@ -517,7 +543,7 @@ int main(int argc,char **argv){
   status.health.internalFreeBytes+=1024;++status.uptimeSeconds;idle();
   assert(bands>healthBands && submitted.empty());
   saveFrame(preview,"runtime-health-updated");back();idle();assert(lastQuery.screen==Screen::status);
-  rotate(1);idle();rotate(1);idle();click();idle(); // Home -> Devices
+  openBrowseHome();rotate(1);idle();click();idle(); // Quick -> Browse -> Devices
   assert(lastQuery.screen==Screen::catalogue);
   busBusy=true;click();idle(10);assert(lastQuery.screen==Screen::control);
   assert(presentations==0);click();assert(submitted.empty()); // never-presented STOP is blocked
@@ -556,7 +582,7 @@ int main(int argc,char **argv){
   testNow+=100;ui.tick(testNow,status,false,send,light);assert(locks==beforeSleep+1);
   // Numeric movement requires the exact Apply choice to finish reaching LCD.
   authorization.configure(AuthMode::none,"","");one.idle=false;idle();
-  rotate(1);idle();rotate(1);idle();click();idle();click();idle();
+  openBrowseHome();rotate(1);idle();click();idle();click();idle();
   assert(lastQuery.screen==Screen::control && lastQuery.entity.id==7);
   rotate(1);idle();rotate(1);idle();click();idle();
   assert(lastQuery.screen==Screen::actions);click();idle();
@@ -598,7 +624,7 @@ int main(int argc,char **argv){
   auto controlFromStatus=[&]{
     for(unsigned i=0;i<10&&RuntimeTestAccess::view(ui).screen!=Screen::status;++i){back();idle();}
     assert(RuntimeTestAccess::view(ui).screen==Screen::status);
-    rotate(1);idle();rotate(1);idle();click();idle();click();idle();
+    openBrowseHome();rotate(1);idle();click();idle();click();idle();
     assert(lastQuery.screen==Screen::control && lastQuery.entity.id==7);
   };
   auto admitRepeatedUp=[&](unsigned count,bool onAir=true,Action desired=Action::up,unsigned step=0,bool arm=true){
@@ -625,7 +651,7 @@ int main(int argc,char **argv){
   one.idle=two.idle=true;idle();
   admitRepeatedUp(2,true,Action::up,0,false);const auto beforeWakeHold=submitted.size();
   tick(false,21000);assert(RuntimeTestAccess::view(ui).screen==Screen::status);
-  beginHold();idle();assert(submitted.size()==beforeWakeHold && lastQuery.screen==Screen::status);
+  beginHold();idle();assert(submitted.size()==beforeWakeHold && lastQuery.screen==Screen::quickHome);
   releaseHold();idle();one.idle=beforeWakeOneIdle;two.idle=beforeWakeTwoIdle;idle();controlFromStatus(); // Wake-only input never revives the expired repeat review.
   for(unsigned onAir=0;onAir<2;++onAir){
     const auto ticket=admitRepeatedUp(2,onAir);const auto requests=submitted.size();
@@ -713,7 +739,7 @@ int main(int argc,char **argv){
   authorization.configure(AuthMode::none,"","");
   Runtime settingsUi;active=&settingsUi;settingsUi.begin();ab=3;testPins[4]=testPins[5]=1;idle();
   const auto rfBeforeSettings=submitted.size();
-  rotate(1);idle();for(unsigned i=0;i<3;i++) {rotate(1);idle();}click();idle(); // Home Settings
+  openBrowseHome();for(unsigned i=0;i<3;i++) {rotate(1);idle();}click();idle(); // Browse Settings
   assert(lastQuery.screen==Screen::settings && captureProtected);
   click();idle();saveFrame(preview,"runtime-settings-general"); // Actual form/runtime frame
   busBusy=true;rotate(1);click();assert(settingsSaves==0); // unseen field cannot open
@@ -739,7 +765,7 @@ int main(int argc,char **argv){
   assert(Settings::runtimeMemory().used()==0 && settingsAllocations.empty() && lastQuery.screen==Screen::status);
   assert(submitted.size()==rfBeforeSettings);
   // Inject loss after an active draft, rather than only startup allocation failure.
-  click();idle();rotate(1);idle();for(unsigned i=0;i<3;i++){rotate(1);idle();}click();idle();
+  openBrowseHome();for(unsigned i=0;i<3;i++){rotate(1);idle();}click();idle();
   assert(lastQuery.screen==Screen::settings);click();idle();rotate(1);idle();click();idle();
   rotate(1);idle();click();idle();rotate(1);idle();click();idle();
   assert(Settings::runtimeMemory().used()>0);
@@ -753,11 +779,11 @@ int main(int argc,char **argv){
   RuntimeTestAccess::restorePixels(settingsUi,savedPixels);busBusy=true;
   assert(settingsUi.tick(testNow,status,true,send,light) && captureProtected);
   testNow+=1000;authTestNow=testNow;settingsUi.tick(testNow,status,true,send,light);
-  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status);
+  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::quickHome);
   assert(RuntimeTestAccess::noPresentation(settingsUi) && captureProtected);
   busBusy=false;tick(false);idle();assert(!captureProtected);
   // An old presented target and its queued start cannot survive resource loss.
-  rotate(1);idle();rotate(1);idle();click();idle();click();idle();
+  openBrowseHome();rotate(1);idle();click();idle();click();idle();
   assert(lastQuery.screen==Screen::control && lastQuery.openedToken);
   Command old{lastQuery.entity,lastQuery.openedToken,Action::up};
   old.authGeneration=pollAuthorization().generation;
@@ -770,9 +796,9 @@ int main(int argc,char **argv){
   old.authGeneration=pollAuthorization().generation;
   assert(dispatch(old)==DispatchResult::stale);
   RuntimeTestAccess::restorePixels(settingsUi,savedPixels);somfy.transceiver.room=true;
-  idle();assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status);
+  idle();assert(RuntimeTestAccess::view(settingsUi).screen==Screen::quickHome);
   assert(RuntimeTestAccess::view(settingsUi).notice==Notice::none && !captureProtected);
-  rotate(1);idle();rotate(1);idle();click();idle();click();idle();
+  openBrowseHome();rotate(1);idle();click();idle();click();idle();
   assert(lastQuery.openedToken>old.token);
   old.authGeneration=pollAuthorization().generation;
   assert(dispatch(old)==DispatchResult::stale && submitted.size()==beforeGraphicsCommand);
@@ -817,7 +843,7 @@ int main(int argc,char **argv){
   assert(Settings::runtimeMemory().used()==0 && submitted.size()==beforeGraphicsCommand);
   rotate(-1);idle();click();idle();assert(lastQuery.screen==Screen::status);
   auto openRoomDraft=[&] {
-    rotate(1);idle();for(unsigned i=0;i<administrationHomeIndex;i++){rotate(1);idle();}
+    openBrowseHome();for(unsigned i=0;i<administrationHomeIndex;i++){rotate(1);idle();}
     click();idle();click();idle();rotate(1);idle();click();idle();
     assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Edit Room 12"));
     rotate(1);idle();click();idle();rotate(1);idle();click();idle();rotate(-1);idle();click();idle();
@@ -827,7 +853,7 @@ int main(int argc,char **argv){
   assert(!settingsUi.tick(testNow,status,false,send,light));
   assert(Settings::runtimeMemory().used()==0 && settingsAllocations.empty() && entityEdits==3);
   RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();
-  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status && !captureProtected);
+  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::quickHome && !captureProtected);
   openRoomDraft();testNow+=21000;authTestNow=testNow;
   settingsUi.tick(testNow,status,false,send,light);
   assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status);
@@ -835,7 +861,7 @@ int main(int argc,char **argv){
   assert(somfy.getRoomById(12)->sortOrder==1 && submitted.size()==beforeGraphicsCommand);
   // Standalone Device/Group journeys use the actual Controller, Runtime,
   // Administration, Form and production backend with fake model/file effects.
-  click();idle();assert(lastQuery.screen==Screen::status); // wake only after sleep
+  click();idle();assert(lastQuery.screen==Screen::quickHome);back();idle(); // Wake opens Quick without an action.
   auto &editable=somfy.shades[25];assert(editable.id==255);
   editable.id=4;editable.address=1004;editable.bitLength=56;editable.repeats=1;
   editable.paired=false;editable.idle=true;editable.lastRollingCode=44;strcpy(editable.name,"Office device");
@@ -844,7 +870,8 @@ int main(int argc,char **argv){
   editableGroup.linkedShades[7]=31;strcpy(editableGroup.name,"Office group"); // missing member remains administrable
   ++somfy.configurationRevision;somfy.transceiver.ready=false;
   auto openAdministration=[&](unsigned type) {
-    assert(lastQuery.screen==Screen::status);rotate(1);idle();
+    if(lastQuery.screen==Screen::quickHome){back();idle();}
+    assert(lastQuery.screen==Screen::status);openBrowseHome();
     for(unsigned i=0;i<administrationHomeIndex;i++){rotate(1);idle();}
     click();idle();assert(lastQuery.screen==Screen::administration && captureProtected);
     if(type) {
@@ -967,11 +994,11 @@ int main(int argc,char **argv){
   RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();
   openAdministration(1);for(unsigned i=0;i<32;i++){rotate(1);idle();}click();idle();assert(!RuntimeTestAccess::administration(settingsUi).dirty);back();idle();closeAdministration();
   openOrderDraft();testNow+=21000;authTestNow=testNow;settingsUi.tick(testNow,status,false,send,light);idle();
-  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status);click();idle(); // wake only
+  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status);click();idle();assert(lastQuery.screen==Screen::quickHome);back();idle(); // Wake only.
   openAdministration(1);for(unsigned i=0;i<32;i++){rotate(1);idle();}click();idle();assert(!RuntimeTestAccess::administration(settingsUi).dirty);back();idle();closeAdministration();
   assert(submitted.size()==rfBeforeOrders && Settings::runtimeMemory().used()==0 && settingsAllocations.empty());
   // Actual encoder -> protected System: unseen launch/confirm never restart.
-  for(unsigned i=0;i<homeRows;i++){rotate(-1);idle();}
+  openBrowseHome();for(unsigned i=0;i<homeRows;i++){rotate(-1);idle();}
   for(unsigned i=0;i<systemHomeIndex-1;i++){rotate(1);idle();}
   busBusy=true;rotate(1);click();assert(lastQuery.screen==Screen::home && !systemRestarts);
   busBusy=false;idle();busBusy=true;click();assert(lastQuery.screen==Screen::system && captureProtected);
@@ -1013,7 +1040,7 @@ int main(int argc,char **argv){
   saveFrame(preview,"runtime-wifi-network-draft");back();idle();assert(RuntimeTestAccess::view(settingsUi).screen==Screen::home);
   assert(Settings::runtimeMemory().used()==0);
   auto openWifiRequest=[&](){
-    for(unsigned i=0;i<homeRows;i++){rotate(-1);idle();}for(unsigned i=0;i<systemHomeIndex;i++){rotate(1);idle();}
+    openBrowseHome();for(unsigned i=0;i<homeRows;i++){rotate(-1);idle();}for(unsigned i=0;i<systemHomeIndex;i++){rotate(1);idle();}
     click();idle();rotate(1);idle();rotate(1);idle();click();idle();rotate(1);idle();click();idle();assert(wifiScanFeed().pending());
   };
   openWifiRequest();const auto cancelledWifi=wifiScanFeed().token();back();idle();assert(!wifiScanFeed().pending() && Settings::runtimeMemory().used()==0);
@@ -1026,8 +1053,7 @@ int main(int argc,char **argv){
   else {back();idle();back();idle();}
   openWifiRequest();savedPixels=RuntimeTestAccess::losePixels(settingsUi);
   assert(!settingsUi.tick(testNow,status,false,send,light));assert(!wifiScanFeed().pending() && Settings::runtimeMemory().used()==0);
-  RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();click();idle();
-  if(RuntimeTestAccess::view(settingsUi).screen==Screen::status){click();idle();}
+  RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();openBrowseHome();
   // Real System child, protected presentation, exact-owned scan context and
   // separate Radio settings draft; RF boundaries remain fake.
   for(auto &shade:somfy.shades)shade.idle=true;
@@ -1076,7 +1102,7 @@ int main(int argc,char **argv){
   busBusy=false;idle();back();idle();
   auto beginDiagnostics=[&](){
     for(unsigned i=0;i<5 && RuntimeTestAccess::view(settingsUi).screen!=Screen::home;++i){
-      if(RuntimeTestAccess::view(settingsUi).screen==Screen::status)click();else back();idle();
+      if(RuntimeTestAccess::view(settingsUi).screen==Screen::quickHome)openBrowseHome();else if(RuntimeTestAccess::view(settingsUi).screen==Screen::status)click();else back();idle();
     }
     assert(RuntimeTestAccess::view(settingsUi).screen==Screen::home);
     for(unsigned i=0;i<homeRows;++i){rotate(-1);idle();}
@@ -1098,13 +1124,13 @@ int main(int argc,char **argv){
     assert(!RuntimeTestAccess::systemContains(settingsUi,"123456"));
   }
   for(unsigned i=0;i<5 && RuntimeTestAccess::view(settingsUi).screen!=Screen::home;++i){
-    if(RuntimeTestAccess::view(settingsUi).screen==Screen::status)click();else back();idle();
+    if(RuntimeTestAccess::view(settingsUi).screen==Screen::quickHome)openBrowseHome();else if(RuntimeTestAccess::view(settingsUi).screen==Screen::status)click();else back();idle();
   }
   assert(submitted.size()==beforeDiagnosticsRequests && settingsSaves==beforeWifiSaves);
   // Standalone updates: actual navigation, shared presentation proof and full
   // release identity. Only the service boundary is scripted here.
   auto openUpdates=[&](){
-    for(unsigned i=0;i<5 && RuntimeTestAccess::view(settingsUi).screen!=Screen::home;++i){if(RuntimeTestAccess::view(settingsUi).screen==Screen::status)click();else back();idle();}
+    for(unsigned i=0;i<5 && RuntimeTestAccess::view(settingsUi).screen!=Screen::home;++i){if(RuntimeTestAccess::view(settingsUi).screen==Screen::quickHome)openBrowseHome();else if(RuntimeTestAccess::view(settingsUi).screen==Screen::status)click();else back();idle();}
     for(unsigned i=0;i<homeRows;++i){rotate(-1);idle();}for(unsigned i=0;i<systemHomeIndex;++i){rotate(1);idle();}
     click();idle();for(unsigned i=0;i<6;++i){rotate(1);idle();}click();idle();
     assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"System updates"));
@@ -1223,7 +1249,7 @@ int main(int argc,char **argv){
   openAdvanced(1);testNow+=21000;authTestNow=testNow;settingsUi.tick(testNow,status,false,send,light);
   assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status && Settings::runtimeMemory().used()==0 && settingsAllocations.empty());
   assert(entityEdits==noMoreEdits && submitted.size()==rfBeforeAdvanced && !gitUpdate.busy() && advancedShade.lastRollingCode==123);
-  click();idle();assert(lastQuery.screen==Screen::status); // Wake without a navigation action.
+  click();idle();assert(lastQuery.screen==Screen::quickHome);back();idle(); // Wake opens Quick without a motor action.
   // Explicit remote commands use the actual protected form, RF-aware FIFO and
   // production adapter; only the hardware request sink records calls.
   advancedShade.proto=radio_proto::RTS;advancedShade.bitLength=56;++somfy.configurationRevision;
@@ -1367,7 +1393,7 @@ int main(int argc,char **argv){
   openAdvanced(2,false);rotate(1);idle();click();idle();for(unsigned i=0;i<4;++i){rotate(1);idle();}
   assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[1].value,"Varies by member"));saveFrame(preview,"runtime-status-group");
   back();idle();back();idle();closeAdministration();
-  click();idle();for(unsigned i=0;i<homeRows;++i){rotate(-1);idle();}for(unsigned i=0;i<systemHomeIndex;++i){rotate(1);idle();}click();idle();
+  openBrowseHome();for(unsigned i=0;i<homeRows;++i){rotate(-1);idle();}for(unsigned i=0;i<systemHomeIndex;++i){rotate(1);idle();}click();idle();
   for(unsigned i=0;i<4;++i){rotate(1);idle();}click();idle();assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"Network details")&&captureProtected);
   assert(!strcmp(RuntimeTestAccess::system(settingsUi).rows[1].value,"Test network"));saveFrame(preview,"runtime-status-network");
   back();idle();for(unsigned i=0;i<3;++i){rotate(-1);idle();}click();idle();for(unsigned i=0;i<4;++i){rotate(1);idle();}click();idle();
@@ -1512,6 +1538,109 @@ int main(int argc,char **argv){
   advancedGroup.direction=1;assert(sensorBackend.capture(sensorGroup,groupSensorContext));
   assert(sensorBackend.checkSensorContext(sensorGroup,groupSensorContext,sensorAuth,sensorHistory)==EntityAdmin::Admission::busy);advancedGroup.linkedShades[31]=0;advancedGroup.direction=0;
   assert(submitted.size()==beforeSensorRefusals+1&&!gitUpdate.busy());
+  // Quick access acceptance starts from an otherwise idle sparse model. The
+  // three legacy suggestions are navigation only, never an RF shortcut.
+  for(auto &shade:somfy.shades)shade.id=255;
+  for(auto &group:somfy.groups)group.id=255;
+  auto &quickOne=somfy.shades[13];quickOne.id=1;quickOne.address=101;quickOne.paired=true;quickOne.idle=true;quickOne.bitLength=56;quickOne.shadeType=shade_types::shutter;strcpy(quickOne.name,"Same room");
+  auto &quickTwo=somfy.shades[31];quickTwo.id=2;quickTwo.address=102;quickTwo.paired=true;quickTwo.idle=true;quickTwo.bitLength=56;quickTwo.shadeType=shade_types::shutter;strcpy(quickTwo.name,"Same room");
+  auto &quickBoth=somfy.groups[15];quickBoth.id=1;quickBoth.address=201;quickBoth.bitLength=56;quickBoth.direction=0;quickBoth.lastFrame={};memset(quickBoth.linkedShades,0,sizeof(quickBoth.linkedShades));quickBoth.linkedShades[0]=1;quickBoth.linkedShades[1]=2;strcpy(quickBoth.name,"Both rooms");
+  ++somfy.configurationRevision;authorization.configure(AuthMode::none,"","");somfy.transceiver.ready=true;
+  free(allocated);allocated=nullptr;Runtime quickUi;active=&quickUi;ab=3;testPins[4]=testPins[5]=testPins[6]=1;quickUi.begin();idle();
+  const auto beforeQuickNavigation=submitted.size();const auto writesAtQuickBoot=quickWrites;assert(quickWrites==0);
+  assert(RuntimeTestAccess::view(quickUi).screen==Screen::quickHome && !captureProtected);
+  auto selectQuick=[&](unsigned choice){
+    assert(RuntimeTestAccess::view(quickUi).screen==Screen::quickHome);
+    for(unsigned i=0;i<5&&RuntimeTestAccess::view(quickUi).selected!=choice;++i){rotate(RuntimeTestAccess::view(quickUi).selected<choice?1:-1);idle();}
+    assert(RuntimeTestAccess::view(quickUi).selected==choice);
+  };
+  const EntityRef expectedQuick[]={{EntityKind::group,1},{EntityKind::device,1},{EntityKind::device,2}};
+  saveFrame(preview,"runtime-quick-home");
+  strcpy(quickOne.name,"Master Bedroom");strcpy(quickTwo.name,"Master Bathroom");idle();
+  saveFrame(preview,"runtime-quick-home-example");
+  strcpy(quickOne.name,"Same room");strcpy(quickTwo.name,"Same room");idle();
+  for(unsigned slot=0;slot<3;++slot){
+    selectQuick(slot);click();idle();
+    assert(lastQuery.screen==Screen::control && lastQuery.entity==expectedQuick[slot] && lastQuery.action==Action::stop && submitted.size()==beforeQuickNavigation);
+    assert(RuntimeTestAccess::view(quickUi).quickOrigin);back();idle();
+    assert(lastQuery.screen==Screen::quickHome && submitted.size()==beforeQuickNavigation && quickWrites==writesAtQuickBoot);
+  }
+  // Live labels change without repinning; identity changes never retarget a pin.
+  strcpy(quickOne.name,"Renamed device");++somfy.configurationRevision;idle();
+  auto quickProjection=adapterSnapshotModel(true,RuntimeTestAccess::view(quickUi));
+  assert(!strcmp(quickProjection.page.rows[1].name,"Renamed device"));
+  selectQuick(1);++quickOne.address;++somfy.configurationRevision;idle();click();idle();
+  assert(lastQuery.screen!=Screen::control && submitted.size()==beforeQuickNavigation && quickWrites==writesAtQuickBoot);
+  --quickOne.address;++somfy.configurationRevision;idle();
+  quickOne.id=255;++somfy.configurationRevision;idle();click();idle();
+  assert(lastQuery.screen!=Screen::control && submitted.size()==beforeQuickNavigation);quickOne.id=1;++somfy.configurationRevision;idle();
+  // RF unavailability does not block navigation or independent wired control.
+  quickTwo.proto=radio_proto::GP_Relay;somfy.transceiver.ready=false;somfy.transceiver.suspended=true;loopScanActive=true;
+  selectQuick(2);click();idle();assert(lastQuery.screen==Screen::control && lastQuery.entity==expectedQuick[2] && lastQuery.action==Action::stop && submitted.size()==beforeQuickNavigation);
+  rotate(-1);idle();click();idle();assert(submitted.size()==beforeQuickNavigation+1 && submitted.back().id==2 && submitted.back().command==somfy_commands::Up);
+  back();idle();loopScanActive=false;somfy.transceiver.suspended=false;somfy.transceiver.ready=true;quickTwo.proto=radio_proto::RTS;
+  const auto quickRfBaseline=submitted.size();
+  auto manageQuick=[&]{selectQuick(4);click();idle();assert(lastQuery.screen==Screen::quickManage && RuntimeTestAccess::view(quickUi).quickEditing && captureProtected);};
+  auto manageRow=[&](unsigned row){assert(lastQuery.screen==Screen::quickManage);for(unsigned i=0;i<5&&RuntimeTestAccess::view(quickUi).selected!=row;++i){rotate(RuntimeTestAccess::view(quickUi).selected<row?1:-1);idle();}};
+  auto quickAction=[&](unsigned row){assert(lastQuery.screen==Screen::quickActions);for(unsigned i=0;i<6&&RuntimeTestAccess::view(quickUi).selected!=row;++i){rotate(RuntimeTestAccess::view(quickUi).selected<row?1:-1);idle();}click();idle();};
+  auto saveQuick=[&]{manageRow(3);click();idle();assert(lastQuery.screen==Screen::quickSave && RuntimeTestAccess::view(quickUi).valueChoice==0 && captureProtected);rotate(1);idle();click();idle();};
+  // Private management may not be captured while its first frame is blocked.
+  selectQuick(4);busBusy=true;click();assert(captureProtected && lastQuery.screen==Screen::quickManage);
+  busBusy=false;idle();saveFrame(preview,"runtime-quick-manage");
+  manageRow(0);click();idle();quickAction(4); // Move group down in draft only.
+  assert(RuntimeTestAccess::view(quickUi).quickDraft.at(0)->ref==expectedQuick[1] && quickWrites==writesAtQuickBoot);
+  back();idle();assert(lastQuery.screen==Screen::quickHome && !captureProtected && quickWrites==writesAtQuickBoot);
+  manageQuick();manageRow(0);click();idle();quickAction(4);saveQuick();
+  assert(quickWrites==writesAtQuickBoot+1 && quickStored.at(0)->ref==expectedQuick[1] && quickStored.at(1)->ref==expectedQuick[0]);
+  for(unsigned i=0;i<4&&lastQuery.screen!=Screen::quickHome;++i){back();idle();}
+  assert(lastQuery.screen==Screen::quickHome && submitted.size()==quickRfBaseline);
+  // Removal, protected picker and explicit pin/save keep typed group/device IDs.
+  manageQuick();manageRow(1);click();idle();quickAction(2);
+  assert(RuntimeTestAccess::view(quickUi).quickDraft.at(1)->empty());saveQuick();assert(quickStored.at(1)->empty());
+  for(unsigned i=0;i<4&&lastQuery.screen!=Screen::quickHome;++i){back();idle();}
+  manageQuick();manageRow(1);click();idle();quickAction(1);
+  assert(lastQuery.screen==Screen::catalogue && RuntimeTestAccess::view(quickUi).quickPicking && captureProtected);
+  saveFrame(preview,"runtime-quick-group-picker");click();idle();
+  assert(lastQuery.screen==Screen::quickManage && !RuntimeTestAccess::view(quickUi).quickPicking && captureProtected && RuntimeTestAccess::view(quickUi).quickDraft.at(1)->ref==expectedQuick[0]);
+  saveQuick();assert(quickStored.at(1)->ref==expectedQuick[0]);
+  for(unsigned i=0;i<4&&lastQuery.screen!=Screen::quickHome;++i){back();idle();}
+  const auto beforeDuplicateWrites=quickWrites;manageQuick();manageRow(2);click();idle();quickAction(0);
+  assert(lastQuery.screen==Screen::catalogue && captureProtected);click();idle();
+  assert(lastQuery.screen==Screen::quickManage && RuntimeTestAccess::view(quickUi).quickDraft.at(2)->ref==expectedQuick[2] && RuntimeTestAccess::view(quickUi).notice==Notice::refused);
+  back();idle();assert(quickWrites==beforeDuplicateWrites && submitted.size()==quickRfBaseline);
+  const auto savedQuickWrites=quickWrites;
+  // Configuration, restore, auth replacement and idle timeout never persist a draft.
+  for(unsigned cause=0;cause<4;++cause){
+    manageQuick();manageRow(0);click();idle();quickAction(4);
+    if(cause==0){++somfy.configurationRevision;idle();}
+    else if(cause==1){++somfy.restoreRevision;idle();}
+    else if(cause==2){authorization.configure(AuthMode::pin,"","!!!!");idle();authorization.configure(AuthMode::none,"","");idle();}
+    else {tick(false,21000);idle();}
+    assert(quickWrites==savedQuickWrites && submitted.size()==quickRfBaseline);
+    for(unsigned i=0;i<8&&RuntimeTestAccess::view(quickUi).screen!=Screen::quickHome;++i){if(RuntimeTestAccess::view(quickUi).screen==Screen::status){click();idle();}else{back();idle();}}
+    assert(RuntimeTestAccess::view(quickUi).screen==Screen::quickHome);
+  }
+  // A gesture already down during revocation must still be consumed through
+  // release; only the next separate press may enter private management.
+  manageQuick();holdEncoder=true;tick(true);tick(true);
+  ++somfy.configurationRevision;idle();assert(lastQuery.screen==Screen::quickHome);
+  releaseHold();idle();assert(lastQuery.screen==Screen::quickHome && quickWrites==savedQuickWrites && submitted.size()==quickRfBaseline);
+  // Failed storage never claims a successful preference replacement or RF action.
+  const auto durableFirst=quickStored.at(0)->ref;quickWriteResult=QuickPreferenceSave::failed;
+  manageQuick();manageRow(0);click();idle();quickAction(4);saveQuick();
+  assert(quickStored.at(0)->ref==durableFirst && submitted.size()==quickRfBaseline && RuntimeTestAccess::view(quickUi).notice==Notice::quickSaveFailed);
+  quickWriteResult=QuickPreferenceSave::saved;
+
+  for(const auto readState:{QuickAccessLoad::valid,QuickAccessLoad::invalid,QuickAccessLoad::unreadable}){
+    // Saved empty/bad/unreadable storage never becomes legacy suggestions or
+    // an automatic replacement preference write.
+    quickReadState=readState;quickStored={};const auto noWrites=quickWrites;
+    free(allocated);allocated=nullptr;Runtime emptyQuick;active=&emptyQuick;ab=3;testPins[4]=testPins[5]=testPins[6]=1;
+    emptyQuick.begin();idle();assert(RuntimeTestAccess::view(emptyQuick).screen==Screen::quickHome);
+    const auto emptyProjection=adapterSnapshotModel(true,RuntimeTestAccess::view(emptyQuick));
+    assert(emptyProjection.quickStatus==readState);for(unsigned i=0;i<3;++i)assert(emptyProjection.quickAccess.at(i)->empty());
+    click();idle();assert(lastQuery.screen==Screen::quickHome && submitted.size()==quickRfBaseline && quickWrites==noWrites);
+  }
   free(allocated);allocated=nullptr;hasPsram=false;
   Runtime missing;missing.begin();assert(missing.failure()==GraphicsFailure::missing && !missing.tick(testNow,status,false,send,light) && !missing.healthy());
   hasPsram=true;allocateOK=false;Runtime failed;failed.begin();assert(failed.failure()==GraphicsFailure::allocation && !failed.tick(testNow,status,false,send,light) && !failed.healthy());
