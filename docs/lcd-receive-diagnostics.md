@@ -1,6 +1,8 @@
 # Receive diagnostics on the LCD
 
-Open **System → Receive diagnostics**, then explicitly select **Begin observation**.
+**Navigation version:** Paths below describe source `015ac39`, intended for the next release and not yet deployed. Installed 4.7.3 uses the older menus; see the [installed-version path map](lilygo-local-ui.md#navigation-versions).
+
+Open **This controller → Diagnostics → Receive diagnostics**, then explicitly select **Begin observation**.
 Cancel is selected first. Opening the screen does not start observation or change
 the receiver mode, radio settings, model, counters or motor commands.
 

@@ -1,6 +1,8 @@
 # Primary rolling-code correction
 
-Open **Administration → Devices → Advanced**, select the configured device by
+**Navigation version:** Paths below describe source `015ac39`, intended for the next release and not yet deployed. Installed 4.7.3 uses the older menus; see the [installed-version path map](lilygo-local-ui.md#navigation-versions).
+
+Open **This controller → Configure → Rooms, devices & groups → Devices → Advanced**, select the configured device by
 stable ID, then choose **Primary rolling code** on the next menu page. The
 protected review shows the device ID, full remote address, live primary code,
 retained stored code (or Missing), and number of matching counter aliases.

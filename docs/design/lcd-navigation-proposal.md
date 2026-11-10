@@ -1,8 +1,8 @@
-# Proposed LCD navigation — NOT APPROVED
+# Approved LCD navigation
 
-**Discussion only. No navigation change is implemented or authorized by this document.** This maps existing actions at source baseline `8b746f2`; implementation, deployment and physical acceptance remain separate. Broader navigation stays frozen until Sid approves the complete tree.
+Sid approved this navigation tree. It is implemented in source `015ac39` and awaits release, deployment and physical acceptance. Installed 4.7.3 still uses the older menus; see the [versioned path map](../lilygo-local-ui.md#navigation-versions).
 
-The proposal keeps three daily shortcuts together, separates browsing devices and groups from configuring the controller, and retains every current LCD operation. Labels below describe destinations, not new domain operations.
+The original action inventory used baseline `8b746f2`. The approved layout keeps three daily shortcuts together, separates browsing devices and groups from configuring the controller, and retains existing operations and privacy rules. Navigation adds no backend action or permission.
 
 ## Top-level tree
 
@@ -54,7 +54,7 @@ Numeric moves keep explicit Apply/Go; favourite programming keeps separate movem
 
 ## Existing Administration subtree
 
-This is proposed as one intact destination under Configure, preserving the current forms and stable-ID selection:
+This is one intact destination under Configure, preserving the current forms and stable-ID selection:
 
 ```text
 Rooms, devices & groups
@@ -83,14 +83,14 @@ The five settings forms retain **all current shared fields**, conditional board/
 
 Status is the existing wake-up page, not a new status submenu or widget. About reuses only current Details data: firmware/application versions, existing uptime/power/link/address/web/radio/frequency/build rows and internal-memory/PSRAM/loop health rows. It introduces no hardware identity field. **Privacy requirements:** Every moved page retains its current authorization and screenshot protection. Public wake/Details views must not acquire protected Network, entity or receive data. These requirements are unchanged and do not need a new decision.
 
-## Choices needing final approval
+## Resolved layout and unchanged behavior
 
-1. **Where model administration lives.** The tree above keeps one intact Administration destination under Configure. An equally coherent alternative is target-context management from Browse all. If that alternative is chosen, use the same exact selected target/form and Back origin; do not create independent duplicate edit/programming flows. Daily quick entries should still open ordinary controls directly.
-2. **Repeated destinations.** Place WiFi scan only under Network; frequency scan only under Diagnostics; copy-log guidance only under Diagnostics. Maintenance keeps the other four browser-guidance entries. About retains existing health rows rather than adding a second Health page.
-3. **Quick-entry management and wake behavior.** Moving Manage shortcuts into Configure removes its separate top-level row, not the feature. The requested Status destination opens the current wake screen directly; any change to when boot/wake automatically lands on Status versus Home still needs explicit final agreement and must preserve wake-only input, held-button suppression, moving STOP and critical update retention.
+Administration stays together under Configure. WiFi scan is under Network, frequency scan and copy-log guidance are under Diagnostics, and Maintenance keeps the other four browser-guidance entries. About reuses existing Details and health rows.
 
-No current operation is intentionally unassigned. There is no new lock/reset/repair wizard, clipboard, file-transfer session, raw-frame action or estimated-position correction UI in this proposal.
+Quick-entry management is under Configure. Status opens the existing wake screen directly; startup, wake-only input, held-button suppression, moving-target STOP and update-context retention remain unchanged. The navigation work does not implement the separately requested 30-minute installation lifetime or temporary-download retries.
+
+There is no new lock/reset/repair wizard, clipboard, file-transfer session, raw-frame action or estimated-position correction UI. Source implementation is not physical acceptance evidence.
 
 ## Source basis
 
-See [current navigation and input](../../src/LocalUi.cpp), [Home and Details rendering](../../src/LocalUiRenderer.cpp), [Administration](../../src/LocalAdministration.cpp), [advanced actions](../../src/LocalAdvanced.cpp), [entity fields](../../src/EntityFields.cpp), [settings](../../src/LocalSettingsForm.cpp), [System destinations](../../src/LocalSystem.cpp), [update workflow](../../src/LocalUpdates.cpp) and [receive diagnostics](../../src/LocalDiagnostics.cpp). The [capability audit](../lcd-capability-audit.md) remains the implementation inventory; this proposal is not acceptance evidence.
+See [current navigation and input](../../src/LocalUi.cpp), [Home and Details rendering](../../src/LocalUiRenderer.cpp), [Administration](../../src/LocalAdministration.cpp), [advanced actions](../../src/LocalAdvanced.cpp), [entity fields](../../src/EntityFields.cpp), [settings](../../src/LocalSettingsForm.cpp), [System destinations](../../src/LocalSystem.cpp), [update workflow](../../src/LocalUpdates.cpp) and [receive diagnostics](../../src/LocalDiagnostics.cpp). The [capability audit](../lcd-capability-audit.md) remains the implementation inventory; this navigation document is not acceptance evidence.

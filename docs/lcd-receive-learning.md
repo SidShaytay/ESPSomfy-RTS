@@ -1,6 +1,8 @@
 # Receive observation and remote learning
 
-Open **Administration → Devices → Advanced**, choose the configured device by
+**Navigation version:** Paths below describe source `015ac39`, intended for the next release and not yet deployed. Installed 4.7.3 uses the older menus; see the [installed-version path map](lilygo-local-ui.md#navigation-versions).
+
+Open **This controller → Configure → Rooms, devices & groups → Devices → Advanced**, choose the configured device by
 its stable ID, then select **Learn received remote**. **Begin observation** is
 explicit, with Cancel selected first. Opening the page, rotating, receiving a
 frame and waking the display never link a remote or send a command.
