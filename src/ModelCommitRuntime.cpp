@@ -14,7 +14,9 @@ ModelCommitResult SomfyShadeController::commit() {
   noteModelCommit(this->lastModelCommit);
   // Throttle failed attempts as well as successful writes; never hot-loop IO.
   this->lastCommit = millis();
-  if (!this->lastModelCommit.saved())
+  if(this->lastModelCommit.stage==ModelCommitStage::filesystemBusy)
+    ESP_LOGW(TAG,"Model commit deferred; current changes remain in memory until filesystem recovery");
+  else if (!this->lastModelCommit.saved())
     ESP_LOGE(TAG, "Model commit failed at stage %u%s",
              unsigned(this->lastModelCommit.stage),
              this->lastModelCommit.state == ModelCommitState::uncertain

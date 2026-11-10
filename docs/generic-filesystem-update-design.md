@@ -44,11 +44,24 @@ pinned ESP32 toolchain does not promise lock-free atomics. No service lock is
 held across file I/O.
 
 The upload receiver does not seal this gate yet. The raw mounted-write bug is
-still open until the prepare/unmount/recovery flow below is wired and tested.
+still open until the prepare/unmount/recovery flow above is wired and tested.
 Backup responses are RAM-backed, not persistent file handles.
 
-Remaining implementation investigation: guard model-save entry points and
+The checked model writer now holds the same mount lease across staging,
+replacement and final readback. Sealed admission returns filesystemBusy before
+serialization or I/O; the existing model service retains dirty RAM state. A retry
+after recovery serializes current counters, not a pre-upload snapshot. Protocol
+and log messages distinguish this deferral without claiming an old disk file was
+retained while its partition may have been replaced.
+
+Remaining implementation: finish the live-filesystem entry-point audit and
 choose the smallest bounded browser admission handshake that preserves the SAME
 manual owner and does not create a second upload broker. Tests must inject reader
 races, failed unmount/remount, short writes, expiry, old callbacks and failed
 current-model recovery. No power-loss transaction guarantee is established.
+
+Pinned updater selection must match the mounted partition. Arduino Update's
+U_SPIFFS branch selects the first SPIFFS-subtype partition and ignores its label
+argument; U_LITTLEFS similarly selects the first LittleFS subtype. Verify the
+chosen partition is exactly the one mounted as spiffs, and reject a mismatch
+before raw writes. Do not assume the begin() label selects it.

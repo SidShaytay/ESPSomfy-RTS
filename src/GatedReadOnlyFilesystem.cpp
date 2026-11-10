@@ -51,4 +51,3 @@ public:
 }
 GatedReadOnlyFilesystem::GatedReadOnlyFilesystem(fs::FS &source,MountedFilesystemGate &gate)
   :fs::FS(std::make_shared<ReadOnlyFilesystem>(source,gate)){}
-MountedFilesystemGate &mountedFilesystemGate(){static MountedFilesystemGate gate;return gate;}

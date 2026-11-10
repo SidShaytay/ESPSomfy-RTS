@@ -16,7 +16,8 @@ enum class ModelCommitStage : uint8_t {
   verifyBytes,
   verifyClose,
   replace,
-  untrusted
+  untrusted,
+  filesystemBusy
 };
 struct ModelCommitResult {
   ModelCommitState state = ModelCommitState::failed;
@@ -32,4 +33,4 @@ struct ModelCommitReport {
   RestartReason refusal = RestartReason::none;
 };
 // Safe static descriptions; no record names, paths or counter values.
-const char *modelCommitFailureDescription(ModelCommitState state);
+const char *modelCommitFailureDescription(ModelCommitResult result);

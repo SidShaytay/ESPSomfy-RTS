@@ -132,9 +132,23 @@ static void typed_unchanged_success_reports_no_persistence_attempt_or_fanout() {
   TEST_ASSERT_TRUE(protoBool(payload,proto_field_t::ok));TEST_ASSERT_FALSE(protoBool(payload,proto_field_t::applied));TEST_ASSERT_FALSE(protoBool(payload,proto_field_t::durable));
   TEST_ASSERT_FALSE(protoHas(payload,proto_field_t::modelSaveState));TEST_ASSERT_FALSE(protoHas(payload,proto_field_t::desc));TEST_ASSERT_FALSE(protoHas(payload,proto_field_t::code));
 }
+static void sealed_filesystem_reports_unsaved_ram_without_claiming_previous_disk_file() {
+  const ModelCommitResult busy{ModelCommitState::failed,ModelCommitStage::filesystemBusy};
+  auto edit=edit_result_t::completed(7,busy);TEST_ASSERT_TRUE(edit.applied);TEST_ASSERT_FALSE(edit.ok);
+  TEST_ASSERT_NOT_NULL(strstr(edit.desc,"memory"));TEST_ASSERT_NULL(strstr(edit.desc,"Previous file"));
+  char text[256];BufferedJsonFormatter json;json.setBuffer(text,sizeof(text));
+  beginFrame(json,proto_type_t::modelPersistence);ProtoWriter writer(json);
+  writeModelCommitReport(writer,{busy});endFrame(json);TEST_ASSERT_FALSE(json.overflowed());
+  JsonDocument doc;TEST_ASSERT_FALSE(deserializeJson(doc,text));const auto payload=doc["d"].as<JsonObject>();
+  TEST_ASSERT_FALSE(protoBool(payload,proto_field_t::durable));TEST_ASSERT_FALSE(protoBool(payload,proto_field_t::rebooting));
+  TEST_ASSERT_EQUAL(uint8_t(proto_error_t::busy),protoInt(payload,proto_field_t::code));
+  TEST_ASSERT_NOT_NULL(strstr(protoString(payload,proto_field_t::desc),"memory"));
+  TEST_ASSERT_NULL(strstr(protoString(payload,proto_field_t::desc),"Previous file"));
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(typed_unchanged_success_reports_no_persistence_attempt_or_fanout);
+  RUN_TEST(sealed_filesystem_reports_unsaved_ram_without_claiming_previous_disk_file);
   RUN_TEST(expired_upload_recovery_uses_existing_wire_fields_without_a_save_claim);
   RUN_TEST(applied_failure_retains_id_and_actual_change_fanout);
   RUN_TEST(
