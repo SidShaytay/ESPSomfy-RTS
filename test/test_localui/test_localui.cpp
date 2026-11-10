@@ -504,8 +504,16 @@ static void routed_display_revocation_returns_to_its_visible_origin(){
   d.click();TEST_ASSERT_EQUAL(cause&2?Screen::unlock:Screen::brightness,d.c.view().screen);
  }
 }
+static void routed_display_save_returns_to_configure_once(){
+ Drive d;d.f.base.quickReady=true;d.f.base.quickRevision=3;d.f.base.anyMoving=false;d.tick();
+ for(unsigned i=0;i<4;i++)d.tick(1);d.click();d.click();for(unsigned i=0;i<5;i++)d.tick(1);d.click();
+ TEST_ASSERT_EQUAL(Screen::brightness,d.c.view().screen);d.click();d.click();d.click();
+ TEST_ASSERT_EQUAL(Screen::configureMenu,d.c.view().screen);TEST_ASSERT_EQUAL(5,d.c.view().selected);
+ DisplayPreferences prefs;Command command;TEST_ASSERT_TRUE(d.c.takePreferences(prefs));TEST_ASSERT_FALSE(d.c.takePreferences(prefs));TEST_ASSERT_FALSE(d.c.take(command));
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(routed_display_save_returns_to_configure_once);
   RUN_TEST(routed_display_revocation_returns_to_its_visible_origin);
   RUN_TEST(approved_controller_navigation_preserves_explicit_origins);
   RUN_TEST(quick_revocation_consumes_only_an_existing_press);

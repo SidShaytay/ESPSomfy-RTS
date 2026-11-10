@@ -238,7 +238,7 @@ void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
   case Screen::brightness:
     if(state.setting<2) ++state.setting;
     else if(!visible) state.notice=Notice::wait;
-    else { savePending=true; state.screen=Screen::home; state.selected=4; }
+    else {savePending=true;if(state.routed)closeForm();else {state.screen=Screen::home;state.selected=4;}}
     break;
   case Screen::control:
     if(state.action==Action::count) {
