@@ -24,8 +24,11 @@ void noteModelFilesystemMounted(bool value){mounted=value;}
 bool modelFilesystemMounted(){
 #if defined(ESP_PLATFORM)
   size_t total=0,used=0;
-  return mounted && esp_littlefs_mounted(nullptr) &&
-    esp_littlefs_info(nullptr,&total,&used)==ESP_OK && total>0 && used<=total;
+  // Arduino mounts the named SPIFFS-subtype partition. A null SDK label
+  // discovers native LITTLEFS subtype0x83, which need not exist in this table.
+  constexpr const char *partitionLabel="spiffs";
+  return mounted && esp_littlefs_mounted(partitionLabel) &&
+    esp_littlefs_info(partitionLabel,&total,&used)==ESP_OK && total>0 && used<=total;
 #else
   return mounted;
 #endif
