@@ -126,6 +126,16 @@ bool submitModelCommit(const proto_reply_to_t &, ModelCommitMode mode,const GitU
 void completeRestoreModel(const RestoreApplyResult &result){assert(result.modelApplied);}
 uint32_t restoreTestRandom(){return 42;}
 #include "../../src/RestoreExecution.cpp"
+#include "ApplicationFilesystem.h"
+#include "entryPoints/PreparedApplicationUpload.h"
+// This harness covers legacy firmware/restore and refusal before preparation.
+// The physical/application HTTP journey uses the real actor/receiver separately.
+ApplicationFilesystemSnapshot applicationFilesystemStatus(){return {};}
+bool noteApplicationPreparation(const GitUpdateOwnerToken &,const ManualApplicationSource &){return false;}
+void refuseUnpublishedApplication(const GitUpdateOwnerToken &){}
+bool requestApplicationFilesystemRecovery(const GitUpdateOwnerToken &,const ManualApplicationSource &){return false;}
+void receivePreparedApplication(AsyncWebServerRequest *,const GitUpdateOwnerToken &,const ManualApplicationSource &,size_t,uint8_t *,size_t,bool){assert(false);}
+bool finishPreparedApplication(AsyncWebServerRequest *,const GitUpdateOwnerToken &,const ManualApplicationSource &){return false;}
 // Physical transitions are exercised against the real owner in application-filesystem.
 void serviceApplicationFilesystem(){}
 #include "../../src/entryPoints/ManualUploadSession.cpp"
@@ -173,141 +183,12 @@ int main() {
   AsyncWebServerRequest empty;server.complete(&empty);assert(empty.status==410 && !gitUpdate.busy());
   std::cout << "Bundled application upload retired before owner, SDK, filesystem or shutdown effects.\n";return 0;
 #endif
-  AsyncWebServerRequest first, overlap;
-  server.upload(&first,String("a.bin"),0,&byte,1,false);
-  server.upload(&overlap,String("b.bin"),0,&byte,1,false);
-  assert(Update.begins==1 && Update.writes==1); // Shared SDK has one request owner.
-  first.disconnected();
-  reset();
-  somfy.transceiver.uncertain=true;restartLoop();
-  AsyncWebServerRequest uncertain;
-  server.upload(&uncertain,String("x.bin"),0,&byte,1,true);server.complete(&uncertain);
-  assert(Update.begins==0 && somfy.transceiver.stops==0 && uncertain.status==503);
-  assert(!gitUpdate.busy());
-  reset();
-  Update.onBegin=[] {
-    GitUpdateOwnerToken counter;
-    assert(!gitUpdate.acquireExternal(GitUpdateExternalOwner::counter,counter));
-  };
-  AsyncWebServerRequest held;
-  server.upload(&held,String("x.bin"),0,&byte,1,true);
-  GitUpdateOwnerToken counter;
-  assert(!gitUpdate.acquireExternal(GitUpdateExternalOwner::counter,counter));
-  held.disconnected(); // Successful OTA retains owner through restart admission.
-  assert(gitUpdate.busy());
-  reset();
-  Update.onWrite=[] {
-    manualClockMs+=30000;manualUploadLoop();
-    assert(Update.aborts==0); // Expiry cannot abort a currently claimed SDK write.
-  };
-  AsyncWebServerRequest expiredWrite;
-  server.upload(&expiredWrite,String("x.bin"),0,&byte,1,true);server.complete(&expiredWrite);
-  assert(Update.aborts==1 && Update.ends==0 && expiredWrite.status==500);
-  assert(restarts.empty() && !gitUpdate.busy());
-  reset();
-  AsyncWebServerRequest oldRequest,newRequest;
-  server.upload(&oldRequest,String("x.bin"),0,&byte,1,false);
-  manualClockMs+=30000;manualUploadLoop();
-  assert(Update.aborts==1 && !gitUpdate.busy());
-  server.upload(&newRequest,String("x.bin"),0,&byte,1,false);
-  const auto writesBeforeStale=Update.writes,abortsBeforeStale=Update.aborts;
-  server.upload(&oldRequest,String("x.bin"),1,&byte,1,true);oldRequest.disconnected();
-  assert(Update.writes==writesBeforeStale && Update.aborts==abortsBeforeStale && gitUpdate.busy());
-  reset();
-  AsyncWebServerRequest denied;
-  denied.allowed = false;
-  server.upload(&denied, String("x.bin"), 0, &byte, 1, true);
-  server.complete(&denied);
-  assert(Update.begins == 0 && restarts.empty() && denied.status == 503);
-  reset();
-  AsyncWebServerRequest success;
-  server.upload(&success, String("x.bin"), 0, &byte, 1, true);
-  server.complete(&success);
-  assert(success.status == 202 && restarts == std::vector<bool>{true});
-  assert(success.body.find("queued") != std::string::npos &&
-         success.body.find("SUCCESS") == std::string::npos);
-  success.disconnected();
-  assert(restarts.size() == 1);
-  reset();
-  admitted = false;
-  AsyncWebServerRequest full;
-  server.upload(&full, String("x.bin"), 0, &byte, 1, true);
-  server.complete(&full);
-  assert(full.status == 503 && restarts == std::vector<bool>{true});
-  full.disconnected();
-  assert(restarts.size() == 1);
-  reset();
-  Update.beginOk = false;
-  Update.running = true;
-  webServer.uploadSuccess = true;
-  AsyncWebServerRequest beginFailed;
-  server.upload(&beginFailed, String("x.bin"), 0, &byte, 1, true);
-  server.complete(&beginFailed);
-  assert(beginFailed.status == 503 && restarts.empty());
-  assert(Update.begins == 1 && Update.writes == 0 && Update.ends == 0 &&
-         Update.aborts == 0);
-  assert(Update.running && webServer.uploadSuccess && beginFailed.disconnected);
-  beginFailed.disconnected(); // Stale closed token cannot abort foreign SDK state.
-  assert(Update.aborts==0 && Update.running);
-  assert(somfy.transceiver.stops == 0 && mqtt.stops == 0);
-  Update.beginOk = true;
-  server.upload(&beginFailed, String("x.bin"), 1, &byte, 1, true);
-  server.upload(&beginFailed, String("x.bin"), 0, &byte, 1, true);
-  assert(Update.begins == 1 && Update.writes == 0 && Update.ends == 0 &&
-         Update.aborts == 0 && restarts.empty());
-  reset();
-  Update.endOk = false;
-  AsyncWebServerRequest endFailed;
-  server.upload(&endFailed, String("x.bin"), 0, &byte, 1, true);
-  server.complete(&endFailed);
-  assert(endFailed.status == 500 && restarts == std::vector<bool>{false});
-  const auto failedWrites = Update.writes;
-  Update.running = true;
-  Update.error = false;
-  server.upload(&endFailed, String("x.bin"), 1, &byte, 1, true);
-  endFailed.disconnected();
-  assert(Update.writes == failedWrites && Update.ends == 1 &&
-         Update.aborts == 0 && Update.running);
-  assert(restarts == std::vector<bool>{false});
-  reset();
-  Update.shortWrite = true;
-  Update.endOk = false;
-  AsyncWebServerRequest failed;
-  server.upload(&failed, String("x.bin"), 0, &byte, 1, true);
-  server.complete(&failed);
-  assert(failed.status == 500 && restarts == std::vector<bool>{false});
-  failed.disconnected();
-  assert(restarts.size() == 1 && Update.aborts == 1);
-  assert(Update.writes == 1 && Update.ends == 0);
-  // A foreign transfer can own Update after our abort. Remaining chunks,
-  // including a repeated index-zero callback, must not touch that transfer.
-  Update.running = true;
-  Update.error = false;
-  Update.shortWrite = false;
-  webServer.uploadSuccess = true;
-  server.upload(&failed, String("x.bin"), 1, &byte, 1, false);
-  server.upload(&failed, String("x.bin"), 2, &byte, 1, true);
-  server.upload(&failed, String("x.bin"), 0, &byte, 1, true);
-  failed.disconnected();
-  assert(Update.begins == 1 && Update.writes == 1 && Update.ends == 0 &&
-         Update.aborts == 1);
-  assert(Update.running && webServer.uploadSuccess &&
-         restarts == std::vector<bool>{false});
-  reset();
-  Update.error = true;
-  AsyncWebServerRequest inconsistent;
-  server.upload(&inconsistent, String("x.bin"), 0, &byte, 1, true);
-  server.complete(&inconsistent);
-  assert(inconsistent.status == 500 && restarts == std::vector<bool>{false});
-  reset();
-  AsyncWebServerRequest abandoned;
-  server.upload(&abandoned, String("x.bin"), 0, &byte, 1, false);
-  assert(restarts.empty());
-  abandoned.disconnected();
-  manualUploadLoop();
-  assert(Update.aborts == 1 && restarts == std::vector<bool>{false});
-  abandoned.disconnected();
-  assert(restarts.size() == 1);
+  AsyncWebServerRequest raw;
+  server.upload(&raw,String("unprepared.littlefs.bin"),0,&byte,1,true);server.complete(&raw);
+  assert(raw.status==400&&!Update.begins&&!Update.writes&&!Update.aborts&&!gitUpdate.busy()&&!restartPending());
+  AsyncWebServerRequest unauthenticated;unauthenticated.allowed=false;
+  server.upload(&unauthenticated,String("blocked.bin"),0,&byte,1,true);server.complete(&unauthenticated);
+  assert(unauthenticated.status==401&&!Update.begins);
   reset();
   AsyncWebServer firmwareServer;registerFirmwareUploadRoute(firmwareServer);
   settings.hasOtaSlot=false;AsyncWebServerRequest unsupported;
@@ -315,9 +196,9 @@ int main() {
   assert(unsupported.status==400 && !Update.begins && !restartPending());
   reset();
   AsyncWebServerRequest appActive,firmwareOverlap;
-  server.upload(&appActive,String("x.bin"),0,&byte,1,false);
+  GitUpdateOwnerToken appOwner;assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,appOwner));assert(gitUpdate.beginTransfer(appOwner,ManualUpdateKind::application,manualClockMs));
   firmwareServer.upload(&firmwareOverlap,String("x.bin"),0,&byte,1,true);firmwareServer.complete(&firmwareOverlap);
-  assert(Update.begins==1 && firmwareOverlap.status==503 && !restartPending());
+  assert(Update.begins==0 && firmwareOverlap.status==503 && !restartPending());
   reset();
   AsyncWebServerRequest firmwareSuccess;
   firmwareServer.upload(&firmwareSuccess,String("x.bin"),0,&byte,1,true);firmwareServer.complete(&firmwareSuccess);
@@ -334,14 +215,16 @@ int main() {
   firmwareServer.upload(&firmwareOld,String("x.bin"),0,&byte,1,false);
   manualClockMs+=30000;manualUploadLoop();
   assert(Update.aborts==1 && !restartPending());
-  server.upload(&appNew,String("x.bin"),0,&byte,1,false);
+  GitUpdateOwnerToken nextFirmware;assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,nextFirmware));
+  assert(gitUpdate.beginTransfer(nextFirmware,ManualUpdateKind::firmware,manualClockMs)&&gitUpdate.claimTransfer(nextFirmware,manualClockMs));
+  assert(gitUpdate.transferResource(nextFirmware,true)&&gitUpdate.finishTransfer(nextFirmware,manualClockMs,true));Update.running=true;
   const auto beforeLate=Update.writes;
   firmwareServer.upload(&firmwareOld,String("x.bin"),1,&byte,1,true);firmwareOld.disconnected();
   assert(Update.writes==beforeLate && Update.aborts==1 && !restartPending());
   reset();
   AsyncWebServer restoreServer;registerRestoreUploadRoute(restoreServer);
   AsyncWebServerRequest busyImage,busyRestore;
-  server.upload(&busyImage,String("x.bin"),0,&byte,1,false);
+  GitUpdateOwnerToken busyOwner;assert(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,busyOwner));assert(gitUpdate.beginTransfer(busyOwner,ManualUpdateKind::firmware,manualClockMs));
   restoreServer.upload(&busyRestore,String("x.backup"),0,&byte,1,true);
   assert(LittleFS.opens==0 && LittleFS.writes==0);
   reset();

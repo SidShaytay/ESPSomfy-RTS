@@ -4411,6 +4411,129 @@ class Firmware {
         report('Restore queued; waiting for loop execution and cleanup.');
         poll();
     }
+    validApplicationIdentity(value, bytes) {
+        const decimal = text => typeof text === 'string' && /^[1-9][0-9]{0,19}$/.test(text) &&
+            (text.length < 20 || text <= '18446744073709551615');
+        return value && decimal(value.nonce) && decimal(value.generation) && Number.isInteger(value.bytes) &&
+            value.bytes > 0 && value.bytes <= 4294967295 && (bytes === undefined || value.bytes === bytes);
+    }
+    applicationPath(identity) {
+        return `nonce=${identity.nonce}&generation=${identity.generation}`;
+    }
+    applicationRequest(method, path, control) {
+        return new Promise((resolve, reject) => {
+            const request = new XMLHttpRequest();
+            if (control) control.request = request;
+            let finished = false;
+            const finish = (callback, value) => {
+                if (finished) return;
+                finished = true;
+                if (control && control.request === request) control.request = null;
+                callback(value);
+            };
+            const fail = () => finish(reject, new Error('Application status is not confirmed. Reconnect and review it; do not resend the file automatically.'));
+            request.open(method, `${baseUrl}${path}`, true);
+            request.timeout = 5000;
+            request.setRequestHeader('apikey', security.apiKey);
+            request.onerror = request.ontimeout = request.onabort = fail;
+            request.onload = () => {
+                if (finished) return;
+                if (request.status === 401) security.tokenRefused();
+                let value;
+                try { value = JSON.parse(request.responseText); } catch (e) { fail(); return; }
+                if (request.status < 200 || request.status >= 300 || !value || typeof value !== 'object' || Array.isArray(value)) {
+                    finish(reject, new Error(value && typeof value.desc === 'string' ? value.desc : 'Application request refused.')); return;
+                }
+                finish(resolve, value);
+            };
+            request.send();
+        });
+    }
+    async prepareApplication(el, bytes) {
+        if (!Number.isInteger(bytes) || bytes < 1 || bytes > 4294967295) throw new Error('Select a nonempty filesystem image.');
+        const instructions = el.querySelector('div[id="divInstText"]');
+        const report = text => { if (instructions) instructions.textContent = text; };
+        const control = { request: null };
+        let identity, stopped = false, active = true, timer, wake;
+        const cancel = () => {
+            if (identity) this.applicationRequest('POST', `/applicationUpdate?${this.applicationPath(identity)}&action=cancel`).catch(() => {});
+        };
+        const close = el.querySelector('button[id="btnClose"]');
+        if (close) close.addEventListener('click', () => {
+            if (!active) return;
+            stopped = true; clearTimeout(timer); if (wake) wake();
+            if (control.request) control.request.abort();
+            cancel();
+        });
+        report('Preparing storage after accepted work. The file has not been sent.');
+        try {
+            let state = await this.applicationRequest('POST', `/prepareApplication?bytes=${bytes}`, control);
+            if (stopped) return null;
+            if (!this.validApplicationIdentity(state, bytes)) throw new Error('Preparation identity is not confirmed. No file was sent.');
+            identity = { nonce: state.nonce, generation: state.generation, bytes };
+            for (let attempt = 0; attempt < 60 && !stopped; ++attempt) {
+                if (!this.validApplicationIdentity(state, bytes) || state.nonce !== identity.nonce || state.generation !== identity.generation)
+                    throw new Error('Preparation identity changed. No file was sent; do not resend automatically.');
+                if (typeof state.desc === 'string') report(state.desc);
+                if (state.phase === 'ready') return identity;
+                if (['refused', 'attention'].includes(state.phase)) {
+                    if (state.phase === 'attention') this.watchApplication(el, identity, state);
+                    return null;
+                }
+                if (!['queued', 'draining'].includes(state.phase)) throw new Error('Preparation is not confirmed. No file was sent.');
+                if (attempt) await new Promise(resolve => { wake = resolve; timer = setTimeout(resolve, 500); });
+                if (stopped) return null;
+                state = await this.applicationRequest('GET', `/applicationUpdateStatus?${this.applicationPath(identity)}`, control);
+            }
+            if (!stopped) throw new Error('Preparation timed out. No file was sent; review storage status before retrying.');
+            return null;
+        } catch (error) {
+            if (stopped) return null;
+            cancel(); throw error;
+        } finally { active = false; clearTimeout(timer); }
+    }
+    watchApplication(el, identity, initial) {
+        const instructions = el.querySelector('div[id="divInstText"]');
+        const report = text => { if (instructions) instructions.textContent = text; };
+        if (!this.validApplicationIdentity(identity)) { report('Application completion is not confirmed. Do not resend automatically.'); return; }
+        const control = { request: null };
+        let stopped = false, timer, attempts = 0, retry;
+        const close = el.querySelector('button[id="btnClose"]');
+        if (close) close.addEventListener('click', () => {
+            stopped = true; clearTimeout(timer); if (control.request) control.request.abort();
+        });
+        const poll = async state => {
+            if (stopped) return;
+            try {
+                if (++attempts > 120) throw new Error('Application completion is still pending. Review status before any retry.');
+                state = state || await this.applicationRequest('GET', `/applicationUpdateStatus?${this.applicationPath(identity)}`, control);
+                if (stopped) return;
+                if (!this.validApplicationIdentity(state, identity.bytes) || state.nonce !== identity.nonce || state.generation !== identity.generation)
+                    throw new Error('Application status belongs to a different source. Do not resend automatically.');
+                report(typeof state.desc === 'string' ? state.desc : 'Application status received.');
+                if (['queued', 'draining', 'ready', 'recovering'].includes(state.phase)) { timer = setTimeout(() => poll(), 500); return; }
+                if (state.phase === 'attention') {
+                    if (!retry) {
+                        retry = document.createElement('button'); retry.type = 'button'; retry.textContent = 'Retry recovery';
+                        retry.addEventListener('click', async () => {
+                            if (stopped || retry.disabled) return;
+                            retry.disabled = true;
+                            try {
+                                await this.applicationRequest('POST', `/applicationUpdate?${this.applicationPath(identity)}&action=retry`, control);
+                                attempts = 0; poll();
+                            } catch (error) { if (!stopped) { report(error.message); retry.disabled = false; } }
+                        });
+                        el.appendChild(retry);
+                    }
+                    retry.disabled = false; return;
+                }
+                stopped = true;
+                if (retry) retry.remove();
+                if (!['completed', 'refused'].includes(state.phase)) report('Application completion is not confirmed. Do not resend automatically.');
+            } catch (error) { if (!stopped) report(error.message); stopped = true; }
+        };
+        poll(initial);
+    }
     async uploadFile(service, el, data) {
         if (service === '/updateApplication' && isBundledWeb()) {
             ui.infoMessage('The web UI is included in firmware updates. No separate Application image was sent.');
@@ -4497,8 +4620,15 @@ class Firmware {
         let prog = el.querySelector('div[id="progFileUpload"]');
         prog.style.display = '';
         btnSelectFile.style.visibility = 'hidden';
+        let prepared, uploadService = service, uploadFinished = false;
+        if (service === '/updateApplication') {
+            try { prepared = await this.prepareApplication(el, field.files[0].size); }
+            catch (error) { ui.serviceError(el, error); return; }
+            if (!prepared) return;
+            uploadService = `${service}?${this.applicationPath(prepared)}`;
+        }
         let xhr = new XMLHttpRequest();
-        xhr.open('POST', baseUrl.length > 0 ? `${baseUrl}${service}` : service, true);
+        xhr.open('POST', `${baseUrl}${uploadService}`, true);
         xhr.setRequestHeader('apikey', security.apiKey);
         xhr.upload.onprogress = function (evt) {
             let pct = evt.total ? Math.round((evt.loaded / evt.total) * 100) : 0;
@@ -4509,9 +4639,11 @@ class Firmware {
         };
         xhr.onerror = function (err) {
             console.log(err);
-            ui.serviceError(el, err);
+            if (service === '/updateApplication') firmware.watchApplication(el, prepared);
+            else ui.serviceError(el, err);
         };
         xhr.onload = function () {
+            uploadFinished = true;
             console.log('File upload load called');
             btnCancel.innerText = 'Close';
             if (xhr.status === 401) {
@@ -4520,18 +4652,10 @@ class Firmware {
                 return;
             }
             if (service === '/updateApplication') {
-                let desc = 'Application upload response unavailable.';
-                let started;
-                try { const response = JSON.parse(xhr.responseText); desc = response.desc || desc; started = response.started; } catch (e) { }
-                const instructions = el.querySelector('div[id="divInstText"]');
-                if (instructions) instructions.textContent = desc;
-                if (xhr.status < 200 || xhr.status >= 300) {
-                    if (started === false) {
-                        const error = ui.errorMessage('Application upload did not start.');
-                        error.querySelector('.inner-error').textContent = desc;
-                    } else showModelSaveWarning({ durable: false, modelSaveState: 1, desc: desc }, true);
-                    return;
-                }
+                // Observe this exact source even after a failed response: cleanup
+                // may still be running. Never turn this into another file send.
+                firmware.watchApplication(el, prepared);
+                return;
             }
             if (xhr.status < 200 || xhr.status >= 300) {
                 // The device's reason, when it sent one.
@@ -4555,6 +4679,7 @@ class Firmware {
         btnCancel.addEventListener('click', (e) => {
             console.log('Cancel clicked');
             xhr.abort();
+            if (prepared && !uploadFinished) this.applicationRequest('POST', `/applicationUpdate?${this.applicationPath(prepared)}&action=cancel`).catch(() => {});
         });
 
     }

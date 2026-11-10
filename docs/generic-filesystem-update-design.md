@@ -1,113 +1,68 @@
 # Generic filesystem update: admission and recovery
 
-This is an implementation design, not a completed or qualified upload path.
-Canonical LILYGO firmware bundles its web assets and continues to refuse raw
-Application images. Generic boards retain their separate filesystem workflow.
+Generic builds use the browser-only prepared flow described in
+[the user guide](generic-filesystem-update.md). Canonical LILYGO firmware bundles
+web assets and refuses separate Application images with HTTP 410. This change
+does not introduce a browser/LCD approval workflow.
 
-The current generic receiver starts Arduino Update and writes the filesystem
-partition while LittleFS remains mounted. Its request-owner guard prevents
-competing uploads but does not exclude model persistence or open static-file
-responses. This must be corrected before claiming update safety.
+The existing GitUpdate manual owner and ManualUpdateLifecycle govern metadata
+preparation, exclusive receive, cleanup and restart handoff. Preparation binds a
+nonce, security revision and exact full-partition byte count. Initial preparation
+uses the existing model-commit FIFO at normal priority, behind accepted work;
+no request pointer or image is copied into its 80-byte markers. Metadata requests
+have no upload-disconnect hook. Only an exclusively adopted file request installs
+that hook. A failed adoption cannot retire the request that actually owns receive.
 
-The pinned Arduino `LittleFSFS::end()` returns void. It logs an unregister
-failure and returns without clearing the mountpoint. Calling it is therefore
-not proof of unmounting. The underlying SDK exposes `esp_littlefs_mounted()`;
-admission must verify the actual unmounted state before any raw write. The
-installed SDK header does not establish safe behavior for open response files.
-Do not infer that from exclusive upload ownership.
+The loop's bounded ApplicationFilesystem resource record performs these steps:
 
-The implementation must use the existing manual owner and lifecycle throughout:
+1. Check model trust, security history, idle work and the exact mounted `spiffs`
+   partition. Pinned Arduino Update ignores the label for U_SPIFFS/U_LITTLEFS and
+   selects the first partition of the subtype. Prove the SDK target's address,
+   size, label and subtype match the mounted partition and exact image size.
+2. Verify a current-model save. Briefly seal empty FIFO admission while publishing
+   the existing radio pause and the mount-I/O seal, then reopen FIFO admission.
+   Independent wired controls remain usable. RF requests admitted during this
+   install pause retain refusal even if drained after resume; they cannot execute
+   later. Legacy frequency-scan accepted-work behavior is preserved separately.
+3. Wait for tracked handles to drain. MountedFilesystemGate leases cover checked
+   model persistence and read-only static assets. Shared FileImpl aliases retain
+   their lease until underlying close; concurrent close waits for active reads,
+   and closed aliases cannot issue late I/O. Backup responses are RAM-backed.
+4. Call LittleFS.end() and verify esp_littlefs_mounted("spiffs") is false. The SDK
+   end() returns void and may fail, so its call alone never admits raw writes.
+5. Permit the exact prepared source to receive one file. Recheck authentication,
+   source and expiry on every chunk; enforce offsets and byte count, reject a
+   second file, and use Update.end(false). The legacy image receiver is
+   firmware-only; it cannot accept filesystem images.
+6. Complete the authenticated whole HTTP request before requesting recovery or
+   restart. File-final alone grants neither a restart nor a recovery retry that
+   can reboot. Only exact-source loop cleanup aborts an SDK object it owns.
+7. Remount without formatting, verify the mount, restore the exact radio token
+   and save CURRENT RAM through the checked writer. Never load uploaded counters
+   or model configuration. Preserve dirty RAM while storage is unavailable.
+8. After verified recovery, try safe restart once while authority is fresh.
+   Expiry, refused restart or a recovery fault removes that automatic permission.
+   Explicit recovery retry grants no receive or restart permission.
 
-1. Prepare on loop, after all accepted movement/work drains. Preserve current
-   model and counters with the existing checked save. Prevent new filesystem
-   readers and writers, and wait for existing response/file operations to close.
-   Refuse before writing if those conditions cannot be proved.
-2. Unmount and verify the SDK reports unmounted. Only then permit this exact
-   source to begin receiving/writing its filesystem image. Bind the original
-   authenticated security revision and retain bounded transfer expiry.
-3. On completion, disconnect, short write or expiry, finish/abort only the exact
-   owned SDK operation. Loop remounts without formatting, verifies the mount,
-   and saves the CURRENT retained RAM model through the existing checked writer.
-   Never reload counters/configuration from the uploaded filesystem image.
-4. Permit restart only after verified current-state save and the existing final
-   restart checks. Failed mount/save remains visibly refused or recovery-pending;
-   never automatically format, erase state, restore stale counters or replay RF.
+Cleanup runs before generic manual cleanup and retains the same operation claim
+while mount/radio resources remain unavailable. No owner lock spans file, SDK,
+radio or serialization I/O. A busy radio restoration defers without sealing the
+FIFO; failed mount recovery still releases the radio where possible. A failed
+mount/save retains exact-source attention status for explicit retry. Canonical
+bundled builds compile inert filesystem-preparation functions.
 
-Reader tracking is now implemented for generic static assets through a read-only
-FS view. Its shared FileImpl lease survives request/response aliases and releases
-only after underlying close. Concurrent close waits for active reads; closed
-aliases cannot issue later filesystem I/O. Actual pinned Arduino File/FS tests
-cover aliases, destruction, missing files, write denial and concurrent closure.
-The two native gate tests cover sealing, draining and cancelled preparation.
-The gate uses ordinary project-style atomic operations in task context; the
-pinned ESP32 toolchain does not promise lock-free atomics. No service lock is
-held across file I/O.
-
-The upload receiver does not seal this gate yet. The raw mounted-write bug is
-still open until the prepare/unmount/recovery flow above is wired and tested.
-Backup responses are RAM-backed, not persistent file handles.
-
-The checked model writer now holds the same mount lease across staging,
-replacement and final readback. Sealed admission returns filesystemBusy before
-serialization or I/O; the existing model service retains dirty RAM state. A retry
-after recovery serializes current counters, not a pre-upload snapshot. Protocol
-and log messages distinguish this deferral without claiming an old disk file was
-retained while its partition may have been replaced.
-
-The existing manual lifecycle now has preparation/ready/adoption transitions
-binding a nonce, security revision and exact image byte count. Ready adoption
-is exclusive; stale sources and expired clocks cannot claim receiving. A distinct
-filesystem-unavailable resource prevents owner release or restart even when no
-SDK operation was ever acquired. Expired sources may enter reducing mount
-recovery, but cannot regain receive/SDK claims. This metadata is bounded to80
-bytes under the same updater lock; it is not a second transfer owner.
-
-Remaining implementation: finish the live-filesystem entry-point audit and
-choose the smallest bounded browser admission handshake that preserves the SAME
-manual owner and does not create a second upload broker. Tests must inject reader
-races, failed unmount/remount, short writes, expiry, old callbacks and failed
-current-model recovery. No power-loss transaction guarantee is established.
-
-Pinned updater selection must match the mounted partition. Arduino Update's
-U_SPIFFS branch selects the first SPIFFS-subtype partition and ignores its label
-argument; U_LITTLEFS similarly selects the first LittleFS subtype. Verify the
-chosen partition is exactly the one mounted as spiffs, and reject a mismatch
-before raw writes. Do not assume the begin() label selects it.
-
-`ApplicationFilesystem` now implements the loop's bounded physical resource
-record beneath that same owner. Initial preparation uses the existing model
-commit FIFO at normal priority. It verifies the exact mounted `spiffs` partition
-matches the pinned Update SDK's first partition of the selected subtype and
-requires a full-partition image. It saves current RAM, briefly seals queue
-admission while publishing the existing radio pause and filesystem seal, then
-allows independent wired work while tracked file handles drain. Only verified
-unmounting publishes ready status. The metadata request has no upload-disconnect
-hook; only the later adopted file request may own that hook.
-
-Reducing cleanup precedes generic upload cleanup. It never aborts a foreign SDK
-object, remounts without formatting, restores the exact radio token, and saves
-current RAM. Busy radio restoration is deferred without holding queue admission.
-Mount/save faults retain the source for explicit recovery retry; retry cannot
-receive another image or authorize a restart. A failed mount still releases the
-radio where possible. Cached status and loop resources contain no request or
-image pointers. Canonical bundled builds compile inert versions of this module.
-
-Seventeen host scenarios exercise the actual implementation with the real
-GitUpdate owner and fake I/O; the FIFO preparation regression additionally
-checks normal ordering and no producer-side commit. Both firmware environments
-compile. The browser preparation endpoints, exact-source file receiver and
-successful-upload restart handoff are still to be connected and qualified;
-these component checks do not make the existing generic upload route safe.
+The host harnesses exercise actual owner/driver/receiver/HTTP code with fake I/O,
+the actual FIFO and local-control adapter, and pinned Arduino File/FS aliases.
+Native tests cover lifecycle and FIFO rules; browser tests cover readiness,
+identity validation, cancellation, status loss, explicit recovery and no replay.
+Both firmware environments compile. These are offline checks, not hardware or
+power-loss qualification. No power-loss transaction guarantee is established.
 
 
-The prepared-source receiver is implemented separately from legacy firmware
-upload handling. It binds each chunk to the exclusively adopted source and
-current authentication, requires exact file size/offset, uses Update.end(false),
-and rejects a second file. A failed adoption cannot retire another receiver.
-Only authenticated whole-request completion transfers to reducing loop recovery;
-file-final alone grants no reboot. After mounted proof and current-RAM save,
-restart is attempted once through the existing safe restart service. Expiry,
-refused restart or a recovery fault removes that automatic permission; explicit
-cleanup retry cannot revive it. Thirty-three actual owner/driver/receiver host
-scenarios cover these boundaries, including overlapping adoption and foreign SDK
-preservation. Browser endpoints and UI choreography are still unconnected.
+The entry-point audit found startup-only directory listing and app-version/model
+reads before HTTP handlers start; unused legacy settings-file loaders have no
+runtime callers. Restore temporary-file receive, validation and apply retain
+the mutually exclusive restore owner, so they cannot overlap application
+preparation. Backup output is constructed in RAM. The checked model commit and
+generic static-file wrapper are the remaining live mounted-I/O paths, and both
+use the shared gate.
