@@ -1,6 +1,6 @@
 # LILYGO T-Embed CC1101 and CC1101 Plus
 
-**ALPHA / preview — applies to all builds currently produced by this fork.**
+**ENGINEERING BUILD — INCOMPLETE. Applies to all builds currently produced by this fork.**
 
 > WARNING: Please do not load these builds, these are still a preview of the final approach.
 
@@ -8,9 +8,8 @@ An actual controller GitHub download and installation has **never yet completed*
 Host/offline tests and successful desktop asset downloads do not prove that path.
 See the [remaining qualification](docs/lcd-completion-qualification.md).
 
-Release **4.7.0** is a GitHub **ALPHA prerelease**. The current stable updater rejects
-prereleases. A separate LCD **Check alpha previews** option is not implemented;
-its design awaits Sid's choice.
+Release **4.7.0** uses the existing GitHub updater path and normal release
+eligibility. Its public assets remain available; no separate alpha opt-in is used.
 
 For backup, firmware-only A/B installation, verification and recovery, follow [the standard flashing procedure](docs/flashing.md). Use the shared `lilygo-t-embed-cc1101` firmware for either CC1101 or CC1101 Plus; it includes display, interactive UI, local commands and the matching web UI.
 
