@@ -34,14 +34,16 @@ have different stop/reverse semantics and no ordinary STOP action.
 **Pin device**, **Pin group**, **Remove shortcut**, **Move up** or **Move down**.
 Choose **Save shortcuts**, review all three targets, then turn from **Cancel** to
 **Save** and press. The configured web credential also protects these edits.
-Leaving Manage with Back, choosing Cancel or an expired session discards the
-unsaved draft. Selecting a target
+Back or **Cancel** on the Manage screen discards the unsaved draft, as does an
+expired session. **Cancel** on the final Save review returns to Manage and keeps
+your draft. Selecting a target
 or changing the draft sends no motor command.
 
 Without saved shortcuts, the UI suggests group ID 1 and device IDs 1 and 2 when
 those targets exist. Suggestions stay in memory until you explicitly save them.
-Saved empty slots remain empty. A removed target or changed radio identity shows
-**Unavailable** until you edit the shortcut; it never selects another device.
+Saved empty slots remain empty. A missing target or changed radio identity shows
+**Unavailable**; it never selects another device. Restoring the same target ID and
+radio identity makes its shortcut usable again after fresh checks.
 Names follow the current configuration. Shortcut pins are separate from the
 motor's MY/Favourite position.
 
