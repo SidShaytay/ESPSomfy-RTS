@@ -40,7 +40,7 @@ Finalproductionapproved66669ba; docs f9a4638+99aa3c1 approved; versiononlydcdb58
 -ActualUI/encoder/GFX/exactpresentation/auth/capture/FIFO, combinedscan/installrefusal+independentGPIO, model/group/membership/startup/namedFS SDKboundary/MQTTtrust/board/status.
 -Actualworker/controller/HTTP/FS/readleases/currentRAMrecovery/boothealth/idleautomaticrollback/4000threadownership; realclockRED→GREEN/genuinebackwardclockrefused.
 -Finalversiontool+118JS, canonicalpackage48.9s/genericSDK41.1s, exactmanifest/profile/bundle/layoutchecks. Reusedunchangedbehavioralresultsfordocs/versiondelta.
-Logs /tmp/i25-phase4-{full-native,full-js,clock-boundaries,clock-ui,full-host}.log and /tmp/i25-phase5-v450-{version-tests,js,package,generic}.log. Somehistoricalfixture/infrastructurefailsareexplicitlysuperseded; nevercountaspasses.
+Logs /tmp/i25-phase4-{full-native,clock-boundaries,clock-ui,full-host}.log and /tmp/i25-phase5-v450-{version-tests,js,package,generic}.log. Somehistoricalfixture/infrastructurefailsareexplicitlysuperseded; nevercountaspasses.
 
 ## Host / workflow notes
 Global/projectAGENTSread; focusrulesalreadyadded globallyasrequestedearlier. Preserveall existingtrees/branches/remotes/work. No cleanup/discardauthorized. Rootexecutionhistoryarchivedissue-25.log; do notloadroutinely.
