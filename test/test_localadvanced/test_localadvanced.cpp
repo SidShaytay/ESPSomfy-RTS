@@ -110,6 +110,7 @@ struct Model : Advanced::Backend {
   ReceiveHub &receivedFrames() override { return received; }
   LearnQueued queueLearn(LearnPending &pending, uint64_t now) override {
     programmingMarker=pending.usesRadio();
+    sensorMarker=pending.usesRadio();
     auto result = learnedQueue.reserve(pending, now);
     learnedToken = result.token;
     return result;
@@ -179,6 +180,19 @@ struct Model : Advanced::Backend {
     const auto admission=checkPairingContext(target,context,auth,history);
     if(admission!=Admission::accepted||witness.current(40)!=LearnQueueReason::ready)return {shade_request_result_t::radio_refused,Admission::stale};
     ++programmingSends;programmingRepeats=repeats;return {shade_request_result_t::done};
+  }
+  unsigned sensorSends=0;bool sensorMarker=false;
+  SensorSimulation lastSensor;Target lastSensorTarget;
+  bool supportsSensor(Target target) override{return target.scope!=Scope::repeaters;}
+  Admission checkSensorContext(Target target,const Context &context,Authorization auth,uint64_t revision) override {
+    return checkLearnContext(target,context,auth,revision);
+  }
+  SensorResult sendSensor(Target target,const Context &context,Authorization auth,uint64_t revision,
+                          const SensorSimulation &draft,LearnPending &witness) override {
+    const auto admission=checkSensorContext(target,context,auth,revision);
+    if(admission!=Admission::accepted)return {shade_request_result_t::radio_refused,admission};
+    if(witness.current(40)!=LearnQueueReason::ready)return {shade_request_result_t::radio_refused,Admission::stale};
+    ++sensorSends;lastSensor=draft;lastSensorTarget=target;return {shade_request_result_t::done};
   }
   Authorization authorization() override { return auth; }
   uint64_t revision() override { return history; }
@@ -772,7 +786,7 @@ static void sensor_zero_and_observed_format_are_honest_without_fake_rssi() {
 static void openPrimary(Advanced::Form &form) {
   TEST_ASSERT_TRUE(form.open(Scope::devices,1));form.activate(2);
   for(unsigned i=0;i<3;i++)form.turn(1,3+i);
-  FormView view;form.render(view);TEST_ASSERT_EQUAL(7,view.total);TEST_ASSERT_EQUAL(3,view.offset);TEST_ASSERT_EQUAL_STRING("Primary rolling code",view.rows[0].label);
+  FormView view;form.render(view);TEST_ASSERT_EQUAL(8,view.total);TEST_ASSERT_EQUAL(3,view.offset);TEST_ASSERT_EQUAL_STRING("Primary rolling code",view.rows[0].label);
   form.activate(6);form.render(view);TEST_ASSERT_EQUAL(Mode::counterReview,view.mode);TEST_ASSERT_EQUAL(0,view.selected);
 }
 static void editPrimary(Advanced::Form &form,bool change=true) {
@@ -1047,6 +1061,81 @@ static void group_list_file_retry_never_replays_rf_or_membership(){
   form.turn(-1,81);form.activate(82);TEST_ASSERT_EQUAL(1,model.retries);TEST_ASSERT_EQUAL(1,model.saves);
   TEST_ASSERT_EQUAL(1,model.memoryRequests);TEST_ASSERT_EQUAL(1,model.groupRequests);TEST_ASSERT_TRUE(form.closed());
 }
+static void openSensor(Advanced::Form &form,Scope scope=Scope::devices) {
+  TEST_ASSERT_TRUE(form.open(scope,10));form.activate(11);
+  for(unsigned i=0;i<(scope==Scope::devices?7u:4u);++i)form.turn(1,12);
+  form.activate(17);
+}
+static void reviewSensor(Advanced::Form &form,uint64_t at=18) {
+  form.activate(at); // Sunny Keep -> Off, an explicit status change.
+  for(unsigned i=0;i<3;++i)form.turn(1,at+1+i);
+  form.activate(at+5);
+}
+static void sensor_draft_review_cancel_and_exact_fifo_execution() {
+  for(auto scope:{Scope::devices,Scope::groups}) {
+    Model model;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);openSensor(form,scope);
+    FormView view;form.render(view);TEST_ASSERT_EQUAL_STRING("Sunny",view.rows[0].label);TEST_ASSERT_EQUAL_STRING("Keep",view.rows[0].value);
+    for(unsigned i=0;i<3;++i)form.turn(1,18+i);form.activate(21);
+    TEST_ASSERT_FALSE(model.learnedQueue.active());TEST_ASSERT_EQUAL(0,model.sensorSends);
+    for(unsigned i=0;i<3;++i)form.turn(-1,22+i);
+    reviewSensor(form,25);form.render(view);TEST_ASSERT_EQUAL(Mode::sensorReview,view.mode);TEST_ASSERT_EQUAL(0,view.selected);
+    TEST_ASSERT_NOT_NULL(strstr(view.hint,"motor"));form.activate(31); // Default Cancel, no queue/RF.
+    TEST_ASSERT_FALSE(model.learnedQueue.active());TEST_ASSERT_EQUAL(0,model.sensorSends);
+    form.activate(32);form.turn(1,33);form.activate(34);
+    TEST_ASSERT_TRUE(model.learnedQueue.active());TEST_ASSERT_TRUE(model.sensorMarker);TEST_ASSERT_EQUAL(0,model.sensorSends);
+    model.learnedQueue.run(model.learnedToken,40);form.render(view);
+    TEST_ASSERT_EQUAL(1,model.sensorSends);TEST_ASSERT_EQUAL(0,model.lastSensor.sunny);TEST_ASSERT_EQUAL(-1,model.lastSensor.windy);
+    TEST_ASSERT_EQUAL(scope,model.lastSensorTarget.scope);TEST_ASSERT_EQUAL(1,model.lastSensor.repeats);
+    TEST_ASSERT_EQUAL_STRING("Request accepted",view.rows[0].value);TEST_ASSERT_TRUE(view.protectedFrame);
+    model.learnedQueue.run(model.learnedToken,41);form.activate(42);TEST_ASSERT_TRUE(form.closed());
+    TEST_ASSERT_EQUAL(1,model.sensorSends);TEST_ASSERT_EQUAL(0,memory.used());
+  }
+}
+static void queued_sensor_cancel_auth_context_and_expiry_never_send() {
+  for(unsigned changed=0;changed<5;++changed) {
+    Model model;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);openSensor(form);reviewSensor(form);
+    form.turn(1,24);form.activate(25);
+    if(changed==0)form.back(26);
+    if(changed==1)model.auth.allowed=false;
+    if(changed==2)++model.auth.generation;
+    if(changed==3)++model.history;
+    model.learnedQueue.run(model.learnedToken,changed==4?5025:40);
+    TEST_ASSERT_EQUAL(0,model.sensorSends);form.discard();TEST_ASSERT_EQUAL(0,memory.used());
+  }
+}
+static void sensor_repeat_editor_is_bounded_and_never_sends_on_rotation() {
+  Model model;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);openSensor(form);
+  form.turn(1,18);form.turn(1,19);form.activate(20);form.turn(-1,21);
+  for(unsigned i=0;i<200;++i)form.turn(1,22+i);
+  form.activate(222);FormView view;form.render(view);
+  TEST_ASSERT_EQUAL_STRING("127",view.rows[2].value);TEST_ASSERT_EQUAL(0,model.sensorSends);TEST_ASSERT_FALSE(model.learnedQueue.active());
+  form.turn(-1,223);form.turn(-1,224);form.activate(225);
+  for(unsigned i=0;i<3;++i)form.turn(1,226+i);form.activate(230);form.render(view);
+  TEST_ASSERT_EQUAL(Mode::sensorReview,view.mode);TEST_ASSERT_EQUAL_STRING("Repeat frames: 127",view.rows[2].value);
+  TEST_ASSERT_TRUE(view.rows[0].selected);TEST_ASSERT_EQUAL(0,model.sensorSends);form.discard();TEST_ASSERT_EQUAL(0,memory.used());
+}
+static void sensor_request_preserves_explicit_flags_target_and_bounded_repeat_without_gpio() {
+  for(auto protocol:{radio_proto::RTS,radio_proto::RTW,radio_proto::RTV})
+  for(auto bits:{56,80})for(bool group:{false,true})
+  for(int8_t windy:{int8_t(-1),int8_t(0),int8_t(1)})
+  for(int8_t sunny:{int8_t(-1),int8_t(0),int8_t(1)}) {
+    SensorSimulation draft;draft.windy=windy;draft.sunny=sunny;draft.repeats=127;
+    shade_request_t request;request.id=77;
+    const bool changed=windy!=-1||sunny!=-1;
+    TEST_ASSERT_EQUAL(changed,prepareSensorSimulation(protocol,bits,group,22,draft,request));
+    if(!changed){TEST_ASSERT_EQUAL(77,request.id);continue;}
+    TEST_ASSERT_EQUAL(22,request.id);TEST_ASSERT_EQUAL(windy,request.windy);TEST_ASSERT_EQUAL(sunny,request.sunny);TEST_ASSERT_EQUAL(127,request.repeat);
+    TEST_ASSERT_EQUAL(uint8_t(group?shade_request_type_t::group_sensor:shade_request_type_t::shade_sensor),uint8_t(request.type));
+  }
+  SensorSimulation draft;draft.sunny=1;shade_request_t request;request.id=77;
+  for(auto protocol:{radio_proto::GP_Remote,radio_proto::GP_Relay,static_cast<radio_proto>(255)})
+    TEST_ASSERT_FALSE(prepareSensorSimulation(protocol,80,false,7,draft,request));
+  for(int id:{-1,0,255,256})TEST_ASSERT_FALSE(prepareSensorSimulation(radio_proto::RTS,80,false,id,draft,request));
+  for(unsigned bits:{0,64,81})TEST_ASSERT_FALSE(prepareSensorSimulation(radio_proto::RTS,bits,false,7,draft,request));
+  for(unsigned repeats:{0,128,255}){draft.repeats=repeats;TEST_ASSERT_FALSE(prepareSensorSimulation(radio_proto::RTS,80,false,7,draft,request));}
+  draft.repeats=1;draft.windy=2;TEST_ASSERT_FALSE(prepareSensorSimulation(radio_proto::RTS,80,false,7,draft,request));
+  TEST_ASSERT_EQUAL(77,request.id);
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(readonly_status_pages_refresh_without_commands_or_saves_and_revoke);
@@ -1063,6 +1152,10 @@ int main() {
   RUN_TEST(group_programming_requires_independent_rf_observation_and_list_confirmations);
   RUN_TEST(group_cancel_age_auth_and_context_changes_never_dispatch);
   RUN_TEST(group_list_file_retry_never_replays_rf_or_membership);
+  RUN_TEST(sensor_repeat_editor_is_bounded_and_never_sends_on_rotation);
+  RUN_TEST(sensor_draft_review_cancel_and_exact_fifo_execution);
+  RUN_TEST(queued_sensor_cancel_auth_context_and_expiry_never_send);
+  RUN_TEST(sensor_request_preserves_explicit_flags_target_and_bounded_repeat_without_gpio);
   RUN_TEST(primary_queue_back_age_auth_and_unknown_storage_never_replay);
   RUN_TEST(remote_pending_cancel_expiry_and_auth_never_send);
   RUN_TEST(remote_repeat_bounds_and_group_menu_are_explicit);

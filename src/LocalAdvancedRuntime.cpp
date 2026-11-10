@@ -41,6 +41,19 @@ public:
   bool owns() const { return held && gitUpdate.ownsExternal(token); }
 };
 class RuntimeBackend final : public Backend {
+  bool sensorRequest(Target target,const SensorSimulation &draft,shade_request_t &request){
+    radio_proto protocol;uint8_t bits;uint32_t address;
+    if(target.scope==Scope::devices){
+      auto *shade=somfy.getShadeById(target.id);if(!shade)return false;
+      protocol=shade->proto;bits=shade->bitLength;address=shade->getRemoteAddress();
+    }else if(target.scope==Scope::groups){
+      auto *group=somfy.getGroupById(target.id);if(!group)return false;
+      protocol=group->proto;bits=group->bitLength;address=group->getRemoteAddress();
+    }else return false;
+    return address&&address<=0xffffff&&prepareSensorSimulation(protocol,bits?bits:somfy.transceiver.config.type,
+        target.scope==Scope::groups,target.id,draft,request);
+  }
+
   bool remoteRequest(Target target,const RemoteProgram &program,shade_request_t &request) {
     radio_proto protocol;uint8_t bits;uint32_t address;
     if(target.scope==Scope::devices) {
@@ -195,6 +208,33 @@ class RuntimeBackend final : public Backend {
     model_edit_t edit;edit.type=model_edit_type_t::link_repeater;swap(edit.doc,expanded);return {applyModelEdit(edit)};
   }
 public:
+  bool supportsSensor(Target target)override{
+    SensorSimulation probe;probe.sunny=0;shade_request_t request;
+    return authorization().allowed&&somfy.modelLoad.usable()&&sensorRequest(target,probe,request);
+  }
+  Admission checkSensorContext(Target target,const Context &expected,Authorization auth,uint64_t history)override{
+    const auto identity=admittedIdentity(auth,history);if(identity!=Admission::accepted)return identity;
+    Context current;
+    if(!supportsSensor(target)||!capture(target,current)||!expected.same(current))return Admission::stale;
+    if(!somfy.transceiver.available()||somfy.transceiver.txSuspended()||!idle(target))return Admission::busy;
+    if(target.scope==Scope::groups&&readGroupReadiness(somfy,*somfy.getGroupById(target.id)).unknownMovement())return Admission::busy;
+    return Admission::accepted;
+  }
+  SensorResult sendSensor(Target target,const Context &expected,Authorization auth,uint64_t history,
+                          const SensorSimulation &draft,LearnPending &witness)override{
+    ConfigurationLease lease;
+    auto admission=admit(target,expected,auth,history,&lease);
+    if(admission!=Admission::accepted)return {shade_request_result_t::radio_refused,admission};
+    admission=checkSensorContext(target,expected,auth,history);
+    if(admission!=Admission::accepted)return {shade_request_result_t::radio_refused,admission};
+    if(!somfy.transceiver.restartQuiescent()||somfy.transceiver.counterBlocksIdentity(expected.raw.identity))
+      return {shade_request_result_t::radio_refused,Admission::busy};
+    shade_request_t request;
+    if(!sensorRequest(target,draft,request))return {shade_request_result_t::radio_refused,Admission::invalid};
+    if(witness.current(uint64_t(esp_timer_get_time())/1000)!=LearnQueueReason::ready)
+      return {shade_request_result_t::radio_refused,Admission::stale};
+    return {shadeRequests.run(request)};
+  }
   bool statusRow(Target target,uint8_t index,FormRow &row)override{
     row={};if(!authorization().allowed||!somfy.modelLoad.usable()||target.scope==Scope::repeaters||!validTarget(target))return false;
     EntityStatus state;state.group=target.scope==Scope::groups;state.radioReady=somfy.transceiver.available()&&!somfy.transceiver.txSuspended();

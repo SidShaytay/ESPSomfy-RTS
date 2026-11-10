@@ -49,6 +49,7 @@ struct Shade {
   bool idleForAdministration() { return idle&&!gpioRelease; }
 };
 struct Group {
+  radio_proto proto=radio_proto::RTS;uint8_t bitLength=80;
   int8_t direction = 1;
   somfy_frame_t lastFrame;
   uint8_t id = 255;
@@ -258,10 +259,11 @@ Backend &runtimeBackend() {
 } // namespace EntityAdmin
 } // namespace LocalUi
 #include "../../src/GitUpdate.cpp"
+static unsigned sensorSends=0;static shade_request_t lastSensor;
 static unsigned programmingSends=0;static shade_request_t programmingRequest;
 static unsigned pairingSends=0;static shade_request_t pairingRequest;
 static unsigned radioCommands=0;static shade_request_t sentRemote;
-struct RecordingRequests {shade_request_result_t run(const shade_request_t &request){TEST_ASSERT_TRUE(gitUpdate.busy());GitUpdateOwnerToken competing;const bool acquired=gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,competing);if(acquired)gitUpdate.releaseExternal(competing);TEST_ASSERT_FALSE(acquired);++radioCommands;sentRemote=request;++programmingSends;programmingRequest=request;++pairingSends;pairingRequest=request;return shade_request_result_t::done;}} shadeRequests;
+struct RecordingRequests {shade_request_result_t run(const shade_request_t &request){TEST_ASSERT_TRUE(gitUpdate.busy());GitUpdateOwnerToken competing;const bool acquired=gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,competing);if(acquired)gitUpdate.releaseExternal(competing);TEST_ASSERT_FALSE(acquired);++radioCommands;sentRemote=request;++sensorSends;lastSensor=request;++programmingSends;programmingRequest=request;++pairingSends;pairingRequest=request;return shade_request_result_t::done;}} shadeRequests;
 #define ShadeRequests RecordingRequests
 #include "../../src/LocalAdvancedRuntime.cpp"
 #undef ShadeRequests
@@ -281,6 +283,7 @@ void setUp() {
   queueAccepts = true;
   expireAllocation = restartAllocation = memberMoves = blockAllocation = false;
   pairingSends=0;pairingRequest={};
+  sensorSends=0;lastSensor={};
   pendingRestart = false;primaryWrites=0;primaryMatches=true;afterPrimaryRead=nullptr;
   file = ModelCommitState::saved;repeaterListAllocation=false;
   programmingSends=0;programmingRequest={};
@@ -892,6 +895,23 @@ static void group_candidates_require_exact_rf_format_membership_capacity_and_ide
   somfy.groups[0].linkedShades[31]=0;TEST_ASSERT_TRUE(source().groupProgrammingSelection(target,true,7,selection));
   TEST_ASSERT_EQUAL(0,programmingSends);TEST_ASSERT_EQUAL(0,applies);
 }
+static void sensor_dispatch_holds_shared_owner_and_rejects_unknown_group_motion() {
+  Target device{Scope::devices,7};Context context;TEST_ASSERT_TRUE(source().capture(device,context));
+  const auto auth=source().authorization();const auto history=source().revision();
+  SensorSimulation draft;draft.sunny=1;draft.windy=0;draft.repeats=127;Witness witness;
+  const auto result=source().sendSensor(device,context,auth,history,draft,witness);
+  TEST_ASSERT_EQUAL(Admission::accepted,result.admission);TEST_ASSERT_EQUAL(shade_request_result_t::done,result.result);
+  TEST_ASSERT_EQUAL(1,sensorSends);TEST_ASSERT_EQUAL(shade_request_type_t::shade_sensor,lastSensor.type);
+  TEST_ASSERT_EQUAL(1,lastSensor.sunny);TEST_ASSERT_EQUAL(0,lastSensor.windy);TEST_ASSERT_EQUAL(127,lastSensor.repeat);
+  somfy.transceiver.suspended=true;TEST_ASSERT_EQUAL(Admission::busy,source().checkSensorContext(device,context,auth,history));somfy.transceiver.suspended=false;
+  somfy.shades[0].proto=radio_proto::GP_Relay;TEST_ASSERT_FALSE(source().supportsSensor(device));somfy.shades[0].proto=radio_proto::RTS;
+  Target group{Scope::groups,9};TEST_ASSERT_TRUE(source().capture(group,context));
+  TEST_ASSERT_EQUAL(Admission::busy,source().checkSensorContext(group,context,auth,history));
+  somfy.groups[0].linkedShades[31]=0;TEST_ASSERT_TRUE(source().capture(group,context));
+  TEST_ASSERT_EQUAL(shade_request_result_t::done,source().sendSensor(group,context,auth,history,draft,witness).result);
+  TEST_ASSERT_EQUAL(2,sensorSends);TEST_ASSERT_EQUAL(shade_request_type_t::group_sensor,lastSensor.type);
+  TEST_ASSERT_FALSE(gitUpdate.busy());
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(status_rows_are_live_readonly_and_group_estimates_are_not_invented);
@@ -907,6 +927,7 @@ int main() {
   RUN_TEST(group_list_save_is_separate_and_rechecks_after_allocation);
   RUN_TEST(group_programming_uses_exact_device40_and_group1_under_shared_owner);
   RUN_TEST(group_programming_rechecks_context_motion_profile_owner_and_witness);
+  RUN_TEST(sensor_dispatch_holds_shared_owner_and_rejects_unknown_group_motion);
   RUN_TEST(primary_counter_read_and_final_apply_share_fresh_context_without_nested_owner);
   RUN_TEST(primary_final_read_side_effect_and_witness_changes_refuse_without_correction);
   RUN_TEST(checked_link_uses_only_address_counter_and_domain_owned_lease);
