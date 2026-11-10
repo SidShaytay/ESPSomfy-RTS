@@ -17,6 +17,8 @@ uint32_t hash(const void *p,size_t n,uint32_t h=2166136261u) {
 uint32_t sceneHash(const Model &m,const View &v,const StatusDisplay::Snapshot &s) {
   const uint32_t values[]={uint32_t(v.screen),v.selected,v.cursor,uint32_t(v.catalogue),v.room,
     uint32_t(v.entity.kind),v.entity.id,uint32_t(v.openedToken),uint32_t(v.openedToken>>32),uint32_t(v.action),
+    uint32_t(v.favouriteRevision),uint32_t(v.favouriteRevision>>32),
+    uint32_t(m.target.favouriteRevision),uint32_t(m.target.favouriteRevision>>32),m.target.favouriteReady,m.target.favouriteClearReady,
     v.valueChoice,uint32_t(v.draftValue),uint32_t(v.notice),v.level,v.setting,v.detailsOffset,v.dimSeconds,v.offSeconds,
     v.credentialChoice,v.credentialLength,v.credentialMaximum,v.credentialUser,v.credentialByte,v.retryAfterMs/1000,
     m.authorized,m.authGeneration,m.authConfigurationGeneration,uint32_t(m.authMode),m.ready,m.controlsEnabled,m.controlPending,
@@ -79,9 +81,10 @@ uint32_t administrationHash(const EntityAdmin::FormView &view,uint64_t epoch) {
 bool sameMeaning(const View &a,const View &b,uint64_t page,uint64_t framePage,uint64_t target,uint64_t frameTarget) {
   if(a.screen!=b.screen || a.notice!=b.notice) return false;
   if(a.screen==Screen::catalogue) return page==framePage && a.catalogue==b.catalogue && a.room==b.room && a.cursor==b.cursor;
-  if(a.screen==Screen::control || a.screen==Screen::actions || a.screen==Screen::value) {
+  if(a.screen==Screen::control || a.screen==Screen::actions || a.screen==Screen::value || a.screen==Screen::favouriteObserve || a.screen==Screen::favouriteConfirm) {
     const bool sameTarget=a.entity==b.entity && a.openedToken==b.openedToken && target==frameTarget && a.action==b.action;
     if(a.screen==Screen::actions) return sameTarget && a.selected==b.selected;
+    if(a.screen==Screen::favouriteObserve || a.screen==Screen::favouriteConfirm) return sameTarget && a.valueChoice==b.valueChoice && a.favouriteRevision==b.favouriteRevision;
     if(a.screen==Screen::value) return sameTarget && a.valueChoice==b.valueChoice && a.draftValue==b.draftValue;
     return sameTarget;
   }
@@ -148,12 +151,13 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
     if(before.action==Action::stop) visible=same && stopPresentedRef==before.entity && stopPresentedToken==before.openedToken;
     else visible &= same && presentedView.entity==before.entity && presentedView.openedToken==before.openedToken &&
       presentedTargetToken==before.openedToken && presentedView.action==before.action;
-  } else if(before.screen==Screen::actions || before.screen==Screen::value) {
+  } else if(before.screen==Screen::actions || before.screen==Screen::value || before.screen==Screen::favouriteObserve || before.screen==Screen::favouriteConfirm) {
     visible &= model.target.ref==before.entity && before.openedToken && model.target.token==before.openedToken &&
       presentedView.entity==before.entity && presentedView.openedToken==before.openedToken &&
       presentedTargetToken==before.openedToken && presentedView.action==before.action;
     if(before.screen==Screen::actions) visible &= presentedView.selected==before.selected;
-    else visible &= presentedView.valueChoice==before.valueChoice && presentedView.draftValue==before.draftValue;
+    else if(before.screen==Screen::value) visible &= presentedView.valueChoice==before.valueChoice && presentedView.draftValue==before.draftValue;
+    else visible &= presentedView.valueChoice==before.valueChoice && presentedView.favouriteRevision==before.favouriteRevision;
   } else if(before.screen==Screen::settings)
     visible &= settingsActive && presentedSettingsValid && sameSettings(settingsForm.view(),presentedSettings);
   else if(before.screen==Screen::brightness)
@@ -169,7 +173,8 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
   if(controller.takeCredentials(credentials)) controller.unlockResult(now,unlockAuthorization(credentials));
   credentials.clear();
   if(controller.view().screen==Screen::unlock || controller.view().screen==Screen::settings ||
-     controller.view().screen==Screen::administration || controller.view().screen==Screen::system) setCaptureProtected(true);
+     controller.view().screen==Screen::administration || controller.view().screen==Screen::system ||
+     controller.view().screen==Screen::favouriteObserve || controller.view().screen==Screen::favouriteConfirm) setCaptureProtected(true);
   Command command;
   if(controller.take(command)) controller.result(now,dispatch(command));
   FormInput input;
@@ -322,7 +327,8 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
       stopPresentedRef=frameView.entity;stopPresentedToken=frameTargetToken;
       markControlPresented(frameView.entity,frameTargetToken,frameView.authorizedSelection,frameView.selectionAuthGeneration);
     }
-    if(frameView.screen!=Screen::unlock && frameView.screen!=Screen::settings && frameView.screen!=Screen::administration && frameView.screen!=Screen::system) setCaptureProtected(false);
+    if(frameView.screen!=Screen::unlock && frameView.screen!=Screen::settings && frameView.screen!=Screen::administration && frameView.screen!=Screen::system &&
+       frameView.screen!=Screen::favouriteObserve && frameView.screen!=Screen::favouriteConfirm) setCaptureProtected(false);
   }
   return true;
 }

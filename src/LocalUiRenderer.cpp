@@ -258,6 +258,17 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
     if(m.controlPending) text(12,164,"Queued action; Back cancels",false,amber);
     else if(v.notice!=Notice::none) text(12,164,notices[int(v.notice)],false,amber);
     else text(12,164,"Turn: choose   Back: STOP page",false,muted);
+  } else if(v.screen==Screen::favouriteObserve || v.screen==Screen::favouriteConfirm) {
+    snprintf(label,sizeof(label),"#%u %s",unsigned(v.entity.id),m.target.name);text(12,28,label,true,white);
+    const bool review=v.screen==Screen::favouriteConfirm,clear=v.action==Action::clearFavouriteHere;
+    text(12,52,review?(clear?"Clear favourite?":"Set favourite here?"):"First move, then observe stop",false,amber);
+    snprintf(label,sizeof(label),"Estimate: %d%%   Tilt: %d%%",int(m.target.position),int(m.target.tiltPosition));text(12,75,label,false,muted);
+    const char *choices[]={review?"Cancel":"Move with normal controls",review?(clear?"Send Clear favourite":"Send Set favourite"):"I observed it stopped"};
+    for(unsigned i=0;i<2;++i) {
+      const int y=89+i*30;const bool active=v.valueChoice==i;
+      fillRoundRect(10,y,300,27,4,active?selected:bg);text(18,y+20,choices[i],false,active?teal:white,284);
+    }
+    text(12,164,v.notice!=Notice::none?notices[int(v.notice)]:review?"Programs motor; observe result.":clear&&!m.target.favouriteClearReady?"Clear: reach old favourite first.":"Back: controls   No command yet",false,amber);
   } else if(v.screen==Screen::value) {
     snprintf(label,sizeof(label),"#%s%u %s",v.entity.kind==EntityKind::group?"G":"",unsigned(v.entity.id),m.target.name);
     text(12,28,label,true,white);text(12,52,controlLabel(v.action),false,muted);

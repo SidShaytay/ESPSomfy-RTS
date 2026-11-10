@@ -135,6 +135,7 @@ int main(){
   for(unsigned i=0;i<unsigned(Action::count);i++) {
     const auto action=Action(i);if(action==Action::toggle) continue;
     auto request=command(view,action);
+    if(favouriteProgramming(action)) {const auto before=submitted.size();assert(dispatch(request)==DispatchResult::stale && submitted.size()==before);continue;}
     if(action==Action::position || action==Action::tiltPosition) request.value=42;
     if(action==Action::stepUp || action==Action::stepDown) request.step=7;
     const auto count=submitted.size();assert(dispatch(request)==DispatchResult::done && submitted.size()==count+1);

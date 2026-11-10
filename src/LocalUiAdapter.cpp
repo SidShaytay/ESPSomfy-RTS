@@ -4,6 +4,7 @@
 #include "LocalUiAuthorizationAdapter.h"
 #include "LocalStopLease.h"
 #include "LocalTargetRead.h"
+#include "ModelIdleForAdministration.h"
 #include "Somfy.h"
 #include "ShadeRequests.h"
 #include "LoopQueue.h"
@@ -79,14 +80,16 @@ ControlMask gpioCapabilities(SomfyShade &shade,ControlDescriptor d,ControlMask m
   if(rf(d.proto))return mask;
   // Construct the same typed requests as dispatch; idle STOP remains visible.
   d.moving=d.tiltMoving=true;
-  for(uint8_t n=0;n<uint8_t(Action::sunOff)+1;n++) {
+  for(uint8_t n=0;n<uint8_t(Action::count);n++) {
     const auto action=Action(n); const auto bit=controlActionBit(action);
     if(!(mask&bit))continue;
     shade_request_t request;
     const bool target=action==Action::position||action==Action::tiltPosition;
     if(prepareControlRequest(action,d,1,target?50:-1,0,request)!=ControlResult::done) {mask&=~bit;continue;}
     bool allowed;
-    if(request.type==shade_request_type_t::tilt_command)
+    if(favouriteProgramming(action))
+      allowed=shade.canGpioCommand(somfy_commands::My)&&shade.canGpioSeek(shade.tiltType!=tilt_types::none);
+    else if(request.type==shade_request_type_t::tilt_command)
       allowed=request.target>=0?shade.canGpioSeek(true):shade.canGpioTilt(request.command);
     else if(request.target>=0)allowed=shade.canGpioSeek(shade.tiltType==tilt_types::tiltonly);
     else {
@@ -111,6 +114,12 @@ bool readTarget(EntityRef ref,Target &target,TargetContext &context,uint32_t &mo
     target.descriptor=descriptor(*shade);
     target.capabilities=gpioCapabilities(*shade,target.descriptor,capabilities(target.descriptor));
     target.valid=target.capabilities!=0;
+    target.favouriteRevision=shade->favouriteObservationRevision();
+    target.favouriteReady=target.favouriteRevision && shade->idleForAdministration();
+    const auto &state=shade->state();
+    target.favouriteClearReady=(shade->tiltType==tilt_types::tiltonly ||
+      (state.myPos>=0 && state.myPos<=100 && state.myPos==state.currentPos)) &&
+      (shade->tiltType==tilt_types::none || (state.myTiltPos>=0 && state.myTiltPos<=100 && state.myTiltPos==state.currentTiltPos));
     target.position=position(shade->state().currentPos,shade->flipPosition);
     target.tiltPosition=position(shade->state().currentTiltPos,shade->flipPosition);
     target.moving=target.descriptor.moving; target.tiltMoving=target.descriptor.tiltMoving;
@@ -188,6 +197,13 @@ void observeLease(const View &view,const SecuritySnapshot &security) {
   stopLease.observe(context,focusedMoving,authorized,selected && security.stopGrace);
   leasedMoving=stopLease.allowed(context);
 }
+bool favouriteCurrent(const Command &command,const Target &target) {
+  return !favouriteProgramming(command.action) ||
+    (command.ref.kind==EntityKind::device && command.favouriteRevision && target.favouriteReady && modelIdleForAdministration(somfy) &&
+     command.favouriteRevision==target.favouriteRevision &&
+     (!rf(target.descriptor.proto) || somfy.transceiver.restartQuiescent()) &&
+     (command.action!=Action::clearFavouriteHere || target.favouriteClearReady));
+}
 // Return queued only while every admission property still permits execution.
 DispatchResult validateControl(Target &target,uint32_t &moving) {
   if(!pendingControl.active || pendingControl.cancelled) return DispatchResult::cancelled;
@@ -199,6 +215,7 @@ DispatchResult validateControl(Target &target,uint32_t &moving) {
   TargetContext current;
   if(!readTarget(pendingControl.command.ref,target,current,moving) || !current.same(pendingControl.guard))
     return DispatchResult::stale;
+  if(!favouriteCurrent(pendingControl.command,target)) return DispatchResult::stale;
   // Any matching target read is authoritative idle evidence, including a
   // queued non-STOP action. Do not let a later UI sample revive an old run.
   stopLease.retainMoving(pendingControl.guard.stopContext(pendingControl.command.token,
@@ -324,6 +341,7 @@ DispatchResult dispatch(const Command &cmd) {
      presentedRef!=cmd.ref || presentedToken!=cmd.token) return DispatchResult::stale;
   Target target; TargetContext current; uint32_t moving=0;
   if(!readTarget(cmd.ref,target,current,moving) || !current.same(focusedContext)) return DispatchResult::stale;
+  if(!favouriteCurrent(cmd,target)) return DispatchResult::stale;
   const auto security=pollAuthorization();
   const bool session=security.allowed && cmd.authGeneration && cmd.authGeneration==security.generation;
   View view; view.entity=cmd.ref; view.openedToken=cmd.token;

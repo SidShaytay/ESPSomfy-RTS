@@ -32,7 +32,8 @@ ControlMask controlCapabilities(const ControlDescriptor &d) {
   if(isToggleShade(d.shadeType) || d.shadeType == shade_types::drycontact) return controlActionBit(ControlAction::toggle);
   ControlMask mask = controlActionBit(ControlAction::up) | controlActionBit(ControlAction::down);
   if(d.shadeType == shade_types::drycontact2) return mask;
-  mask |= controlActionBit(ControlAction::stop) | controlActionBit(ControlAction::my);
+  mask |= controlActionBit(ControlAction::stop) | controlActionBit(ControlAction::my) |
+          controlActionBit(ControlAction::setFavouriteHere) | controlActionBit(ControlAction::clearFavouriteHere);
   if(d.tiltType != tilt_types::tiltonly) mask |= controlActionBit(ControlAction::position);
   if(d.tiltType != tilt_types::none)
     mask |= controlActionBit(ControlAction::tiltUp) | controlActionBit(ControlAction::tiltStop) |
@@ -65,6 +66,8 @@ ControlResult prepareControlRequest(ControlAction action, const ControlDescripto
   case ControlAction::stop:
   case ControlAction::my: request.command = somfy_commands::My; break;
   case ControlAction::favourite: request.command = somfy_commands::Favorite; break;
+  case ControlAction::setFavouriteHere: request.type=shade_request_type_t::set_favorite_here; break;
+  case ControlAction::clearFavouriteHere: request.type=shade_request_type_t::clear_favorite_here; break;
   case ControlAction::toggle: request.command = somfy_commands::Toggle; break;
   case ControlAction::position: request.target = int8_t(value); break;
   case ControlAction::tiltPosition:
