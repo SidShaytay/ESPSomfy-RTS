@@ -65,6 +65,7 @@
   TYPE(endFrequencyScan, 53, 'c', 'd') \
   TYPE(reboot, 54, 'c', 'd') \
   TYPE(commitModel, 55, 'c', 'd') \
+  TYPE(getFrequencyScanResult, 56, 'c', 'd') \
   TYPE(shadeState, 128, 'd', '-') \
   TYPE(shade, 129, 'd', '-') \
   TYPE(shadeRemoved, 130, 'd', '-') \
@@ -199,6 +200,7 @@
   FIELD(hwsync, "hs", 'i', 0) \
   FIELD(pulses, "pu", 'l', 0) \
   FIELD(scanning, "sc", 'b', 0) \
+  FIELD(scanToken, "zs", 's', 0) \
   FIELD(testFreq, "tf", 'n', 0) \
   FIELD(testRssi, "tr", 'i', 0) \
   FIELD(frequency, "fq", 'n', 0) \

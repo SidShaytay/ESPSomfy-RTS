@@ -1,5 +1,6 @@
 #include "RadioScheduler.h"
 #include "RadioUpdateActivity.h"
+#include "FrequencyScanSample.h"
 #include <atomic>
 #include <cassert>
 #include <cstdio>
@@ -52,6 +53,7 @@ struct Transceiver {
  void enableReceive(){io();rxmode=1;ELECHOUSE_cc1101.SetRx();}
  static void handleReceive(){}
  bool txSuspended();
+ bool readFrequencyScan(FrequencyScan::Sample &);
  bool beginFrequencyScan();void endFrequencyScan();void processFrequencyScan(bool=false);void emitFrequencyScan(){}
 };
 #include "production-scan.inc"
@@ -81,6 +83,8 @@ int main(){
  }
  for(unsigned prior:{0u,1u}){
   reset();Transceiver r;rxmode=prior;assert(r.beginFrequencyScan());
+  FrequencyScan::Sample sample;assert(r.readFrequencyScan(sample));assert(sample.frequency==currFreq&&sample.peakFrequency==markFreq);
+  radioBusy=true;sample.frequency=99;assert(!r.readFrequencyScan(sample)&&sample.frequency==99);radioBusy=false;
   assert(rxmode==3&&r.sched.sealedForRestart()&&!r.available()&&!rxPausedForInstall);
   assert(r.txSuspended() && "Existing admission must observe scan-paused RF, not defer commands until scan ends");
   auto next=job();assert(!r.sched.submit(next,true,0,0));

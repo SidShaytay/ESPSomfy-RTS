@@ -2,10 +2,12 @@
 #define LOOP_QUEUE_H
 #include <stdint.h>
 #include <atomic>
+#include <new>
 #include "ShadeRequests.h"
 #include "GitUpdateOwner.h"
 #include "ProtoFrame.h"
 #include "ProtoSchema.h"
+#include "FrequencyScanToken.h"
 
 // The one queue through which other tasks hand work to loop(), which alone
 // changes the shade model (docs/adr/0002-loop-task-is-the-only-writer-of-the-shade-model.md).
@@ -36,22 +38,21 @@ enum class loop_item_type_t : uint8_t {
 struct model_edit_t;
 struct settings_save_t;
 struct loop_item_t {
+  // Payloads are mutually exclusive. Explicit activation preserves C++ union
+  // lifetime; the FIFO copies a trivially copyable marker, never model data.
+  union { shade_request_t request{}; FrequencyScanToken scanToken; };
   loop_item_type_t type = loop_item_type_t::shade_request;
-  shade_request_t request;        // shade_request
-  bool restartAfterCommit = false; // model_commit: only after verified save
-  uint8_t restoreParts = 0;       // restore_shades: RESTORE_* bits
-  model_edit_t *edit = nullptr;   // model_edit: loop() runs and frees it
-  // shade_request, proto_read and proto_device from a protocol 2 client:
-  // loop() replies once it has run.
+  bool restartAfterCommit = false;
+  uint8_t restoreParts = 0;
+  uint8_t op = 0,groupId = 0,section = 0;
+  bool radioScanAtAdmission = false,localRadio = false;
+  model_edit_t *edit = nullptr;
   proto_reply_to_t replyTo;
-  uint8_t op = 0;                 // proto_read and proto_device: the op's type
-  uint8_t groupId = 0;            // proto_read: groupOptions' group
-  uint8_t section = 0;            // proto_device: getSettings' settings_section_t
-  settings_save_t *save = nullptr; // proto_device: saveSettings' save, which loop() frees
-  uint64_t localToken = 0;        // local_control/local_advanced: bounded loop-owned slot
-  bool radioScanAtAdmission = false; // Never replay an RF request accepted during a scan.
-  bool localRadio = false;       // exact admitted protocol, never inferred from row/request type
-  GitUpdateOwnerToken externalOwner; // Exact queued upload/restore source; never request pointers.
+  settings_save_t *save = nullptr;
+  uint64_t localToken = 0;
+  GitUpdateOwnerToken externalOwner;
+  void setScanToken(FrequencyScanToken value){new(&scanToken) FrequencyScanToken(value);}
+
 };
 static_assert(sizeof(loop_item_t)<=80,"Keep model contexts out of the 32 queue markers");
 
@@ -61,7 +62,7 @@ static_assert(sizeof(loop_item_t)<=80,"Keep model contexts out of the 32 queue m
 inline bool loopItemMutates(const loop_item_t &item) {
   if(item.type==loop_item_type_t::proto_read) return false;
   if(item.type==loop_item_type_t::proto_device)
-    return item.op!=uint8_t(proto_type_t::getSettings) && item.op!=uint8_t(proto_type_t::reboot);
+    return item.op!=uint8_t(proto_type_t::getSettings) && item.op!=uint8_t(proto_type_t::getFrequencyScanResult) && item.op!=uint8_t(proto_type_t::reboot);
   return true;
 }
 // Whether the item sends anything on air.

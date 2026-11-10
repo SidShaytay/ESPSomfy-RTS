@@ -169,12 +169,15 @@ The settings are in five sections. `getSettings` and `saveSettings` name one in 
 | Op | Payload | Reply |
 |---|---|---|
 | `scanWifi` | | ok at once. When the scan is done, `wifiNetworks` goes to each client that asked since the last one: the named networks that can be heard, at most 30. A failed scan lists none. |
-| `beginFrequencyScan` | | ok, or radio unavailable when the radio is disabled. The radio sends nothing until the scan ends. Subscribe to the `frequencyScan` feed to follow it. |
-| `endFrequencyScan` | | ok. A scan nobody ends stops after 5 minutes. |
+| `beginFrequencyScan` | | `ok` with `scanToken` (`zs`), or Busy when admission is refused. Subscribe to `frequencyScan` for progress. |
+| `endFrequencyScan` | `scanToken` (`zs`) string returned by Begin | Accepts a Stop only for the original current client and exact scan identity. `ok` acknowledges the request; wait for the matching feed to report scanning false before reviewing. |
+| `getFrequencyScanResult` (56) | `scanToken` (`zs`) string returned by Begin | Completed valid signal peak in `frequency`; refuses active, stale, foreign or invalid results. Reading never saves or changes tuning. |
 | `reboot` | | ok, and the device restarts half a second later. |
 | `commitModel` | empty object; edit/target/command fields are refused | Writes only the current model, without repeating an edit, consuming a counter or sending RF. `ok`/`durable` require a verified model file; `modelSaveState` and failure `desc` report the outcome. It does not request a restart and keeps normal FIFO order. |
 
-These ops run on `loop()` like the rest. `endFrequencyScan` goes ahead of whatever is waiting in the loop queue: an unpair waits there for the radio to send again, which only the scan's end allows.
+These ops run on `loop()` like the rest. Begin requires idle administration admission and preserves accepted queued work. Scan ownership binds the original browser client or LCD session, security configuration and radio settings revision. `scanToken` is a canonical decimal `bootNonce.generation` string; keep it as a string without number conversion. Stop and result requests require that exact identity. The `frequencyScan` feed includes it; ignore events for a different scan.
+
+`endFrequencyScan` retains priority for cleanup. During scanning, RF commands (including unpair) are refused rather than held for later transmission; independent wired GPIO controls remain available. RF remains paused until driver tuning and receive state are restored. A scan stops after five minutes, loss of its authorized source, configuration change or a backwards clock. Closing the browser dialog requests Stop; LCD Back or inactivity also requests Stop. Copying a validated completed peak only edits the Radio settings draft; saving is a separate action.
 
 ## Replies
 

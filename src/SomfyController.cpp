@@ -1,3 +1,4 @@
+#include "FrequencyScanService.h"
 #include "RestoreExecution.h"
 #include "ModelLoadSnapshot.h"
 #include "SettingsDurability.h"
@@ -193,6 +194,7 @@ void loop() {
   somfy.loop();
   logIfSlow(TAG, "Loop somfy", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
+  FrequencyScan::poll();
   loopQueue.drain();
   logIfSlow(TAG, "Loop queue", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
