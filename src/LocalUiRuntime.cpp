@@ -180,7 +180,7 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
   visible &= before.quickEditing==presentedView.quickEditing && before.quickPicking==presentedView.quickPicking &&
     before.quickSlot==presentedView.quickSlot;
   const int8_t turn=encoder.sample((digitalRead(BoardProfile::encoderA)<<1)|digitalRead(BoardProfile::encoderB));
-  controller.tick(now,model,turn,pressed,visible,digitalRead(BoardProfile::backButton)==0);
+  controller.tick(now,model,turn,pressed,visible,digitalRead(BoardProfile::backButton)==0,systemChild==SystemChild::updates);
   if(controller.takeCancellation()) cancelUnsubmittedLocalControl();
   if(!controller.view().quickEditing) {frameView.quickDraft={};presentedView.quickDraft={};}
   QuickPreferenceRequest quickSave;
@@ -303,7 +303,7 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
     if(systemChild!=SystemChild::none && childClosed() && systemView.notice==EntityAdmin::Notice::none) {
       discardSystemChild();systemForm.finishChild();renderCurrent();
     }
-    if(systemForm.closed()) {
+    if(systemForm.closed() && systemChild!=SystemChild::updates) {
       discardSystemChild();
       if(systemView.notice==EntityAdmin::Notice::none)controller.closeForm();
     }

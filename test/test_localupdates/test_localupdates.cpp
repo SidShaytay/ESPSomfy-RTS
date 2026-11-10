@@ -34,7 +34,7 @@ static void check_is_explicit_and_progress_does_not_extend_authority(){
   form.activate(1);TEST_ASSERT_EQUAL(1,b.checks);const auto count=b.activityCount;
   form.tick(500);form.tick(1000);TEST_ASSERT_EQUAL(count,b.activityCount);
   b.available();form.tick(1001);form.render(view);TEST_ASSERT_NOT_NULL(strstr(view.rows[2].value,"4294967295"));
-  form.back(1002);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(0,b.cancels);TEST_ASSERT_EQUAL(0,pool.used());
+  form.back(1002);form.back(1003);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(0,b.cancels);TEST_ASSERT_EQUAL(0,pool.used());
 }
 static void confirmation_defaults_cancel_and_installs_exact_candidate_once(){
   Backend b;b.available();JsonAllocator pool(4096,malloc,free);Updates::Form form(b,pool);EntityAdmin::FormView view;
@@ -72,4 +72,39 @@ static void unsupported_pending_boot_and_oom_never_start_work(){
     TEST_ASSERT_EQUAL(0,b.checks);TEST_ASSERT_EQUAL(0,b.installs);form.discard();TEST_ASSERT_EQUAL(0,pool.used());
   }
 }
-int main(){UNITY_BEGIN();RUN_TEST(check_is_explicit_and_progress_does_not_extend_authority);RUN_TEST(confirmation_defaults_cancel_and_installs_exact_candidate_once);RUN_TEST(changed_same_version_candidate_requires_a_new_review);RUN_TEST(expiry_clock_lock_and_configuration_wipe_and_cancel_only_owned_operation);RUN_TEST(foreign_operation_is_not_cancelled_or_adopted);RUN_TEST(unsupported_pending_boot_and_oom_never_start_work);return UNITY_END();}
+static void empty_latest_is_hidden_and_metadata_check_is_indeterminate(){
+  Backend b;JsonAllocator pool(4096,malloc,free);Updates::Form form(b,pool);EntityAdmin::FormView view;
+  form.open(0);form.render(view);TEST_ASSERT_EQUAL(2,view.rowCount);TEST_ASSERT_EQUAL(2,view.total);
+  form.activate(1);form.render(view);TEST_ASSERT_EQUAL_STRING("Checking GitHub...",view.rows[0].label);TEST_ASSERT_NULL(strchr(view.rows[0].label,'%'));
+}
+static void own_successful_check_opens_only_default_cancel_review(){
+  Backend b;JsonAllocator pool(4096,malloc,free);Updates::Form form(b,pool);EntityAdmin::FormView view;
+  form.open(0);form.activate(1);b.available();form.tick(2);form.render(view);
+  TEST_ASSERT_EQUAL(EntityAdmin::Mode::updateReview,view.mode);TEST_ASSERT_EQUAL(0,view.selected);
+  TEST_ASSERT_EQUAL_STRING("Cancel",view.rows[0].label);TEST_ASSERT_EQUAL_STRING(b.value.candidate.version,view.rows[2].value);
+  TEST_ASSERT_EQUAL(0,b.installs);TEST_ASSERT_TRUE(view.protectedFrame);form.activate(3);TEST_ASSERT_EQUAL(0,b.installs);
+}
+static void unsuccessful_foreign_stale_or_cancelled_checks_never_auto_review(){
+  for(unsigned cause=0;cause<11;++cause){
+    Backend b;JsonAllocator pool(4096,malloc,free);Updates::Form form(b,pool);EntityAdmin::FormView view;
+    form.open(100);if(cause==0)b.value.candidate.generation=92;form.activate(101);
+    if(cause==1)form.activate(102); // Explicit cancellation suppresses later stale success.
+    b.available();
+    if(cause==2)b.value.reason=GitUpdateReason::transport;
+    if(cause==3)b.value.phase=GitUpdatePhase::current;
+    if(cause==4)b.value.phase=GitUpdatePhase::cancelled;
+    if(cause==5)++b.value.operation;
+    if(cause==6)b.bootValue.pending=true;
+    if(cause==7)b.value.canInstall=false;
+    if(cause==8)b.value.candidate.generation=0;
+    if(cause==9)b.auth.configurationGeneration++;
+    form.tick(cause==10?120101:103);form.render(view);
+    TEST_ASSERT_NOT_EQUAL(EntityAdmin::Mode::updateReview,view.mode);TEST_ASSERT_EQUAL(0,b.installs);
+  }
+  // A pre-existing/external result and a completed installation never auto-open review.
+  Backend b;b.available();JsonAllocator pool(4096,malloc,free);Updates::Form form(b,pool);EntityAdmin::FormView view;
+  form.open(0);form.tick(1);form.render(view);TEST_ASSERT_EQUAL(EntityAdmin::Mode::updateStatus,view.mode);
+  form.turn(1,2);form.activate(3);form.turn(1,4);form.activate(5);b.available();form.tick(6);form.render(view);
+  TEST_ASSERT_EQUAL(EntityAdmin::Mode::updateStatus,view.mode);TEST_ASSERT_EQUAL(1,b.installs);
+}
+int main(){UNITY_BEGIN();RUN_TEST(empty_latest_is_hidden_and_metadata_check_is_indeterminate);RUN_TEST(own_successful_check_opens_only_default_cancel_review);RUN_TEST(unsuccessful_foreign_stale_or_cancelled_checks_never_auto_review);RUN_TEST(check_is_explicit_and_progress_does_not_extend_authority);RUN_TEST(confirmation_defaults_cancel_and_installs_exact_candidate_once);RUN_TEST(changed_same_version_candidate_requires_a_new_review);RUN_TEST(expiry_clock_lock_and_configuration_wipe_and_cancel_only_owned_operation);RUN_TEST(foreign_operation_is_not_cancelled_or_adopted);RUN_TEST(unsupported_pending_boot_and_oom_never_start_work);return UNITY_END();}
