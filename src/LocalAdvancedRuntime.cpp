@@ -16,6 +16,7 @@
 #include <string.h>
 extern SomfyShadeController somfy;
 extern LoopQueue loopQueue;
+extern ShadeRequests shadeRequests;
 namespace LocalUi {
 namespace Advanced {
 using namespace EntityAdmin;
@@ -123,6 +124,75 @@ class RuntimeBackend final : public Backend {
   }
 
 public:
+  bool groupProgrammingSelection(Target target,bool adding,uint8_t id,GroupProgrammingSelection &out)override{
+    out={};
+    if(!authorization().allowed||!somfy.modelLoad.usable()||target.scope!=Scope::groups||!id||id==255)return false;
+    auto *group=somfy.getGroupById(target.id);auto *shade=somfy.getShadeById(id);
+    if(!group||!shade)return false;
+    const auto protocol=shade->proto;
+    const auto bits=shade->bitLength?shade->bitLength:somfy.transceiver.config.type;
+    const auto groupBits=group->bitLength?group->bitLength:somfy.transceiver.config.type;
+    const auto address=shade->getRemoteAddress(),groupAddress=group->getRemoteAddress();
+    if(!address||address>0xffffff||!groupAddress||groupAddress>0xffffff||address==groupAddress||
+      (protocol!=radio_proto::RTS&&protocol!=radio_proto::RTW&&protocol!=radio_proto::RTV)||
+      group->proto!=protocol||bits!=groupBits||(bits!=56&&bits!=80)||!shade->configurationRevision)return false;
+    bool present=false,free=false;
+    for(auto member:group->linkedShades){if(member==id)present=true;if(!member)free=true;}
+    if(adding?(present||!free):!present)return false;
+    OrderIds ids{},slots{};uint8_t count=0;if(!targets(Scope::devices,ids,slots,count)||count>32)return false;
+    bool found=false;uint8_t slot=0;
+    for(uint8_t i=0;i<count;++i)if(ids[i]==id){found=true;slot=slots[i];break;}
+    if(!found)return false;
+    out.deviceId=id;out.deviceSlot=slot;out.deviceRevision=shade->configurationRevision;
+    out.deviceAddress=address;out.groupAddress=groupAddress;out.protocol=uint8_t(protocol);out.bits=bits;
+    out.shadeType=uint8_t(shade->shadeType);out.adding=adding;return true;
+  }
+  Admission groupProgrammingCurrent(Target target,const Context &context,Authorization auth,uint64_t history,
+      const GroupProgrammingSelection &selection)override{
+    const auto admitted=admittedIdentity(auth,history);if(admitted!=Admission::accepted)return admitted;
+    Context actual;
+    if(target.scope!=Scope::groups||!somfy.modelLoad.usable()||!capture(target,actual)||!context.same(actual))return Admission::stale;
+    GroupProgrammingSelection current;
+    if(!groupProgrammingSelection(target,selection.adding,selection.deviceId,current)||!selection.same(current))return Admission::stale;
+    auto *shade=somfy.getShadeById(selection.deviceId);auto *group=somfy.getGroupById(target.id);
+    const auto readiness=readGroupReadiness(somfy,*group);
+    if(!shade->idleForAdministration()||readiness.activeMember||readiness.unknownMovement()||
+      !somfy.transceiver.available()||somfy.transceiver.txSuspended())return Admission::busy;
+    return Admission::accepted;
+  }
+  GroupProgrammingSendResult sendGroupProgramming(Target target,const Context &context,Authorization auth,uint64_t history,
+      const GroupProgrammingSelection &selection,bool memory,LearnPending &witness)override{
+    ConfigurationLease lease;auto admitted=admit(target,context,auth,history,&lease);
+    if(admitted!=Admission::accepted)return {shade_request_result_t::radio_refused,admitted};
+    admitted=groupProgrammingCurrent(target,context,auth,history,selection);
+    if(admitted!=Admission::accepted)return {shade_request_result_t::radio_refused,admitted};
+    if(!somfy.transceiver.restartQuiescent()||somfy.transceiver.counterBlocksIdentity(selection.deviceAddress)||
+      somfy.transceiver.counterBlocksIdentity(selection.groupAddress))return {shade_request_result_t::radio_refused,Admission::busy};
+    shade_request_t request;request.type=memory?shade_request_type_t::shade_command:shade_request_type_t::group_command;
+    request.id=memory?selection.deviceId:target.id;request.command=somfy_commands::Prog;request.repeat=memory?40:1;
+    if(witness.current(uint64_t(esp_timer_get_time())/1000)!=LearnQueueReason::ready)
+      return {shade_request_result_t::radio_refused,Admission::stale};
+    return {shadeRequests.run(request)};
+  }
+  LearnApplyResult saveProgrammingMembership(Target target,const Context &context,Authorization auth,uint64_t history,
+      const GroupProgrammingSelection &selection,LearnPending &witness,ArduinoJson::Allocator &allocator)override{
+    ConfigurationLease lease;auto admitted=admit(target,context,auth,history,&lease);
+    if(admitted!=Admission::accepted)return {{},admitted};
+    admitted=groupProgrammingCurrent(target,context,auth,history,selection);
+    if(admitted!=Admission::accepted)return {{},admitted};
+    if(!somfy.transceiver.restartQuiescent())return {{},Admission::busy};
+    const auto type=selection.adding?model_edit_type_t::link_to_group:model_edit_type_t::unlink_from_group;
+    JsonDocument payload(&allocator),expanded(&allocator);payload[protoField(proto_field_t::groupId).key]=target.id;payload[protoField(proto_field_t::shadeId).key]=selection.deviceId;
+    proto_error_buffer_t why;const auto *error=expandEditPayload(type,payload.as<JsonObjectConst>(),expanded,why);
+    if(payload.overflowed()||expanded.overflowed())return {{},Admission::noMemory};
+    if(error)return {{},Admission::invalid};
+    admitted=admit(target,context,auth,history,&lease);if(admitted!=Admission::accepted)return {{},admitted};
+    admitted=groupProgrammingCurrent(target,context,auth,history,selection);if(admitted!=Admission::accepted)return {{},admitted};
+    if(!somfy.transceiver.restartQuiescent())return {{},Admission::busy};
+    const auto fresh=witness.current(uint64_t(esp_timer_get_time())/1000);
+    if(fresh!=LearnQueueReason::ready)return {{},Admission::accepted,fresh};
+    model_edit_t edit;edit.type=type;swap(edit.doc,expanded);return {applyModelEdit(edit)};
+  }
   PrimaryReadResult readPrimary(Target target,const Context &context,
       Authorization auth,uint64_t history,PrimaryCounterReview &out) override {
     out={};

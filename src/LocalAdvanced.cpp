@@ -18,7 +18,10 @@ struct Form::Session final : LearnPending {
   // Only one interactive flow lives in the wiping slab. Keeping both would
   // crowd out Learn's existing bounded validation pools at execution time.
   union { LearnState learned; PrimaryCounterDraft primary; };
-  bool primaryMode=false;
+  bool primaryMode=false,groupGuideMode=false,programmingAdding=false;
+  GroupProgrammingGuide groupGuide;
+  GroupProgrammingSelection programming;
+  bool usesRadio()const override{return groupGuideMode&&groupGuide.pendingEffect()!=GroupProgrammingEffect::saveList;}
   uint64_t ticket = 0, queuedAt = 0;
   bool listening = false, fileOnly = false, canRetryFile = false,
        linkApplied = false, fileVerified = false;
@@ -51,7 +54,9 @@ struct Form::Session final : LearnPending {
     learnPending,
     learnFault,
     learnResult,
-    primaryCounter
+    primaryCounter,
+    groupIntent,
+    groupPick
   };
   Context context;
   OrderIds ids{}, slots{};
@@ -120,6 +125,11 @@ bool Form::guard(uint64_t now) {
       close(Notice::changed);
       return false;
     }
+  }
+  if(s.groupGuideMode){
+    const auto current=backend.groupProgrammingCurrent(s.target,s.context,s.auth,s.revision,s.programming);
+    if(current==Admission::locked){close(Notice::locked);return false;}
+    if(current!=Admission::accepted&&current!=Admission::busy){close(Notice::changed);return false;}
   }
   if(s.primaryMode && s.primary.review().address && !backend.primaryCurrent(s.target,s.primary.review())) {
     close(Notice::changed);return false;
@@ -213,8 +223,11 @@ void Form::turn(int direction, uint64_t now) {
     return;
   touch(now);
   auto &s = *session;
+  if(s.groupGuideMode){s.groupGuide.turn(direction);return;}
   uint8_t count = 0;
   switch (s.page) {
+  case Session::Page::groupIntent:count=3;break;
+  case Session::Page::groupPick:
   case Session::Page::picker:
     count = s.count;
     break;
@@ -241,7 +254,7 @@ void Form::turn(int direction, uint64_t now) {
     count = 2;
     break;
   case Session::Page::list:
-    count = backend.itemCount(s.target);
+    count = backend.itemCount(s.target)+(s.target.scope==Scope::groups?1:0);
     break;
   }
   if (count)
@@ -273,8 +286,10 @@ void Form::refused(Admission a, const char *reason) {
 }
 void Form::apply() {
   auto &s = *session;
-  const auto result = backend.apply(s.target, s.action, s.context, s.auth,
-                                    s.revision, allocator);
+  finishApply(backend.apply(s.target,s.action,s.context,s.auth,s.revision,allocator));
+}
+void Form::finishApply(const ApplyResult &result){
+  auto &s=*session;
   if (result.admission != Admission::accepted) {
     refused(result.admission, result.reason);
     return;
@@ -314,12 +329,14 @@ LearnQueueReason Form::learnCurrent(uint64_t now) {
   if (now < s.observedAt || now < s.activityAt ||
       now - s.activityAt >= timeoutMs)
     return LearnQueueReason::expired;
-  const auto admission =
+  const auto admission = s.groupGuideMode?backend.groupProgrammingCurrent(s.target,s.context,s.auth,s.revision,s.programming):
       backend.checkLearnContext(s.target, s.context, s.auth, s.revision);
   if (admission == Admission::locked)
     return LearnQueueReason::locked;
+  if(s.groupGuideMode&&admission==Admission::busy)return LearnQueueReason::busy;
   if (admission != Admission::accepted)
     return LearnQueueReason::stale;
+  if(s.groupGuideMode)return LearnQueueReason::ready;
   if (s.fileOnly)
     return LearnQueueReason::ready;
   if(s.primaryMode)return backend.primaryCurrent(s.target,s.primary.review()) ? LearnQueueReason::ready : LearnQueueReason::stale;
@@ -355,6 +372,7 @@ void Form::learnCancelled(LearnQueueReason reason) {
     close(Notice::changed);
     return;
   }
+  if(session->groupGuideMode){session->groupGuide.complete(false);return;}
   if(session->primaryMode){session->primary.busy();return;}
   if (session->fileOnly) {
     session->page = Session::Page::learnResult;
@@ -383,6 +401,7 @@ void Form::queueLearn(uint64_t now, bool fileOnly) {
       s.cursor = 1;
       return;
     }
+    if(s.groupGuideMode){learnCancelled(queued.reason);return;}
     learnFault("Queue unavailable/full. Wait, then review explicitly.");
     return;
   }
@@ -391,6 +410,23 @@ void Form::queueLearn(uint64_t now, bool fileOnly) {
 void Form::runLearn(uint64_t) {
   if (!session)
     return;
+  if(session->groupGuideMode){
+    auto &s=*session;s.ticket=0;
+    if(s.groupGuide.pendingEffect()==GroupProgrammingEffect::saveList){
+      const auto result=backend.saveProgrammingMembership(s.target,s.context,s.auth,s.revision,s.programming,s,allocator);
+      if(result.freshness!=LearnQueueReason::ready){learnCancelled(result.freshness);return;}
+      if(result.admission==Admission::locked){close(Notice::locked);return;}
+      if(result.admission==Admission::stale){close(Notice::changed);return;}
+      if(result.admission!=Admission::accepted||!result.edit.applied){s.groupGuide.complete(false);return;}
+      s.groupGuideMode=false;s.groupGuide={};s.programming={};
+      finishApply({result.edit});return;
+    }
+    const auto result=backend.sendGroupProgramming(s.target,s.context,s.auth,s.revision,s.programming,
+      s.groupGuide.pendingEffect()==GroupProgrammingEffect::openMemory,s);
+    if(result.admission==Admission::locked){close(Notice::locked);return;}
+    if(result.admission==Admission::stale){close(Notice::changed);return;}
+    s.groupGuide.complete(result.admission==Admission::accepted&&result.result==shade_request_result_t::done);return;
+  }
   if(session->primaryMode){runPrimary();return;}
   auto &s = *session;
   s.ticket = 0;
@@ -556,6 +592,13 @@ void Form::activate(uint64_t now) {
     return;
   touch(now);
   auto &s = *session;
+  if(s.groupGuideMode){
+    const auto effect=s.groupGuide.activate();
+    if(effect==GroupProgrammingEffect::close){close(Notice::none);return;}
+    if(effect==GroupProgrammingEffect::openMemory||effect==GroupProgrammingEffect::sendGroup||effect==GroupProgrammingEffect::saveList)
+      queueLearn(now,false);
+    return;
+  }
   switch (s.page) {
   case Session::Page::picker:
     if (!s.count) {
@@ -565,6 +608,25 @@ void Form::activate(uint64_t now) {
     if (!select())
       close(Notice::changed);
     break;
+  case Session::Page::groupIntent:{
+    if(!s.cursor){close(Notice::none);return;}
+    s.programmingAdding=s.cursor==1;OrderIds ids{},slots{};uint8_t count=0;
+    if(!backend.targets(Scope::devices,ids,slots,count)||count>32){close(Notice::changed);return;}
+    s.count=0;
+    for(uint8_t i=0;i<count;++i){GroupProgrammingSelection selection;
+      if(backend.groupProgrammingSelection(s.target,s.programmingAdding,ids[i],selection)){
+        s.ids[s.count]=ids[i];s.slots[s.count++]=slots[i];
+      }
+    }
+    s.page=Session::Page::groupPick;s.cursor=0;return;
+  }
+  case Session::Page::groupPick:
+    if(s.cursor>=s.count)return;
+    if(!backend.groupProgrammingSelection(s.target,s.programmingAdding,s.ids[s.cursor],s.programming)){
+      close(Notice::changed);return;
+    }
+    endLearning();s.groupGuideMode=true;
+    s.groupGuide.begin(s.programmingAdding,isToggleShade(shade_types(s.programming.shadeType)));return;
   case Session::Page::primaryCounter:
     primaryEffect(s.primary.activate(now),now);return;
   case Session::Page::menu:
@@ -596,6 +658,9 @@ void Form::activate(uint64_t now) {
     s.cursor = 0;
     break;
   case Session::Page::list: {
+    if(s.target.scope==Scope::groups&&s.cursor==backend.itemCount(s.target)){
+      s.page=Session::Page::groupIntent;s.cursor=0;return;
+    }
     if (!backend.itemCount(s.target)) {
       close(Notice::none);
       return;
@@ -728,6 +793,7 @@ void Form::back(uint64_t now) {
   touch(now);
   auto &s = *session;
   if(s.page==Session::Page::primaryCounter){primaryEffect(s.primary.back(now),now);return;}
+  if(s.groupGuideMode){if(s.groupGuide.back()==GroupProgrammingEffect::close)close(Notice::none);return;}
   if (s.page == Session::Page::learnPending ||
       s.page == Session::Page::learnResult) {
     close(Notice::none);
@@ -792,6 +858,30 @@ void Form::render(FormView &out) {
     snprintf(out.title, sizeof(out.title), "%s", label.label);
   }
   if(s.page==Session::Page::primaryCounter){s.primary.render(out,s.target.id);return;}
+  if(s.groupGuideMode){
+    Choice device;char groupName[32];snprintf(groupName,sizeof(groupName),"%s",out.title);
+    if(!backend.targetLabel({Scope::devices,s.programming.deviceId},s.programming.deviceSlot,device)||device.value!=s.programming.deviceId||!memchr(device.label,0,sizeof(device.label))){close(Notice::changed);out={};out.notice=status;return;}
+    const auto *groupText=strchr(groupName,' '),*deviceText=strchr(device.label,' ');
+    snprintf(out.title,sizeof(out.title),"G%u %.6s / D%u %.6s",unsigned(s.target.id),groupText?groupText+1:groupName,
+      unsigned(s.programming.deviceId),deviceText?deviceText+1:device.label);
+    s.groupGuide.render(out);return;
+  }
+  if(s.page==Session::Page::groupIntent){
+    out.mode=Mode::stackedRows;out.total=out.rowCount=3;out.selected=s.cursor;
+    strcpy(out.rows[0].label,"Cancel");strcpy(out.rows[1].label,"Pair motor to group");strcpy(out.rows[2].label,"Unpair motor from group");
+    strcpy(out.hint,"Programming can affect motors. List is not motor state.");
+    for(uint8_t i=0;i<3;++i)out.rows[i].selected=i==s.cursor;return;
+  }
+  if(s.page==Session::Page::groupPick){
+    out.mode=Mode::stackedRows;out.total=s.count;out.selected=s.cursor;out.offset=s.cursor/3*3;
+    strcpy(out.hint,"Select compatible RF device. Nothing sent.");
+    if(!s.count){out.total=out.rowCount=1;strcpy(out.rows[0].label,"No compatible devices");return;}
+    for(uint8_t i=out.offset;i<s.count&&out.rowCount<3;++i){Choice device;
+      if(!backend.targetLabel({Scope::devices,s.ids[i]},s.slots[i],device)||device.value!=s.ids[i]||!memchr(device.label,0,sizeof(device.label))){close(Notice::changed);out={};out.notice=status;return;}
+      auto &row=out.rows[out.rowCount++];snprintf(row.label,sizeof(row.label),"%s",device.label);row.selected=i==s.cursor;
+    }return;
+  }
+
   strcpy(out.hint, "Press: choose   Back: cancel");
   if (s.page == Session::Page::learnStart ||
       s.page == Session::Page::learnReview ||
@@ -953,7 +1043,7 @@ void Form::render(FormView &out) {
     }
   } else {
     out.total =
-        s.page == Session::Page::picker ? s.count : backend.itemCount(s.target);
+        s.page == Session::Page::picker ? s.count : backend.itemCount(s.target)+(s.target.scope==Scope::groups?1:0);
     out.offset = s.cursor / 3 * 3;
     if (!out.total) {
       out.total = out.rowCount = 1;
@@ -961,6 +1051,9 @@ void Form::render(FormView &out) {
     } else
       for (uint8_t i = out.offset; i < out.total && out.rowCount < 3; i++) {
         auto &row = out.rows[out.rowCount++];
+        if(s.page==Session::Page::list&&s.target.scope==Scope::groups&&i==backend.itemCount(s.target)){
+          strcpy(row.label,"Pair/unpair motor guide");strcpy(row.value,"Programming");continue;
+        }
         if (s.page == Session::Page::picker) {
           Choice label;
           if (!backend.targetLabel({s.target.scope, s.ids[i]}, s.slots[i],
