@@ -195,7 +195,11 @@ edit_result_t applyModelEdit(model_edit_t &edit) {
       GitUpdateOwnerToken competing;assert(!gitUpdate.acquireExternal(GitUpdateExternalOwner::counter,competing));
       for(auto &entry:somfy.repeaters)if(!entry&&!added){entry=object["remoteAddress"];added=true;}assert(added);}
     else if(edit.type==model_edit_type_t::unlink_repeater){const auto address=object["remoteAddress"].as<uint32_t>();for(auto &remote:somfy.repeaters)if(remote==address)remote=0;}
-    else {id=object["groupId"];auto *group=somfy.getGroupById(id);assert(group);for(auto &member:group->linkedShades)if(member==object["shadeId"].as<uint8_t>())member=0;}
+    else {id=object["groupId"];auto *group=somfy.getGroupById(id);assert(group);const auto shadeId=object["shadeId"].as<uint8_t>();
+      if(edit.type==model_edit_type_t::link_to_group){bool added=false;for(auto &member:group->linkedShades)if(!member&&!added){member=shadeId;added=true;}assert(added);}
+      else for(auto &member:group->linkedShades)if(member==shadeId)member=0;
+      ++group->configurationRevision;
+    }
     ++entityEdits;++somfy.configurationRevision;
     if(entitySaveState==ModelCommitState::saved)snapshotFakeOrderFile();else if(entitySaveState==ModelCommitState::uncertain)fileKnown=false;
     edit_result_t result;result.applied=true;result.ok=entitySaveState==ModelCommitState::saved;result.id=id;result.persistence={entitySaveState,ModelCommitStage::write};return result;
@@ -317,6 +321,8 @@ static LocalUi::Authorization authorization;
 static LocalUi::View lastQuery;
 static unsigned bands=0,presentations=0,locks=0;
 static bool busBusy=false,captureProtected=true;
+static LocalUi::Authorization authorization;
+static LocalUi::View lastQuery;
 #include "../ui-adapter/LoopHarness.h"
 #define ShadeRequests RecordingRequests
 #define snapshotModel adapterSnapshotModel
@@ -1221,6 +1227,37 @@ int main(int argc,char **argv){
   assert(strstr(RuntimeTestAccess::administration(settingsUi).hint,"move"));saveFrame(preview,"runtime-programming-one-button-review");
   back();idle();back();idle();closeAdministration();assert(submitted.size()==rfBeforeGuide+1);
   advancedShade.shadeType=shade_types::shutter;++somfy.configurationRevision;
+  // Fixture recovery only. Exercise actual group guide with fake RF/model I/O.
+  somfy.transceiver.quarantine=CounterQuarantine::none;somfy.transceiver.blockedIdentity=0;somfy.transceiver.ready=true;
+  advancedGroup.proto=advancedShade.proto;advancedGroup.bitLength=advancedShade.bitLength;
+  advancedGroup.direction=0;advancedGroup.lastFrame={};for(auto &member:advancedGroup.linkedShades)member=0;
+  advancedShade.idle=true;++somfy.configurationRevision;snapshotFakeOrderFile();
+  const auto rfBeforeGroupGuide=submitted.size();const auto editsBeforeGroupGuide=entityEdits;
+  openAdvanced(2,false);rotate(-1);idle();click();idle(); // appended programming guide
+  rotate(1);idle();click();idle();click();idle(); // Pair intent, select device
+  rotate(1);idle();click();idle(); // review LCD open memory, default Cancel
+  assert(RuntimeTestAccess::administration(settingsUi).mode==EntityAdmin::Mode::groupProgrammingReview);
+  assert(RuntimeTestAccess::administration(settingsUi).selected==0&&submitted.size()==rfBeforeGroupGuide);
+  saveFrame(preview,"runtime-group-programming-memory-review");
+  busBusy=true;rotate(1);click();assert(submitted.size()==rfBeforeGroupGuide);busBusy=false;idle();click();idle();
+  assert(submitted.size()==rfBeforeGroupGuide+1&&submitted.back().type==shade_request_type_t::shade_command&&submitted.back().id==4&&submitted.back().command==somfy_commands::Prog&&submitted.back().repeat==40);
+  assert(entityEdits==editsBeforeGroupGuide);
+  rotate(1);idle();click();idle(); // operator observed learn mode
+  assert(RuntimeTestAccess::administration(settingsUi).selected==0&&strstr(RuntimeTestAccess::administration(settingsUi).hint,"Other motors"));
+  saveFrame(preview,"runtime-group-programming-broadcast-review");
+  busBusy=true;rotate(1);click();assert(submitted.size()==rfBeforeGroupGuide+1);busBusy=false;idle();click();idle();
+  assert(submitted.size()==rfBeforeGroupGuide+2&&submitted.back().type==shade_request_type_t::group_command&&submitted.back().id==4&&submitted.back().repeat==1);
+  assert(entityEdits==editsBeforeGroupGuide&&!advancedGroup.linkedShades[0]);saveFrame(preview,"runtime-group-programming-observe");
+  rotate(1);idle();click();idle(); // intended result verified, still no list edit
+  assert(RuntimeTestAccess::administration(settingsUi).selected==0&&entityEdits==editsBeforeGroupGuide);
+  saveFrame(preview,"runtime-group-programming-list-review");
+  busBusy=true;rotate(1);click();assert(entityEdits==editsBeforeGroupGuide);busBusy=false;idle();click();idle();
+  assert(entityEdits==editsBeforeGroupGuide+1&&advancedGroup.linkedShades[0]==4&&submitted.size()==rfBeforeGroupGuide+2);
+  click();idle();closeAdministration();
+  // External learn-mode observation skips the device request, never group review.
+  openAdvanced(2,false);rotate(-1);idle();click();idle();rotate(-1);idle();click();idle();click();idle();
+  rotate(-1);idle();click();idle();assert(strstr(RuntimeTestAccess::administration(settingsUi).hint,"Other motors"));
+  back();idle();closeAdministration();assert(submitted.size()==rfBeforeGroupGuide+2&&entityEdits==editsBeforeGroupGuide+1);
   free(allocated);allocated=nullptr;hasPsram=false;
   Runtime missing;missing.begin();assert(missing.failure()==GraphicsFailure::missing && !missing.tick(testNow,status,false,send,light));
   hasPsram=true;allocateOK=false;Runtime failed;failed.begin();assert(failed.failure()==GraphicsFailure::allocation && !failed.tick(testNow,status,false,send,light));
