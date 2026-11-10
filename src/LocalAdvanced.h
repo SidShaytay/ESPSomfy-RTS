@@ -142,10 +142,12 @@ class Form {
   bool privateProjectionDiscarded = false;
   void close(EntityAdmin::Notice);
   void endLearning();
+  void returnFromLearning();
   bool guard(uint64_t);
   void touch(uint64_t);
   bool select();
   void apply();
+  void finishApply(const EntityAdmin::ApplyResult &);
   void refused(EntityAdmin::Admission, const char *reason = nullptr);
   LearnQueueReason learnCurrent(uint64_t);
   void runLearn(uint64_t);

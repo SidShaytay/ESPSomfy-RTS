@@ -310,7 +310,8 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
     else if(m.controlPending) text(12,163,v.notice==Notice::busy?"Busy; Back cancels queued action":"Queued - Back cancels",false,amber);
     else if(v.notice!=Notice::none) text(12,163,notices[int(v.notice)],false,amber);
     else if(!m.authorized) text(12,163,t.stopLease?"STOP only; unlock other actions":"Press: unlock   Back: return",false,amber);
-    else text(12,163,t.pendingRelayTilt?"Separate relay tilt unavailable":"Press: select   Back: return",false,t.pendingRelayTilt?amber:muted);
+    else text(12,163,t.lightUnavailable?(t.pendingRelayTilt?"Tilt unavailable; Light unavailable":"Light unavailable"):
+      t.pendingRelayTilt?"Separate relay tilt unavailable":"Press: select   Back: return",false,t.pendingRelayTilt||t.lightUnavailable?amber:muted);
   }
 }
 } // namespace LocalUi
