@@ -79,7 +79,7 @@ uint32_t administrationHash(const EntityAdmin::FormView &view,uint64_t epoch) {
 // Motion/estimate repainting is coalesced until a frame finishes. Structural
 // page, target, action, editor and authorization changes supersede it promptly.
 bool sameMeaning(const View &a,const View &b,uint64_t page,uint64_t framePage,uint64_t target,uint64_t frameTarget) {
-  if(a.screen!=b.screen || a.notice!=b.notice) return false;
+  if(a.screen!=b.screen || a.notice!=b.notice || a.repeatHeld!=b.repeatHeld) return false;
   if(a.screen==Screen::catalogue) return page==framePage && a.catalogue==b.catalogue && a.room==b.room && a.cursor==b.cursor;
   if(a.screen==Screen::control || a.screen==Screen::actions || a.screen==Screen::value || a.screen==Screen::repeatActions || a.screen==Screen::repeatValue || a.screen==Screen::favouriteObserve || a.screen==Screen::favouriteConfirm) {
     const bool sameTarget=a.entity==b.entity && a.openedToken==b.openedToken && target==frameTarget && a.action==b.action;
