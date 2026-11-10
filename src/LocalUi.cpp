@@ -528,6 +528,9 @@ bool Controller::take(Command &out) {
   return true;
 }
 void Controller::result(uint32_t now,DispatchResult result) {
+  // Completion/refusal must be visible while the physical gesture remains
+  // consumed. Queued admission still needs the release-to-cancel projection.
+  if(repeatPress && result!=DispatchResult::queued) state.repeatHeld=false;
   switch(result) {
   case DispatchResult::queued: state.notice=Notice::queued; break;
   case DispatchResult::done: state.notice=Notice::done; break;
