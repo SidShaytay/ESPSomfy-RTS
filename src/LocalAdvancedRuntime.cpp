@@ -266,7 +266,8 @@ public:
   }
   ProgrammingResult sendProgramming(Target target,const Context &expected,Authorization auth,uint64_t history,
       const RemoteProgram &program,LearnPending &witness) override {
-    auto admission=admit(target,expected,auth,history);
+    ConfigurationLease lease;
+    auto admission=admit(target,expected,auth,history,&lease);
     if(admission!=Admission::accepted)return {shade_request_result_t::radio_refused,admission};
     if(localControlsFrozen()||!idle(target)||!somfy.transceiver.available()||somfy.transceiver.txSuspended()||
        !somfy.transceiver.restartQuiescent()||somfy.transceiver.counterBlocksIdentity(expected.raw.identity))
