@@ -75,6 +75,7 @@ struct PrimaryApplyResult {
 struct MembershipApplyResult {
   EntityAdmin::ApplyResult result;
   LearnQueueReason freshness=LearnQueueReason::ready;
+};
 struct RemoteProgram {
   somfy_commands command=somfy_commands::UpDown;
   uint8_t repeats=1;

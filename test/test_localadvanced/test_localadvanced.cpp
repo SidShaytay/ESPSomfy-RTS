@@ -742,7 +742,7 @@ static void sensor_zero_and_observed_format_are_honest_without_fake_rssi() {
 static void openPrimary(Advanced::Form &form) {
   TEST_ASSERT_TRUE(form.open(Scope::devices,1));form.activate(2);
   for(unsigned i=0;i<3;i++)form.turn(1,3+i);
-  FormView view;form.render(view);TEST_ASSERT_EQUAL(5,view.total);TEST_ASSERT_EQUAL(3,view.offset);TEST_ASSERT_EQUAL_STRING("Primary rolling code",view.rows[0].label);
+  FormView view;form.render(view);TEST_ASSERT_EQUAL(6,view.total);TEST_ASSERT_EQUAL(3,view.offset);TEST_ASSERT_EQUAL_STRING("Primary rolling code",view.rows[0].label);
   form.activate(6);form.render(view);TEST_ASSERT_EQUAL(Mode::counterReview,view.mode);TEST_ASSERT_EQUAL(0,view.selected);
 }
 static void editPrimary(Advanced::Form &form,bool change=true) {
@@ -796,7 +796,6 @@ static void primary_editor_expiry_and_old_ticket_cannot_execute_reopened_session
   TEST_ASSERT_NOT_EQUAL(old,replacement);model.learnedQueue.run(old,40);TEST_ASSERT_EQUAL(0,model.corrections);TEST_ASSERT_TRUE(model.learnedQueue.active(replacement));
   model.learnedQueue.run(replacement,40);TEST_ASSERT_EQUAL(1,model.corrections);form.discard();TEST_ASSERT_EQUAL(0,memory.used());
 }
-<<<<<<< HEAD
 static void group_membership_parent_reviews_then_queues_and_only_retries_file() {
   Model model;model.file=ModelCommitState::failed;
   JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);FormView view;
@@ -874,11 +873,11 @@ static void repeater_queued_cancel_age_auth_and_list_changes_never_add(){
     TEST_ASSERT_EQUAL(0,model.repeaterAdds);TEST_ASSERT_EQUAL(0,model.counterWrites);TEST_ASSERT_EQUAL(0,model.links);
     form.discard();TEST_ASSERT_FALSE(model.received.active());TEST_ASSERT_EQUAL(0,memory.used());
   }
-=======
+}
 static void remote_chords_require_review_and_one_fifo_dispatch() {
   Model model;model.remoteReady=true;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);FormView view;
   TEST_ASSERT_TRUE(form.open(Scope::devices,0));form.activate(1);
-  for(unsigned i=0;i<4;++i)form.turn(1,2);
+  for(unsigned i=0;i<5;++i)form.turn(1,2);
   form.activate(3);form.render(view);TEST_ASSERT_EQUAL_STRING("Up + Down",view.rows[0].label);
   for(unsigned i=0;i<4;++i)form.turn(1,4);
   form.activate(5);form.render(view);TEST_ASSERT_EQUAL_STRING("Cancel",view.rows[0].label);TEST_ASSERT_EQUAL(0,view.selected);
@@ -894,7 +893,7 @@ static void remote_pending_cancel_expiry_and_auth_never_send() {
   for(unsigned scenario=0;scenario<4;++scenario) {
     Model model;model.remoteReady=true;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);
     TEST_ASSERT_TRUE(form.open(Scope::devices,0));form.activate(1);
-    for(unsigned i=0;i<4;++i)form.turn(1,2);form.activate(3);form.activate(4);form.turn(1,5);form.activate(6);
+    for(unsigned i=0;i<5;++i)form.turn(1,2);form.activate(3);form.activate(4);form.turn(1,5);form.activate(6);
     const auto token=model.learnedToken;TEST_ASSERT_TRUE(model.learnedQueue.active());
     if(scenario==0)form.back(7);
     if(scenario==1){model.auth.allowed=false;form.tick(7);}
@@ -907,7 +906,7 @@ static void remote_pending_cancel_expiry_and_auth_never_send() {
 static void remote_repeat_bounds_and_group_menu_are_explicit() {
   Model model;model.remoteReady=true;JsonAllocator memory(4096,acquire,release);Advanced::Form form(model,memory);FormView view;
   TEST_ASSERT_TRUE(form.open(Scope::groups,0));form.activate(1);form.render(view);
-  TEST_ASSERT_EQUAL_STRING("Member links",view.rows[0].label);form.turn(1,2);form.activate(3);
+  TEST_ASSERT_EQUAL_STRING("Member links",view.rows[0].label);form.turn(1,2);form.turn(1,2);form.activate(3);
   for(unsigned i=0;i<5;++i)form.turn(1,4);form.activate(5);
   for(unsigned i=0;i<200;++i)form.turn(1,6);form.render(view);TEST_ASSERT_EQUAL_STRING("127",view.rows[0].value);
   for(unsigned i=0;i<200;++i)form.turn(-1,7);form.render(view);TEST_ASSERT_EQUAL_STRING("1",view.rows[0].value);
@@ -928,7 +927,6 @@ static void remote_program_policy_rejects_unknown_commands_protocols_widths_and_
   program.repeats=128;TEST_ASSERT_FALSE(prepareRemoteProgram(radio_proto::RTS,56,false,7,program,out));
   program.repeats=1;program.command=somfy_commands::My;TEST_ASSERT_FALSE(prepareRemoteProgram(radio_proto::RTS,56,false,7,program,out));
   TEST_ASSERT_EQUAL(99,out.id);
->>>>>>> ebf4cf0 (Add confirmed LCD remote chords through the shared radio request queue)
 }
 int main() {
   UNITY_BEGIN();

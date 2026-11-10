@@ -950,7 +950,6 @@ int main(int argc,char **argv){
   const auto remoteBefore=entityEdits;click();idle();assert(entityEdits==remoteBefore && advancedShade.linkedRemotes[6].address==2748); // default Cancel
   click();idle();rotate(1);idle();click();idle();assert(!advancedShade.linkedRemotes[6].address && advancedShade.lastRollingCode==123);
   click();idle();closeAdministration();
-<<<<<<< HEAD
   openAdvanced(2);assert(RuntimeTestAccess::administration(settingsUi).total==33);
   const auto memberBefore=entityEdits;click();idle();
   assert(RuntimeTestAccess::administration(settingsUi).mode==EntityAdmin::Mode::membershipReview && RuntimeTestAccess::administration(settingsUi).selected==0);
@@ -959,11 +958,6 @@ int main(int argc,char **argv){
   for(unsigned i=0;i<31;++i){rotate(1);idle();}click();idle();
   assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[1].label,"Remove ALL #88 entries"));
   saveFrame(preview,"runtime-membership-missing-review");
-=======
-  openAdvanced(2);click();idle();assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].value,"View only"));
-  const auto memberBefore=entityEdits;click();idle();assert(entityEdits==memberBefore);rotate(1);idle();click();idle();
-  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[1].label,"Remove #88"));saveFrame(preview,"runtime-advanced-missing-member-confirm");
->>>>>>> ebf4cf0 (Add confirmed LCD remote chords through the shared radio request queue)
   rotate(1);idle();click();idle();assert(!advancedGroup.linkedShades[31] && advancedGroup.linkedShades[0]==4 && entityEdits==memberBefore+1);
   assert(!strcmp(RuntimeTestAccess::administration(settingsUi).title,"Membership saved"));
   click();idle();closeAdministration();
@@ -1015,7 +1009,7 @@ int main(int argc,char **argv){
   // Explicit remote commands use the actual protected form, RF-aware FIFO and
   // production adapter; only the hardware request sink records calls.
   advancedShade.proto=radio_proto::RTS;advancedShade.bitLength=56;++somfy.configurationRevision;
-  auto openRemoteActual=[&](){openAdvanced(1);for(unsigned i=0;i<4;++i){rotate(1);idle();}click();idle();};
+  auto openRemoteActual=[&](){openAdvanced(1);for(unsigned i=0;i<5;++i){rotate(1);idle();}click();idle();};
   openRemoteActual();assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].label,"Up + Down"));
   for(unsigned i=0;i<4;++i){rotate(1);idle();}
   busBusy=true;click();rotate(1);click();assert(submitted.size()==rfBeforeAdvanced);
@@ -1144,7 +1138,7 @@ int main(int argc,char **argv){
   advancedShade.flipPosition=false;advancedShade.tiltType=tilt_types::integrated;advancedShade.sunSensor=true;advancedShade.statusFlags=0x21;
   advancedShade.value.currentPos=35.5f;advancedShade.value.target=80;advancedShade.value.myPos=20;advancedShade.value.myTiltPos=25;
   ++somfy.configurationRevision;const auto statusEdits=entityEdits;const auto statusRequests=submitted.size();
-  openAdvanced(1);rotate(-1);idle();click();idle();
+  openAdvanced(1);for(unsigned i=0;i<4;++i){rotate(1);idle();}click();idle();
   assert(RuntimeTestAccess::administration(settingsUi).total==entityStatusRows&&captureProtected);saveFrame(preview,"runtime-status-identity");
   for(unsigned i=0;i<4;++i){rotate(1);idle();}
   assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[1].value,"35.5%"));saveFrame(preview,"runtime-status-positions");

@@ -33,7 +33,6 @@ struct Remote {
   uint32_t getRemoteAddress() { return address; }
 };
 struct Shade {
-  radio_proto proto=radio_proto::RTS;uint8_t bitLength=56;
   uint8_t id = 255;
   uint32_t address = 100;
   uint32_t gpioRelease=0;uint8_t bitLength=56;radio_proto proto=radio_proto::RTS;int8_t sortOrder=0;char name[21]="Office";
@@ -50,7 +49,6 @@ struct Shade {
   bool idleForAdministration() { return idle&&!gpioRelease; }
 };
 struct Group {
-  radio_proto proto=radio_proto::RTS;uint8_t bitLength=56;
   int8_t direction = 1;
   somfy_frame_t lastFrame;
   uint8_t id = 255;
@@ -71,17 +69,9 @@ struct SomfyShadeController {
   struct Room {uint8_t roomId=0;char name[21]="Office";}room;
   Room *getRoomById(uint8_t id){return id&&room.roomId==id?&room:nullptr;}
   struct {
-    bool available()const{return true;}
     uint64_t configurationRevision = 1;
-<<<<<<< HEAD
-    bool quiet = true;bool paused=false;struct{uint8_t type=56;}config;
-    bool txSuspended(){return paused;}
-=======
-    bool quiet = true;
-    bool present=true,suspended=false;
-    struct {uint8_t type=56;} config;
-    bool available(){return present;}bool txSuspended(){return suspended;}
->>>>>>> ebf4cf0 (Add confirmed LCD remote chords through the shared radio request queue)
+    bool quiet=true,paused=false,present=true,suspended=false;struct{uint8_t type=56;}config;
+    bool available(){return present;}bool txSuspended(){return paused||suspended;}
     uint32_t blocked = 0;
     CounterQuarantine quarantine = CounterQuarantine::none;
     CounterQuarantine counterQuarantine() { return quarantine; }
@@ -663,7 +653,6 @@ static void primary_final_read_side_effect_and_witness_changes_refuse_without_co
     TEST_ASSERT_EQUAL(0,primaryWrites);
   }
 }
-<<<<<<< HEAD
 static void membership_reads_all_slots_and_mixed_unpaired_candidates_without_rf_filter() {
   const Target target{Scope::groups,9};Context context;source().capture(target,context);
   somfy.groups[0].linkedShades[2]=255;somfy.groups[0].linkedShades[29]=7;somfy.groups[0].linkedShades[31]=88;source().capture(target,context);
@@ -737,15 +726,6 @@ static void repeater_applied_persistence_failures_never_certify_counter_storage(
     TEST_ASSERT_EQUAL(1,applies);TEST_ASSERT_EQUAL(0,linkWrites);TEST_ASSERT_EQUAL(0,primaryWrites);TEST_ASSERT_EQUAL(123456,somfy.repeaters[0]);
   }
 }
-int main() {
-  UNITY_BEGIN();
-  RUN_TEST(status_rows_are_live_readonly_and_group_estimates_are_not_invented);
-  RUN_TEST(membership_reads_all_slots_and_mixed_unpaired_candidates_without_rf_filter);
-  RUN_TEST(membership_repairs_unknown_groups_but_preserves_unrelated_motion_and_stop_context);
-  RUN_TEST(repeater_candidate_bounds_duplicate_capacity_and_final_authority_refuse);
-  RUN_TEST(repeater_applied_persistence_failures_never_certify_counter_storage);
-  RUN_TEST(repeater_learning_uses_address_only_metadata_without_counter_linking);
-=======
 static void remote_runtime_uses_exact_shared_request_and_fresh_admission() {
   struct Witness:LearnPending {
     bool valid=true,expectLease=true;
@@ -783,8 +763,13 @@ static void remote_runtime_uses_exact_shared_request_and_fresh_admission() {
 }
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(status_rows_are_live_readonly_and_group_estimates_are_not_invented);
+  RUN_TEST(membership_reads_all_slots_and_mixed_unpaired_candidates_without_rf_filter);
+  RUN_TEST(membership_repairs_unknown_groups_but_preserves_unrelated_motion_and_stop_context);
+  RUN_TEST(repeater_candidate_bounds_duplicate_capacity_and_final_authority_refuse);
+  RUN_TEST(repeater_applied_persistence_failures_never_certify_counter_storage);
+  RUN_TEST(repeater_learning_uses_address_only_metadata_without_counter_linking);
   RUN_TEST(remote_runtime_uses_exact_shared_request_and_fresh_admission);
->>>>>>> ebf4cf0 (Add confirmed LCD remote chords through the shared radio request queue)
   RUN_TEST(primary_counter_read_and_final_apply_share_fresh_context_without_nested_owner);
   RUN_TEST(primary_final_read_side_effect_and_witness_changes_refuse_without_correction);
   RUN_TEST(checked_link_uses_only_address_counter_and_domain_owned_lease);
