@@ -146,4 +146,16 @@ static void expired_application_can_only_enter_reducing_filesystem_recovery() {
   TEST_ASSERT_FALSE(policy.resource(own,true));TEST_ASSERT_FALSE(policy.holdRestart(own));
   TEST_ASSERT_TRUE(policy.filesystem(own,false));TEST_ASSERT_TRUE(policy.close(own));
 }
-int main() { UNITY_BEGIN();RUN_TEST(transferred_firmware_outlives_request_and_has_private_worker_claims);RUN_TEST(expired_application_can_only_enter_reducing_filesystem_recovery);RUN_TEST(prepared_application_binds_source_and_separates_prepare_from_receive);RUN_TEST(abandoned_preparation_never_releases_an_unmounted_filesystem);RUN_TEST(application_unmounted_resource_is_not_an_owned_sdk_and_blocks_release);RUN_TEST(application_cannot_restart_or_claim_recovery_while_its_sdk_is_open);RUN_TEST(recovery_is_owned_bounded_and_cannot_revive_expired_io);RUN_TEST(successful_ota_keeps_same_owner_through_restart_publication);RUN_TEST(expiry_cannot_abort_an_inflight_operation_or_revive_late_callbacks);RUN_TEST(token_kind_and_queued_restore_ownership_are_exact);RUN_TEST(timeout_boundary_progress_rollback_and_abandoned_restore_are_bounded);return UNITY_END(); }
+static void application_restart_waits_for_verified_recovery_and_never_revives_expiry() {
+  for(bool expire:{false,true}) {
+    ManualUpdateLifecycle policy;const auto own=token(50);
+    TEST_ASSERT_TRUE(policy.begin(own,ManualUpdateKind::application,0));TEST_ASSERT_TRUE(policy.claim(own,0));
+    TEST_ASSERT_TRUE(policy.filesystem(own,true));TEST_ASSERT_TRUE(policy.resource(own,true));TEST_ASSERT_TRUE(policy.resource(own,false));
+    TEST_ASSERT_TRUE(policy.holdRecovery(own,1));TEST_ASSERT_TRUE(policy.finish(own,1,true));
+    TEST_ASSERT_TRUE(policy.claimRecovery(own,expire?30001:2));TEST_ASSERT_FALSE(policy.holdRestart(own));
+    TEST_ASSERT_TRUE(policy.filesystem(own,false));
+    TEST_ASSERT_EQUAL(!expire,policy.holdRestart(own));
+    if(expire)TEST_ASSERT_TRUE(policy.close(own));
+  }
+}
+int main() { UNITY_BEGIN();RUN_TEST(transferred_firmware_outlives_request_and_has_private_worker_claims);RUN_TEST(application_restart_waits_for_verified_recovery_and_never_revives_expiry);RUN_TEST(expired_application_can_only_enter_reducing_filesystem_recovery);RUN_TEST(prepared_application_binds_source_and_separates_prepare_from_receive);RUN_TEST(abandoned_preparation_never_releases_an_unmounted_filesystem);RUN_TEST(application_unmounted_resource_is_not_an_owned_sdk_and_blocks_release);RUN_TEST(application_cannot_restart_or_claim_recovery_while_its_sdk_is_open);RUN_TEST(recovery_is_owned_bounded_and_cannot_revive_expired_io);RUN_TEST(successful_ota_keeps_same_owner_through_restart_publication);RUN_TEST(expiry_cannot_abort_an_inflight_operation_or_revive_late_callbacks);RUN_TEST(token_kind_and_queued_restore_ownership_are_exact);RUN_TEST(timeout_boundary_progress_rollback_and_abandoned_restore_are_bounded);return UNITY_END(); }

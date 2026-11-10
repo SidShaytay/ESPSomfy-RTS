@@ -98,3 +98,16 @@ checks normal ordering and no producer-side commit. Both firmware environments
 compile. The browser preparation endpoints, exact-source file receiver and
 successful-upload restart handoff are still to be connected and qualified;
 these component checks do not make the existing generic upload route safe.
+
+
+The prepared-source receiver is implemented separately from legacy firmware
+upload handling. It binds each chunk to the exclusively adopted source and
+current authentication, requires exact file size/offset, uses Update.end(false),
+and rejects a second file. A failed adoption cannot retire another receiver.
+Only authenticated whole-request completion transfers to reducing loop recovery;
+file-final alone grants no reboot. After mounted proof and current-RAM save,
+restart is attempted once through the existing safe restart service. Expiry,
+refused restart or a recovery fault removes that automatic permission; explicit
+cleanup retry cannot revive it. Thirty-three actual owner/driver/receiver host
+scenarios cover these boundaries, including overlapping adoption and foreign SDK
+preservation. Browser endpoints and UI choreography are still unconnected.

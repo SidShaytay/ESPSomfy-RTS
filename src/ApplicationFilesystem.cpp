@@ -1,5 +1,6 @@
 #include "ApplicationFilesystem.h"
 #if defined(ESPSOMFY_BUNDLED_WEB)
+bool completePreparedApplication(const GitUpdateOwnerToken &,const ManualApplicationSource &){return false;}
 bool noteApplicationPreparation(const GitUpdateOwnerToken &,const ManualApplicationSource &){return false;}
 bool requestApplicationFilesystemRecovery(const GitUpdateOwnerToken &,const ManualApplicationSource &){return false;}
 void runApplicationPreparation(const GitUpdateOwnerToken &){}
@@ -43,7 +44,7 @@ struct Pending {
   GitUpdateOwnerToken owner;
   ManualApplicationSource source;
   RadioInstallToken radio;
-  bool claimed=false,queueSealed=false,filesystemSealed=false,recovering=false,faulted=false;
+  bool claimed=false,queueSealed=false,filesystemSealed=false,recovering=false,faulted=false,restartWanted=false;
 } pending;
 static_assert(sizeof(Pending)<=64,"Bounded loop resource context, no image/request storage");
 uint64_t now(){const auto value=esp_timer_get_time();return value<0?UINT64_MAX:uint64_t(value)/1000;}
@@ -64,7 +65,7 @@ bool layout(uint32_t bytes,int &command){
   return selected&&selected->address==mounted->address&&selected->size==mounted->size&&
     selected->type==mounted->type&&selected->subtype==mounted->subtype&&!strcmp(selected->label,mounted->label);
 }
-void attention(ApplicationFilesystemFault fault){pending.faulted=true;publish(ApplicationFilesystemPhase::attention,fault);}
+void attention(ApplicationFilesystemFault fault){pending.restartWanted=false;pending.faulted=true;publish(ApplicationFilesystemPhase::attention,fault);}
 void recover(){
   if(!pending.claimed||pending.faulted)return;
   pending.recovering=true;publish(ApplicationFilesystemPhase::recovering);
@@ -87,7 +88,17 @@ void recover(){
     if(!gitUpdate.transferFilesystem(pending.owner,false)){attention(ApplicationFilesystemFault::source);return;}
     pending.filesystemSealed=false;
   }
-  publish(ApplicationFilesystemPhase::refused);
+  const bool uploaded=applicationFilesystemStatus().uploaded;
+  if(pending.restartWanted&&secure()&&gitUpdate.transferContinuing(pending.owner,now())&&gitUpdate.holdTransferRestart(pending.owner)){
+    const auto owner=pending.owner;
+    if(!gitUpdate.finishTransfer(owner,now(),false)){attention(ApplicationFilesystemFault::source);return;}
+    const auto restart=requestOwnedRestart(owner,500);
+    {Guard guard;view.phase=ApplicationFilesystemPhase::completed;view.restartScheduled=restart.admitted;view.restartReason=restart.reason;}
+    if(!restart.admitted)gitUpdate.releaseRestartSource(owner,now());
+    pending={};return;
+  }
+  publish(uploaded?ApplicationFilesystemPhase::completed:ApplicationFilesystemPhase::refused);
+  if(uploaded){Guard guard;view.restartReason=RestartReason::stale;}
   if(!gitUpdate.closeTransfer(pending.owner)||!gitUpdate.releaseExternal(pending.owner)){attention(ApplicationFilesystemFault::source);return;}
   pending={};
 }
@@ -134,14 +145,21 @@ void serviceApplicationFilesystem(){
   if(!gitUpdate.ownsExternal(pending.owner)){attention(ApplicationFilesystemFault::source);return;}
   if(pending.recovering){recover();return;}
   if(!pending.claimed){
-    const auto cleanup=gitUpdate.claimTransferCleanup(pending.owner,now());
-    if(!cleanup.token.generation)return;
+    const bool uploaded=applicationFilesystemStatus().uploaded;
+    ManualUpdateCleanup cleanup;
+    if(uploaded){
+      if(!gitUpdate.claimTransferRecovery(pending.owner,now()))return;
+      pending.restartWanted=true;
+    }else{
+      cleanup=gitUpdate.claimTransferCleanup(pending.owner,now());
+      if(!cleanup.token.generation)return;
+    }
     pending.claimed=true;
     if(cleanup.resourceOpen){
       Update.abort();if(Update.isRunning()){gitUpdate.finishTransfer(pending.owner,now(),false);pending.claimed=false;return;}
       if(!gitUpdate.transferResource(pending.owner,false)){attention(ApplicationFilesystemFault::source);return;}
     }
-    refuse(ApplicationFilesystemFault::source);return;
+    if(uploaded)recover();else refuse(ApplicationFilesystemFault::source);return;
   }
   if(!secure()||!gitUpdate.transferContinuing(pending.owner,now())){refuse(ApplicationFilesystemFault::source);return;}
   if(!mountedFilesystemGate().drained())return;
@@ -153,6 +171,14 @@ void serviceApplicationFilesystem(){
   publish(ApplicationFilesystemPhase::ready);
   if(!gitUpdate.finishTransfer(pending.owner,now(),true)){attention(ApplicationFilesystemFault::source);return;}
   pending.claimed=false;
+}
+bool completePreparedApplication(const GitUpdateOwnerToken &owner,const ManualApplicationSource &source){
+  int command=0;
+  if(!applicationFilesystemReady(owner,source,command)||!gitUpdate.transferContinuing(owner,ApplicationFilesystemDetail::now())||
+     !gitUpdate.holdTransferRecovery(owner,ApplicationFilesystemDetail::now()))return false;
+  ApplicationFilesystemDetail::Guard guard;
+  if(!ApplicationFilesystemDetail::same(ApplicationFilesystemDetail::view.owner,owner))return false;
+  ApplicationFilesystemDetail::view.uploaded=true;return true;
 }
 bool requestApplicationFilesystemRecovery(const GitUpdateOwnerToken &owner,const ManualApplicationSource &source){
   using namespace ApplicationFilesystemDetail;
