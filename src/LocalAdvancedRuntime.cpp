@@ -19,6 +19,7 @@
 #include <string.h>
 extern SomfyShadeController somfy;
 extern LoopQueue loopQueue;
+extern ShadeRequests shadeRequests;
 namespace LocalUi {
 namespace Advanced {
 using namespace EntityAdmin;
@@ -40,6 +41,18 @@ public:
   bool owns() const { return held && gitUpdate.ownsExternal(token); }
 };
 class RuntimeBackend final : public Backend {
+  bool remoteRequest(Target target,const RemoteProgram &program,shade_request_t &request) {
+    radio_proto protocol;uint8_t bits;uint32_t address;
+    if(target.scope==Scope::devices) {
+      auto *shade=somfy.getShadeById(target.id);if(!shade)return false;
+      protocol=shade->proto;bits=shade->bitLength;address=shade->getRemoteAddress();
+    } else if(target.scope==Scope::groups) {
+      auto *group=somfy.getGroupById(target.id);if(!group)return false;
+      protocol=group->proto;bits=group->bitLength;address=group->getRemoteAddress();
+    } else return false;
+    return address&&address<=0xffffff&&prepareRemoteProgram(protocol,bits?bits:somfy.transceiver.config.type,
+        target.scope==Scope::groups,target.id,program,request);
+  }
   bool validTarget(Target target) {
     if (target.scope == Scope::repeaters)
       return !target.id;
@@ -241,6 +254,29 @@ public:
     const auto fresh=witness.current(uint64_t(esp_timer_get_time())/1000);
     if(fresh!=LearnQueueReason::ready)return {{},Admission::accepted,fresh};
     return {applyModelCommit({},ModelCommitMode::save)};
+  }
+  bool supportsProgramming(Target target) override {
+    shade_request_t request;
+    return authorization().allowed&&somfy.modelLoad.usable()&&remoteRequest(target,{},request);
+  }
+  Admission checkProgrammingContext(Target target,const Context &expected,Authorization auth,uint64_t history) override {
+    const auto identity=admittedIdentity(auth,history);if(identity!=Admission::accepted)return identity;
+    Context current;
+    return supportsProgramming(target)&&capture(target,current)&&expected.same(current)?Admission::accepted:Admission::stale;
+  }
+  ProgrammingResult sendProgramming(Target target,const Context &expected,Authorization auth,uint64_t history,
+      const RemoteProgram &program,LearnPending &witness) override {
+    ConfigurationLease lease;
+    auto admission=admit(target,expected,auth,history,&lease);
+    if(admission!=Admission::accepted)return {shade_request_result_t::radio_refused,admission};
+    if(localControlsFrozen()||!idle(target)||!somfy.transceiver.available()||somfy.transceiver.txSuspended()||
+       !somfy.transceiver.restartQuiescent()||somfy.transceiver.counterBlocksIdentity(expected.raw.identity))
+      return {shade_request_result_t::radio_refused,Admission::busy};
+    shade_request_t request;
+    if(!remoteRequest(target,program,request))return {shade_request_result_t::radio_refused,Admission::invalid};
+    if(witness.current(uint64_t(esp_timer_get_time())/1000)!=LearnQueueReason::ready)
+      return {shade_request_result_t::radio_refused,Admission::stale};
+    return {shadeRequests.run(request)};
   }
   PrimaryReadResult readPrimary(Target target,const Context &context,
       Authorization auth,uint64_t history,PrimaryCounterReview &out) override {

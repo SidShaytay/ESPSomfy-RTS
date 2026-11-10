@@ -69,10 +69,9 @@ struct SomfyShadeController {
   struct Room {uint8_t roomId=0;char name[21]="Office";}room;
   Room *getRoomById(uint8_t id){return id&&room.roomId==id?&room:nullptr;}
   struct {
-    bool available()const{return true;}
     uint64_t configurationRevision = 1;
-    bool quiet = true;bool paused=false;struct{uint8_t type=56;}config;
-    bool txSuspended(){return paused;}
+    bool quiet=true,paused=false,present=true,suspended=false;struct{uint8_t type=56;}config;
+    bool available(){return present;}bool txSuspended(){return paused||suspended;}
     uint32_t blocked = 0;
     CounterQuarantine quarantine = CounterQuarantine::none;
     CounterQuarantine counterQuarantine() { return quarantine; }
@@ -254,10 +253,14 @@ Backend &runtimeBackend() {
 } // namespace EntityAdmin
 } // namespace LocalUi
 #include "../../src/GitUpdate.cpp"
+static unsigned radioCommands=0;static shade_request_t sentRemote;
+struct RecordingRequests {shade_request_result_t run(const shade_request_t &request){TEST_ASSERT_TRUE(gitUpdate.busy());GitUpdateOwnerToken competing;const bool acquired=gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,competing);if(acquired)gitUpdate.releaseExternal(competing);TEST_ASSERT_FALSE(acquired);++radioCommands;sentRemote=request;return shade_request_result_t::done;}} shadeRequests;
+#define ShadeRequests RecordingRequests
 #include "../../src/LocalAdvancedRuntime.cpp"
+#undef ShadeRequests
 #include "../../src/LocalLearnQueueRuntime.cpp"
 void setUp() {
-  somfy = {};
+  somfy = {};radioCommands=0;sentRemote={};
   somfy.shades[0].id = 7;
   somfy.shades[0].linkedRemotes[6].address = 123456;
   somfy.shades[0].linkedRemotes[6].lastRollingCode = 321;
@@ -723,6 +726,41 @@ static void repeater_applied_persistence_failures_never_certify_counter_storage(
     TEST_ASSERT_EQUAL(1,applies);TEST_ASSERT_EQUAL(0,linkWrites);TEST_ASSERT_EQUAL(0,primaryWrites);TEST_ASSERT_EQUAL(123456,somfy.repeaters[0]);
   }
 }
+static void remote_runtime_uses_exact_shared_request_and_fresh_admission() {
+  struct Witness:LearnPending {
+    bool valid=true,expectLease=true;
+    unsigned checks=0;
+    LearnQueueReason current(uint64_t) override{
+      ++checks;GitUpdateOwnerToken competing;
+      const bool acquired=gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,competing);
+      if(acquired)gitUpdate.releaseExternal(competing);
+      if(expectLease)TEST_ASSERT_FALSE(acquired);
+      return valid?LearnQueueReason::ready:LearnQueueReason::expired;
+    }
+    void execute(uint64_t) override{}void cancelled(LearnQueueReason) override{}
+    bool usesRadio()const override{return true;}
+  } witness;
+  Target target{Scope::devices,7};Context context;TEST_ASSERT_TRUE(source().capture(target,context));
+  RemoteProgram program;program.command=somfy_commands::Prog;program.repeats=7;
+  TEST_ASSERT_TRUE(source().supportsProgramming(target));
+  const EntityAdmin::Authorization auth{true,1,1};
+  GitUpdateOwnerToken occupied;TEST_ASSERT_TRUE(gitUpdate.acquireExternal(GitUpdateExternalOwner::manual,occupied));
+  auto refused=source().sendProgramming(target,context,auth,1,program,witness);
+  TEST_ASSERT_EQUAL(Admission::busy,refused.admission);TEST_ASSERT_EQUAL(0,witness.checks);TEST_ASSERT_EQUAL(0,radioCommands);
+  TEST_ASSERT_TRUE(gitUpdate.releaseExternal(occupied));
+  auto result=source().sendProgramming(target,context,auth,1,program,witness);
+  TEST_ASSERT_EQUAL(Admission::accepted,result.admission);TEST_ASSERT_EQUAL(1,radioCommands);TEST_ASSERT_GREATER_THAN(0,witness.checks);TEST_ASSERT_FALSE(gitUpdate.busy());
+  TEST_ASSERT_EQUAL(7,sentRemote.id);TEST_ASSERT_EQUAL(somfy_commands::Prog,sentRemote.command);TEST_ASSERT_EQUAL(7,sentRemote.repeat);
+  somfy.shades[0].idle=false;source().sendProgramming(target,context,auth,1,program,witness);TEST_ASSERT_EQUAL(1,radioCommands);
+  somfy.shades[0].idle=true;witness.valid=false;source().sendProgramming(target,context,auth,1,program,witness);TEST_ASSERT_EQUAL(1,radioCommands);
+  witness.valid=true;pendingRestart=true;source().sendProgramming(target,context,auth,1,program,witness);TEST_ASSERT_EQUAL(1,radioCommands);pendingRestart=false;
+  somfy.shades[0].configurationRevision++;source().sendProgramming(target,context,auth,1,program,witness);TEST_ASSERT_EQUAL(1,radioCommands);
+  TEST_ASSERT_TRUE(source().capture(target,context));somfy.shades[0].proto=radio_proto::GP_Relay;
+  TEST_ASSERT_FALSE(source().supportsProgramming(target));source().sendProgramming(target,context,auth,1,program,witness);TEST_ASSERT_EQUAL(1,radioCommands);
+  witness.expectLease=false;auto queued=submitLocalLearn(witness,10);TEST_ASSERT_EQUAL(LearnQueueReason::ready,queued.reason);
+  TEST_ASSERT_TRUE(learnedMarker.localRadio);TEST_ASSERT_TRUE(loopItemUsesRadio(learnedMarker));
+  TEST_ASSERT_TRUE(cancelLocalLearn(queued.token,witness));
+}
 int main() {
   UNITY_BEGIN();
   RUN_TEST(status_rows_are_live_readonly_and_group_estimates_are_not_invented);
@@ -731,6 +769,7 @@ int main() {
   RUN_TEST(repeater_candidate_bounds_duplicate_capacity_and_final_authority_refuse);
   RUN_TEST(repeater_applied_persistence_failures_never_certify_counter_storage);
   RUN_TEST(repeater_learning_uses_address_only_metadata_without_counter_linking);
+  RUN_TEST(remote_runtime_uses_exact_shared_request_and_fresh_admission);
   RUN_TEST(primary_counter_read_and_final_apply_share_fresh_context_without_nested_owner);
   RUN_TEST(primary_final_read_side_effect_and_witness_changes_refuse_without_correction);
   RUN_TEST(checked_link_uses_only_address_counter_and_domain_owned_lease);

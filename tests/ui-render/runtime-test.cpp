@@ -305,13 +305,15 @@ ModelCommitReport applyModelCommit(const proto_reply_to_t &,ModelCommitMode mode
   return {{entityCommitState,ModelCommitStage::write}};
 }
 #include "../../src/LocalEntityRuntime.cpp"
+static std::vector<shade_request_t> submitted;
+struct RecordingRequests {shade_request_result_t run(const shade_request_t &r){submitted.push_back(r);return shade_request_result_t::done;}} shadeRequests;
+#define ShadeRequests RecordingRequests
 #include "../../src/LocalAdvancedRuntime.cpp"
+#undef ShadeRequests
 static LocalUi::Authorization authorization;
 static LocalUi::View lastQuery;
-static std::vector<shade_request_t> submitted;
 static unsigned bands=0,presentations=0,locks=0;
 static bool busBusy=false,captureProtected=true;
-struct RecordingRequests {shade_request_result_t run(const shade_request_t &r){submitted.push_back(r);return shade_request_result_t::done;}} shadeRequests;
 #include "../ui-adapter/LoopHarness.h"
 #define ShadeRequests RecordingRequests
 #define snapshotModel adapterSnapshotModel
@@ -1004,6 +1006,28 @@ int main(int argc,char **argv){
   assert(RuntimeTestAccess::view(settingsUi).screen==Screen::status && Settings::runtimeMemory().used()==0 && settingsAllocations.empty());
   assert(entityEdits==noMoreEdits && submitted.size()==rfBeforeAdvanced && !gitUpdate.busy() && advancedShade.lastRollingCode==123);
   click();idle();assert(lastQuery.screen==Screen::status); // Wake without a navigation action.
+  // Explicit remote commands use the actual protected form, RF-aware FIFO and
+  // production adapter; only the hardware request sink records calls.
+  advancedShade.proto=radio_proto::RTS;advancedShade.bitLength=56;++somfy.configurationRevision;
+  auto openRemoteActual=[&](){openAdvanced(1);for(unsigned i=0;i<5;++i){rotate(1);idle();}click();idle();};
+  openRemoteActual();assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].label,"Up + Down"));
+  for(unsigned i=0;i<4;++i){rotate(1);idle();}
+  busBusy=true;click();rotate(1);click();assert(submitted.size()==rfBeforeAdvanced);
+  busBusy=false;idle();saveFrame(preview,"runtime-remote-prog-confirm");
+  assert(RuntimeTestAccess::administration(settingsUi).selected==1); // Rotation changed draft only; unseen activation was refused.
+  somfy.transceiver.room=false;click();idle();
+  assert(submitted.size()==rfBeforeAdvanced);assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].label,"Cancel queued request"));
+  saveFrame(preview,"runtime-remote-pending");back();idle();somfy.transceiver.room=true;idle();assert(submitted.size()==rfBeforeAdvanced);
+  closeAdministration();
+  openRemoteActual();for(unsigned i=0;i<4;++i){rotate(1);idle();}click();idle();rotate(1);idle();click();idle();
+  assert(submitted.size()==rfBeforeAdvanced); // Metadata fixture deliberately has unavailable radio.
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].label,"Request refused"));
+  saveFrame(preview,"runtime-remote-refused");click();idle();closeAdministration();
+  somfy.transceiver.ready=true;
+  openRemoteActual();for(unsigned i=0;i<4;++i){rotate(1);idle();}click();idle();rotate(1);idle();click();idle();
+  assert(submitted.size()==rfBeforeAdvanced+1&&submitted.back().command==somfy_commands::Prog&&submitted.back().id==4);
+  assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[0].label,"Request accepted"));
+  saveFrame(preview,"runtime-remote-accepted");click();idle();closeAdministration();somfy.transceiver.ready=false;
   // Learn is explicit observation -> protected review -> one bounded FIFO
   // marker -> checked shared-domain outcome. No receive event links itself.
   advancedShade.proto=radio_proto::RTS;advancedShade.bitLength=56;++somfy.configurationRevision;
@@ -1114,7 +1138,7 @@ int main(int argc,char **argv){
   advancedShade.flipPosition=false;advancedShade.tiltType=tilt_types::integrated;advancedShade.sunSensor=true;advancedShade.statusFlags=0x21;
   advancedShade.value.currentPos=35.5f;advancedShade.value.target=80;advancedShade.value.myPos=20;advancedShade.value.myTiltPos=25;
   ++somfy.configurationRevision;const auto statusEdits=entityEdits;const auto statusRequests=submitted.size();
-  openAdvanced(1);rotate(-1);idle();click();idle();
+  openAdvanced(1);for(unsigned i=0;i<4;++i){rotate(1);idle();}click();idle();
   assert(RuntimeTestAccess::administration(settingsUi).total==entityStatusRows&&captureProtected);saveFrame(preview,"runtime-status-identity");
   for(unsigned i=0;i<4;++i){rotate(1);idle();}
   assert(!strcmp(RuntimeTestAccess::administration(settingsUi).rows[1].value,"35.5%"));saveFrame(preview,"runtime-status-positions");

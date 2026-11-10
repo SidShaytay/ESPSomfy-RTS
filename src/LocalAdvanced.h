@@ -5,6 +5,7 @@
 #include "LocalMembership.h"
 #include "LocalTargetRead.h"
 #include "LocalEntityStatus.h"
+#include "ShadeRequests.h"
 namespace LocalUi {
 enum class PrimaryCounterEffect : uint8_t;
 namespace Advanced {
@@ -50,8 +51,8 @@ struct Action {
   uint8_t slot = 0;
   bool paired = false;
 };
-// Stage1 has no RF method. All mutation is configuration only. Runtime checks
-// fresh authority/history/raw context and queue/restart/owner/idle admission.
+// Configuration actions and explicit remote commands remain distinct. Runtime
+// checks fresh authority/history/context and queue/restart/owner/idle admission.
 struct LearnApplyResult {
   edit_result_t edit;
   EntityAdmin::Admission admission = EntityAdmin::Admission::accepted;
@@ -75,6 +76,26 @@ struct MembershipApplyResult {
   EntityAdmin::ApplyResult result;
   LearnQueueReason freshness=LearnQueueReason::ready;
 };
+struct RemoteProgram {
+  somfy_commands command=somfy_commands::UpDown;
+  uint8_t repeats=1;
+};
+inline bool prepareRemoteProgram(radio_proto protocol,uint8_t bits,bool group,int id,
+                                 const RemoteProgram &program,shade_request_t &out) {
+  if((protocol!=radio_proto::RTS&&protocol!=radio_proto::RTW&&protocol!=radio_proto::RTV) ||
+     (bits!=56&&bits!=80) || id<1||id>254||program.repeats<1||program.repeats>127)return false;
+  switch(program.command) {
+    case somfy_commands::UpDown:case somfy_commands::MyUpDown:case somfy_commands::MyUp:
+    case somfy_commands::MyDown:case somfy_commands::Prog:break;
+    default:return false;
+  }
+  shade_request_t request;request.type=group?shade_request_type_t::group_command:shade_request_type_t::shade_command;
+  request.id=uint8_t(id);request.command=program.command;request.repeat=int8_t(program.repeats);out=request;return true;
+}
+struct ProgrammingResult {
+  shade_request_result_t result=shade_request_result_t::radio_refused;
+  EntityAdmin::Admission admission=EntityAdmin::Admission::accepted;
+};
 class Backend {
 public:
   virtual ~Backend() = default;
@@ -91,6 +112,11 @@ public:
       LearnPending &,ArduinoJson::Allocator &) = 0;
   virtual LearnFileResult retryMembershipFile(Target,const Context &,
       EntityAdmin::Authorization,uint64_t,LearnPending &) = 0;
+  virtual bool supportsProgramming(Target) { return false; }
+  virtual EntityAdmin::Admission checkProgrammingContext(Target,const Context &,
+      EntityAdmin::Authorization,uint64_t) { return EntityAdmin::Admission::stale; }
+  virtual ProgrammingResult sendProgramming(Target,const Context &,EntityAdmin::Authorization,
+      uint64_t,const RemoteProgram &,LearnPending &) { return {shade_request_result_t::radio_refused,EntityAdmin::Admission::invalid}; }
   virtual PrimaryReadResult readPrimary(Target, const Context &,
       EntityAdmin::Authorization, uint64_t, PrimaryCounterReview &) = 0;
   // Live aliases/quarantine only; no NVS/owner/allocation. Safe in a final
