@@ -1,9 +1,9 @@
 # Advanced configuration
 
-**Navigation version:** These paths apply to **4.8.0 and later**. For 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
+**Navigation version:** These paths apply to **4.9.0 and later**. For 4.8.0 or 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
 
-Use **This controller → Configure → Rooms, devices & groups → Devices/Groups → Advanced** to select a configured
-device or group. Open **This controller → Configure → Rooms, devices & groups → More → Repeaters** for repeater entries.
+Use **System → Configure → Rooms, devices & groups → Devices/Groups → Advanced** to select a configured
+device or group. Open **System → Configure → Rooms, devices & groups → More → Repeaters** for repeater entries.
 These screens change configuration only; RF programming, learning, counter
 correction and Favorite programming are separate workflows.
 

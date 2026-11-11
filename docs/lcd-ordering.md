@@ -1,8 +1,8 @@
 # Local list ordering
 
-**Navigation version:** These paths apply to **4.8.0 and later**. For 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
+**Navigation version:** These paths apply to **4.9.0 and later**. For 4.8.0 or 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
 
-Open **This controller → Configure → Rooms, devices & groups**, choose **Rooms**, **Devices** or **Groups**,
+Open **System → Configure → Rooms, devices & groups**, choose **Rooms**, **Devices** or **Groups**,
 then select **Reorder** after the configured entries. Add and existing entry
 positions keep their previous meaning; Reorder is appended and remains available
 when Add is full. The ordering screen covers the complete selected-kind list.

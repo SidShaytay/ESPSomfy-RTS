@@ -1,6 +1,6 @@
 # Pair or unpair a motor with a group
 
-**Navigation version:** These paths apply to **4.8.0 and later**. For 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
+**Navigation version:** These paths apply to **4.9.0 and later**. For 4.8.0 or 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
 
 Use the LCD to send the motor and group programming requests, then separately save the group’s controller list. The guide is integrated and independently reviewed with offline input/renderer/adapter/FIFO coverage; physical motor programming remains unverified.
 
@@ -12,7 +12,7 @@ The guide offers configured RF devices with the same protocol and effective 56/8
 
 ## Follow the guide
 
-1. Open **This controller → Configure → Rooms, devices & groups → Groups → Advanced**, select the group, then **Motor programming**. **Member links** is the separate metadata-only list editor. Unlock with the configured web credential when requested.
+1. Open **System → Configure → Rooms, devices & groups → Groups → Advanced**, select the group, then **Motor programming**. **Member links** is the separate metadata-only list editor. Unlock with the configured web credential when requested.
 2. Choose **Pair motor to group** or **Unpair motor from group**, then select the device. Reviews identify both the group and device by ID and shortened name.
 3. Follow the motor’s instructions to enter learn mode. If you use a physical remote, select **I observed learn mode** after checking the motor yourself. Alternatively, choose **Review LCD open memory**: its default-Cancel review offers the selected device’s Prog request with 40 repeats. This may jog the motor; on a one-button motor it may operate the motor. Send only when appropriate, then confirm that you observed learn mode.
 4. Review the separate group Prog request with one repeat. Cancel is initially selected. Check that no other motor is in learn mode before choosing **Send group Prog**.

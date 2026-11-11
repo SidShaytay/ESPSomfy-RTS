@@ -1,9 +1,9 @@
 # Local device and group backend
 
-**Navigation version:** These paths apply to **4.8.0 and later**. For 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
+**Navigation version:** These paths apply to **4.9.0 and later**. For 4.8.0 or 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
 
 This backend supports room, device and group scalar fields from the shared edit
-metadata and is connected to This controller → Configure → Rooms, devices & groups → Rooms / Devices / Groups.
+metadata and is connected to System → Configure → Rooms, devices & groups → Rooms / Devices / Groups.
 Pairing,
 linked remotes, group membership changes and explicit counter edits have separate
 checked operations and are not replayed by this backend.
