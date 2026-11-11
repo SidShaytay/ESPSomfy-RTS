@@ -12,4 +12,6 @@ Delivery: reviewed fix integrated into main. Display selection, editing and expl
 
 Validation: 1,320 native tests passed (one optional private-backup test skipped), including 38 focused controller tests; production renderer/runtime/capture/adapter/queue/update harnesses, 122 JavaScript tests, release-script tests and canonical LILYGO firmware build/package validation passed. An isolated mutation reversing the selection/edit condition caused six controller tests to fail. Source review covered correctness, readability, architecture, authorization/presentation guards and bounded rendering; no blocking findings.
 
+Integration checks: merged main through `2136bf2` without conflicts, reviewed the resulting display/runtime diff, and reran the complete preview/runtime harness, audit-mode UI harness and canonical firmware build/package validation successfully. Native-test inputs were unchanged by that main update.
+
 Hardware validation: not performed; no device access or flashing was requested.
