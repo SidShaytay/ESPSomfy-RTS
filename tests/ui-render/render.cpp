@@ -33,6 +33,17 @@ int main(int argc,char **argv) {
   const Screen screens[]={Screen::status,Screen::home,Screen::catalogue,Screen::control,Screen::details,Screen::roomKinds,Screen::brightness,Screen::settings};
   const char *names[]={"status","home","devices","control","details","room-kinds","brightness","settings"};
   for(unsigned i=0;i<8;i++) {v.screen=screens[i];canvas.paint(m,v,s);save(argv[1],names[i],buffer);assert(buffer.front()==0xdead && buffer.back()==0xdead);}
+  // Public documentation fixtures use the production renderer and synthetic state.
+  const auto savedTarget=target;const auto savedView=v;
+  strcpy(target.name,"Living room shutter");target.descriptor.shadeType=shade_types::shutter;
+  v.screen=Screen::control;v.entity=target.ref;
+  target.position=35;target.moving=true;v.action=Action::up;
+  canvas.paint(m,v,s);save(argv[1],"shutter-up",buffer);
+  target.position=70;v.action=Action::stop;
+  canvas.paint(m,v,s);save(argv[1],"shutter-stop",buffer);
+  target.position=85;v.action=Action::down;
+  canvas.paint(m,v,s);save(argv[1],"shutter-down",buffer);
+  target=savedTarget;v=savedView;
   v.screen=Screen::details;canvas.paint(m,v,s);auto original=buffer;
   strcpy(s.applicationVersion,"4.0.3");canvas.paint(m,v,s);assert(buffer!=original);
   strcpy(s.applicationVersion,"4.0.2");v.detailsOffset=4;canvas.paint(m,v,s);assert(buffer!=original);save(argv[1],"details-scrolled",buffer);

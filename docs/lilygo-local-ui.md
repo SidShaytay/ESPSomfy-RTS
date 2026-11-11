@@ -13,9 +13,9 @@ and physical-verification limits.
 
 ## Navigation versions
 
-The main instructions below apply to **4.9.0 and later**. Check Details for the installed version.
+The main instructions below apply to **public v4.1.0** and engineering **4.9.x**. Check Details for the installed version.
 
-| Task | 4.7.3 | 4.8.0 | 4.9.0 and later |
+| Task | 4.7.3 | 4.8.0 | Public 4.1.0 / engineering 4.9.x |
 |---|---|---|---|
 | Browse targets | Browse & settings → Rooms / Devices / Groups | Browse all → Rooms / Devices / Groups | Home → Devices / Groups / Rooms |
 | Settings and administration | Browse & settings → Settings / Administration | This controller → Configure | System → Configure |
@@ -31,7 +31,7 @@ All versions retain protected forms, explicit confirmations and supported comman
 ## Start on the LCD
 
 1. Wake the display with one input; that first input sends no command.
-2. Quick access shows three pinned devices or groups and **Edit shortcuts**. Turn past the last entry to reach two Home pages: **Devices, Groups, Rooms, System**, then **Display, Network, Updates, Diagnostics**. Turn backwards to retrace the pages. In **4.9.1 and later**, all three pages use four full-width rows with small vector icons; clockwise moves down. Version **4.9.0** uses 2×2 destination grids.
+2. Quick access shows three pinned devices or groups and **Edit shortcuts**. Turn past the last entry to reach two Home pages: **Devices, Groups, Rooms, System**, then **Display, Network, Updates, Diagnostics**. Turn backwards to retrace the pages. In **public v4.1.0** (and engineering 4.9.1), all three pages use four full-width rows with small vector icons; clockwise moves down. Engineering **4.9.0** uses 2×2 destination grids.
 3. Select a shortcut or catalogue target to open its controls. Opening sends no command. **Rooms** lists named rooms and nonempty **Unassigned**; selecting one shows its devices and groups together. Global **Devices** and **Groups** already cover every room.
 4. Unlock with the configured web PIN/password when requested. Read the selected action or confirmation before pressing. Back returns to the screen, selection and scroll position you came from.
 5. Hold on Status for Details. Open **Home → Updates** for the separate default-Cancel GitHub release review.
@@ -56,7 +56,7 @@ those targets exist. Suggestions stay in memory until you explicitly save them.
 Saved empty slots remain empty. A missing target or changed radio identity shows
 **Unavailable**; it never selects another device. Restoring the same target ID and
 radio identity makes its shortcut usable again after fresh checks.
-Names follow the current configuration. In **4.9.1 and later**, ordinary names use the full label area. Compact typed IDs appear only when names are duplicated, render identically with the LCD font, or are clipped so a distinguishing suffix could be hidden. Internal selection always uses stable typed IDs. Shortcut pins are separate from the motor's MY/Favourite position.
+Names follow the current configuration. In **public v4.1.0** (and engineering 4.9.1), ordinary names use the full label area. Compact typed IDs appear only when names are duplicated, render identically with the LCD font, or are clipped so a distinguishing suffix could be hidden. Internal selection always uses stable typed IDs. Shortcut pins are separate from the motor's MY/Favourite position.
 
 **Home → Devices / Groups / Rooms** opens the target catalogues. **System → Configure** contains settings, Display, Quick entries and **Rooms, devices & groups** administration. Startup opens Quick access when the model is ready
 and no movement or pending control needs attention. Ordinary idle navigation
