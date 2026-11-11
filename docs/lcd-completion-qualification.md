@@ -4,6 +4,10 @@ Implementation is tracked in #25/#30; remaining physical acceptance and combined
 
 ## Current stage
 
+The installed controlled audit image is **4.1.4 / `304774c`**, including the #36 display settings fix. Exact first-boot ELF/SDK confirmation and fresh settings/entities/rooms/effective-counter continuity passed after verified full recovery captures. The completed bounded4.1.2 baseline is in [#35](https://github.com/SidShaytay/ESPSomfy-RTS/issues/35); the extended live run is in progress under [#33](https://github.com/SidShaytay/ESPSomfy-RTS/issues/33). See [the executable USB/stack qualification plan](audits/stack-qualification.md) for current authority, methodology and limits. No extended-run success is claimed here yet.
+
+## Earlier4.9.1 checkpoint
+
 **4.9.1** is installed from clean release source `b4d06cf`. It includes the revised four-row icon menus, conditional IDs, brightness/diagnostics/navigation/editor changes and web dark mode from main. Its exact first app1 ELF, SDK health confirmation before another boot, network version and fresh settings/entities/rooms/effective-counter continuity are verified. A full 16 MiB readback at the requested `--baud 4000000` (174.7 seconds) confirmed VALID OTA24/app1, the entire retained 4.9.0 app0/OTA23, all 16 NVS namespaces/active CRCs and every LittleFS file, with bootloader/layout, coredump and upper flash preserved. One normal 4.9.1 reboot and fresh state comparison also passed. Recovery data remains private.
 
 Sid successfully installed **4.9.0 through the physical LCD GitHub updater from 4.8.0**. Exact first boot/SDK confirmation, full 16 MiB readback, retained application, all NVS/LittleFS state and normal reboot passed. [Issue #12](https://github.com/SidShaytay/ESPSomfy-RTS/issues/12) is closed. The historical 4.7.3 `arduino_events` panic is preserved separately for [investigation in #34](https://github.com/SidShaytay/ESPSomfy-RTS/issues/34). It is not a newly observed 4.9.x failure.

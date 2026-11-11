@@ -39,7 +39,7 @@ These are configured allocations from the pinned application/SDK, **not measured
 | Radio transmit | `radio_tx` | 4,096 | Between scheduler jobs, before waiting/transmitting |
 | GitHub updates | `github-update` | 12,288 | Between worker commands |
 
-Other SDK tasks include the TCP/IP worker (4,096), system events (2,048) and high-resolution timer task (8,192). They have no self-sampling hooks here. The radio row does not imply any RF transmission test. Idle observations cannot qualify active radio or updater paths.
+The follow-up SDK inventory corrected base configuration values to actual task creation budgets: TCP/IP 4,608 bytes, system events 4,608 and high-resolution timer 8,704. The pinned headers and prebuilt archive instructions include non-nano newlib and TCP/IP core-locking allowances. The original #35 capture has no self-sampling hooks for these tasks; additional probes belong to #33. The radio row does not imply any RF transmission test. Idle observations cannot qualify active radio or updater paths.
 
 ## Findings and priorities
 

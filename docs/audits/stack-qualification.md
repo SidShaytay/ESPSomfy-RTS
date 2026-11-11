@@ -2,6 +2,16 @@
 
 [Issue #33](https://github.com/SidShaytay/ESPSomfy-RTS/issues/33) tracks this follow-up to the [completed bounded audit](firmware-stacks.md). Task stack allocations remain unchanged. The baseline does not qualify active RF, full updater TLS/download, local editing, deliberate Wi-Fi reconnects or long recovery.
 
+## Current evidence
+
+The installed controlled image is **4.1.4 / `304774c`**, including #36. Clean ordinary/controlled builds, 1,320 native tests (one existing optional skip), 122 JavaScript tests and the integrated UI harness passed. Exact first-boot ELF/SDK confirmation and fresh configuration/model/counter equality passed after verified full recovery captures. The ten-minute combined run and two-hour recovery are still in progress; this document does not certify them yet.
+
+Completed isolated coverage: five minutes idle with ten samples; three typed keyboard drafts discarded; one display preview cancelled with Back; a private draft expired after 32 seconds; four protected screenshot requests returned 423. Three intentional Wi-Fi reconnects recovered schema/discovery in 6.9–8.1 seconds, with observed outages and unchanged configuration/model/counters. HTTPS release/manifest checks and complete download-only verification passed twice. Updater stack minimum was 3,376 unused bytes of 12,288; sampled TLS requested peak 51,545 bytes, internal requested peak 12,376 and zero allocation failures. Idle-only radio/updater values from #35 are not reused as active coverage.
+
+Initial idle samples had 123,836 free internal bytes and a 77,812-byte largest block. After the first TLS run and matched idle observations, these were 123,296 and 73,716; the next identical TLS run varied by eight free bytes without further largest-block loss. This does not identify the first retained allocation or prove absence of leaks. The longer recovery will assess stability; lifetime minimum heap is a separate historical value and need not recover.
+
+Aborted combined attempts remain recorded. One first tap only woke a dimmed display. Later raw button edges stretched past the 800 ms long-press threshold while awaiting delayed USB output. These are failed harness runs, not completed combined qualification; no RF request was blindly replayed. A host-only status-helper workaround passed nine transport tests and three further board draft cycles, with measured device Down/Up spacing of 158–182 ms. The final combined workload uses a reversible display preview with encoder turns, normal TLS/download staging, read/capture load and a separately guarded semantic UP request. It preserves prior text-edit/RF overlap evidence without claiming a continuous successful run across failures.
+
 ## Repeatable controls
 
 The USB port normally emits diagnostics only. `bash tools/audit-stacks.sh instrumented` adds measurement; `bash tools/audit-stacks.sh controlled` additionally enables `ESPSOMFY_AUDIT_CONTROL`. Controlled firmware is for an explicitly authorized test session. Ordinary and measurement-only images omit the command receiver and download-only audit API. The build checks the emitted measurement/control markers before accepting a result.
@@ -14,9 +24,13 @@ Reconnect and updater commands require the current authorized, unfrozen local se
 
 `tools/audit_console.py` is a standard-library USB client. It claims the port exclusively, clears HUPCL, sends no DTR/RTS ioctls, creates a private capture without overwriting an existing file, and makes one command attempt. Missing acknowledgements are ambiguous and must not be replayed. Stop the existing passive collector before opening this client; restore it afterward. Merely connecting sends no command. Separate invocations must continue sequence IDs within a boot. Keep a single connection for a scripted run.
 
+Raw button commands represent held levels, so host acknowledgement latency can change their device-visible duration. `tools/audit_console.py --flush-ack` optionally appends a read-only status query in the same write, consumes another sequence and returns `nextSequence`. This encouraged prompt delivery in the measured run; suspected USB buffering is not proven as the cause, and the helper is not a guaranteed flush. Validate device edge timestamps. It does not replace mechanical-input or physical timing acceptance.
+
 ## Additional stack observations
 
 The instrumented loop initializes bounded SDK measurements after normal startup. Idle0, idle1 and the FreeRTOS timer daemon have scheduler-lifetime handles; one foreign scan every five seconds rotates through them. System-events, TCP/IP and ESP timer tasks self-sample through supported callbacks. TCP/IP submission is nonblocking with one outstanding request. SDK callbacks defer numeric records to loop, avoiding UART logging on those tasks. No global task snapshot, scheduler suspension or dynamic Wi-Fi handle lookup is used.
+
+Pinned qio_opi headers and prebuilt task-creation instructions establish these SDK budgets: system events4,608 bytes (2,048 base +512 non-nano newlib +2,048 TCP/IP core-locking allowance), TCP/IP4,608, ESP timer8,704, idle0/idle1 1,084 each (1,024 +60 watchpoint allowance), FreeRTOS timer daemon3,120. IPC0/IPC1 are2,048 each and remain unmeasured. These are task budgets; total allocator/TCB overhead is separate.
 
 Application/SDK self-scans remain limited to one per five seconds per role; output is at most one per30 seconds after the first. Radio/updater audit workers wake while idle to report the persistent watermark after short operations. SDK record timestamps are deferred reporting times, not exact operation timestamps. Startup allocation/queue failures retry at bounded intervals. Wi-Fi driver and IPC tasks remain unmeasured; supported callbacks do not establish their stack margins. These tools currently build the canonical dual-core S3 profile; idle1 handling would need adjustment before a single-core instrumentation target.
 
