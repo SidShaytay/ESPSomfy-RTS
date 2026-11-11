@@ -5,7 +5,8 @@ import json
 from pathlib import Path
 import re
 
-ROLES = ('loop', 'network', 'udp', 'web', 'radio', 'updater')
+ROLES = ('loop', 'network', 'udp', 'web', 'radio', 'updater',
+         'idle0', 'idle1', 'timer-daemon', 'system-events', 'tcpip', 'esp-timer')
 LINE = re.compile(r'STACK_AUDIT schema=1 role=(' + '|'.join(ROLES) + r') uptimeMs=(\d+) minimumUnusedBytes=(\d+) samples=(\d+) maxScanUs=(\d+)$')
 BOUNDARY = re.compile(r'ESP-ROM:|rst:0x|Rebooting\.\.\.|Guru Meditation Error|Stack canary watchpoint|ELF file SHA256:')
 IDENTITY = re.compile(r'LCD running slot=app[01] elfSHA256=([0-9a-f]{64})(?:$|\s)')
@@ -53,7 +54,8 @@ def parse(lines):
                 rolesUnobserved=sorted(set(ROLES)-set(previous)), rejectedAuditLines=rejected,
                 limits=['Fill-pattern high-water marks are observations, not a worst-case stack bound.',
                         'Samples include instrumentation effects; maxScanUs excludes UART/logging time.',
-                        'Activity-dependent self-sampling: at most once per 5 seconds; output at most once per 30 seconds per role.',
+                        'Application and SDK self-sampling: at most once per 5 seconds; output at most once per 30 seconds per role.',
+                        'Stable scheduler-owned idle/timer tasks are scanned round robin, one foreign scan per 5 seconds; dynamic driver handles are not retained.',
                         'A role can retain its minimum across task recreation; split captures at reboot.',
                         'No RF, updater, network-reconnect or full-load coverage is implied by an idle sample.',
                         'Continuous capture is required: missing boot/identity markers can conceal a reboot.'])
@@ -66,7 +68,7 @@ def main():
     parser.add_argument('--source', required=True, help='Exact instrumented source commit, 40 hexadecimal characters')
     parser.add_argument('--elf-sha256', required=True)
     parser.add_argument('--board', choices=('t-embed-cc1101', 't-embed-cc1101-plus'), required=True)
-    parser.add_argument('--workload', choices=('idle', 'read-load', 'network-reconnect', 'updater'), required=True)
+    parser.add_argument('--workload', choices=('idle', 'read-load', 'network-reconnect', 'updater', 'combined'), required=True)
     args = parser.parse_args()
     if not re.fullmatch(r'[0-9a-f]{40}', args.source) or not re.fullmatch(r'[0-9a-f]{64}', args.elf_sha256):
         parser.error('Use full source/ELF hashes')

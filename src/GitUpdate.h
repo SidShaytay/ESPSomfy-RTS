@@ -1,4 +1,7 @@
 #pragma once
+#if defined(ESPSOMFY_AUDIT_CONTROL) && !defined(ESPSOMFY_STACK_AUDIT)
+#error "Audit control requires stack audit instrumentation"
+#endif
 #include <ArduinoJson.h>
 #include "GitUpdateOwner.h"
 #include "RadioUpdateActivity.h"
@@ -76,6 +79,11 @@ public:
   GitUpdateRequest requestCheck();
   GitUpdateRequest requestCheck(uint64_t &operation);
   GitUpdateRequest requestPrepare(const GitUpdateCandidate &expected);
+#ifdef ESPSOMFY_AUDIT_CONTROL
+  // Download/verify/free only. Includes compatible equal/older releases for
+  // measurement without relaxing any installation eligibility or admission.
+  GitUpdateRequest requestAuditStage(const GitUpdateCandidate &expected);
+#endif
   GitUpdateRequest requestInstall(const GitUpdateCandidate &,uint64_t &operation);
   // Receive completion holds the queued firmware claim. Reserve a public
   // operation before FIFO publication; loop adoption retains this same ticket.

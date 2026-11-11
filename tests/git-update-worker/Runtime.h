@@ -19,13 +19,16 @@
 #include "GitUpdateAttestation.h"
 #include "GitUpdateCertificate.h"
 
+#ifdef ESPSOMFY_STACK_AUDIT
+namespace StackAudit { inline void observeCurrent() {} }
+#endif
 #define CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE 1
 #ifndef ESPSOMFY_RELEASE_TAG
 #define ESPSOMFY_RELEASE_TAG "v4.0.2"
 #endif
 #define ESPSOMFY_APP_COMPAT "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 #define ESPSOMFY_SOURCE_EPOCH 1760000000
-constexpr int pdPASS=1;
+constexpr int pdPASS=1,pdTRUE=1;
 constexpr int portMAX_DELAY=0x7fffffff;
 #define pdMS_TO_TICKS(v) (v)
 using esp_err_t=int;
@@ -47,6 +50,8 @@ inline int failAllocationAfter=-1;
 inline unsigned attestationCalls=0;
 inline uint32_t notified=0;
 inline bool queued=false;
+inline unsigned notificationTimeouts=0,observedNotificationTimeouts=0;
+inline bool checkNoWorkAfterTimeout=false;inline size_t timeoutUrlCount=0;
 inline bool memoryReady=true,fsCompatible=true,bootloaderMatches=true;
 inline bool createFail=false,notifyFail=false;
 inline unsigned createdTasks=0;
@@ -300,7 +305,17 @@ inline unsigned uxTaskGetStackHighWaterMark(TaskHandle_t) { return 8192; }
 constexpr int eSetValueWithOverwrite=0;
 inline int xTaskCreatePinnedToCore(void (*)(void *),const char *,uint32_t stack,void *,unsigned priority,TaskHandle_t *task,int core) { assert(Fake::criticalDepth==0);assert(stack==12288 && priority==1 && core==0);++Fake::createdTasks;if(Fake::createFail) return ESP_FAIL;*task=reinterpret_cast<void *>(1);return pdPASS; }
 inline int xTaskNotify(TaskHandle_t,uint32_t command,int) { assert(Fake::criticalDepth==0);if(Fake::notifyFail) return ESP_FAIL;Fake::notified=command;Fake::queued=true;return pdPASS; }
-inline int xTaskNotifyWait(uint32_t,uint32_t,uint32_t *command,int) {
+inline int xTaskNotifyWait(uint32_t,uint32_t,uint32_t *command,int ticks) {
+#ifdef ESPSOMFY_STACK_AUDIT
+  assert(ticks==5000);
+#else
+  assert(ticks==portMAX_DELAY);
+#endif
+  if(Fake::checkNoWorkAfterTimeout){assert(Fake::urls.size()==Fake::timeoutUrlCount);Fake::checkNoWorkAfterTimeout=false;}
+  if(Fake::notificationTimeouts){
+    --Fake::notificationTimeouts;++Fake::observedNotificationTimeouts;
+    *command=5;Fake::checkNoWorkAfterTimeout=true;Fake::timeoutUrlCount=Fake::urls.size();return 0;
+  }
   if(!Fake::queued) throw FakeTaskExit{};
   *command=Fake::notified;Fake::queued=false;return pdPASS;
 }

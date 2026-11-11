@@ -4,7 +4,7 @@ set -euo pipefail
 repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo"
 mode="${1:-static}"
-case "$mode" in static|instrumented) ;; *) echo 'Usage: bash tools/audit-stacks.sh [static|instrumented]' >&2; exit 2;; esac
+case "$mode" in static|instrumented|controlled) ;; *) echo 'Usage: bash tools/audit-stacks.sh [static|instrumented|controlled]' >&2; exit 2;; esac
 cache="${ESPSOMFY_TOOL_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/espsomfy-lilygo}"
 pio="$cache/pio-python/bin/pio"
 compiler="${STACK_AUDIT_COMPILER:-$HOME/.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32s3-elf-g++}"
@@ -18,7 +18,8 @@ source,out,mode=sys.argv[1:];text=Path(source).read_text()
 needle='build_flags =\n\t-DCONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=1'
 if text.count(needle)!=1:raise SystemExit('Shared build flags changed; review audit configuration')
 flags='\t-fstack-usage\n'
-if mode=='instrumented':flags+='\t-DESPSOMFY_STACK_AUDIT=1\n'
+if mode in ('instrumented','controlled'):flags+='\t-DESPSOMFY_STACK_AUDIT=1\n'
+if mode=='controlled':flags+='\t-DESPSOMFY_AUDIT_CONTROL=1\n'
 Path(out).write_text(text.replace(needle,'build_flags =\n'+flags+'\t-DCONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=1'))
 PY
 python3 - "$out/source-state.json" "$mode" "$out/platformio.ini" <<'PY'
@@ -39,10 +40,12 @@ import sys
 # Check emitted firmware, not just a successfully compiled probe symbol: release
 # log-level filtering can otherwise silently remove every measurement record.
 image=Path(sys.argv[2])
-if sys.argv[3]=='instrumented':
+if sys.argv[3] in ('instrumented','controlled'):
  if not image.is_file() or image.read_bytes().count(b'STACK_AUDIT schema=1 role=')!=1:
   raise SystemExit('Instrumented image lacks its unique runtime record format')
-elif image.is_file() and b'STACK_AUDIT schema=1 role=' in image.read_bytes():
+if image.is_file() and (b'AUDIT_ACK schema=1' in image.read_bytes()) != (sys.argv[3]=='controlled'):
+ raise SystemExit('Audit control interface differs from the explicitly selected build mode')
+if sys.argv[3]=='static' and image.is_file() and b'STACK_AUDIT schema=1 role=' in image.read_bytes():
  raise SystemExit('Default image unexpectedly contains stack-audit telemetry')
 PY
 python3 - "$out/source-state.json" <<'PY'

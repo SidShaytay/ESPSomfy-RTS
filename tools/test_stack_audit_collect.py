@@ -18,6 +18,12 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(result['rejectedAuditLines'],2)
         self.assertNotIn('secret',str(result));self.assertNotIn('private-device',str(result))
 
+    def test_sdk_roles_are_fixed_and_numeric(self):
+        roles=('idle0','idle1','timer-daemon','system-events','tcpip','esp-timer')
+        lines=[f'STACK_AUDIT schema=1 role={role} uptimeMs=100 minimumUnusedBytes=2048 samples=1 maxScanUs=8' for role in roles]
+        result=collector.parse(lines)
+        self.assertEqual(result['rolesObserved'],sorted(roles))
+
     def test_rejects_mixed_boots_and_empty_evidence(self):
         line='STACK_AUDIT schema=1 role=loop uptimeMs={} minimumUnusedBytes=20 samples={} maxScanUs=8\n'
         with self.assertRaises(ValueError):collector.parse([line.format(30000,7),line.format(100,1)])

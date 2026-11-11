@@ -635,6 +635,28 @@ void stageInstallation(const GitUpdateCandidate &expected) {
   if(GitUpdateImage::verify(installImage->data,received,gitUpdateBootloaderIdentity(),&installManifest,identity,{stopped,cooperate})!=GitUpdateImage::Result::verified){fail(GitUpdateReason::invalidImage);return;}
   {Guard guard;admissionPending=3;}
 }
+#ifdef ESPSOMFY_AUDIT_CONTROL
+void stageAudit(const GitUpdateCandidate &expected) {
+  GitUpdatePolicy::Manifest manifest;
+  if(!environment() || !metadata(true,expected,&manifest))return;
+  {Guard guard;if(!matches(view.candidate,expected))return;
+    view.phase=GitUpdatePhase::downloading;view.cancellable=true;view.progress=0;}
+  // Local ownership is deliberate: this buffer never reaches the installer.
+  Buffer image(expected.size);
+  if(!image.data){fail(GitUpdateReason::memory);return;}
+  size_t received=0;
+  const std::string url=std::string("https://github.com/")+GitUpdatePolicy::REPOSITORY+"/releases/download/"+expected.version+"/"+GitUpdatePolicy::FIRMWARE_ASSET;
+  if(!download(url,image,received,GitUpdateDownload::image))return;
+  if(received!=expected.size){fail(GitUpdateReason::body);return;}
+  {Guard guard;view.phase=GitUpdatePhase::verifying;}
+  GitUpdateImage::Identity identity;
+  if(GitUpdateImage::verify(image.data,received,gitUpdateBootloaderIdentity(),&manifest,identity,{stopped,cooperate})!=GitUpdateImage::Result::verified){fail(GitUpdateReason::invalidImage);return;}
+  Guard guard;
+  if(stopped()){terminalLocked(stoppedReason());return;}
+  view.phase=GitUpdatePhase::prepared;view.reason=GitUpdateReason::none;
+  view.cancellable=false;view.progress=100;
+}
+#endif
 void writeInstallation() {
   const auto *target=esp_ota_get_next_update_partition(nullptr);
   esp_ota_handle_t handle=0;
@@ -669,7 +691,14 @@ void worker(void *) {
 #ifdef ESPSOMFY_STACK_AUDIT
     StackAudit::observeCurrent();
 #endif
-    uint32_t command=0;xTaskNotifyWait(0,UINT32_MAX,&command,portMAX_DELAY);
+    uint32_t command=0;
+#ifdef ESPSOMFY_STACK_AUDIT
+    // Wake only to sample this task's post-work high-water mark. A timeout
+    // carries no command and must never repeat a completed operation.
+    if(xTaskNotifyWait(0,UINT32_MAX,&command,pdMS_TO_TICKS(5000))!=pdTRUE)continue;
+#else
+    xTaskNotifyWait(0,UINT32_MAX,&command,portMAX_DELAY);
+#endif
     uint64_t lease;GitUpdateCandidate expected;
     {
       Guard guard;lease=runningLease;expected=operationExpected;
@@ -689,6 +718,10 @@ void worker(void *) {
       continue;
     }
     operationStart=millis();
+#ifdef ESPSOMFY_AUDIT_CONTROL
+    if(command==5)stageAudit(expected);
+    else
+#endif
     if(environment()) metadata(command==2,expected);
     measure();
     // All transport/doc buffers have been destroyed before another owner can
@@ -774,7 +807,7 @@ void GitUpdateClass::loop() {
       if(owner==Owner::install)installCleanup=true;else owner=Owner::none;
       return;
     }
-    view.phase=owner==Owner::install ? GitUpdatePhase::downloading : command==2 ? GitUpdatePhase::preparing : GitUpdatePhase::checking;
+    view.phase=owner==Owner::install ? GitUpdatePhase::downloading : owner==Owner::prepare ? GitUpdatePhase::preparing : GitUpdatePhase::checking;
     if(owner==Owner::install){command=3;installWorkerActive=true;}
   }
   // FreeRTOS notification may wake another core; never hold our status mux
@@ -867,6 +900,22 @@ void GitUpdateClass::finishInstallRestart(uint64_t operation,bool mayClean) {
   else {installFinal=true;installUncertain=true;terminalLocked(GitUpdateReason::activationFailed);}
 }
 GitUpdateRequest GitUpdateClass::requestPrepare(const GitUpdateCandidate &expected) { return queue(true,expected); }
+#ifdef ESPSOMFY_AUDIT_CONTROL
+GitUpdateRequest GitUpdateClass::requestAuditStage(const GitUpdateCandidate &expected) {
+  Guard guard;
+  if(owner!=Owner::none)return GitUpdateRequest::busy;
+  if(!workerTask.load() || !GitUpdatePolicy::stableVersion(ESPSOMFY_RELEASE_TAG))return GitUpdateRequest::unavailable;
+  if(!view.compatible || !expected.generation || !matches(view.candidate,expected))return GitUpdateRequest::invalidCandidate;
+  if(candidateGeneration==UINT64_MAX){terminalLocked(GitUpdateReason::freshness);return GitUpdateRequest::unavailable;}
+  if(!acquire(Owner::prepare))return GitUpdateRequest::unavailable;
+  view.operation=++candidateGeneration;view.manual=false;view.installContinuation=false;
+  view.retryCount=0;view.retryDelayMs=0;operationBudget=OPERATION_MS;view.transport={};
+  operationExpected=expected;runningLease=ownerGeneration;
+  cancellationReason=GitUpdateReason::cancelled;cancelled=false;admissionPending=5;
+  view.phase=GitUpdatePhase::queued;view.reason=GitUpdateReason::none;view.cancellable=true;view.progress=0;
+  return GitUpdateRequest::accepted;
+}
+#endif
 bool GitUpdateClass::requestCancel(){return requestCancel(0);}
 bool GitUpdateClass::requestCancel(uint64_t expectedOperation,GitUpdateReason reason) {
   Guard guard;
@@ -882,6 +931,9 @@ void GitUpdateClass::loop() {}
 GitUpdateRequest GitUpdateClass::requestCheck() { Guard guard;return owner==Owner::none ? GitUpdateRequest::unavailable : GitUpdateRequest::busy; }
 GitUpdateRequest GitUpdateClass::requestCheck(uint64_t &){return requestCheck();}
 GitUpdateRequest GitUpdateClass::requestPrepare(const GitUpdateCandidate &) { return requestCheck(); }
+#ifdef ESPSOMFY_AUDIT_CONTROL
+GitUpdateRequest GitUpdateClass::requestAuditStage(const GitUpdateCandidate &) { return requestCheck(); }
+#endif
 GitUpdateRequest GitUpdateClass::requestInstall(const GitUpdateCandidate &,uint64_t &) { return requestCheck(); }
 bool GitUpdateClass::reserveManualInstall(const GitUpdateOwnerToken &,uint64_t &){return false;}
 GitUpdateRequest GitUpdateClass::requestManualInstall(const GitUpdateOwnerToken &,uint8_t *&,size_t,uint64_t,uint64_t &){return requestCheck();}

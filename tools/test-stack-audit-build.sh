@@ -11,7 +11,7 @@ from pathlib import Path
 root=Path(os.environ['PLATFORMIO_BUILD_DIR'])/'lilygo-t-embed-cc1101'
 root.mkdir(parents=True)
 (root/'firmware.elf').write_bytes(b'test-fixture-not-firmware')
-(root/'firmware.bin').write_bytes(b'test-fixture-with-no-record')
+(root/'firmware.bin').write_bytes(b'STACK_AUDIT schema=1 role= AUDIT_ACK schema=1' if os.environ.get('FAKE_AUDIT_CONTROL') else b'test-fixture-with-no-record')
 (root/'test.cpp.su').write_text('src/Test.cpp:1:1:void current()\t64\tstatic\n')
 PY
 cat > "$scratch/compiler-g++" <<'SH'
@@ -46,3 +46,19 @@ if ESPSOMFY_TOOL_CACHE="$scratch/cache" STACK_AUDIT_COMPILER="$scratch/compiler-
 fi
 [[ ! -f "$scratch/out/instrumented/LATEST" ]]
 printf 'Silent instrumented image rejected before publication or installation\n'
+
+# Controls require an explicit build mode and a separately emitted marker.
+if ESPSOMFY_TOOL_CACHE="$scratch/cache" STACK_AUDIT_COMPILER="$scratch/compiler-g++" STACK_AUDIT_OUTPUT_ROOT="$scratch/out" \
+ bash "$repo/tools/audit-stacks.sh" controlled > "$scratch/missing-control.log" 2>&1;then
+ echo 'Controlled image missing its runtime interface was accepted' >&2;exit 1
+fi
+[[ ! -f "$scratch/out/controlled/LATEST" ]]
+FAKE_AUDIT_CONTROL=1 ESPSOMFY_TOOL_CACHE="$scratch/cache" STACK_AUDIT_COMPILER="$scratch/compiler-g++" STACK_AUDIT_OUTPUT_ROOT="$scratch/out" \
+ bash "$repo/tools/audit-stacks.sh" controlled
+control_latest="$(cat "$scratch/out/controlled/LATEST")"
+rg -q -- '-DESPSOMFY_AUDIT_CONTROL=1' "$control_latest/platformio.ini"
+if FAKE_AUDIT_CONTROL=1 ESPSOMFY_TOOL_CACHE="$scratch/cache" STACK_AUDIT_COMPILER="$scratch/compiler-g++" STACK_AUDIT_OUTPUT_ROOT="$scratch/out" \
+ bash "$repo/tools/audit-stacks.sh" instrumented > "$scratch/unexpected-control.log" 2>&1;then
+ echo 'Measurement-only mode accepted a control interface' >&2;exit 1
+fi
+printf 'Explicit control mode and measurement-only exclusion verified\n'
