@@ -314,12 +314,9 @@ static void actual_add_room_default_128_cannot_wrap_without_replacement() {
   Form form(backend, memory);
   TEST_ASSERT_TRUE(form.open(Kind::room, 0, 0));
   form.activate(1);
-  for (int i = 0; i < 33; i++)
-    form.turn(1, 1);
-  form.activate(1);
-  for (int i = 0; i < 64; i++)
-    form.turn(1, 1);
-  form.activate(1);
+  for(int i=0;i<26;++i)form.turn(1,1); // Shift
+  form.activate(1);form.activate(1); // A
+  form.turn(-1,1);form.activate(1); // Done -> working draft
   form.turn(1, 1);
   form.turn(1, 1);
   form.activate(1); // name-only Save

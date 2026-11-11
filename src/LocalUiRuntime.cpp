@@ -15,12 +15,12 @@ uint32_t hash(const void *p,size_t n,uint32_t h=2166136261u) {
   const auto *b=static_cast<const uint8_t *>(p);while(n--) h=(h^*b++)*16777619u;return h;
 }
 uint32_t sceneHash(const Model &m,const View &v,const StatusDisplay::Snapshot &s) {
-  const uint32_t values[]={uint32_t(v.screen),v.selected,v.cursor,v.routed,uint32_t(v.returnScreen),v.returnSelection,v.settingsSection,v.systemSection,v.systemSettings,v.systemSelection,uint32_t(v.catalogue),v.room,
+  const uint32_t values[]={uint32_t(v.screen),v.selected,v.cursor,v.networkHome,uint32_t(v.catalogueReturnScreen),v.catalogueReturnSelection,v.routed,uint32_t(v.returnScreen),v.returnSelection,v.settingsSection,v.systemSection,v.systemSettings,v.systemSelection,uint32_t(v.catalogue),v.room,
     uint32_t(v.entity.kind),v.entity.id,v.quickEditing,v.quickPicking,v.quickOrigin,v.quickSlot,uint32_t(m.quickStatus),uint32_t(m.quickRevision),uint32_t(m.quickRevision>>32),uint32_t(v.openedToken),uint32_t(v.openedToken>>32),uint32_t(v.action),
     uint32_t(v.favouriteRevision),uint32_t(v.favouriteRevision>>32),
     uint32_t(m.target.favouriteRevision),uint32_t(m.target.favouriteRevision>>32),m.target.favouriteReady,m.target.favouriteClearReady,
     v.valueChoice,uint32_t(v.draftValue),uint32_t(v.notice),v.level,v.setting,v.detailsOffset,v.dimSeconds,v.offSeconds,
-    v.credentialChoice,v.credentialLength,v.credentialMaximum,v.credentialUser,v.credentialByte,v.retryAfterMs/1000,
+    v.credentialKeyboard.selected,v.credentialKeyboard.bank,v.credentialKeyboard.shift,v.credentialChoice,v.credentialLength,v.credentialMaximum,v.credentialUser,v.credentialByte,v.retryAfterMs/1000,
     m.authorized,m.authGeneration,m.authConfigurationGeneration,uint32_t(m.authMode),m.ready,m.controlsEnabled,m.controlPending,
     uint32_t(m.pageToken),uint32_t(m.pageToken>>32),m.page.total,m.page.cursor,m.target.exists,m.target.valid,
     uint32_t(m.target.token),uint32_t(m.target.token>>32),m.target.capabilities,m.target.moving,m.target.stopLease,
@@ -33,7 +33,7 @@ uint32_t sceneHash(const Model &m,const View &v,const StatusDisplay::Snapshot &s
     const auto &binding=*v.quickDraft.at(i);const uint32_t fields[]={uint32_t(binding.ref.kind),binding.ref.id,binding.identity};h=hash(fields,sizeof(fields),h);
   }
   for(const auto &entry:m.page.rows) {
-    const int32_t values[]={entry.id,entry.position,entry.available,entry.moving};
+    const int32_t values[]={entry.id,entry.group,entry.position,entry.available,entry.moving};
     h=hash(values,sizeof(values),h);h=hash(entry.name,strlen(entry.name),h);
   }
   h=hash(m.target.name,strlen(m.target.name),h);h=hash(v.roomName,strlen(v.roomName),h);
@@ -43,7 +43,7 @@ uint32_t sceneHash(const Model &m,const View &v,const StatusDisplay::Snapshot &s
 }
 uint32_t settingsHash(const Settings::FormView &view) {
   const uint32_t fields[]={uint32_t(view.mode),uint32_t(view.notice),uint32_t(view.restartReason),view.rowCount,view.selected,view.total,
-    view.offset,view.protectedFrame,view.dirty};
+    view.offset,view.protectedFrame,view.dirty,view.keyboard.selected,view.keyboard.bank,view.keyboard.shift,view.textLength,view.textLimit};
   uint32_t h=hash(fields,sizeof(fields));
   h=hash(view.title,sizeof(view.title),h);h=hash(view.hint,sizeof(view.hint),h);
   for(const auto &row:view.rows) {
@@ -53,25 +53,25 @@ uint32_t settingsHash(const Settings::FormView &view) {
   return h;
 }
 bool sameSettings(const Settings::FormView &a,const Settings::FormView &b) {
-  if(a.mode!=b.mode || a.notice!=b.notice || a.restartReason!=b.restartReason || a.rowCount!=b.rowCount || a.selected!=b.selected ||
+  if(a.keyboard.selected!=b.keyboard.selected || a.keyboard.bank!=b.keyboard.bank || a.keyboard.shift!=b.keyboard.shift || a.textLength!=b.textLength || a.textLimit!=b.textLimit || a.mode!=b.mode || a.notice!=b.notice || a.restartReason!=b.restartReason || a.rowCount!=b.rowCount || a.selected!=b.selected ||
      a.total!=b.total || a.offset!=b.offset || a.protectedFrame!=b.protectedFrame || a.dirty!=b.dirty ||
      memcmp(a.title,b.title,sizeof(a.title)) || memcmp(a.hint,b.hint,sizeof(a.hint))) return false;
-  for(uint8_t i=0;i<3;i++) if(a.rows[i].selected!=b.rows[i].selected || a.rows[i].readOnly!=b.rows[i].readOnly ||
+  for(uint8_t i=0;i<sizeof(a.rows)/sizeof(*a.rows);i++) if(a.rows[i].selected!=b.rows[i].selected || a.rows[i].readOnly!=b.rows[i].readOnly ||
       a.rows[i].dirty!=b.rows[i].dirty || memcmp(a.rows[i].label,b.rows[i].label,sizeof(a.rows[i].label)) ||
       memcmp(a.rows[i].value,b.rows[i].value,sizeof(a.rows[i].value))) return false;
   return true;
 }
 bool sameAdministration(const EntityAdmin::FormView &a,const EntityAdmin::FormView &b) {
-  if(a.kind!=b.kind || a.id!=b.id || a.mode!=b.mode || a.notice!=b.notice || a.rowCount!=b.rowCount ||
+  if(a.keyboard.selected!=b.keyboard.selected || a.keyboard.bank!=b.keyboard.bank || a.keyboard.shift!=b.keyboard.shift || a.textLength!=b.textLength || a.textLimit!=b.textLimit || a.kind!=b.kind || a.id!=b.id || a.mode!=b.mode || a.notice!=b.notice || a.rowCount!=b.rowCount ||
      a.selected!=b.selected || a.total!=b.total || a.offset!=b.offset || a.protectedFrame!=b.protectedFrame ||
      a.dirty!=b.dirty || memcmp(a.title,b.title,sizeof(a.title)) || memcmp(a.hint,b.hint,sizeof(a.hint)))return false;
-  for(uint8_t i=0;i<3;i++)if(a.rows[i].selected!=b.rows[i].selected || a.rows[i].dirty!=b.rows[i].dirty ||
+  for(uint8_t i=0;i<sizeof(a.rows)/sizeof(*a.rows);i++)if(a.rows[i].selected!=b.rows[i].selected || a.rows[i].dirty!=b.rows[i].dirty ||
       memcmp(a.rows[i].label,b.rows[i].label,sizeof(a.rows[i].label)) || memcmp(a.rows[i].value,b.rows[i].value,sizeof(a.rows[i].value)))return false;
   return true;
 }
 uint32_t administrationHash(const EntityAdmin::FormView &view,uint64_t epoch) {
   const uint32_t values[]={uint32_t(view.kind),view.id,uint32_t(view.mode),uint32_t(view.notice),view.rowCount,
-    view.selected,view.total,view.offset,view.protectedFrame,view.dirty,uint32_t(epoch),uint32_t(epoch>>32)};
+    view.selected,view.total,view.offset,view.protectedFrame,view.dirty,view.keyboard.selected,view.keyboard.bank,view.keyboard.shift,view.textLength,view.textLimit,uint32_t(epoch),uint32_t(epoch>>32)};
   uint32_t h=hash(values,sizeof(values));h=hash(view.title,sizeof(view.title),h);h=hash(view.hint,sizeof(view.hint),h);
   for(const auto &row:view.rows) {
     const uint32_t flags[]={row.selected,row.dirty};h=hash(flags,sizeof(flags),h);
@@ -83,10 +83,16 @@ bool quickEqual(const QuickAccess &a,const QuickAccess &b) {
  for(size_t i=0;i<quickAccessSlots;i++)if(a.at(i)->ref!=b.at(i)->ref || a.at(i)->identity!=b.at(i)->identity)return false;
  return true;
 }
+bool sameCredentialChoice(const View &a,const View &b) {
+  return a.credentialKeyboard.selected==b.credentialKeyboard.selected && a.credentialKeyboard.bank==b.credentialKeyboard.bank &&
+    a.credentialKeyboard.shift==b.credentialKeyboard.shift && a.credentialChoice==b.credentialChoice &&
+    a.credentialLength==b.credentialLength && a.credentialMaximum==b.credentialMaximum &&
+    a.credentialUser==b.credentialUser && a.credentialByte==b.credentialByte;
+}
 // Motion/estimate repainting is coalesced until a frame finishes. Structural
 // page, target, action, editor and authorization changes supersede it promptly.
 bool sameMeaning(const View &a,const View &b,uint64_t page,uint64_t framePage,uint64_t target,uint64_t frameTarget) {
-  if(a.routed!=b.routed || a.returnScreen!=b.returnScreen || a.returnSelection!=b.returnSelection || a.settingsSection!=b.settingsSection || a.systemSection!=b.systemSection || a.systemSettings!=b.systemSettings || a.systemSelection!=b.systemSelection || a.screen!=b.screen || a.notice!=b.notice || a.repeatHeld!=b.repeatHeld ||
+  if(a.networkHome!=b.networkHome || a.catalogueReturnScreen!=b.catalogueReturnScreen || a.catalogueReturnSelection!=b.catalogueReturnSelection || a.routed!=b.routed || a.returnScreen!=b.returnScreen || a.returnSelection!=b.returnSelection || a.settingsSection!=b.settingsSection || a.systemSection!=b.systemSection || a.systemSettings!=b.systemSettings || a.systemSelection!=b.systemSelection || a.screen!=b.screen || a.notice!=b.notice || a.repeatHeld!=b.repeatHeld ||
      a.quickEditing!=b.quickEditing || a.quickPicking!=b.quickPicking || a.quickOrigin!=b.quickOrigin ||
      a.quickSlot!=b.quickSlot || !quickEqual(a.quickDraft,b.quickDraft)) return false;
   if(a.screen==Screen::quickHome || a.screen==Screen::quickManage || a.screen==Screen::quickActions || a.screen==Screen::quickSave)
@@ -99,8 +105,7 @@ bool sameMeaning(const View &a,const View &b,uint64_t page,uint64_t framePage,ui
     if(a.screen==Screen::favouriteObserve || a.screen==Screen::favouriteConfirm) return sameTarget && a.valueChoice==b.valueChoice && a.favouriteRevision==b.favouriteRevision;
     return sameTarget;
   }
-  if(a.screen==Screen::unlock) return a.credentialChoice==b.credentialChoice && a.credentialLength==b.credentialLength &&
-    a.credentialMaximum==b.credentialMaximum && a.credentialUser==b.credentialUser && a.credentialByte==b.credentialByte;
+  if(a.screen==Screen::unlock) return sameCredentialChoice(a,b);
   if(a.screen==Screen::brightness) return a.level==b.level && a.dimSeconds==b.dimSeconds && a.offSeconds==b.offSeconds && a.setting==b.setting;
   if(a.screen==Screen::details) return a.detailsOffset==b.detailsOffset;
   return a.selected==b.selected && a.room==b.room;
@@ -174,6 +179,8 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
     else visible &= presentedView.valueChoice==before.valueChoice && presentedView.draftValue==before.draftValue && presentedView.repeatStep==before.repeatStep && presentedView.repeating==before.repeating;
   } else if(before.screen==Screen::settings)
     visible &= settingsActive && presentedSettingsValid && sameSettings(settingsForm.view(),presentedSettings);
+  else if(before.screen==Screen::unlock)
+    visible &= sameCredentialChoice(before,presentedView);
   else if(before.screen==Screen::brightness)
     visible &= before.setting==presentedView.setting && before.level==presentedView.level &&
       before.dimSeconds==presentedView.dimSeconds && before.offSeconds==presentedView.offSeconds;

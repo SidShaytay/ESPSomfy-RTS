@@ -9,7 +9,7 @@ scratch="$(mktemp -d)"
 trap 'rm -rf -- "$scratch"' EXIT
 "${CXX:-c++}" -std=c++17 -O2 -DARDUINO=10800 -DLOCAL_UI_HOST_PREVIEW \
   -I"$repo/tests/ui-render" -I"$repo/src" -I"$gfx" \
-  "$repo/tests/ui-render/settings-render.cpp" "$repo/src/LocalUiRenderer.cpp" \
+  "$repo/tests/ui-render/settings-render.cpp" "$repo/src/LocalUiRenderer.cpp" "$repo/src/LocalControlPolicy.cpp" \
   "$repo/src/StatusDisplay.cpp" "$gfx/Adafruit_GFX.cpp" -o "$scratch/render"
 "$scratch/render" "$out"
 python3 - "$repo" "$out" <<'PY'

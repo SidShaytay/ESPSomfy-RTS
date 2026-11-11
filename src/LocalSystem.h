@@ -17,7 +17,7 @@ public:
 };
 // Loop-owned navigation. Runtime supplies the existing shared presentation
 // frame; this state owns neither another frame nor any dynamic allocation.
-enum class Menu:uint8_t {legacy,maintenance,diagnostics,wifiScan};
+enum class Menu:uint8_t {legacy,maintenance,diagnostics,wifiScan,updates};
 class Form {
   Backend &backend;
   enum class Page : uint8_t { closed, menu, confirm, files, guidance, result, wifi, diagnostics, network, radio, updates } page=Page::closed;
@@ -44,7 +44,7 @@ public:
   bool wantsDiagnostics() const {return page==Page::diagnostics;}
   bool wantsUpdates() const {return page==Page::updates;}
   bool wantsRadioScan() const {return page==Page::radio;}
-  void finishChild(){if(menu==Menu::wifiScan){discard();return;}if(page==Page::wifi || page==Page::diagnostics || page==Page::radio || page==Page::updates){cursor=menu==Menu::maintenance?0:menu==Menu::diagnostics?(page==Page::diagnostics?1:2):page==Page::wifi?2:page==Page::diagnostics?3:page==Page::radio?5:6;page=Page::menu;}}
+  void finishChild(){if(menu==Menu::wifiScan || menu==Menu::updates){discard();return;}if(page==Page::wifi || page==Page::diagnostics || page==Page::radio || page==Page::updates){cursor=menu==Menu::maintenance?0:menu==Menu::diagnostics?(page==Page::diagnostics?1:2):page==Page::wifi?2:page==Page::diagnostics?3:page==Page::radio?5:6;page=Page::menu;}}
   void childActivity(uint64_t now){if(guard(now))touch(now);}
 };
 static_assert(sizeof(Form)<=80,"System borrows presentation storage and allocates nothing");

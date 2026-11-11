@@ -41,5 +41,5 @@ public:
   const EntityAdmin::FormView &view() const {return frame;}
   uint64_t epoch() {return (page==Page::entity || page==Page::order || page==Page::advanced)?backend.revision():revision;}
 };
-static_assert(sizeof(Administration)<=1536,"One bounded administration page and entity form");
+static_assert(sizeof(Administration)<=1664,"One bounded administration page and entity form");
 }

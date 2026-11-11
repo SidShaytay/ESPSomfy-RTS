@@ -440,6 +440,9 @@ void Form::render() {
     menus[0] = "Edit value";
     menus[1] = numeric ? "Step" : "Apply to draft";
     menus[2] = "Apply to draft";
+  } else if (mode == Mode::discard) {
+    frame.total=2;menus[0]="Keep editing";menus[1]="Discard changes";
+    copy(frame.hint,sizeof(frame.hint),"Unsaved changes will be lost.");
   } else if (mode == Mode::confirm) {
     frame.total = 2;
     menus[0] = "Cancel";
@@ -477,26 +480,15 @@ void Form::render() {
       copy(frame.rows[2].label, sizeof(frame.rows[2].label),
            "Press for Apply / Step");
     } else {
+      frame.total=0;
       editor.previewTail(frame.rows[0].value, sizeof(frame.rows[0].value));
       snprintf(frame.hint, sizeof(frame.hint),
-               "%u/%u bytes. Apply to draft; Back cancels.", editor.length(),
+               "%u/%u bytes. Done or Back keeps draft.", editor.length(),
                editor.maximumBytes());
-      const auto p = editor.selected();
-      copy(frame.rows[1].label, sizeof(frame.rows[1].label), "Character");
-      if (editor.byteMode())
-        snprintf(frame.rows[1].value, sizeof(frame.rows[1].value), "Byte %u",
-                 p);
-      else if (p < 95)
-        snprintf(frame.rows[1].value, sizeof(frame.rows[1].value), "'%c' (%u)",
-                 char(p + 32), p + 32);
-      else
-        copy(frame.rows[1].value, sizeof(frame.rows[1].value),
-             p == 95   ? "Delete byte"
-             : p == 96 ? "Exact byte"
-             : p == 97 ? "Apply to draft"
-                       : "Cancel edit");
-      copy(frame.rows[2].label, sizeof(frame.rows[2].label),
-           "Back cancels edit");
+      copy(frame.title, sizeof(frame.title), label(editingField->field));
+      frame.keyboard=editor.keyboardView();
+      frame.textLength=editor.length();frame.textLimit=editor.maximumBytes();
+
     }
     return;
   } else
@@ -781,7 +773,9 @@ void Form::turn(int direction, uint64_t now) {
   if (!direction || !guard(now))
     return;
   touch(now);
-  if (frame.mode == Mode::text || frame.mode == Mode::adjust)
+  if (frame.mode == Mode::text)
+    editor.keyboardTurn(direction, now);
+  else if (frame.mode == Mode::adjust)
     editor.rotate(direction, now);
   else {
     const auto total = frame.total;
@@ -810,8 +804,8 @@ void Form::activate(uint64_t now) {
       return;
     }
     if (selected > count()) {
-      close(Notice::none);
-      return;
+      if(changes.size()){frame.mode=Mode::discard;selected=0;break;}
+      close(Notice::none);return;
     }
     if (!changes.size()) {
       close(Notice::unchanged);
@@ -850,7 +844,7 @@ void Form::activate(uint64_t now) {
     selected = 0;
     break;
   case Mode::text: {
-    const auto result = editor.press(now);
+    const auto result = editor.keyboardPress(now);
     if (result == EditOutcome::applied) {
       applyField(now);
       return;
@@ -887,6 +881,9 @@ void Form::activate(uint64_t now) {
       return;
     }
     break;
+  case Mode::discard:
+    if(selected){close(Notice::none);return;}
+    frame.mode=Mode::fields;selected=fieldIndex;break;
   case Mode::confirm:
     if (selected) {
       save(now);
@@ -904,7 +901,11 @@ void Form::back(uint64_t now) {
   if (!guard(now))
     return;
   touch(now);
-  if (frame.mode == Mode::text || frame.mode == Mode::adjust ||
+  if(frame.mode==Mode::text) {
+    if(editor.keyboardBack(now)){render();return;}
+    editor.apply(now);applyField(now);return;
+  }
+  if (frame.mode == Mode::adjust ||
       frame.mode == Mode::actions || frame.mode == Mode::secret ||
       frame.mode == Mode::replace) {
     editor.cancel();
@@ -916,6 +917,10 @@ void Form::back(uint64_t now) {
     frame.mode = Mode::fields;
     selected = count();
     render();
+  } else if(frame.mode==Mode::discard) {
+    frame.mode=Mode::fields;selected=fieldIndex;render();
+  } else if(frame.mode==Mode::fields && changes.size()) {
+    frame.mode=Mode::discard;selected=0;render();
   } else
     close(Notice::none);
 }

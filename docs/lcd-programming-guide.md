@@ -1,12 +1,12 @@
 # Pair or unpair from the LCD
 
-**Navigation version:** These paths apply to **4.8.0 and later**. For 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
+**Navigation version:** These paths apply to **4.9.0 and later**. For 4.8.0 or 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
 
 The LCD guides you through sending a programming request to one RF shutter and recording the result you have verified. The guide is implemented in main and covered by offline input, renderer, adapter and FIFO tests. Physical motor programming is not established by that evidence.
 
 ## Use the guide
 
-1. Open **This controller → Configure → Rooms, devices & groups → Devices → Advanced**, unlock when requested, select the device, then choose **Pair/unpair guide**.
+1. Open **System → Configure → Rooms, devices & groups → Devices → Advanced**, unlock when requested, select the device, then choose **Pair/unpair guide**.
 2. Choose **Pair controller** or **Unpair controller**. The displayed paired marker is a saved setting, not a reading from the motor.
 3. Follow your motor’s instructions to enter its learn mode. Choose **I observed learn mode** only after checking it yourself. Opening the guide sends nothing.
 4. Leave the repeat count at 1 unless the motor’s instructions require another value. The supported range is 1–127. Choose **Review and send**.

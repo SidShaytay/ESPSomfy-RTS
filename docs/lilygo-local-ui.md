@@ -13,31 +13,28 @@ and physical-verification limits.
 
 ## Navigation versions
 
-The paths in this guide apply to **4.8.0 and later**. Version **4.7.3** uses the older navigation shown below. Check the running version in Details before following a path.
+The main instructions below apply to **4.9.0 and later**. Check Details for the installed version.
 
-| Task | 4.7.3 | 4.8.0 and later |
-|---|---|---|
-| Browse targets | Quick access → Browse & settings → Rooms / Devices / Groups | Quick access → Browse all → Rooms / Devices / Groups |
-| Settings and administration | Browse & settings → Settings / Administration | This controller → Configure → named section / Rooms, devices & groups |
-| Display and shortcuts | Browse & settings → Display settings; Quick access → Manage shortcuts | This controller → Configure → Display / Quick entries |
-| GitHub updates, restart, browser files | Browse & settings → System → chosen action | This controller → Maintenance → chosen action |
-| Network details, receive diagnostics, radio scan, copy-log guidance | Browse & settings → System; copy-log guidance is under Browser files & Web | This controller → Diagnostics → chosen action |
-| WiFi scan | Browse & settings → System → WiFi scan | This controller → Configure → Network → WiFi scan |
-| Status and About | Browse & settings → Status; hold Status for Details | This controller → Status / About |
+| Task | 4.7.3 | 4.8.0 | 4.9.0 and later |
+|---|---|---|---|
+| Browse targets | Browse & settings → Rooms / Devices / Groups | Browse all → Rooms / Devices / Groups | Home → Devices / Groups / Rooms |
+| Settings and administration | Browse & settings → Settings / Administration | This controller → Configure | System → Configure |
+| Display and shortcuts | Browse & settings → Display settings / Manage shortcuts | This controller → Configure → Display / Quick entries | Home → Display; Quick access → Edit shortcuts |
+| GitHub updates | Browse & settings → System → GitHub updates | This controller → Maintenance → GitHub updates | Home → Updates |
+| Restart and browser files | Browse & settings → System | This controller → Maintenance | System → Maintenance |
+| Diagnostics | Browse & settings → System | This controller → Diagnostics | Home → Diagnostics |
+| WiFi scan | Browse & settings → System → WiFi scan | This controller → Configure → Network → WiFi scan | Home → Network → WiFi scan |
+| Status and About | Browse & settings → Status; hold for Details | This controller → Status / About | System → Status / About |
 
-Both versions retain protected forms, explicit confirmations and supported commands. Version 4.7.3 requires its original installation session to remain valid. **4.8.0 and later** combine this navigation with the confirmed-install 30-minute window and temporary-download retries; ordinary menu authorization still expires after 120 seconds. See [GitHub updates](lcd-github-updates.md) for cancellation, unlock and failure behavior.
+All versions retain protected forms, explicit confirmations and supported commands. Version 4.7.3 requires its original installation session to remain valid. **4.8.0 and later** combine this navigation with the confirmed-install 30-minute window and temporary-download retries; ordinary menu authorization still expires after 120 seconds. See [GitHub updates](lcd-github-updates.md) for cancellation, unlock and failure behavior.
 
 ## Start on the LCD
 
 1. Wake the display with one input; that first input sends no command.
-2. Quick access shows three pinned devices or groups together. Select one to
-   open its controls; opening sends no command. **Browse all** opens Rooms, Devices and Groups. **This controller** opens configuration, maintenance, Status, About and diagnostics.
-3. Unlock with the configured web PIN/password when requested. Ordinary controls
-   appear only for the selected target’s supported capabilities. Read the action
-   and confirmation on the display before pressing.
-4. From shortcut controls, Back returns directly to Quick access. Hold on Status
-   for Details. For a software update, open **This controller → Maintenance → GitHub updates** and follow its
-   separate default-Cancel release review.
+2. Quick access shows three pinned devices or groups and **Edit shortcuts**. Turn past the last entry to reach two Home pages: **Devices, Groups, Rooms, System**, then **Display, Network, Updates, Diagnostics**. Turn backwards to retrace the pages. Clockwise selection follows left, right, then the next row on two-column pages.
+3. Select a shortcut or catalogue target to open its controls. Opening sends no command. **Rooms** lists named rooms and nonempty **Unassigned**; selecting one shows its devices and groups together. Global **Devices** and **Groups** already cover every room.
+4. Unlock with the configured web PIN/password when requested. Read the selected action or confirmation before pressing. Back returns to the screen, selection and scroll position you came from.
+5. Hold on Status for Details. Open **Home → Updates** for the separate default-Cancel GitHub release review.
 
 Displayed movement and percentages are estimates. STOP uses MY on ordinary RTS
 motors; it is not a physical emergency-stop system. One-button Toggle devices
@@ -45,7 +42,7 @@ have different stop/reverse semantics and no ordinary STOP action.
 
 ## Choose daily shortcuts
 
-**This controller → Configure → Quick entries** edits the three Quick access slots. Select a slot, then
+**Quick access → Edit shortcuts** edits the three Quick access slots. Select a slot, then
 **Pin device**, **Pin group**, **Remove shortcut**, **Move up** or **Move down**.
 Choose **Save shortcuts**, review all three targets, then turn from **Cancel** to
 **Save** and press. The configured web credential also protects these edits.
@@ -62,7 +59,7 @@ radio identity makes its shortcut usable again after fresh checks.
 Names follow the current configuration. Shortcut pins are separate from the
 motor's MY/Favourite position.
 
-**Browse all** contains only the Rooms, Devices and Groups catalogues. **This controller → Configure** contains settings, Display, Quick entries and **Rooms, devices & groups** administration. Startup opens Quick access when the model is ready
+**Home → Devices / Groups / Rooms** opens the target catalogues. **System → Configure** contains settings, Display, Quick entries and **Rooms, devices & groups** administration. Startup opens Quick access when the model is ready
 and no movement or pending control needs attention. Ordinary idle navigation
 returns to Status before sleep; waking Status returns to Quick access. Waking a
 control page preserves it, keeping its existing STOP access and expiry rules.
@@ -71,26 +68,26 @@ control page preserves it, keeping its existing STOP access and expiry rules.
 
 | Task | LCD path and guide |
 |---|---|
-| Everyday controls and bounded repeats | Target → controls / More / Repeats; instructions below |
-| Position, then set or clear Favourite | Target → More → Set favourite here / Clear favourite; [observed-stop stages](lcd-favourite.md) |
-| Rooms, devices, groups and ordering | This controller → Configure → Rooms, devices & groups; [entity administration](lcd-entity-administration.md), [ordering](lcd-ordering.md) |
-| Status, paired marker, linked remotes, counters | This controller → Configure → Rooms, devices & groups → Devices/Groups → Advanced; [status/metadata](lcd-advanced-metadata.md), [counter correction](lcd-primary-counter-correction.md) |
+| Everyday controls and bounded repeats | Target → controls / Actions / Send with repeats; instructions below |
+| Position, then set or clear Favourite | Target → Actions → Save current as favourite / Clear saved favourite; [observed-stop stages](lcd-favourite.md) |
+| Rooms, devices, groups and ordering | System → Configure → Rooms, devices & groups; [entity administration](lcd-entity-administration.md), [ordering](lcd-ordering.md) |
+| Status, paired marker, linked remotes, counters | System → Configure → Rooms, devices & groups → Devices/Groups → Advanced; [status/metadata](lcd-advanced-metadata.md), [counter correction](lcd-primary-counter-correction.md) |
 | Pair/unpair one motor | Device Advanced → Pair/unpair guide; [programming guide](lcd-programming-guide.md) |
 | Edit group list or program group membership | Group Advanced → Member links or Motor programming; [list repair](lcd-group-membership.md), [motor programming](lcd-group-programming.md) |
-| Receive/review repeater or remove association | This controller → Configure → Rooms, devices & groups → More → Repeaters; [repeater guide](lcd-repeater-learning.md) |
+| Receive/review repeater or remove association | System → Configure → Rooms, devices & groups → More → Repeaters; [repeater guide](lcd-repeater-learning.md) |
 | Explicit remote chords or sensor simulation | Device/group Advanced → Advanced remote / Sensor simulation; [chords](lcd-advanced-remote.md), [sensor guide](lcd-sensor-simulation.md) |
-| Settings and secrets | This controller → Configure; [settings forms](lcd-settings-forms.md) |
-| WiFi/network details and scans | This controller → Diagnostics → Network details / Radio frequency scan; Configure → Network → WiFi scan; [System](lcd-system.md), [WiFi](lcd-wifi-scan.md), [radio scan](lcd-radio-scan.md) |
-| Receive diagnostics | This controller → Diagnostics → Receive diagnostics; [receive guide](lcd-receive-diagnostics.md) |
-| Update firmware without a computer | This controller → Maintenance → GitHub updates; [verified update/rollback](lcd-github-updates.md) |
-| Backup, restore, manual files, clipboard/cache | This controller → Maintenance → Browser files & Web; Diagnostics → Copy receive log supplies browser guidance; [System](lcd-system.md), [generic filesystem files](generic-filesystem-update.md) |
+| Settings and secrets | System → Configure; [settings forms](lcd-settings-forms.md) |
+| WiFi/network details and scans | System → Diagnostics → Network details / Radio frequency scan; Configure → Network → WiFi scan; [System](lcd-system.md), [WiFi](lcd-wifi-scan.md), [radio scan](lcd-radio-scan.md) |
+| Receive diagnostics | System → Diagnostics → Receive diagnostics; [receive guide](lcd-receive-diagnostics.md) |
+| Update firmware without a computer | System → Maintenance → GitHub updates; [verified update/rollback](lcd-github-updates.md) |
+| Backup, restore, manual files, clipboard/cache | System → Maintenance → Browser files & Web; Diagnostics → Copy receive log supplies browser guidance; [System](lcd-system.md), [generic filesystem files](generic-filesystem-update.md) |
 
 ## Use the encoder
 
 - First input after dim/off wakes only. A button held during boot is ignored until released.
-- From Status, turn or press to open Quick access. Choose **Browse all** for target catalogues or **This controller** for controller tasks. Hold for Details; turn there to scroll all fourteen diagnostic rows. Details distinguishes compiled Firmware from installed web-file Application version. Opening About through This controller returns to that menu; the existing Status hold shortcut retains its normal return.
-- In Browse all, turn to Rooms, Devices or Groups, then press. This controller opens Configure, Maintenance, Status, About or Diagnostics. Status opens the existing wake screen directly; About opens the existing scrolling Details page. Rooms includes All rooms and Unassigned filters. Catalogues show three rows at a time, keep the selected device ID when entries reorder, and handle every configured device/group. Names can repeat; the visible stable ID identifies each target.
-- **This controller → Configure → Rooms, devices & groups → Rooms / Devices / Groups** adds, edits and deletes configuration through protected local forms. Apply changes only the draft; Save performs the edit. Device/group Save and all Delete confirmations start with Cancel selected. Full lists show every stable ID; Add is marked full when no slots remain. If an edit applies but its model file is not saved, Retry saves the current file without repeating the edit. See [entity administration](lcd-entity-administration.md).
+- From Status, turn or press to open Quick access. Choose **Browse all** for target catalogues or **System** for controller tasks. Hold for Details; turn there to scroll all fourteen diagnostic rows. Details distinguishes compiled Firmware from installed web-file Application version. Opening About through System returns to that menu; the existing Status hold shortcut retains its normal return.
+- In Browse all, turn to Rooms, Devices or Groups, then press. System opens Configure, Maintenance, Status, About or Diagnostics. Status opens the existing wake screen directly; About opens the existing scrolling Details page. Rooms includes All rooms and Unassigned filters. Catalogues show three rows at a time, keep the selected device ID when entries reorder, and handle every configured device/group. Names can repeat; the visible stable ID identifies each target.
+- **System → Configure → Rooms, devices & groups → Rooms / Devices / Groups** adds, edits and deletes configuration through protected local forms. Apply changes only the draft; Save performs the edit. Device/group Save and all Delete confirmations start with Cancel selected. Full lists show every stable ID; Add is marked full when no slots remain. If an edit applies but its model file is not saved, Retry saves the current file without repeating the edit. See [entity administration](lcd-entity-administration.md).
 - **More → Repeats** opens supported everyday RF actions. Steps ask for their size before the repeat count. Follow [Hold to send repeats](#hold-to-send-repeats) below; the final review differs from an ordinary one-shot Apply.
 - On a control page, turn to the available UP/STOP/DOWN or Toggle action and press. More opens additional supported actions: position, tilt, MY position, 80-bit Favorite, steps and sun flags. The menu reflects the actual device capabilities; it adds no separate light opcode. Group actions require compatible configured RF members. An 80-bit group also offers Favorite when every configured member supports it; mixed, missing or incompatible members disable it. This sends one command using the group identity and updates member estimates, without substituting individual member commands.
 - Numeric position/tilt drafts range from 0 to 100; steps range from 1 to 127. Turn to adjust, press to review, then turn from the default **Cancel** to **Apply** and press. Turns and Cancel send nothing. An unavailable position estimate prevents opening a position draft rather than choosing a target silently. Back cancels a draft and returns directly to the main control page with STOP selected when supported.
@@ -131,7 +128,17 @@ The local Settings and Administration menus use this shared checked service. Bac
 
 ## Health in Details
 
-Hold on Status, then turn to the bottom four Details rows. They show free internal memory and its boot low-water mark, the largest available internal block, free PSRAM, and the last published loop rate and maximum pass time. Memory uses KiB; timing uses milliseconds, with seconds for long passes. Very high rates use `k/s` (thousands per second). Details refreshes once per second; loop statistics use the existing published window, normally every 30 seconds. `Loop: awaiting sample` means no window has been published yet. Missing PSRAM is labeled separately from a present device with zero free memory. These are read-only diagnostics.
+Hold on Status, then turn to the bottom five rows:
+
+```text
+RAM (free): 124 / 256 KiB
+RAM (lowest free): 112 KiB
+Largest free block: 79 KiB
+Ext RAM (free): 8067 / 8192 KiB
+FW loop: 64 Hz, max 30.79 ms
+```
+
+Free/total refers to the same usable memory pool. Lowest free is the internal RAM minimum since boot; Largest free block is internal RAM. Ext RAM is PSRAM. FW loop reports completed main-loop passes per second and the longest pass in the published sample, including time interrupted by other tasks. It does not measure button-to-motor response. Details refreshes once per second; loop samples normally publish every 30 seconds. Missing samples and absent PSRAM are labelled explicitly. These diagnostics are read-only.
 
 ## Resolve a refusal or update problem
 

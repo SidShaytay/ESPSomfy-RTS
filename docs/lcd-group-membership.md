@@ -1,8 +1,8 @@
 # Change a group’s controller list
 
-**Navigation version:** These paths apply to **4.8.0 and later**. For 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
+**Navigation version:** These paths apply to **4.9.0 and later**. For 4.8.0 or 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
 
-Use **This controller → Configure → Rooms, devices & groups → Groups → Advanced**, then select the group.
+Use **System → Configure → Rooms, devices & groups → Groups → Advanced**, then select the group.
 Unlock with the configured web credential when requested.
 
 ## Add a device

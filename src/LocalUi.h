@@ -8,7 +8,7 @@
 #include "LocalValueEditor.h"
 #include "LocalQuickAccessNvs.h"
 namespace LocalUi {
-constexpr uint8_t detailsRowCount=14, detailsVisibleRows=6;
+constexpr uint8_t detailsRowCount=15, detailsVisibleRows=6;
 constexpr uint8_t homeRows=8, administrationHomeIndex=6, systemHomeIndex=7;
 enum class Screen : uint8_t { status, home, catalogue, roomKinds, control, actions, value, repeatActions, repeatValue, details, brightness, unlock, settings, administration, system, favouriteObserve, favouriteConfirm, quickHome, quickManage, quickActions, quickSave, controllerMenu, configureMenu, networkMenu };
 using Action=ControlAction;
@@ -41,7 +41,7 @@ struct Model {
   bool authorized=false;
   uint32_t authGeneration=0, authConfigurationGeneration=0, retryAfterMs=0, expiredSessionGeneration=0;
 };
-static_assert(sizeof(Model)<=512,"LCD snapshot owns only one target and three catalogue rows");
+static_assert(sizeof(Model)<=640,"LCD snapshot owns only one target and four catalogue rows");
 struct DisplayPreferences {
   uint8_t brightness=32;
   uint16_t dimSeconds=10, offSeconds=20;
@@ -50,9 +50,11 @@ struct FormInput { int8_t turn=0; bool activate=false, back=false; };
 struct View {
   Screen screen=Screen::status;
   uint8_t selected=0, cursor=0, anchorId=0;
-  bool anchored=false;
+  bool anchored=false, anchorGroup=false;
   CatalogueKind catalogue=CatalogueKind::devices;
   uint8_t room=allRooms;
+  Screen catalogueReturnScreen=Screen::home;
+  uint8_t catalogueReturnSelection=0;
   char roomName[21]={};
   EntityRef entity;
   uint64_t openedToken=0, favouriteRevision=0;
@@ -67,10 +69,11 @@ struct View {
   QuickAccess quickDraft;
   bool quickEditing=false, quickPicking=false, quickOrigin=false;
   uint8_t quickSlot=0;
-  bool routed=false,systemSettings=false;
+  bool routed=false,systemSettings=false,networkHome=false;
   Screen returnScreen=Screen::home;
   uint8_t returnSelection=0,settingsSection=255,systemSection=0,systemSelection=0;
   Notice notice=Notice::none;
+  KeyboardView credentialKeyboard;
   uint16_t credentialChoice=0;
   uint8_t credentialLength=0, credentialMaximum=0;
   bool credentialUser=false, credentialByte=false;
@@ -94,6 +97,8 @@ struct QuickPreferenceRequest {
 };
 class Controller {
   View state;
+  uint8_t roomCursor=0,roomAnchor=0;
+  bool roomAnchored=false;
   QuickPreferenceRequest quickGuard;
   bool quickEnabled=false,quickLanded=false,quickSavePending=false;
   void discardQuick();

@@ -283,8 +283,33 @@ static void external_idle_evidence_only_intersects_an_exact_sample_without_freez
   lease.retainMoving(c,3);TEST_ASSERT_EQUAL(1,lease.allowed(c)); // never broadens or reseeds
   lease.retainMoving(c,0);lease.observe(c,3,false,true);TEST_ASSERT_EQUAL(0,lease.allowed(c));
 }
+static void keyboard_credentials_submit_only_on_done_and_wipe() {
+  CredentialEditor e;Credentials out;
+  e.begin(AuthMode::password);e.keyboardPress(); // username a
+  e.keyboardTurn(-1);e.keyboardPress(); // Done username
+  TEST_ASSERT_FALSE(e.usernameField());TEST_ASSERT_EQUAL(0,e.length());
+  e.keyboardPress(); // password a
+  TEST_ASSERT_FALSE(e.take(out));
+  e.keyboardTurn(-1);TEST_ASSERT_EQUAL(int(EditorResult::submitted),int(e.keyboardPress()));
+  TEST_ASSERT_TRUE(e.take(out));TEST_ASSERT_EQUAL_STRING("a",out.username);
+  TEST_ASSERT_EQUAL_STRING("a",out.secret);TEST_ASSERT_EQUAL(0,e.length());
+  out.clear();
+}
+static void pin_keyboard_starts_with_numbers_and_never_submits_on_rotation() {
+  CredentialEditor e;Credentials out;e.begin(AuthMode::pin);
+  TEST_ASSERT_EQUAL(1,e.keyboardView().bank);e.keyboardTurn(1);
+  for(unsigned i=0;i<4;i++)e.keyboardPress();
+  TEST_ASSERT_EQUAL(4,e.length());TEST_ASSERT_FALSE(e.take(out));
+  const auto done=RotaryKeyboard::actionOffset(e.keyboardView())+5;
+  while(e.keyboardView().selected!=done)e.keyboardTurn(1);
+  TEST_ASSERT_FALSE(e.take(out));
+  TEST_ASSERT_EQUAL(int(EditorResult::submitted),int(e.keyboardPress()));
+  TEST_ASSERT_TRUE(e.take(out));TEST_ASSERT_EQUAL_STRING("1111",out.secret);out.clear();
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(keyboard_credentials_submit_only_on_done_and_wipe);
+  RUN_TEST(pin_keyboard_starts_with_numbers_and_never_submits_on_rotation);
   RUN_TEST(configured_mode_and_exact_credentials);
   RUN_TEST(inactivity_not_motion_expires_and_input_cannot_revive);
   RUN_TEST(credential_change_revokes_without_resetting_attempts);

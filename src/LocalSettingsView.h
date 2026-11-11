@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include "LocalKeyboard.h"
 #include "RestartTypes.h"
 namespace LocalUi {
 namespace Settings {
@@ -12,6 +13,7 @@ enum class Mode : uint8_t {
   text,
   actions,
   confirm,
+  discard,
   replace
 };
 enum class Notice : uint8_t {
@@ -45,6 +47,8 @@ struct FormView {
   Notice notice = Notice::none;
   RestartReason restartReason = RestartReason::none;
   bool protectedFrame = true, dirty = false;
+  KeyboardView keyboard;
+  uint8_t textLength=0, textLimit=0;
 };
 } // namespace Settings
 } // namespace LocalUi

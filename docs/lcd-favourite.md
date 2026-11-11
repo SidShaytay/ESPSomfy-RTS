@@ -5,10 +5,10 @@ Favourite programming. Unlock with the configured web credential if required.
 
 1. Open the device controls. Use Up, Down, STOP, Position and any supported tilt
    controls to reach the desired position. To clear an existing Favourite, first
-   use **MY position** to reach it.
+   use **Go to favourite** to reach it.
 2. Observe the shutter itself and wait for it to stop. The displayed position and
    movement are estimates, not confirmation from the motor.
-3. Open **More → Set favourite here** or **Clear favourite**. The first selection,
+3. Open **Actions → Save current as favourite** or **Clear saved favourite**. The first selection,
    **Move with normal controls**, returns to those controls without sending a
    command. Choose it if more positioning is needed, then reopen the Favourite action.
 4. Select **I observed it stopped** only after looking at the actual shutter.

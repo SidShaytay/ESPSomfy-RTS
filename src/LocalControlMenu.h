@@ -36,8 +36,8 @@ inline ControlAction defaultControlAction(ControlMask mask) {
 }
 inline const char *controlLabel(ControlAction action) {
   static const char *labels[]={"UP","STOP","DOWN","Position","Tilt up","Tilt STOP","Tilt down",
-    "Tilt position","MY position","Favorite (80-bit)","Toggle","Step up","Step down","Sun on","Sun off","Set favourite here","Clear favourite","More"};
-  if(action==repeatsNavigation) return "Repeats";
+    "Tilt position","Go to favourite","Favorite (80-bit)","Toggle","Step up","Step down","Sun on","Sun off","Save current as favourite","Clear saved favourite","Actions"};
+  if(action==repeatsNavigation) return "Send with repeats";
   return uint8_t(action)<=uint8_t(ControlAction::count)?labels[uint8_t(action)]:"Unavailable";
 }
 inline bool controlNeedsValue(ControlAction action) {

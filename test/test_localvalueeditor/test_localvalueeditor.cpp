@@ -155,8 +155,93 @@ static void long_text_preview_keeps_tail_and_masks_secrets() {
   TEST_ASSERT_TRUE(e.beginText("abcdef\xc3\xa9\xc3\xa9\xc3\xa9",64,TextEncoding::utf8,false,0));
   char small[9];e.previewTail(small,sizeof(small));TEST_ASSERT_EQUAL_STRING("...\xc3\xa9\xc3\xa9",small);
 }
+static void rotary_keyboard_wraps_and_keeps_secrets_masked() {
+  ValueEditor e; char out[65];
+  TEST_ASSERT_TRUE(e.beginText("",20,TextEncoding::utf8,false,0));
+  TEST_ASSERT_EQUAL('a',RotaryKeyboard::character(e.keyboardView(),0));
+  e.keyboardPress(1); // a
+  e.keyboardTurn(-1,1); // wrap to Done
+  TEST_ASSERT_EQUAL(31,e.keyboardView().selected);
+  TEST_ASSERT_EQUAL(int(EditOutcome::applied),int(e.keyboardPress(1)));
+  TEST_ASSERT_TRUE(e.takeText(out,sizeof(out)));
+  TEST_ASSERT_EQUAL_STRING("a",out);
+  TEST_ASSERT_TRUE(e.beginText("",20,TextEncoding::bytes,true,0));
+  for(unsigned i=0;i<26;i++) e.keyboardTurn(1,1);
+  e.keyboardPress(1); // Shift; returns to first letter
+  e.keyboardTurn(1,1);e.keyboardPress(1); // B, one-shot shift resets
+  TEST_ASSERT_FALSE(e.keyboardView().shift);
+  e.preview(out,sizeof(out));TEST_ASSERT_EQUAL_STRING("*",out);
+  e.keyboardTurn(-1,1);e.keyboardPress(1); // a
+  e.preview(out,sizeof(out));TEST_ASSERT_EQUAL_STRING("**",out);
+  e.cancel();TEST_ASSERT_EQUAL(0,e.keyboardView().selected);
+}
+static void advanced_keyboard_bytes_preserve_exact_utf8_and_back_returns() {
+  ValueEditor e;char out[65];e.beginText("",4,TextEncoding::utf8,false,0);
+  for(unsigned i=0;i<28;i++)e.keyboardTurn(1,1);e.keyboardPress(1); // Symbols
+  for(unsigned i=0;i<LocalUi::RotaryKeyboard::characterCount(e.keyboardView());i++)e.keyboardTurn(1,1);
+  e.keyboardPress(1);TEST_ASSERT_EQUAL(3,e.keyboardView().bank);
+  TEST_ASSERT_TRUE(e.keyboardBack(1));TEST_ASSERT_EQUAL(2,e.keyboardView().bank);
+  e.keyboardPress(1); // Byte chooser again
+  for(unsigned i=0;i<0xc3-1;i++)e.keyboardTurn(1,1);e.keyboardPress(1);
+  e.keyboardPress(1); // Byte chooser again
+  for(unsigned i=0;i<0xa9-1;i++)e.keyboardTurn(1,1);e.keyboardPress(1);
+  TEST_ASSERT_EQUAL(int(EditOutcome::applied),int(e.apply(2)));
+  TEST_ASSERT_TRUE(e.takeText(out,sizeof(out)));TEST_ASSERT_EQUAL_STRING("\xc3\xa9",out);
+}
+static void keyboard_delete_respects_utf8_and_bounds_and_clears_metadata() {
+  ValueEditor e;char out[65];e.beginText("a\xc3\xa9",3,TextEncoding::utf8,false,0);
+  e.keyboardPress(1);TEST_ASSERT_EQUAL(int(EditOutcome::full),int(e.outcome()));
+  for(unsigned i=0;i<30;i++)e.keyboardTurn(1,1);e.keyboardPress(1); // Del
+  e.preview(out,sizeof(out));TEST_ASSERT_EQUAL_STRING("a",out);
+  e.keyboardTurn(1,1);e.keyboardPress(1);TEST_ASSERT_TRUE(e.takeText(out,sizeof(out)));
+  TEST_ASSERT_EQUAL_STRING("a",out);TEST_ASSERT_EQUAL(0,e.keyboardView().bank);
+  e.beginText("secret",12,TextEncoding::bytes,true,0);e.keyboardTurn(1,1);
+  e.tick(ValueEditor::timeoutMs+1);TEST_ASSERT_EQUAL(0,e.length());
+  TEST_ASSERT_EQUAL(0,e.keyboardView().selected);TEST_ASSERT_EQUAL(0,e.keyboardView().bank);
+}
+static unsigned keyboardMove(RotaryKeyboard &keyboard,unsigned wanted) {
+  const unsigned total=RotaryKeyboard::count(keyboard.view());
+  const unsigned forward=(wanted+total-keyboard.view().selected)%total;
+  const int direction=forward<=total-forward?1:-1;
+  const unsigned turns=forward<=total-forward?forward:total-forward;
+  for(unsigned i=0;i<turns;i++)keyboard.turn(direction);
+  return turns;
+}
+static void ordinary_name_needs_fewer_wheel_actions_than_ascii_picker() {
+  const char *name="Master Bedroom";RotaryKeyboard keyboard;
+  unsigned oldTurns=0,oldSelected=0,newTurns=0,newPresses=0;
+  for(const char *p=name;*p;p++) {
+    const unsigned oldNext=uint8_t(*p)-32;
+    oldTurns+=oldNext>oldSelected?oldNext-oldSelected:oldSelected-oldNext;oldSelected=oldNext;
+    const bool upper=*p>='A'&&*p<='Z';
+    if(upper){newTurns+=keyboardMove(keyboard,26);keyboard.press();++newPresses;}
+    const unsigned next=*p==' '?29:upper?*p-'A':*p-'a';
+    newTurns+=keyboardMove(keyboard,next);const auto input=keyboard.press();++newPresses;
+    TEST_ASSERT_EQUAL(*p,input.byte);
+  }
+  oldTurns+=97-oldSelected;
+  newTurns+=keyboardMove(keyboard,31);keyboard.press();++newPresses;
+  TEST_ASSERT_LESS_THAN(oldTurns,newTurns);
+  TEST_ASSERT_LESS_THAN(oldTurns+strlen(name)+1,newTurns+newPresses);
+  printf("Keyboard benchmark: %u detents + %u presses; ASCII: %u detents + %u presses\n",newTurns,newPresses,oldTurns,unsigned(strlen(name)+1));
+}
+static void rotary_keyboard_contains_every_printable_ascii_character() {
+  bool seen[127]={};
+  for(unsigned bank=0;bank<3;bank++)for(unsigned shift=0;shift<2;shift++) {
+    KeyboardView view;view.bank=bank;view.shift=shift;
+    for(unsigned i=0;i<RotaryKeyboard::characterCount(view);i++)
+      seen[uint8_t(RotaryKeyboard::character(view,i))]=true;
+  }
+  seen[' ']=true;
+  for(unsigned i=32;i<127;i++) TEST_ASSERT_TRUE(seen[i]);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(rotary_keyboard_wraps_and_keeps_secrets_masked);
+  RUN_TEST(advanced_keyboard_bytes_preserve_exact_utf8_and_back_returns);
+  RUN_TEST(keyboard_delete_respects_utf8_and_bounds_and_clears_metadata);
+  RUN_TEST(ordinary_name_needs_fewer_wheel_actions_than_ascii_picker);
+  RUN_TEST(rotary_keyboard_contains_every_printable_ascii_character);
   RUN_TEST(long_text_preview_keeps_tail_and_masks_secrets);
   RUN_TEST(precision_change_never_applies_and_saturates_extreme_values);
   RUN_TEST(original_text_and_cancel_never_mutate_caller);

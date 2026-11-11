@@ -24,7 +24,7 @@ struct Fixture : CatalogueSource {
   Model snapshot(const View &v) {
     Model m=base; m.catalogue=v.catalogue; m.room=v.room;
     m.pageValid=v.catalogue==CatalogueKind::rooms?roomCataloguePage(*this,v.cursor,m.page,v.anchorId,v.anchored):
-      cataloguePage(*this,v.catalogue,v.cursor,v.room,m.page,v.anchorId,v.anchored);
+      cataloguePage(*this,v.catalogue,v.cursor,v.room,m.page,v.anchorId,v.anchored,v.anchorGroup);
     if(base.quickReady && (v.screen==Screen::quickHome || v.screen==Screen::quickManage || v.screen==Screen::quickActions || v.screen==Screen::quickSave)) {
       m.page={};m.page.count=3;m.page.total=5;m.pageValid=true;
       const auto &bindings=v.quickEditing?v.quickDraft:m.quickAccess;
@@ -47,7 +47,7 @@ struct Drive {
   void holdSend() {tick(0,true);tick(0,true);tick(0,true,true,false,800);}
   void click(bool visible=true) { tick(0,true,visible);tick(0,true,visible);tick(0,false,visible);tick(0,false,visible); }
   void back() { tick(0,false,true,true);tick(0,false,true,true);tick();tick(); }
-  void manageQuick(){while(c.view().selected<4)tick(1);click();TEST_ASSERT_EQUAL(Screen::controllerMenu,c.view().screen);click();for(unsigned i=0;i<6;i++)tick(1);click();TEST_ASSERT_EQUAL(Screen::quickManage,c.view().screen);}
+  void manageQuick(){while(c.view().selected>3)tick(-1);while(c.view().selected<3)tick(1);click();TEST_ASSERT_EQUAL(Screen::quickManage,c.view().screen);}
   void home() { tick(); tick(1); }
   void devices(bool visible=true) { home(); tick(1); click(); click(visible); tick(); }
 };
@@ -114,9 +114,9 @@ static void locked_selection_unlocks_without_replaying() {
   Drive d; d.f.base.authorized=false; d.f.base.authMode=AuthMode::pin; d.devices(); d.click();
   TEST_ASSERT_EQUAL(int(Screen::unlock),int(d.c.view().screen));
   d.tick(1); for(unsigned i=0;i<4;i++) d.click();
-  for(unsigned i=0;i<96;i++) d.tick(1);
+  for(unsigned i=0;i<RotaryKeyboard::actionOffset(d.c.view().credentialKeyboard)+5-1;i++) d.tick(1);
   d.click(); Credentials given; TEST_ASSERT_TRUE(d.c.takeCredentials(given));
-  TEST_ASSERT_EQUAL_STRING("!!!!",given.secret);
+  TEST_ASSERT_EQUAL_STRING("1111",given.secret);
   d.c.unlockResult(d.now,AuthResult::unlocked);
   d.f.base.authorized=true; ++d.f.base.authGeneration; d.tick();
   TEST_ASSERT_TRUE(d.c.view().authorizedSelection);
@@ -453,7 +453,7 @@ static void quick_home_only_navigates_and_keeps_browse_and_drafts_separate() {
  Command command;d.click();d.tick();TEST_ASSERT_EQUAL(Screen::control,d.c.view().screen);
  TEST_ASSERT_TRUE(d.c.view().quickOrigin);TEST_ASSERT_EQUAL(Action::stop,d.c.view().action);TEST_ASSERT_FALSE(d.c.take(command));
  d.back();TEST_ASSERT_EQUAL(Screen::quickHome,d.c.view().screen);
- d.tick(1);d.tick(1);d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::home,d.c.view().screen);
+ for(unsigned i=0;i<4;i++)d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::catalogue,d.c.view().screen);
  d.back();TEST_ASSERT_EQUAL(Screen::quickHome,d.c.view().screen);
  d.tick(1);d.manageQuick();TEST_ASSERT_TRUE(d.c.view().quickEditing);
  d.click();TEST_ASSERT_EQUAL(Screen::quickActions,d.c.view().screen);
@@ -473,11 +473,11 @@ static void quick_revocation_consumes_only_an_existing_press() {
   d.manageQuick();
   if(held){d.tick(0,true);d.tick(0,true);}
   ++d.f.base.modelRevision;d.tick(0,held);
-  TEST_ASSERT_EQUAL(Screen::configureMenu,d.c.view().screen);TEST_ASSERT_FALSE(d.c.view().quickEditing);
+  TEST_ASSERT_EQUAL(Screen::quickHome,d.c.view().screen);TEST_ASSERT_FALSE(d.c.view().quickEditing);
   QuickPreferenceRequest save;Command command;
   if(held) {
-   d.tick(0,true,true,false,900);TEST_ASSERT_EQUAL(Screen::configureMenu,d.c.view().screen);
-   d.tick();d.tick();TEST_ASSERT_EQUAL(Screen::configureMenu,d.c.view().screen);
+   d.tick(0,true,true,false,900);TEST_ASSERT_EQUAL(Screen::quickHome,d.c.view().screen);
+   d.tick();d.tick();TEST_ASSERT_EQUAL(Screen::quickHome,d.c.view().screen);
   }
   TEST_ASSERT_FALSE(d.c.takeQuickSave(save));TEST_ASSERT_FALSE(d.c.take(command));
   d.click();TEST_ASSERT_EQUAL(Screen::quickManage,d.c.view().screen);TEST_ASSERT_TRUE(d.c.view().quickEditing);
@@ -485,7 +485,7 @@ static void quick_revocation_consumes_only_an_existing_press() {
 }
 static void approved_controller_navigation_preserves_explicit_origins(){
  Drive d;d.f.base.quickReady=true;d.f.base.quickRevision=3;d.f.base.anyMoving=false;d.tick();
- for(unsigned i=0;i<4;i++)d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::controllerMenu,d.c.view().screen);
+ for(unsigned i=0;i<7;i++)d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::controllerMenu,d.c.view().screen);
  Command command;TEST_ASSERT_FALSE(d.c.take(command));d.click();TEST_ASSERT_EQUAL(Screen::configureMenu,d.c.view().screen);
  d.click();TEST_ASSERT_EQUAL(Screen::settings,d.c.view().screen);TEST_ASSERT_EQUAL(0,d.c.view().settingsSection);d.c.closeForm();TEST_ASSERT_EQUAL(Screen::configureMenu,d.c.view().screen);TEST_ASSERT_EQUAL(0,d.c.view().selected);
  d.tick(1);d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::networkMenu,d.c.view().screen);d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::system,d.c.view().screen);TEST_ASSERT_EQUAL(3,d.c.view().systemSection);d.c.closeForm();TEST_ASSERT_EQUAL(Screen::networkMenu,d.c.view().screen);TEST_ASSERT_EQUAL(1,d.c.view().selected);
@@ -495,7 +495,7 @@ static void approved_controller_navigation_preserves_explicit_origins(){
 static void routed_display_revocation_returns_to_its_visible_origin(){
  for(unsigned cause=0;cause<4;++cause){
   Drive d;d.f.base.quickReady=true;d.f.base.quickRevision=3;d.f.base.anyMoving=false;d.tick();
-  for(unsigned i=0;i<4;i++)d.tick(1);d.click();d.click();for(unsigned i=0;i<5;i++)d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::brightness,d.c.view().screen);
+  for(unsigned i=0;i<7;i++)d.tick(1);d.click();d.click();for(unsigned i=0;i<5;i++)d.tick(1);d.click();TEST_ASSERT_EQUAL(Screen::brightness,d.c.view().screen);
   const bool held=cause&1;if(held){d.tick(0,true);d.tick(0,true);}
   if(cause&2)d.f.base.authorized=false;else ++d.f.base.authConfigurationGeneration;
   d.tick(0,held);TEST_ASSERT_EQUAL(Screen::configureMenu,d.c.view().screen);TEST_ASSERT_EQUAL(5,d.c.view().selected);
@@ -506,7 +506,7 @@ static void routed_display_revocation_returns_to_its_visible_origin(){
 }
 static void routed_display_save_returns_to_configure_once(){
  Drive d;d.f.base.quickReady=true;d.f.base.quickRevision=3;d.f.base.anyMoving=false;d.tick();
- for(unsigned i=0;i<4;i++)d.tick(1);d.click();d.click();for(unsigned i=0;i<5;i++)d.tick(1);d.click();
+ for(unsigned i=0;i<7;i++)d.tick(1);d.click();d.click();for(unsigned i=0;i<5;i++)d.tick(1);d.click();
  TEST_ASSERT_EQUAL(Screen::brightness,d.c.view().screen);d.click();d.click();d.click();
  TEST_ASSERT_EQUAL(Screen::configureMenu,d.c.view().screen);TEST_ASSERT_EQUAL(5,d.c.view().selected);
  DisplayPreferences prefs;Command command;TEST_ASSERT_TRUE(d.c.takePreferences(prefs));TEST_ASSERT_FALSE(d.c.takePreferences(prefs));TEST_ASSERT_FALSE(d.c.take(command));
@@ -523,8 +523,30 @@ static void upper_brightness_changes_in_five_percent_steps_without_losing_saved_
   d.back();TEST_ASSERT_EQUAL(128,d.c.preference());
   d.c.setPreferences({32,0,0}); TEST_ASSERT_EQUAL(32,d.c.preference());
 }
+static void unseen_unlock_key_never_appends_until_presented() {
+  Drive d;d.f.base.authorized=false;d.f.base.authMode=AuthMode::pin;d.devices();d.click();
+  TEST_ASSERT_EQUAL(Screen::unlock,d.c.view().screen);
+  d.tick(1);d.click(false);
+  TEST_ASSERT_EQUAL(0,d.c.view().credentialLength);
+  Credentials credentials;TEST_ASSERT_FALSE(d.c.takeCredentials(credentials));
+  d.click();TEST_ASSERT_EQUAL(1,d.c.view().credentialLength);
+  Command command;TEST_ASSERT_FALSE(d.c.take(command));
+}
+static void unseen_unlock_done_never_submits_until_presented() {
+  Drive d;d.f.base.authorized=false;d.f.base.authMode=AuthMode::pin;d.devices();d.click();
+  d.tick(1);for(unsigned i=0;i<4;i++)d.click();
+  const auto done=RotaryKeyboard::actionOffset(d.c.view().credentialKeyboard)+5;
+  while(d.c.view().credentialKeyboard.selected!=done)d.tick(1);
+  d.click(false);Credentials credentials;TEST_ASSERT_FALSE(d.c.takeCredentials(credentials));
+  TEST_ASSERT_EQUAL(4,d.c.view().credentialLength);
+  d.click();TEST_ASSERT_TRUE(d.c.takeCredentials(credentials));
+  TEST_ASSERT_EQUAL_STRING("1111",credentials.secret);
+  Command command;TEST_ASSERT_FALSE(d.c.take(command));
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(unseen_unlock_key_never_appends_until_presented);
+  RUN_TEST(unseen_unlock_done_never_submits_until_presented);
   RUN_TEST(upper_brightness_changes_in_five_percent_steps_without_losing_saved_levels);
   RUN_TEST(routed_display_save_returns_to_configure_once);
   RUN_TEST(routed_display_revocation_returns_to_its_visible_origin);
