@@ -96,8 +96,41 @@ int main(int argc,char **argv) {
   m.quickReady=true;m.quickAccess.assign(0,{EntityKind::group,1},700);m.quickAccess.assign(1,{EntityKind::device,2},2200);m.quickAccess.assign(2,{EntityKind::device,3},3100);
   strcpy(m.page.rows[0].name,"Both rooms");strcpy(m.page.rows[1].name,"Master Bedroom");strcpy(m.page.rows[2].name,"Master Bathroom");
   v.screen=Screen::quickHome;v.notice=Notice::none;v.selected=0;canvas.paint(m,v,s);save(argv[1],"quick-home",buffer);
-  v.selected=4;canvas.paint(m,v,s);save(argv[1],"home-destinations",buffer);
-  v.selected=8;canvas.paint(m,v,s);save(argv[1],"home-tools",buffer);
+  const auto uniqueQuick=buffer;
+  m.quickAccess.assign(0,{EntityKind::group,9},700);m.quickAccess.assign(1,{EntityKind::device,12},2200);
+  canvas.paint(m,v,s);assert(buffer==uniqueQuick); // Unique names need no IDs.
+  m.page.rows[0].ambiguous=true;canvas.paint(m,v,s);assert(buffer!=uniqueQuick);save(argv[1],"quick-home-ambiguous",buffer);
+  m.page.rows[0].ambiguous=false;
+  const auto savedQuick=m.quickAccess;const auto savedQuickRow=m.page.rows[0];
+  m.quickAccess.remove(0);strcpy(m.page.rows[0].name,"Unassigned");m.page.rows[0].available=false;
+  canvas.paint(m,v,s);const auto emptyQuick=buffer;
+  m.quickAccess.assign(0,{EntityKind::device,1},700);m.page.rows[0].id=1;m.page.rows[0].available=true;
+  canvas.paint(m,v,s);assert(buffer!=emptyQuick); // Empty slots cannot impersonate configured names.
+  save(argv[1],"quick-real-unassigned",buffer);
+  m.quickAccess=savedQuick;m.page.rows[0]=savedQuickRow;
+  v.screen=Screen::catalogue;v.catalogue=CatalogueKind::devices;m.page.total=m.page.count=3;m.page.cursor=m.page.offset=0;
+  canvas.paint(m,v,s);const auto uniqueCatalogue=buffer;++m.page.rows[0].id;
+  canvas.paint(m,v,s);assert(buffer==uniqueCatalogue);
+  m.page.rows[0].ambiguous=true;canvas.paint(m,v,s);assert(buffer!=uniqueCatalogue);save(argv[1],"catalogue-name-disambiguation",buffer);
+  // Distinct 20-byte names can collapse to the same visible ellipsis prefix.
+  strcpy(m.page.rows[0].name,"WWWWWWWWWWWWWWWWWWWA");strcpy(m.page.rows[1].name,"WWWWWWWWWWWWWWWWWWWB");
+  m.page.rows[0].id=11;m.page.rows[1].id=22;
+  for(unsigned i=0;i<2;i++){m.page.rows[i].ambiguous=false;m.page.rows[i].position=35;m.page.rows[i].available=true;m.page.rows[i].moving=false;}
+  m.page.cursor=2;canvas.paint(m,v,s);const auto wideNames=buffer;
+  for(unsigned y=36;y<61;y++)for(unsigned x=46;x<205;x++)assert(buffer[1+y*320+x]==buffer[1+(y+32)*320+x]);
+  m.page.rows[0].id=99;canvas.paint(m,v,s);assert(buffer!=wideNames); // Clipped labels retain explicit typed IDs.
+  save(argv[1],"catalogue-wide-name-ids",buffer);
+  v.screen=Screen::quickHome;v.selected=4;canvas.paint(m,v,s);save(argv[1],"home-destinations",buffer);
+  auto assertFourRowIcons=[&]{
+    for(unsigned row=0;row<4;row++) {
+      const unsigned y=36+row*32;bool iconInk=false;
+      for(unsigned py=y+5;py<y+25;py++)for(unsigned px=17;px<38;px++)
+        iconInk|=buffer[1+py*320+px]!=buffer[1+py*320+40];
+      assert(iconInk); // All four rows have an icon in the same left column.
+    }
+  };
+  assertFourRowIcons();
+  v.selected=8;canvas.paint(m,v,s);save(argv[1],"home-tools",buffer);assertFourRowIcons();
   assert(buffer.front()==0xdead && buffer.back()==0xdead);
   puts("Production renderer: dynamic pages, rooms, duplicate/UTF-8 labels, controls and protected entry bounds passed.");
 }

@@ -227,7 +227,7 @@ bool samePage(const CataloguePage &a,const CataloguePage &b) {
   if(a.offset!=b.offset || a.cursor!=b.cursor || a.count!=b.count || a.total!=b.total) return false;
   for(uint8_t i=0;i<a.count;i++) {
     const auto &x=a.rows[i],&y=b.rows[i];
-    if(x.id!=y.id || x.group!=y.group || x.roomId!=y.roomId || x.sortOrder!=y.sortOrder || x.identity!=y.identity ||
+    if(x.id!=y.id || x.group!=y.group || x.ambiguous!=y.ambiguous || x.roomId!=y.roomId || x.sortOrder!=y.sortOrder || x.identity!=y.identity ||
        x.revision!=y.revision || memcmp(x.name,y.name,21)!=0) return false;
   }
   return true;
@@ -410,6 +410,7 @@ Model snapshotModel(bool running,const View &view) {
   if(quickPage) {
     m.page={};m.page.count=3;m.page.total=5;m.page.cursor=0;
     for(size_t i=0;i<quickAccessSlots;i++)quickRow(*bindings.at(i),m.page.rows[i]);
+    markAmbiguousRows(m.page.rows,quickAccessSlots);
     m.pageValid=m.quickReady;
   } else if(view.catalogue==CatalogueKind::rooms) m.pageValid=roomCataloguePage(source,view.cursor,m.page,view.anchorId,view.anchored);
   else if(view.room==0 || view.room==allRooms || somfy.getRoomById(view.room))

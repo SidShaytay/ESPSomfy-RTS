@@ -81,11 +81,11 @@ static void group_and_room_limits_do_not_read_device_capacity() {
   CataloguePage page;
   TEST_ASSERT_TRUE(cataloguePage(source,CatalogueKind::groups,0,255,page));
   TEST_ASSERT_EQUAL(SOMFY_MAX_GROUPS,page.total);
-  TEST_ASSERT_EQUAL(SOMFY_MAX_GROUPS+catalogueRows,source.reads);
+  TEST_ASSERT_EQUAL(SOMFY_MAX_GROUPS+2*catalogueRows,source.reads);
   source.reads=0;
   TEST_ASSERT_TRUE(cataloguePage(source,CatalogueKind::rooms,255,255,page));
   TEST_ASSERT_EQUAL(SOMFY_MAX_ROOMS,page.total);
-  TEST_ASSERT_EQUAL(SOMFY_MAX_ROOMS+catalogueRows,source.reads);
+  TEST_ASSERT_EQUAL(SOMFY_MAX_ROOMS+2*catalogueRows,source.reads);
   TEST_ASSERT_FALSE(cataloguePage(source,CatalogueKind::rooms,0,0,page));
   TEST_ASSERT_EQUAL(0,page.count);
 }
@@ -139,8 +139,53 @@ static void lcd_fallback_is_per_codepoint_and_never_interprets_control_bytes() {
   char small[4];lcdLabel("\xf0\x9f\x94\x91XYZZ",small,sizeof(small));
   TEST_ASSERT_EQUAL_STRING("?XY",small);
 }
+static void names_only_need_ids_for_visible_duplicates_in_the_filtered_catalogue() {
+  Source source;CataloguePage page;
+  for(unsigned i=0;i<6;i++){source.entries[i]={uint8_t(i+1),1,int8_t(i),""};snprintf(source.entries[i].name,21,"Unique %u",i);}
+  TEST_ASSERT_TRUE(cataloguePage(source,CatalogueKind::devices,0,1,page));
+  for(const auto &row:page.rows)TEST_ASSERT_FALSE(row.ambiguous);
+  strcpy(source.entries[5].name,source.entries[0].name);
+  TEST_ASSERT_TRUE(cataloguePage(source,CatalogueKind::devices,0,1,page));
+  TEST_ASSERT_TRUE(page.rows[0].ambiguous);TEST_ASSERT_FALSE(page.rows[1].ambiguous);
+  TEST_ASSERT_TRUE(cataloguePage(source,CatalogueKind::devices,5,1,page));TEST_ASSERT_TRUE(page.rows[1].ambiguous);
+  strcpy(source.entries[0].name,"costarring");strcpy(source.entries[1].name,"liquid");
+  TEST_ASSERT_EQUAL(lcdNameHash(source.entries[0].name),lcdNameHash(source.entries[1].name));
+  TEST_ASSERT_TRUE(cataloguePage(source,CatalogueKind::devices,0,1,page));
+  TEST_ASSERT_FALSE(page.rows[0].ambiguous || page.rows[1].ambiguous); // Hash collisions are not label collisions.
+  source.entries[5].roomId=2;
+  TEST_ASSERT_TRUE(cataloguePage(source,CatalogueKind::devices,0,1,page));TEST_ASSERT_FALSE(page.rows[0].ambiguous);
+  strcpy(source.entries[0].name,"Caf\xc3\xa9");strcpy(source.entries[1].name,"Caf\xc3\xa8");
+  TEST_ASSERT_TRUE(cataloguePage(source,CatalogueKind::devices,0,1,page));
+  TEST_ASSERT_TRUE(page.rows[0].ambiguous && page.rows[1].ambiguous);
+}
+static void mixed_kind_equal_names_and_quick_glyph_collisions_are_disambiguated() {
+  struct Mixed:CatalogueSource {bool read(CatalogueKind kind,uint8_t slot,CatalogueEntry &out)override {
+    out={};if(slot || kind==CatalogueKind::rooms)return false;
+    out.id=1;out.roomId=7;strcpy(out.name,"Both rooms");return true;
+  }}source;CataloguePage page;
+  TEST_ASSERT_TRUE(cataloguePage(source,CatalogueKind::roomContents,0,7,page));
+  TEST_ASSERT_EQUAL(2,page.count);TEST_ASSERT_TRUE(page.rows[0].ambiguous && page.rows[1].ambiguous);
+  TEST_ASSERT_NOT_EQUAL(page.rows[0].group,page.rows[1].group);
+  CatalogueEntry rows[3];rows[0].id=1;rows[1].id=2;rows[2].id=3;
+  strcpy(rows[0].name,"Both rooms");strcpy(rows[1].name,"Master Bedroom");strcpy(rows[2].name,"Master Bathroom");
+  markAmbiguousRows(rows,3);for(const auto &row:rows)TEST_ASSERT_FALSE(row.ambiguous);
+  strcpy(rows[0].name,"Caf\xc3\xa9");strcpy(rows[1].name,"Caf?");
+  markAmbiguousRows(rows,3);TEST_ASSERT_TRUE(rows[0].ambiguous && rows[1].ambiguous);TEST_ASSERT_FALSE(rows[2].ambiguous);
+}
+static void virtual_unassigned_is_distinct_from_an_equally_named_room() {
+  struct Mixed:CatalogueSource {bool read(CatalogueKind kind,uint8_t slot,CatalogueEntry &out)override {
+    out={};if(slot || kind==CatalogueKind::groups)return false;
+    out.id=kind==CatalogueKind::rooms?2:1;strcpy(out.name,"Unassigned");return true;
+  }}source;CataloguePage page;
+  TEST_ASSERT_TRUE(roomCataloguePage(source,0,page));TEST_ASSERT_EQUAL(2,page.count);
+  TEST_ASSERT_EQUAL(0,page.rows[0].id);TEST_ASSERT_EQUAL(2,page.rows[1].id);
+  TEST_ASSERT_TRUE(page.rows[0].ambiguous && page.rows[1].ambiguous);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(virtual_unassigned_is_distinct_from_an_equally_named_room);
+  RUN_TEST(names_only_need_ids_for_visible_duplicates_in_the_filtered_catalogue);
+  RUN_TEST(mixed_kind_equal_names_and_quick_glyph_collisions_are_disambiguated);
   RUN_TEST(empty_and_full_pages_are_bounded);
   RUN_TEST(sparse_sorted_ids_and_room_filter_are_stable);
   RUN_TEST(original_utf8_names_survive_without_becoming_identity);
