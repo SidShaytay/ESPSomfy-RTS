@@ -1074,7 +1074,15 @@ void Transceiver::txTask(void *arg) {
 #endif
     if(haveJob) trans->runJob(job);
     // submitTx() and suspendTx() wake us for a new job or a flush.
-    else ulTaskNotifyTake(pdTRUE, waitMs == RADIO_WAIT_FOREVER ? portMAX_DELAY : pdMS_TO_TICKS(waitMs) + 1);
+    else {
+      TickType_t wait=waitMs==RADIO_WAIT_FOREVER?portMAX_DELAY:pdMS_TO_TICKS(waitMs)+1;
+#ifdef ESPSOMFY_STACK_AUDIT
+      // A short job may end inside the scan gate. Wake while idle so its
+      // persistent low-water mark is eventually scanned and reported.
+      if(wait>pdMS_TO_TICKS(5000))wait=pdMS_TO_TICKS(5000);
+#endif
+      ulTaskNotifyTake(pdTRUE,wait);
+    }
   }
 }
 void Transceiver::startTxTask() {
