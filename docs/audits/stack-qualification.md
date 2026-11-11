@@ -31,11 +31,19 @@ These are cumulative minimum unused bytes from the current controlled run, inclu
 | Idle core 1 | 1,084 | 340 |
 | FreeRTOS timer daemon | 3,120 | 2,412 |
 
-Keep these allocations for now. UDP has the smallest observed application margin and deserves targeted work before any reduction. A fill-pattern watermark can miss reserved but unwritten stack space; neither a watermark nor an individual compiler frame proves the deepest call chain fits. Radio stays asynchronous. SDK Wi-Fi-driver, IPC and interrupt stacks remain unmeasured.
+Keep these allocations for now. UDP has the smallest observed application margin and deserves targeted work before any reduction. Its receive callback reserves 1,056 bytes in both builds, including a 792-byte parsed packet and a 172-byte copied request. The controlled callback reports its watermark before that frame unwinds; nested formatting includes an 800-byte `_svfprintf_r` frame. This is a likely contributor to measurement pressure, not proof of the exact deepest call chain. A useful next comparison is to defer UDP audit output to loop and repeat the same bounded discovery workload. A fill-pattern watermark can miss reserved but unwritten stack space; neither a watermark nor an individual compiler frame proves the deepest call chain fits. Radio stays asynchronous. SDK Wi-Fi-driver, IPC and interrupt stacks remain unmeasured.
 
 Two incomplete `STACK_AUDIT` lines at channel opening were rejected: one in the combined capture and one in USB flush validation. Neither supplied a complete measurement. The cause remains unresolved between capture handoff truncation and producer interleaving. The export retains the rejected count of two.
 
 The pinned build already permits large malloc allocations to use PSRAM, with a 4,096-byte threshold; normal dynamically created task stacks remain internal. Owned download images and larger JSON/TLS allocations can use external memory. This build does not enable PSRAM instruction/constant execution. Keep task stacks internal: moving them would require a separate review of cache-disabled execution and all callers, and these measurements do not justify that change.
+
+## Compiler evidence
+
+Both clean builds use source `304774c96ebc1cc02114d73a54d54c3e841d5479`, Arduino 3.3.12, ESP-IDF v5.5.5 and GCC 14.2.0. Each build produced 275 compiler stack-usage files; the reports extract 2,094 repository functions for the controlled build and 2,080 for the ordinary build. Binary prologue inspection covers 5,977 and 5,966 functions respectively. SDK archives do not supply complete compiler stack-usage records.
+
+The complete download, schema and SSDP response functions retain individual frames of 2,784, 2,032 and 1,632 bytes in both builds. The controlled updater worker frame is 976 versus 704 bytes; UI runtime is 1,552 versus 1,536 bytes. Other compiler frame choices differ in either direction, so instrumentation has no single stack-overhead number. These are individual function frames, not complete task bounds. Probe frames include `observeCurrent` 32 bytes, `printSample` 48, `pollSdk` 80 and `beginSdk` 64; nested formatting and SDK calls are additional.
+
+The controlled firmware is 5,680 bytes larger. Its ELF SHA-256 is `de5dca268001297cd0fba8fbcaf59ab070db1f2e6dbcbdf54a4cc002a6cd0177`; the ordinary ELF is `24f64ca83422f11f6e86b55650ebb906fe6a5582a8714572a651e0a9d1b19907`. Runtime observations belong to the controlled image, whose exact ELF was captured on first boot.
 
 ## Repeatable controls
 
