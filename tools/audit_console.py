@@ -57,29 +57,46 @@ class UsbAuditClient:
 
     def _read(self):
         pending = b''
+        line_request = None
+        discarding = False
         try:
             while not self.stopped.is_set():
                 if not select.select([self.fd], [], [], .2)[0]:
                     continue
-                block = os.read(self.fd, 4096)
+                # Associate bytes with the request at read time, before capture
+                # I/O can block. command() uses this same lock around its write.
+                with self.condition:
+                    block = os.read(self.fd, 4096)
+                    observed_request = self.pending
                 if not block:
                     raise ConnectionError('USB disconnected; do not retry state-changing commands')
                 self.log.write(block)
                 self.log.flush()
-                pending += block
-                while b'\n' in pending:
-                    line, pending = pending.split(b'\n', 1)
-                    match = ACK.search(line)
-                    if match:
+                pieces = block.split(b'\n')
+                for index, piece in enumerate(pieces):
+                    if not pending and not discarding and piece:
+                        line_request = observed_request
+                    if not discarding:
+                        pending += piece
+                        if len(pending) > 16384:
+                            pending = b''
+                            discarding = True
+                    if index == len(pieces) - 1:
+                        continue
+                    match = None if discarding else ACK.search(pending)
+                    if match and line_request is not None:
                         with self.condition:
-                            if self.pending and int(match[1]) == self.pending[0]:
+                            if self.pending == line_request and int(match[1]) == line_request[0]:
                                 value = tuple(map(int, match.groups()[1:]))
-                                if value[0] != self.pending[1]:
+                                if value[0] != line_request[1]:
                                     raise ConnectionError('Acknowledgement command differs from outstanding request')
                                 self.response = value
                                 self.condition.notify_all()
-                if len(pending) > 16384:
-                    pending = b''  # Bound malformed diagnostics; full bytes remain in private log.
+                    # A line retains its first byte's request across reads. A
+                    # stale prefix cannot acquire a newly issued request token.
+                    pending = b''
+                    line_request = None
+                    discarding = False
         except BaseException as exc:
             with self.condition:
                 self.error = exc
@@ -114,6 +131,10 @@ class UsbAuditClient:
                         raise self.error
                     self.condition.wait(remaining)
                 value = self.response
+            except BaseException as exc:
+                if self.error is None:
+                    self.error = exc
+                raise
             finally:
                 self.pending = None
                 self.response = None

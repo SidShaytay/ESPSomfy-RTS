@@ -11,6 +11,47 @@ spec=importlib.util.spec_from_file_location('audit_console',Path(__file__).with_
 module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
 
 class UsbTests(unittest.TestCase):
+    def check_stale_read_is_not_acknowledged(self, partial):
+        master,slave=pty.openpty()
+        with tempfile.TemporaryDirectory() as directory:
+            client=module.UsbAuditClient(os.ttyname(slave),Path(directory)/'private.log')
+            reached=threading.Event();resume=threading.Event()
+            original=client.log
+            class DelayedCapture:
+                def write(self,data):return original.write(data)
+                def flush(self):
+                    original.flush();reached.set()
+                    if not resume.wait(2):raise TimeoutError('Test did not release capture writer')
+                def close(self):original.close()
+            client.log=DelayedCapture()
+            prefix=b'AUDIT_ACK schema=1 id=1 command=3'
+            os.write(master,prefix if partial else prefix+b' result=0 uptimeMs=10\n')
+            outcome=[]
+            def issue():
+                try:outcome.append(client.command('down',timeout=.2))
+                except Exception as error:outcome.append(error)
+            try:
+                self.assertTrue(reached.wait(1)) # Bytes were read before the command.
+                worker=threading.Thread(target=issue);worker.start()
+                self.assertTrue(select.select([master],[],[],1)[0])
+                self.assertEqual(os.read(master,256),b'AUDIT 1 down\n')
+                resume.set()
+                if partial:os.write(master,b' result=0 uptimeMs=10\n')
+                worker.join(1);self.assertFalse(worker.is_alive())
+                self.assertEqual(len(outcome),1)
+                self.assertIsInstance(outcome[0],TimeoutError)
+                with self.assertRaises(ConnectionError):client.command('up')
+                self.assertFalse(select.select([master],[],[],.02)[0])
+            finally:
+                resume.set();client.close()
+        os.close(master);os.close(slave)
+
+    def test_ack_read_before_command_is_discarded_despite_slow_capture(self):
+        self.check_stale_read_is_not_acknowledged(partial=False)
+
+    def test_ack_prefix_read_before_command_cannot_bind_to_later_suffix(self):
+        self.check_stale_read_is_not_acknowledged(partial=True)
+
     def test_unsolicited_ack_is_discarded(self):
         master,slave=pty.openpty()
         with tempfile.TemporaryDirectory() as directory:
