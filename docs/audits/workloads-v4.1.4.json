@@ -238,6 +238,67 @@
       "loadDurationSeconds": 603.483
     },
     {
+      "phase": "manual-wifi-scan",
+      "protocolSamples": 80,
+      "metrics": {
+        "freeHeap": {
+          "minimum": 123076,
+          "maximum": 123292,
+          "first": 123288,
+          "last": 123288
+        },
+        "maxHeap": {
+          "minimum": 73716,
+          "maximum": 73716,
+          "first": 73716,
+          "last": 73716
+        },
+        "minHeap": {
+          "minimum": 90944,
+          "maximum": 90944,
+          "first": 90944,
+          "last": 90944
+        },
+        "totalHeap": {
+          "minimum": 274200,
+          "maximum": 274200,
+          "first": 274200,
+          "last": 274200
+        },
+        "loopRate": {
+          "minimum": 36,
+          "maximum": 38,
+          "first": 38,
+          "last": 37
+        },
+        "loopMaxUs": {
+          "minimum": 36604,
+          "maximum": 64291,
+          "first": 36604,
+          "last": 41277
+        }
+      },
+      "durationSeconds": 80.748,
+      "observedSpanSeconds": 79.552,
+      "discoveryRequests": 8,
+      "discoverySuccesses": 8,
+      "statusSamples": 80,
+      "statusNetworkFailures": 0,
+      "maximumStatusObservationGapSeconds": 1.631,
+      "manualWindowSeconds": 34.548,
+      "postWindowSeconds": 41.199,
+      "stackSamples": 31,
+      "persistentStateUnchanged": true,
+      "separateFromRecoveryInterval": true,
+      "manualObservation": {
+        "result": "scan-list-visible",
+        "navigationOnly": true,
+        "settingsSaved": false
+      },
+      "scanQualified": true,
+      "mergedIntoStackSamples": true
+    },
+    {
       "phase": "immediate-recovery",
       "protocolSamples": 20,
       "metrics": {
@@ -541,6 +602,18 @@
       "tlsPeakRequestedB": 51545,
       "tlsInternalPeakRequestedB": 12376,
       "tlsFailures": 0
+    },
+    "manual-wifi-scan": {
+      "sampled": true,
+      "sampledReports": 3,
+      "minInternalB": 107032,
+      "minLargestInternalB": 59380,
+      "maxPsramUsedB": 2203028,
+      "workerStackMinB": 3376,
+      "tlsRequestedB": 0,
+      "tlsPeakRequestedB": 51545,
+      "tlsInternalPeakRequestedB": 12376,
+      "tlsFailures": 0
     }
   },
   "buttonTimingCorrection": {
@@ -573,7 +646,7 @@
     "LCD updater fields are sampled cumulative extrema, not phase-local allocation bounds. Zero minimum/peak fields mean unsampled; tlsFailures zero means no failure reported in sampled cumulative records.",
     "Only 12 selected tasks are tracked; rolesUnobserved is relative to that allowlist, not a full firmware inventory. Wi-Fi-driver, IPC and ISR stacks were not measured.",
     "No motion, pairing, limits or generic-board qualification is implied.",
-    "Manual menu Wi-Fi scan was not exercised in this evidence run.",
+    "Manual menu Wi-Fi scan is a separate post-recovery interval; scan visibility is a user report, not an automated visual assertion.",
     "The scheduled two-hour recovery includes user-reported menu navigation; strict uninterrupted idle is unqualified. Action selection and navigation duration are user reports only; unknown duration remains unknown, and no earlier quiet period is assumed."
   ]
 }

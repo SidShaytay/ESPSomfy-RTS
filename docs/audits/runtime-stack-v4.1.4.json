@@ -11,7 +11,7 @@
   "elfSha256": "de5dca268001297cd0fba8fbcaf59ab070db1f2e6dbcbdf54a4cc002a6cd0177",
   "firmwareSha256": "6919e7be60f03bee03ab8b9999b5f95ba3d38b01ec03386a3f179202706f05a1",
   "capturedBootElfMatches": true,
-  "streamCount": 13,
+  "streamCount": 14,
   "exclusiveUsbSessions": 12,
   "rolesObserved": [
     "esp-timer",
@@ -32,62 +32,62 @@
     "esp-timer": {
       "minimumUnusedBytes": 7572,
       "maximumScanUs": 6822,
-      "records": 376
+      "records": 379
     },
     "idle0": {
       "minimumUnusedBytes": 220,
       "maximumScanUs": 22,
-      "records": 376
+      "records": 379
     },
     "idle1": {
       "minimumUnusedBytes": 340,
       "maximumScanUs": 26,
-      "records": 375
+      "records": 378
     },
     "loop": {
       "minimumUnusedBytes": 2800,
       "maximumScanUs": 168,
-      "records": 376
+      "records": 379
     },
     "network": {
       "minimumUnusedBytes": 1776,
       "maximumScanUs": 130,
-      "records": 21
+      "records": 22
     },
     "radio": {
       "minimumUnusedBytes": 2000,
       "maximumScanUs": 145,
-      "records": 356
+      "records": 359
     },
     "system-events": {
       "minimumUnusedBytes": 2468,
       "maximumScanUs": 3218,
-      "records": 37
+      "records": 38
     },
     "tcpip": {
       "minimumUnusedBytes": 2516,
-      "maximumScanUs": 1256,
-      "records": 376
+      "maximumScanUs": 1272,
+      "records": 379
     },
     "timer-daemon": {
       "minimumUnusedBytes": 2412,
       "maximumScanUs": 118,
-      "records": 375
+      "records": 378
     },
     "udp": {
       "minimumUnusedBytes": 684,
       "maximumScanUs": 8753,
-      "records": 257
+      "records": 260
     },
     "updater": {
       "minimumUnusedBytes": 3376,
       "maximumScanUs": 13154,
-      "records": 363
+      "records": 366
     },
     "web": {
       "minimumUnusedBytes": 10948,
       "maximumScanUs": 13388,
-      "records": 359
+      "records": 361
     }
   },
   "samples": [
@@ -25619,6 +25619,223 @@
       "minimumUnusedBytes": 2800,
       "samples": 2251,
       "maxScanUs": 168
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 11668378,
+      "minimumUnusedBytes": 684,
+      "samples": 537,
+      "maxScanUs": 8753
+    },
+    {
+      "role": "idle0",
+      "uptimeMs": 11672883,
+      "minimumUnusedBytes": 220,
+      "samples": 777,
+      "maxScanUs": 22
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 11673970,
+      "minimumUnusedBytes": 2800,
+      "samples": 2329,
+      "maxScanUs": 168
+    },
+    {
+      "role": "updater",
+      "uptimeMs": 11676166,
+      "minimumUnusedBytes": 3376,
+      "samples": 2155,
+      "maxScanUs": 13154
+    },
+    {
+      "role": "idle1",
+      "uptimeMs": 11677893,
+      "minimumUnusedBytes": 340,
+      "samples": 777,
+      "maxScanUs": 26
+    },
+    {
+      "role": "tcpip",
+      "uptimeMs": 11677979,
+      "minimumUnusedBytes": 2516,
+      "samples": 2173,
+      "maxScanUs": 1256
+    },
+    {
+      "role": "esp-timer",
+      "uptimeMs": 11682665,
+      "minimumUnusedBytes": 7572,
+      "samples": 1487,
+      "maxScanUs": 6822
+    },
+    {
+      "role": "timer-daemon",
+      "uptimeMs": 11682910,
+      "minimumUnusedBytes": 2412,
+      "samples": 777,
+      "maxScanUs": 118
+    },
+    {
+      "role": "radio",
+      "uptimeMs": 11685900,
+      "minimumUnusedBytes": 2000,
+      "samples": 1617,
+      "maxScanUs": 145
+    },
+    {
+      "role": "network",
+      "uptimeMs": 11691528,
+      "minimumUnusedBytes": 1776,
+      "samples": 27,
+      "maxScanUs": 130
+    },
+    {
+      "role": "system-events",
+      "uptimeMs": 11691552,
+      "minimumUnusedBytes": 2468,
+      "samples": 65,
+      "maxScanUs": 3218
+    },
+    {
+      "role": "web",
+      "uptimeMs": 11692832,
+      "minimumUnusedBytes": 10948,
+      "samples": 1085,
+      "maxScanUs": 13388
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 11698913,
+      "minimumUnusedBytes": 684,
+      "samples": 541,
+      "maxScanUs": 8753
+    },
+    {
+      "role": "idle0",
+      "uptimeMs": 11702964,
+      "minimumUnusedBytes": 220,
+      "samples": 779,
+      "maxScanUs": 22
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 11703998,
+      "minimumUnusedBytes": 2800,
+      "samples": 2335,
+      "maxScanUs": 168
+    },
+    {
+      "role": "updater",
+      "uptimeMs": 11706181,
+      "minimumUnusedBytes": 3376,
+      "samples": 2160,
+      "maxScanUs": 13154
+    },
+    {
+      "role": "idle1",
+      "uptimeMs": 11707976,
+      "minimumUnusedBytes": 340,
+      "samples": 779,
+      "maxScanUs": 26
+    },
+    {
+      "role": "tcpip",
+      "uptimeMs": 11708010,
+      "minimumUnusedBytes": 2516,
+      "samples": 2179,
+      "maxScanUs": 1272
+    },
+    {
+      "role": "esp-timer",
+      "uptimeMs": 11712665,
+      "minimumUnusedBytes": 7572,
+      "samples": 1491,
+      "maxScanUs": 6822
+    },
+    {
+      "role": "timer-daemon",
+      "uptimeMs": 11713002,
+      "minimumUnusedBytes": 2412,
+      "samples": 779,
+      "maxScanUs": 118
+    },
+    {
+      "role": "radio",
+      "uptimeMs": 11715909,
+      "minimumUnusedBytes": 2000,
+      "samples": 1622,
+      "maxScanUs": 145
+    },
+    {
+      "role": "web",
+      "uptimeMs": 11723836,
+      "minimumUnusedBytes": 10948,
+      "samples": 1091,
+      "maxScanUs": 13388
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 11728961,
+      "minimumUnusedBytes": 684,
+      "samples": 544,
+      "maxScanUs": 8753
+    },
+    {
+      "role": "idle0",
+      "uptimeMs": 11733056,
+      "minimumUnusedBytes": 220,
+      "samples": 781,
+      "maxScanUs": 22
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 11734092,
+      "minimumUnusedBytes": 2800,
+      "samples": 2341,
+      "maxScanUs": 168
+    },
+    {
+      "role": "updater",
+      "uptimeMs": 11736196,
+      "minimumUnusedBytes": 3376,
+      "samples": 2166,
+      "maxScanUs": 13154
+    },
+    {
+      "role": "tcpip",
+      "uptimeMs": 11738024,
+      "minimumUnusedBytes": 2516,
+      "samples": 2183,
+      "maxScanUs": 1272
+    },
+    {
+      "role": "idle1",
+      "uptimeMs": 11738060,
+      "minimumUnusedBytes": 340,
+      "samples": 781,
+      "maxScanUs": 26
+    },
+    {
+      "role": "esp-timer",
+      "uptimeMs": 11742671,
+      "minimumUnusedBytes": 7572,
+      "samples": 1495,
+      "maxScanUs": 6822
+    },
+    {
+      "role": "timer-daemon",
+      "uptimeMs": 11743082,
+      "minimumUnusedBytes": 2412,
+      "samples": 781,
+      "maxScanUs": 118
+    },
+    {
+      "role": "radio",
+      "uptimeMs": 11745918,
+      "minimumUnusedBytes": 2000,
+      "samples": 1626,
+      "maxScanUs": 145
     }
   ],
   "rejectedAuditRecords": 2,
@@ -25631,7 +25848,7 @@
     "LCD updater fields are sampled cumulative extrema, not phase-local allocation bounds. Zero minimum/peak fields mean unsampled; tlsFailures zero means no failure reported in sampled cumulative records.",
     "Only 12 selected tasks are tracked; rolesUnobserved is relative to that allowlist, not a full firmware inventory. Wi-Fi-driver, IPC and ISR stacks were not measured.",
     "No motion, pairing, limits or generic-board qualification is implied.",
-    "Manual menu Wi-Fi scan was not exercised in this evidence run.",
+    "Manual menu Wi-Fi scan is a separate post-recovery interval; scan visibility is a user report, not an automated visual assertion.",
     "The scheduled two-hour recovery includes user-reported menu navigation; strict uninterrupted idle is unqualified. Action selection and navigation duration are user reports only; unknown duration remains unknown, and no earlier quiet period is assumed."
   ]
 }

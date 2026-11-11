@@ -1,0 +1,26 @@
+# Stack qualification implementation checkpoints
+
+Historical record from ec2660a, before the final manual scan and ordinary-firmware return. Current outcome is in stack-qualification.md.
+
+# Remaining stack qualification — active
+
+Objective: execute and publish reproducible real-board stack coverage for active RF, updater TLS/download/staging, local UI editing, deliberate Wi-Fi reconnect, combined activity and two-hour recovery, including feasible SDK task observations. Follow-up to completed #35; authoritative qualification issue #33.
+
+Authority: Sid requests planning and execution, prefers automated USB debug controls, authorizes necessary harmless RF (open while already open), and confirms shutters physically open now. Existing session authorization covers necessary full backups, instrumented installs/reboots. Sid explicitly prefers ordinary v4.1.4 after the real two-hour recovery completes; preserve that completed audit capture before the cleanup reboot. No pairing/calibration, limit changes, relay tests, HA configuration or stale-counter restore. Revalidate state before RF; counters may advance legitimately and must be preserved.
+
+Workspace: stack-qualification / codex/stack-qualification, starting main c2e2f86. Root owns live board and record. Subagents perform read-only USB/API and SDK measurement research; no live operations.
+
+Acceptance: exact boot/source binding; bounded repeatable controls using production admission and UI presentation; per-phase stack/heap/TLS/PSRAM/timing and cleanup; no unexpected resets/unintended persistent edits/movement; public sanitized outcomes with untested physical/alternate-board boundaries explicit. No stack resizing in this effort.
+
+- [x] Q1 Inventory and fresh live idle/v4.1.2 capture passed. Executable phase plan posted on #33; completed #35 baseline split into a checked item, extended combined-load remains open.
+- [x] Q2 Add/test/review opt-in USB control and SDK sampling support; preserve ordinary builds and protection gates. Source and focused tests/reviews passed; controlled development build passed (2094 repository frames), native1318pass/1existing skip after correcting host compiler PATH. Host ACK binding defect reproduced/fixed. Integrated/pushed main2136bf2/tagv4.1.3; clean default/controlled builds passed. Additional host read-boundary ACK race is being fixed before USB use.
+- [x] Q3 Two new fresh16MiB backups verified current4.1.2/VALID28app1 then4.1.3/VALID29app0, retained apps, layout, NVS/config/counters. Each exact bootback/state passed. Independent exact candidate reviews and actualO_RDONLY observerFD guards passed. One firmware-only upload each; final integrated4.1.4/source304774c app1 exactfirstELF+SDKhealth/state equality passed. ExpectedOTA30 not rawread afterward. Earlier2136/v413 lacked concurrently landed#36; it is preserved as a separate checkpoint, not the final run.
+- [x] Q4 Combined and long recovery passed. Combined:120 schema/status,120HTTP200 screenshots,12discovery,299previewturns,fullTLS/stage,thirdUP;20immediate+240longsamples over7501.779s, maxgap33.872s. Finalsettings/entities/rooms matchedRF3; no detectedfault/reset. User reports ~60s navigation12:43–12:44, so NOT2hstrictidle.50postreport samples span1469.195s; inputabsenceuserreported. Finalheap123292/largest73716 versusbaseline123836/77812; offset544/4096unattributed, no continuingdecline observed. Rawlogs/privatefullbackups remainprivate. Finalexport3647records/12roles/twoincomplete rejects; radio2000,UDP684,updater3376. Threeabortedharnessattempts preserved, notsuccessfulcombinedcoverage. Monitor34253finished0; no pendingcontrolprocess.
+- [ ] Q5 Publish reviewed sanitized report/data; reconcile #33 checkboxes and remaining physical coverage.
+- [ ] Q6 After Q4 recovery actually completes (monitor34253), take fresh state/counters and a verified full-flash backup, then install the prepared ordinary v4.1.4 candidate. Candidate: `candidate-production-v414/` under `CURRENT_STACK_QUALIFICATION`; admission: `production-candidate-ready.json`. Bind the exact image/ELF and inactive slot to the fresh backup, preserve current counters, and verify postboot identity/state. Never replay an earlier upload helper or write plan. Next: wait for actual completion, freeze/export the audit interval, then perform the fresh backup/preflight.
+
+Private current stage: ~/.local/state/espsomfy-lilygo/CURRENT_STACK_QUALIFICATION. Baseline: ISSUE35_ACTIVE. Never run old one-shot install helpers unchanged. Ordinary cleanup: separate private `STACK_QUALIFICATION_ORDINARY_CLEANUP` stage is prepared and independently reviewed, with whole-interval boot guard/11 fixtures. Use pinned backup Python for its PLAN.md; do not bind/run before actual recovery completion. Git/GitHub now require git-agent/gh-agent as r-sidshaytay (account verified restored).
+
+- [ ] Q7 After Q4, offer the separately captured manual LCD Wi-Fi scan Sid requested. New private manual-wifi-scan collector has6offline tests; no live scan yet. Keep frozen recovery interval separate; verify user result, >=40s delayed records and unchanged settings/entities/RF3 before ordinary cleanup.
+
+Next ID: Q8.
