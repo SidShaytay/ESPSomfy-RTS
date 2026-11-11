@@ -20,6 +20,8 @@ body:
         - ESP32 WT32-ETH01
         - Olimex ESP32-PoE/EVB
         - LilyGO T-Internet POE
+        - LILYGO T-Embed CC1101
+        - LILYGO T-Embed CC1101 Plus
         - wESP POE
         - Other
     validations:
