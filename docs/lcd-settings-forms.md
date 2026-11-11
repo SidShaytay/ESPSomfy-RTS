@@ -1,20 +1,22 @@
 # LCD settings forms
 
-**Navigation version:** These paths apply to **4.8.0 and later**. For 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
+**Navigation version:** These paths apply to **4.9.0 and later**. For 4.8.0 or 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
 
 The local settings component covers General, Network, MQTT, Security and Radio. It reads field lists, lengths, ranges and non-contiguous choices from the same tables as socket settings validation. Ethernet fields appear only on Ethernet-capable builds. The shared board's fixed radio GPIOs and its valid WiFi-only connection setting are shown read-only.
 
-Open **This controller → Configure**, then choose **General**, **Security**, **Network → Network settings**, **MQTT** or **Radio** and unlock with the configured credential when required. The LCD controller connects the form directly to the shared settings operations; it does not use a browser or a socket loopback. Scans, restart, entity administration and the updater use their own flows.
+Open **System → Configure**, then choose **General**, **Security**, **Network → Network settings**, **MQTT** or **Radio** and unlock with the configured credential when required. The LCD controller connects the form directly to the shared settings operations; it does not use a browser or a socket loopback. Scans, restart, entity administration and the updater use their own flows.
 
 ## Editing and saving
 
 The chosen section opens directly. Turn to select a field, then press to edit. Rotation changes the draft only. For numeric values, press to open the actions menu: **Edit value**, **Step** and **Apply to draft**. Step cycles through powers of ten within the field's range, allowing large values such as an MQTT port to be reached quickly. Numbers stop at their shared bounds. Unsupported stored choices and out-of-range or nonfinite numbers show Invalid. Pressing one opens **Cancel / Replace invalid value**, with Cancel selected. Back or Cancel keeps the original and any other field drafts. Explicitly choosing Replace starts a bounded candidate: the first supported choice, or zero when within range and otherwise the minimum. The candidate still needs **Apply to draft**, followed by **Save**; opening the field or choosing Replace alone never changes the original. Frequency retains three decimal places; the other fractional radio values retain two.
 
-For text, turn to select a character, press to append it, or choose Delete byte, Exact byte, Apply to draft or Cancel edit. Exact byte accepts nonzero bytes for values that cannot be entered with the ASCII picker. The screen shows the end of long drafts, an ellipsis when the beginning is clipped, and the current/maximum byte count. Text uses exact bytes, including pre-existing non-UTF-8 sequences; it does not require UTF-8. The renderer handles unsupported glyphs separately from the stored bytes.
+For text, turn through the visible character array and press to append. Shift capitalizes the next letter; **123**, **#+=**, **Space**, **Del** and **Done** provide the other choices. The **0x** key in Symbols opens exact nonzero-byte entry for existing values beyond printable ASCII. Back inside this byte chooser returns to Symbols. The end of long drafts stays visible with a current/maximum byte count. Secret previews stay masked.
+
+**Done** or Back from the keyboard returns the field to the form's working draft. This does not persist settings. Back from a dirty form offers **Keep editing / Discard changes**, with Keep editing selected. Numbers retain their separate adjustment and Apply controls.
 
 **Apply to draft** validates the changed fields with the shared settings validator. It does not persist anything. Select **Save** at the end of the field list to persist. Network, MQTT, Security and Radio show a consequence-specific confirmation with Cancel selected initially. General settings save directly after this explicit Save action. Saving with no applied field drafts closes with “No changes to save” and does not write settings.
 
-Back inside an editor discards that field's current edit and returns to the field list. Previously applied field drafts remain. Back from a confirmation returns to the field list. Back from a section or field list, or selecting Cancel, closes the form and discards all drafts.
+Back from a numeric editor discards that field edit. Back from a confirmation returns to the field list. Leaving a dirty form requires explicitly choosing Discard changes; Keep editing returns to the draft.
 
 Fixed board GPIOs remain read-only even if their stored value is invalid. The existing shared radio save normalizes these GPIOs to the board profile before persistence and live application, so an explicit ordinary radio field Apply/Save also repairs them. On WiFi-only hardware, a valid WiFi Connection is read-only. An invalid Connection offers the explicit replacement flow with WiFi as the only candidate; Ethernet choices are refused by shared validation. Unrelated Network saves preserve the invalid original until you explicitly replace and apply that field.
 

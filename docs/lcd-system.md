@@ -1,8 +1,8 @@
 # Controller maintenance and diagnostics
 
-**Navigation version:** These paths apply to **4.8.0 and later**. For 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
+**Navigation version:** These paths apply to **4.9.0 and later**. For 4.8.0 or 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
 
-Open **This controller → Maintenance** for updates, restart and browser files, or **This controller → Diagnostics** for network details, receive diagnostics, frequency scan and copy-log guidance. **Configure → Network → WiFi scan** owns WiFi selection. Secured controllers require the configured web credential.
+Open **System → Maintenance** for updates, restart and browser files, or **System → Diagnostics** for network details, receive diagnostics, frequency scan and copy-log guidance. **Configure → Network → WiFi scan** owns WiFi selection. Secured controllers require the configured web credential.
 The protected maintenance and diagnostics forms and their transitions retain screenshot protection.
 
 **Network details** shows the current connection, connected WiFi SSID, channel,
@@ -39,7 +39,7 @@ keep them private. Shared LILYGO firmware contains its web interface. Follow the
 [state-preserving flashing procedure](flashing.md) for recovery; restoring an old
 backup is not a routine firmware-update step.
 
-**Copy receive log**, inside **This controller → Diagnostics**, directs you to the browser's
+**Copy receive log**, inside **System → Diagnostics**, directs you to the browser's
 **Radio → Log → Copy** action. The LCD does not create a clipboard or transfer
 session. Frame data can identify devices and contains radio counters; keep it
 private.

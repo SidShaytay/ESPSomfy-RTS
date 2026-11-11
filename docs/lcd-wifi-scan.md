@@ -1,15 +1,14 @@
 # WiFi scan on the LCD
 
-**Navigation version:** These paths apply to **4.8.0 and later**. For 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
+**Navigation version:** These paths apply to **4.9.0 and later**. For 4.8.0 or 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
 
-Open **This controller → Configure → Network → WiFi scan**, then explicitly choose **Start WiFi scan**.
+Open **Home → Network → WiFi scan**, then explicitly choose **Start WiFi scan**.
 Cancel is selected first. Opening or browsing this screen does not start a scan.
 Scanning can interrupt WiFi service; it never selects a connection or saves
 settings. The existing network service owns the physical scan and may share its
 results with an already waiting browser.
 
-The LCD copies at most 16 results into bounded wiping PSRAM storage. Results show
-a stable result number and BSSID to distinguish duplicate names. Choose a result
+The LCD copies at most 16 results into bounded wiping PSRAM storage. Results show four readable rows with the SSID first, signal strength and a security marker. Choose a result
 to review its full SSID and BSSID, channel, RSSI and security marker, then choose **Use SSID in settings
 draft**. Cancel is selected first here too. Open and known secured SDK modes are labelled;
 unsupported authentication mode numbers are shown as Unknown. The LCD uses its existing safe text
