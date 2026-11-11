@@ -5,6 +5,8 @@ Stop competing serial readers first. All raw output must stay in a private file.
 No command is sent automatically on connection. Input injection expires after
 2s; use release after each scripted UI sequence. This tests software UI paths,
 not the physical encoder. Default and measurement-only images reject controls.
+Optional --flush-ack appends a read-only state helper without replaying the
+requested command. Its result includes nextSequence for the next invocation.
 """
 import argparse
 import fcntl
@@ -102,20 +104,26 @@ class UsbAuditClient:
                 self.error = exc
                 self.condition.notify_all()
 
-    def command(self, command, timeout=5):
+    def command(self, command, timeout=5, flush_ack=False):
         if command not in COMMANDS:
             raise ValueError('Unsupported audit command')
-        identity = self.next_id
-        if not 0 < identity < 2**32:
-            raise ValueError('Sequence exhausted')
-        self.next_id += 1
-        payload = f'AUDIT {identity} {command}\n'.encode('ascii')
         # Register one outstanding request and write while holding the lock, so
         # ACKs observed before a request are discarded rather than cached.
         deadline = time.monotonic() + timeout
         with self.condition:
             if self.pending or self.error:
                 raise ConnectionError('USB session is busy or failed')
+            identity = self.next_id
+            extra = 1 if flush_ack else 0
+            if not 0 < identity or identity + extra >= 2**32:
+                raise ValueError('Sequence exhausted')
+            self.next_id += 1 + extra
+            payload = f'AUDIT {identity} {command}\n'.encode('ascii')
+            if flush_ack:
+                # A read-only helper encourages prompt diagnostic output. It
+                # shares this one write, consumes a sequence, and is not awaited.
+                payload += f'AUDIT {identity + 1} state\n'.encode('ascii')
+            next_sequence = self.next_id
             self.pending = (identity, COMMAND_IDS[command])
             self.response = None
             try:
@@ -138,7 +146,10 @@ class UsbAuditClient:
             finally:
                 self.pending = None
                 self.response = None
-        return dict(sequence=identity, command=value[0], result=value[1], uptimeMs=value[2])
+        reply = dict(sequence=identity, command=value[0], result=value[1], uptimeMs=value[2])
+        if flush_ack:
+            reply['nextSequence'] = next_sequence
+        return reply
 
     def close(self):
         self.stopped.set()
@@ -152,11 +163,13 @@ def main():
     parser.add_argument('--port', required=True)
     parser.add_argument('--capture', type=Path, required=True)
     parser.add_argument('--sequence', type=int, default=1)
+    parser.add_argument('--flush-ack', action='store_true',
+                        help='Append a read-only state helper in the same write; consumes an extra sequence')
     parser.add_argument('command', choices=sorted(COMMANDS))
     args = parser.parse_args()
     client = UsbAuditClient(args.port, args.capture, args.sequence)
     try:
-        print(client.command(args.command))
+        print(client.command(args.command, flush_ack=args.flush_ack))
     finally:
         client.close()
 
