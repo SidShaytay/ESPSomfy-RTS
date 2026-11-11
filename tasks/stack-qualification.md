@@ -19,3 +19,5 @@ The report proposes deferred UDP audit formatting, numeric release-build network
 Private evidence pointers: ~/.local/state/espsomfy-lilygo/CURRENT_STACK_QUALIFICATION and STACK_QUALIFICATION_ORDINARY_CLEANUP. Raw backups/logs/frames remain private. Never replay old one-shot operators or restore stale counters. Ordinary cleanup and all live tests are complete; no process or user input is pending.
 
 Final findings and proposal-only plan are committed with this record. Main is authoritative after integration; no further live work or implementation is authorized. Future implementation requires a new request. Next ID: Q8.
+
+Editorial follow-up completed: shortened reports and issue summaries, preserved measurements and a separate technical reference, and withdrew speculative work from the active backlog. Reviewed the conclusions and local links. No firmware or device changes.
