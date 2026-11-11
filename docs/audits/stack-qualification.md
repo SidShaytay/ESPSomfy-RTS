@@ -4,13 +4,38 @@
 
 ## Current evidence
 
-The installed controlled image is **4.1.4 / `304774c`**, including #36. Clean ordinary/controlled builds, 1,320 native tests (one existing optional skip), 122 JavaScript tests and the integrated UI harness passed. Exact first-boot ELF/SDK confirmation and fresh configuration/model/counter equality passed after verified full recovery captures. The ten-minute combined run and two-hour recovery are still in progress; this document does not certify them yet.
+The installed controlled image is **4.1.4 / `304774c`**, including #36. Clean ordinary/controlled builds, 1,320 native tests (one existing optional skip), 122 JavaScript tests and the integrated UI harness passed. Exact first-boot ELF/SDK confirmation and fresh configuration/model/counter equality passed after verified full recovery captures. The ten-minute combined run and five-minute recovery passed; the two-hour idle phase is running and remains unqualified until its final checks.
 
 Completed isolated coverage: five minutes idle with ten samples; three typed keyboard drafts discarded; one display preview cancelled with Back; a private draft expired after 32 seconds; four protected screenshot requests returned 423. Three intentional Wi-Fi reconnects recovered schema/discovery in 6.9–8.1 seconds, with observed outages and unchanged configuration/model/counters. HTTPS release/manifest checks and complete download-only verification passed twice. Updater stack minimum was 3,376 unused bytes of 12,288; sampled TLS requested peak 51,545 bytes, internal requested peak 12,376 and zero allocation failures. Idle-only radio/updater values from #35 are not reused as active coverage.
 
 Initial idle samples had 123,836 free internal bytes and a 77,812-byte largest block. After the first TLS run and matched idle observations, these were 123,296 and 73,716; the next identical TLS run varied by eight free bytes without further largest-block loss. This does not identify the first retained allocation or prove absence of leaks. The longer recovery will assess stability; lifetime minimum heap is a separate historical value and need not recover.
 
 Aborted combined attempts remain recorded. One first tap only woke a dimmed display. Later raw button edges stretched past the 800 ms long-press threshold while awaiting delayed USB output. These are failed harness runs, not completed combined qualification; no RF request was blindly replayed. A host-only status-helper workaround passed nine transport tests and three further board draft cycles, with measured device Down/Up spacing of 158–182 ms. The final combined workload uses a reversible display preview with encoder turns, normal TLS/download staging, read/capture load and a separately guarded semantic UP request. It preserves prior text-edit/RF overlap evidence without claiming a continuous successful run across failures.
+
+## Observed stack margins
+
+These are cumulative minimum unused bytes from the current controlled run, including instrumentation. Recovery is still running, so the final export may lower them. Task allocations have not changed.
+
+| Task | Allocated bytes | Minimum unused bytes |
+| --- | ---: | ---: |
+| Loop | 8,192 | 2,800 |
+| Arduino network events | 4,096 | 1,776 |
+| UDP | 4,096 | 684 |
+| Web | 16,384 | 10,948 |
+| Radio | 4,096 | 2,032 |
+| Updater | 12,288 | 3,376 |
+| SDK system events | 4,608 | 2,468 |
+| TCP/IP | 4,608 | 2,516 |
+| ESP timer | 8,704 | 7,572 |
+| Idle core 0 | 1,084 | 220 |
+| Idle core 1 | 1,084 | 340 |
+| FreeRTOS timer daemon | 3,120 | 2,412 |
+
+Keep these allocations for now. UDP has the smallest observed application margin and deserves targeted work before any reduction. A fill-pattern watermark can miss reserved but unwritten stack space; neither a watermark nor an individual compiler frame proves the deepest call chain fits. Radio stays asynchronous. SDK Wi-Fi-driver, IPC and interrupt stacks remain unmeasured.
+
+Two incomplete `STACK_AUDIT` lines at channel opening were rejected: one in the combined capture and one in USB flush validation. Neither supplied a complete measurement. The cause remains unresolved between capture handoff truncation and producer interleaving. The export retains the rejected count of two.
+
+The pinned build already permits large malloc allocations to use PSRAM, with a 4,096-byte threshold; normal dynamically created task stacks remain internal. Owned download images and larger JSON/TLS allocations can use external memory. This build does not enable PSRAM instruction/constant execution. Keep task stacks internal: moving them would require a separate review of cache-disabled execution and all callers, and these measurements do not justify that change.
 
 ## Repeatable controls
 
