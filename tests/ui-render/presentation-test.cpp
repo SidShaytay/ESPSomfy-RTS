@@ -14,6 +14,10 @@ int main() {
   shown.screen=current.screen=Screen::repeatValue;shown.repeatStep=current.repeatStep=2;
   assert(sameMeaning(current,shown,1,1,11,11));++current.repeatStep;
   assert(!sameMeaning(current,shown,1,1,11,11));
+  shown.screen=current.screen=Screen::brightness;shown.setting=current.setting=0;
+  assert(sameMeaning(current,shown,1,1,11,11));current.displayEditing=true;
+  assert(!sameMeaning(current,shown,1,1,11,11));current.displayEditing=false;
+  current.setting=3;assert(!sameMeaning(current,shown,1,1,11,11));
   shown.screen=current.screen=Screen::control;shown.repeatHeld=current.repeatHeld=false;
   assert(sameMeaning(current,shown,1,1,11,11));current.repeatHeld=true;
   assert(!sameMeaning(current,shown,1,1,11,11));
