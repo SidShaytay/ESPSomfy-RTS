@@ -1,0 +1,708 @@
+{
+  "schema": 1,
+  "units": "bytes",
+  "measurement": "compiler-per-function-frame",
+  "stackUsageFiles": 275,
+  "uniqueRepositoryFunctions": 2080,
+  "largestFrames": [
+    {
+      "source": "src/GitUpdate.cpp",
+      "line": 444,
+      "function": "bool {anonymous}::download(const std::string&, Buffer&, size_t&, GitUpdateDownload)",
+      "frameBytes": 2784,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 814,
+      "function": "void SSDPClass::schema(Print&)",
+      "frameBytes": 2032,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 393,
+      "function": "void SSDPClass::_sendResponse(IPAddress, uint16_t, UPNPDeviceType*, const char*, response_types_t)",
+      "frameBytes": 1632,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/LocalUiAdapter.cpp",
+      "line": 451,
+      "function": "LocalUi::DispatchResult LocalUi::dispatch(const Command&)",
+      "frameBytes": 1616,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 471,
+      "function": "void SSDPClass::_sendNotify(UPNPDeviceType*, bool)",
+      "frameBytes": 1616,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 556,
+      "function": "void SSDPClass::_sendByeBye(UPNPDeviceType*, bool)",
+      "frameBytes": 1568,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/LocalCatalogue.h",
+      "line": 49,
+      "function": "bool LocalUi::cataloguePage(CatalogueSource&, CatalogueKind, uint8_t, uint8_t, CataloguePage&, uint8_t, bool, bool)",
+      "frameBytes": 1536,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/LocalUiRuntime.cpp",
+      "line": 126,
+      "function": "bool LocalUi::Runtime::tick(uint32_t, const StatusDisplay::Snapshot&, bool, bool (*)(uint8_t, uint8_t, const uint8_t*, size_t), void (*)(uint8_t))",
+      "frameBytes": 1536,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/GitUpdate.cpp",
+      "line": 526,
+      "function": "bool {anonymous}::metadata(bool, const GitUpdateCandidate&, GitUpdatePolicy::Manifest*)",
+      "frameBytes": 1488,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/GitUpdateImage.cpp",
+      "line": 136,
+      "function": "GitUpdateImage::Result GitUpdateImage::verify(const uint8_t*, size_t, const char*, const GitUpdatePolicy::Manifest*, Identity&, UpdateAttestationControl)",
+      "frameBytes": 1488,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/LocalAdvancedRuntime.cpp",
+      "line": 265,
+      "function": "virtual bool LocalUi::Advanced::{anonymous}::RuntimeBackend::selectMembership(LocalUi::Advanced::Target, const LocalUi::Advanced::Context&, bool, const LocalUi::Advanced::MembershipRows&, uint8_t, LocalUi::Advanced::MembershipSelection&)",
+      "frameBytes": 1376,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/Transceiver.cpp",
+      "line": 818,
+      "function": "void Transceiver::loop()",
+      "frameBytes": 1328,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SettingsApply.cpp",
+      "line": 71,
+      "function": "settings_apply_result_t applySettings(ConfigSettings&, settings_section_t, ArduinoJson::V743PB22::JsonObject, SettingsEffects&)",
+      "frameBytes": 1072,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 729,
+      "function": "void SSDPClass::_processRequest(AsyncUDPPacket&)",
+      "frameBytes": 1056,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/entryPoints/FirmwareUpload.cpp",
+      "line": 26,
+      "function": "registerFirmwareUploadRoute(AsyncWebServer&)::<lambda(AsyncWebServerRequest*)>",
+      "frameBytes": 992,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/entryPoints/RestoreUpload.cpp",
+      "line": 35,
+      "function": "void {anonymous}::sendStatus(AsyncWebServerRequest*, const RestoreExecutionSnapshot&, int)",
+      "frameBytes": 960,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/LocalUiAdapter.cpp",
+      "line": 442,
+      "function": "void LocalUi::markControlPresented(EntityRef, uint64_t, bool, uint32_t)",
+      "frameBytes": 880,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/LocalMembershipRead.h",
+      "line": 82,
+      "function": "bool LocalUi::Advanced::MembershipReader<Model>::select(uint8_t, bool, const LocalUi::Advanced::MembershipRows&, uint8_t, LocalUi::Advanced::MembershipSelection&) [with Model = SomfyShadeController]",
+      "frameBytes": 848,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/LocalUiAdapter.cpp",
+      "line": 253,
+      "function": "LocalUi::DispatchResult LocalUi::{anonymous}::_ZN7LocalUi12_GLOBAL__N_115validateControlERNS_6TargetERm$part$0(LocalUi::Target&, uint32_t&)",
+      "frameBytes": 848,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/LocalAdvanced.cpp",
+      "line": 693,
+      "function": "void LocalUi::Advanced::Form::membershipEffect(LocalUi::MembershipEffect, uint64_t)",
+      "frameBytes": 784,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/LocalCatalogue.h",
+      "line": 134,
+      "function": "bool LocalUi::roomCataloguePage(CatalogueSource&, uint8_t, CataloguePage&, uint8_t, bool)",
+      "frameBytes": 768,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/LocalAdvanced.cpp",
+      "line": 733,
+      "function": "void LocalUi::Advanced::Form::activate(uint64_t)",
+      "frameBytes": 736,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/LocalMembership.cpp",
+      "line": 18,
+      "function": "void LocalUi::MembershipDraft::clearIntent()",
+      "frameBytes": 736,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/LocalMembership.cpp",
+      "line": 92,
+      "function": "LocalUi::MembershipEffect LocalUi::MembershipDraft::activate()",
+      "frameBytes": 736,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/LocalMembership.cpp",
+      "line": 127,
+      "function": "LocalUi::MembershipEffect LocalUi::MembershipDraft::back()",
+      "frameBytes": 736,
+      "qualifier": "static"
+    }
+  ],
+  "selectedFrames": [
+    {
+      "source": "src/SSDP.cpp",
+      "line": 814,
+      "function": "void SSDPClass::schema(Print&)",
+      "frameBytes": 2032,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 393,
+      "function": "void SSDPClass::_sendResponse(IPAddress, uint16_t, UPNPDeviceType*, const char*, response_types_t)",
+      "frameBytes": 1632,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 471,
+      "function": "void SSDPClass::_sendNotify(UPNPDeviceType*, bool)",
+      "frameBytes": 1616,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 556,
+      "function": "void SSDPClass::_sendByeBye(UPNPDeviceType*, bool)",
+      "frameBytes": 1568,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 729,
+      "function": "void SSDPClass::_processRequest(AsyncUDPPacket&)",
+      "frameBytes": 1056,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/GitUpdate.cpp",
+      "line": 689,
+      "function": "void {anonymous}::worker(void*)",
+      "frameBytes": 704,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 747,
+      "function": "void SSDPClass::_drainRequests()",
+      "frameBytes": 208,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/ESPNetwork.cpp",
+      "line": 612,
+      "function": "static void ESPNetwork::networkEvent(arduino_event_id_t)",
+      "frameBytes": 128,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 243,
+      "function": "void SSDPClass::_parsePacket(ssdp_packet_t*, AsyncUDPPacket&)",
+      "frameBytes": 128,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/outputs/ProtoSocket.cpp",
+      "line": 437,
+      "function": "static void ProtoSocket::wsEvent(AsyncWebSocket*, AsyncWebSocketClient*, AwsEventType, void*, uint8_t*, size_t)",
+      "frameBytes": 128,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/ESPNetwork.cpp",
+      "line": 306,
+      "function": "void ESPNetwork::discoveryLoop()",
+      "frameBytes": 112,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/Transceiver.cpp",
+      "line": 1062,
+      "function": "static void Transceiver::txTask(void*)",
+      "frameBytes": 112,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 886,
+      "function": "void SSDPClass::setUUID(uint8_t, const char*, uint32_t)",
+      "frameBytes": 96,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 169,
+      "function": "bool SSDPClass::begin()",
+      "frameBytes": 80,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 759,
+      "function": "void SSDPClass::_dispatchRequest(ssdp_request_t&)",
+      "frameBytes": 80,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 418,
+      "function": "void SSDPClass::_sendResponse(IPAddress, uint16_t, const char*)",
+      "frameBytes": 64,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 461,
+      "function": "void SSDPClass::_sendNotify(const char*)",
+      "frameBytes": 64,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 589,
+      "function": "void SSDPClass::_addToSendQueue(IPAddress, uint16_t, UPNPDeviceType*, const char*, response_types_t, uint8_t, uint32_t)",
+      "frameBytes": 64,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 644,
+      "function": "void SSDPClass::_sendQueuedResponses()",
+      "frameBytes": 64,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 697,
+      "function": "bool SSDPClass::_enqueueRequest(const ssdp_request_t&, uint32_t)",
+      "frameBytes": 48,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SomfyController.cpp",
+      "line": 212,
+      "function": "void loop()",
+      "frameBytes": 48,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/Transceiver.cpp",
+      "line": 1040,
+      "function": "void Transceiver::runJob(somfy_tx_job_t&)",
+      "frameBytes": 48,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 167,
+      "function": "SSDPClass::SSDPClass()",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 168,
+      "function": "SSDPClass::~SSDPClass()",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 210,
+      "function": "void SSDPClass::end()",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 228,
+      "function": "UPNPDeviceType* SSDPClass::getDeviceType(uint8_t)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 229,
+      "function": "UPNPDeviceType* SSDPClass::findDeviceByType(char*)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 235,
+      "function": "UPNPDeviceType* SSDPClass::findDeviceByUUID(char*)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 242,
+      "function": "bool SSDPClass::_startsWith(const char*, const char*)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 385,
+      "function": "IPAddress SSDPClass::localIP()",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 429,
+      "function": "void SSDPClass::_sendNotify()",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 470,
+      "function": "void SSDPClass::_sendNotify(UPNPDeviceType*)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 524,
+      "function": "void SSDPClass::setActive(uint8_t, bool)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 536,
+      "function": "void SSDPClass::_sendByeBye()",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 550,
+      "function": "void SSDPClass::_sendByeBye(const char*)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 555,
+      "function": "void SSDPClass::_sendByeBye(UPNPDeviceType*)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 665,
+      "function": "void SSDPClass::_printPacket(ssdp_packet_t*)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 684,
+      "function": "void SSDPClass::_resetRequests(bool)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 691,
+      "function": "uint32_t SSDPClass::_requestEpoch()",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 718,
+      "function": "bool SSDPClass::_takeRequest(ssdp_request_t&)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 807,
+      "function": "void SSDPClass::loop()",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 880,
+      "function": "void SSDPClass::setTTL(uint8_t)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 881,
+      "function": "void SSDPClass::setHTTPPort(uint16_t)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 882,
+      "function": "void SSDPClass::setInterval(uint32_t)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 883,
+      "function": "void SSDPClass::setDeviceType(uint8_t, const char*)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 884,
+      "function": "void SSDPClass::setSchemaURL(uint8_t, const char*)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 885,
+      "function": "void SSDPClass::setUUID(uint8_t, const char*)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 895,
+      "function": "void SSDPClass::setName(uint8_t, const char*)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 896,
+      "function": "void SSDPClass::setURL(uint8_t, const char*)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 897,
+      "function": "void SSDPClass::setSerialNumber(uint8_t, const char*)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 899,
+      "function": "void SSDPClass::setModelName(uint8_t, const char*)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 900,
+      "function": "void SSDPClass::setModelNumber(uint8_t, const char*)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 901,
+      "function": "void SSDPClass::setModelURL(uint8_t, const char*)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 902,
+      "function": "void SSDPClass::setManufacturer(uint8_t, const char*)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 903,
+      "function": "void SSDPClass::setManufacturerURL(uint8_t, const char*)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    },
+    {
+      "source": "src/SSDP.cpp",
+      "line": 904,
+      "function": "void SSDPClass::setChipId(uint8_t, uint32_t)",
+      "frameBytes": 32,
+      "qualifier": "static"
+    }
+  ],
+  "limits": [
+    "Not a worst-case task stack bound or a runtime measurement.",
+    "Includes compiler inlining; prebuilt vendor libraries have no .su coverage.",
+    "Only src/ records are exported; duplicate template entries use the largest frame.",
+    "Dynamic qualifiers are retained; unexercised indirect calls and interrupts need separate analysis.",
+    "Binary entries cover windowed-ABI prologues only; no complete call graph or interrupt bound is inferred."
+  ],
+  "sourceCommit": "304774c96ebc1cc02114d73a54d54c3e841d5479",
+  "sourceInputsSha256": "55a07c16f1c988b784f259950d489419c95ab5199a8a7f96586a26715dbe2c6e",
+  "sourceInputScope": [
+    "src",
+    "platformio.ini",
+    "data-src",
+    "lib",
+    "boards",
+    "tools",
+    "minify.py",
+    "bundle_web.py",
+    "app_version.py",
+    "update_bootloader.py",
+    "archive_elf.py"
+  ],
+  "auditMode": "static",
+  "effectiveConfigSha256": "5c6228fe658565609631ec5013daccca79c1fd4b9ca1e89e63f61d8f32078431",
+  "elfSha256": "24f64ca83422f11f6e86b55650ebb906fe6a5582a8714572a651e0a9d1b19907",
+  "compiler": "xtensa-esp-elf-g++ (crosstool-NG esp-14.2.0_20260121) 14.2.0",
+  "environment": "lilygo-t-embed-cc1101",
+  "binaryFunctionPrologues": 5966,
+  "binaryLargestFrames": [
+    {
+      "function": "(anonymous namespace)::download(std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> > const&, (anonymous namespace)::Buffer&, unsigned int&, GitUpdateDownload)",
+      "frameBytes": 2784
+    },
+    {
+      "function": "SSDPClass::schema(Print&)",
+      "frameBytes": 2032
+    },
+    {
+      "function": "SSDPClass::_sendResponse(IPAddress, unsigned short, UPNPDeviceType*, char const*, response_types_t)",
+      "frameBytes": 1632
+    },
+    {
+      "function": "LocalUi::dispatch(LocalUi::Command const&)",
+      "frameBytes": 1616
+    },
+    {
+      "function": "SSDPClass::_sendNotify(UPNPDeviceType*, bool)",
+      "frameBytes": 1616
+    },
+    {
+      "function": "SSDPClass::_sendByeBye(UPNPDeviceType*, bool)",
+      "frameBytes": 1568
+    },
+    {
+      "function": "LocalUi::Runtime::tick(unsigned long, StatusDisplay::Snapshot const&, bool, bool (*)(unsigned char, unsigned char, unsigned char const*, unsigned int), void (*)(unsigned char))",
+      "frameBytes": 1536
+    },
+    {
+      "function": "LocalUi::cataloguePage(LocalUi::CatalogueSource&, LocalUi::CatalogueKind, unsigned char, unsigned char, LocalUi::CataloguePage&, unsigned char, bool, bool)",
+      "frameBytes": 1536
+    },
+    {
+      "function": "(anonymous namespace)::metadata(bool, GitUpdateCandidate const&, GitUpdatePolicy::Manifest*)",
+      "frameBytes": 1488
+    },
+    {
+      "function": "GitUpdateImage::verify(unsigned char const*, unsigned int, char const*, GitUpdatePolicy::Manifest const*, GitUpdateImage::Identity&, UpdateAttestationControl)",
+      "frameBytes": 1488
+    },
+    {
+      "function": "LocalUi::Advanced::(anonymous namespace)::RuntimeBackend::selectMembership(LocalUi::Advanced::Target, LocalUi::Advanced::Context const&, bool, LocalUi::Advanced::MembershipRows const&, unsigned char, LocalUi::Advanced::MembershipSelection&)",
+      "frameBytes": 1376
+    },
+    {
+      "function": "Transceiver::loop()",
+      "frameBytes": 1328
+    },
+    {
+      "function": "applySettings(ConfigSettings&, settings_section_t, ArduinoJson::V743PB22::JsonObject, SettingsEffects&)",
+      "frameBytes": 1072
+    },
+    {
+      "function": "SSDPClass::_processRequest(AsyncUDPPacket&)",
+      "frameBytes": 1056
+    },
+    {
+      "function": "_ZZ27registerFirmwareUploadRouteR14AsyncWebServerENKUlP21AsyncWebServerRequestE_clES2_$isra$0",
+      "frameBytes": 992
+    },
+    {
+      "function": "(anonymous namespace)::sendStatus(AsyncWebServerRequest*, RestoreExecutionSnapshot const&, int)",
+      "frameBytes": 960
+    },
+    {
+      "function": "LocalUi::markControlPresented(LocalUi::EntityRef, unsigned long long, bool, unsigned long)",
+      "frameBytes": 880
+    },
+    {
+      "function": "LocalUi::Advanced::MembershipReader<SomfyShadeController>::select(unsigned char, bool, LocalUi::Advanced::MembershipRows const&, unsigned char, LocalUi::Advanced::MembershipSelection&)",
+      "frameBytes": 848
+    },
+    {
+      "function": "_ZN7LocalUi12_GLOBAL__N_115validateControlERNS_6TargetERm$part$0",
+      "frameBytes": 848
+    },
+    {
+      "function": "_svfprintf_r",
+      "frameBytes": 800
+    },
+    {
+      "function": "_vfprintf_r",
+      "frameBytes": 800
+    },
+    {
+      "function": "LocalUi::Advanced::Form::membershipEffect(LocalUi::MembershipEffect, unsigned long long)",
+      "frameBytes": 784
+    },
+    {
+      "function": "LocalUi::roomCataloguePage(LocalUi::CatalogueSource&, unsigned char, LocalUi::CataloguePage&, unsigned char, bool)",
+      "frameBytes": 768
+    },
+    {
+      "function": "LocalUi::(anonymous namespace)::readTarget(LocalUi::EntityRef, LocalUi::Target&, LocalUi::TargetContext&, unsigned long&)",
+      "frameBytes": 736
+    },
+    {
+      "function": "LocalUi::Advanced::Form::activate(unsigned long long)",
+      "frameBytes": 736
+    }
+  ]
+}

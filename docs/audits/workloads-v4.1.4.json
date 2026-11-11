@@ -1,0 +1,579 @@
+{
+  "schema": 1,
+  "partial": false,
+  "sourceCommit": "304774c96ebc1cc02114d73a54d54c3e841d5479",
+  "elfSha256": "de5dca268001297cd0fba8fbcaf59ab070db1f2e6dbcbdf54a4cc002a6cd0177",
+  "boardModel": "t-embed-cc1101-plus",
+  "idfVersion": "v5.5.5",
+  "phases": [
+    {
+      "phase": "baseline",
+      "protocolSamples": 10,
+      "metrics": {
+        "freeHeap": {
+          "minimum": 123836,
+          "maximum": 123836,
+          "first": 123836,
+          "last": 123836
+        },
+        "maxHeap": {
+          "minimum": 77812,
+          "maximum": 77812,
+          "first": 77812,
+          "last": 77812
+        },
+        "minHeap": {
+          "minimum": 112432,
+          "maximum": 114876,
+          "first": 114876,
+          "last": 112432
+        },
+        "totalHeap": {
+          "minimum": 274200,
+          "maximum": 274200,
+          "first": 274200,
+          "last": 274200
+        },
+        "loopRate": {
+          "minimum": 37,
+          "maximum": 38,
+          "first": 37,
+          "last": 38
+        },
+        "loopMaxUs": {
+          "minimum": 35434,
+          "maximum": 48350,
+          "first": 44041,
+          "last": 35809
+        }
+      },
+      "durationSeconds": 300.0,
+      "observedSpanSeconds": 269.99
+    },
+    {
+      "phase": "ui",
+      "protocolSamples": 0,
+      "metrics": {},
+      "durationSeconds": 60.169,
+      "workloadCounts": {
+        "backPresses": 17,
+        "encoderPresses": 27,
+        "encoderTurns": 17
+      },
+      "acceptedAckRecords": 253,
+      "protectedScreenshotChecks": 4,
+      "nonMovingRfRequestRecords": 0
+    },
+    {
+      "phase": "wifi",
+      "protocolSamples": 3,
+      "metrics": {
+        "freeHeap": {
+          "minimum": 127892,
+          "maximum": 128340,
+          "first": 128340,
+          "last": 128336
+        },
+        "maxHeap": {
+          "minimum": 81908,
+          "maximum": 81908,
+          "first": 81908,
+          "last": 81908
+        },
+        "minHeap": {
+          "minimum": 112432,
+          "maximum": 112432,
+          "first": 112432,
+          "last": 112432
+        },
+        "totalHeap": {
+          "minimum": 274200,
+          "maximum": 274200,
+          "first": 274200,
+          "last": 274200
+        },
+        "loopRate": {
+          "minimum": 38,
+          "maximum": 201,
+          "first": 38,
+          "last": 190
+        },
+        "loopMaxUs": {
+          "minimum": 39332,
+          "maximum": 127025,
+          "first": 39332,
+          "last": 126334
+        }
+      },
+      "durationSeconds": 72.019,
+      "observedSpanSeconds": 64.013,
+      "discoveryRequests": 3,
+      "discoverySuccesses": 3,
+      "workloadCounts": {
+        "wifiReconnectRequests": 3
+      },
+      "acceptedAckRecords": 46,
+      "protectedScreenshotChecks": 0,
+      "nonMovingRfRequestRecords": 0
+    },
+    {
+      "phase": "tls",
+      "protocolSamples": 0,
+      "metrics": {},
+      "durationSeconds": 94.98,
+      "workloadCounts": {
+        "encoderPresses": 1,
+        "updaterCheckRequests": 1,
+        "updaterStageRequests": 1
+      },
+      "acceptedAckRecords": 173,
+      "protectedScreenshotChecks": 0,
+      "nonMovingRfRequestRecords": 0
+    },
+    {
+      "phase": "tls-repeat",
+      "protocolSamples": 0,
+      "metrics": {},
+      "durationSeconds": 85.743,
+      "workloadCounts": {
+        "encoderPresses": 1,
+        "updaterCheckRequests": 1,
+        "updaterStageRequests": 1
+      },
+      "acceptedAckRecords": 161,
+      "protectedScreenshotChecks": 0,
+      "nonMovingRfRequestRecords": 0
+    },
+    {
+      "phase": "radio",
+      "protocolSamples": 0,
+      "metrics": {},
+      "durationSeconds": 8.779,
+      "workloadCounts": {
+        "backPresses": 2,
+        "encoderPresses": 4,
+        "encoderTurns": 5
+      },
+      "acceptedAckRecords": 44,
+      "protectedScreenshotChecks": 0,
+      "nonMovingRfRequestRecords": 1
+    },
+    {
+      "phase": "usb-flush-validation",
+      "protocolSamples": 0,
+      "metrics": {},
+      "workloadCounts": {
+        "backPresses": 10,
+        "encoderPresses": 19,
+        "encoderTurns": 19
+      },
+      "acceptedAckRecords": 179,
+      "protectedScreenshotChecks": 3,
+      "nonMovingRfRequestRecords": 0,
+      "buttonCycles": 3,
+      "buttonPresses": 29,
+      "minimumDeviceEdgeMs": 158,
+      "maximumDeviceEdgeMs": 182
+    },
+    {
+      "phase": "combined-validated",
+      "protocolSamples": 120,
+      "metrics": {
+        "freeHeap": {
+          "minimum": 103668,
+          "maximum": 125044,
+          "first": 123284,
+          "last": 125044
+        },
+        "maxHeap": {
+          "minimum": 59380,
+          "maximum": 73716,
+          "first": 73716,
+          "last": 73716
+        },
+        "minHeap": {
+          "minimum": 90944,
+          "maximum": 90944,
+          "first": 90944,
+          "last": 90944
+        },
+        "totalHeap": {
+          "minimum": 274200,
+          "maximum": 274200,
+          "first": 274200,
+          "last": 274200
+        },
+        "loopRate": {
+          "minimum": 34,
+          "maximum": 38,
+          "first": 38,
+          "last": 36
+        },
+        "loopMaxUs": {
+          "minimum": 35970,
+          "maximum": 330124,
+          "first": 35970,
+          "last": 59341
+        }
+      },
+      "durationSeconds": 609.217,
+      "observedSpanSeconds": 595.122,
+      "screenshotRequests": 120,
+      "screenshotHttpCounts": {
+        "200": 120
+      },
+      "screenshotMaximumElapsedMs": 2797.75,
+      "discoveryRequests": 12,
+      "discoverySuccesses": 12,
+      "workloadCounts": {
+        "backPresses": 1,
+        "encoderPresses": 3,
+        "encoderTurns": 299,
+        "updaterStageRequests": 1,
+        "nonMovingRfRequests": 1
+      },
+      "acceptedAckRecords": 947,
+      "protectedScreenshotChecks": 0,
+      "nonMovingRfRequestRecords": 1,
+      "loadDurationSeconds": 603.483
+    },
+    {
+      "phase": "immediate-recovery",
+      "protocolSamples": 20,
+      "metrics": {
+        "freeHeap": {
+          "minimum": 123076,
+          "maximum": 123292,
+          "first": 123288,
+          "last": 123288
+        },
+        "maxHeap": {
+          "minimum": 73716,
+          "maximum": 73716,
+          "first": 73716,
+          "last": 73716
+        },
+        "minHeap": {
+          "minimum": 90944,
+          "maximum": 90944,
+          "first": 90944,
+          "last": 90944
+        },
+        "totalHeap": {
+          "minimum": 274200,
+          "maximum": 274200,
+          "first": 274200,
+          "last": 274200
+        },
+        "loopRate": {
+          "minimum": 35,
+          "maximum": 38,
+          "first": 35,
+          "last": 38
+        },
+        "loopMaxUs": {
+          "minimum": 35623,
+          "maximum": 65521,
+          "first": 65521,
+          "last": 38294
+        }
+      },
+      "observedSpanSeconds": 285.028,
+      "completed": true,
+      "maximumSampleGapSeconds": 15.312
+    },
+    {
+      "phase": "long-recovery",
+      "protocolSamples": 240,
+      "metrics": {
+        "freeHeap": {
+          "minimum": 121216,
+          "maximum": 123292,
+          "first": 123288,
+          "last": 123292
+        },
+        "maxHeap": {
+          "minimum": 73716,
+          "maximum": 73716,
+          "first": 73716,
+          "last": 73716
+        },
+        "minHeap": {
+          "minimum": 90944,
+          "maximum": 90944,
+          "first": 90944,
+          "last": 90944
+        },
+        "totalHeap": {
+          "minimum": 274200,
+          "maximum": 274200,
+          "first": 274200,
+          "last": 274200
+        },
+        "loopRate": {
+          "minimum": 37,
+          "maximum": 38,
+          "first": 38,
+          "last": 38
+        },
+        "loopMaxUs": {
+          "minimum": 35294,
+          "maximum": 52038,
+          "first": 46345,
+          "last": 36458
+        }
+      },
+      "observedSpanSeconds": 7169.965,
+      "scheduledSourcePhase": "long-idle",
+      "manualActivity": {
+        "manualActivityReportAvailable": true,
+        "manualMenuNavigationUserReported": true,
+        "actionsSelectedUserReported": false,
+        "userReportedStoppingAtReport": true,
+        "navigationDurationEstimateSeconds": 60,
+        "strictUninterruptedIdleQualified": false,
+        "earlierQuietPeriodAssumed": false,
+        "postReportQuietObservation": {
+          "basis": "User reported stopping navigation; absence of later input was not independently monitored.",
+          "protocolSamples": 50,
+          "activityAbsenceIndependentlyVerified": false,
+          "observedSpanSeconds": 1469.195
+        }
+      },
+      "completed": true,
+      "maximumSampleGapSeconds": 33.872
+    }
+  ],
+  "failedHarnessAttempts": [
+    {
+      "phase": "combined",
+      "cause": "harness-stale-ui-observation",
+      "commandRequests": 9,
+      "acceptedAckRecords": 9,
+      "encoderPressRequests": 1,
+      "encoderReleaseRequests": 1,
+      "protectedScreenshotChecks": 0,
+      "nonMovingRfRequestRecords": 0
+    },
+    {
+      "phase": "combined-retry",
+      "cause": "usb-ack-delay-expanded-button-hold",
+      "commandRequests": 290,
+      "acceptedAckRecords": 290,
+      "encoderPressRequests": 18,
+      "encoderReleaseRequests": 18,
+      "protectedScreenshotChecks": 2,
+      "nonMovingRfRequestRecords": 1
+    },
+    {
+      "phase": "combined-final",
+      "cause": "usb-ack-delay-expanded-button-hold-before-load",
+      "commandRequests": 39,
+      "acceptedAckRecords": 39,
+      "encoderPressRequests": 2,
+      "encoderReleaseRequests": 2,
+      "protectedScreenshotChecks": 0,
+      "nonMovingRfRequestRecords": 0
+    }
+  ],
+  "accountedRfAdvances": 3,
+  "nonMovingRfRequestRecordsAllAttempts": 3,
+  "wifiRecoverySeconds": [
+    6.912,
+    8.051,
+    7.603
+  ],
+  "wifiHttpProbeRequests": 50,
+  "wifiFailedHttpProbes": 32,
+  "lcdUpdateCumulativeSampledExtremaByChannel": {
+    "passive": {
+      "sampled": true,
+      "sampledReports": 329,
+      "minInternalB": 107032,
+      "minLargestInternalB": 59380,
+      "maxPsramUsedB": 2203028,
+      "workerStackMinB": 3376,
+      "tlsRequestedB": 43557,
+      "tlsPeakRequestedB": 51545,
+      "tlsInternalPeakRequestedB": 12376,
+      "tlsFailures": 0
+    },
+    "controlled": {
+      "sampled": true,
+      "sampledReports": 9,
+      "minInternalB": 0,
+      "minLargestInternalB": 0,
+      "maxPsramUsedB": 0,
+      "workerStackMinB": 0,
+      "tlsRequestedB": 0,
+      "tlsPeakRequestedB": 248,
+      "tlsInternalPeakRequestedB": 248,
+      "tlsFailures": 0
+    },
+    "ui": {
+      "sampled": true,
+      "sampledReports": 2,
+      "minInternalB": 0,
+      "minLargestInternalB": 0,
+      "maxPsramUsedB": 0,
+      "workerStackMinB": 0,
+      "tlsRequestedB": 0,
+      "tlsPeakRequestedB": 248,
+      "tlsInternalPeakRequestedB": 248,
+      "tlsFailures": 0
+    },
+    "wifi": {
+      "sampled": true,
+      "sampledReports": 3,
+      "minInternalB": 0,
+      "minLargestInternalB": 0,
+      "maxPsramUsedB": 0,
+      "workerStackMinB": 0,
+      "tlsRequestedB": 0,
+      "tlsPeakRequestedB": 248,
+      "tlsInternalPeakRequestedB": 248,
+      "tlsFailures": 0
+    },
+    "tls": {
+      "sampled": true,
+      "sampledReports": 3,
+      "minInternalB": 108840,
+      "minLargestInternalB": 63476,
+      "maxPsramUsedB": 2199932,
+      "workerStackMinB": 3376,
+      "tlsRequestedB": 43557,
+      "tlsPeakRequestedB": 51545,
+      "tlsInternalPeakRequestedB": 12376,
+      "tlsFailures": 0
+    },
+    "tls-repeat": {
+      "sampled": true,
+      "sampledReports": 3,
+      "minInternalB": 108840,
+      "minLargestInternalB": 63476,
+      "maxPsramUsedB": 2199932,
+      "workerStackMinB": 3376,
+      "tlsRequestedB": 42770,
+      "tlsPeakRequestedB": 51545,
+      "tlsInternalPeakRequestedB": 12376,
+      "tlsFailures": 0
+    },
+    "radio": {
+      "sampled": false,
+      "sampledReports": 0,
+      "minInternalB": 0,
+      "minLargestInternalB": 0,
+      "maxPsramUsedB": 0,
+      "workerStackMinB": 0,
+      "tlsRequestedB": 0,
+      "tlsPeakRequestedB": 0,
+      "tlsInternalPeakRequestedB": 0,
+      "tlsFailures": 0
+    },
+    "combined": {
+      "sampled": false,
+      "sampledReports": 0,
+      "minInternalB": 0,
+      "minLargestInternalB": 0,
+      "maxPsramUsedB": 0,
+      "workerStackMinB": 0,
+      "tlsRequestedB": 0,
+      "tlsPeakRequestedB": 0,
+      "tlsInternalPeakRequestedB": 0,
+      "tlsFailures": 0
+    },
+    "combined-retry": {
+      "sampled": true,
+      "sampledReports": 3,
+      "minInternalB": 107032,
+      "minLargestInternalB": 59380,
+      "maxPsramUsedB": 2202492,
+      "workerStackMinB": 3376,
+      "tlsRequestedB": 43557,
+      "tlsPeakRequestedB": 51545,
+      "tlsInternalPeakRequestedB": 12376,
+      "tlsFailures": 0
+    },
+    "combined-final": {
+      "sampled": false,
+      "sampledReports": 0,
+      "minInternalB": 0,
+      "minLargestInternalB": 0,
+      "maxPsramUsedB": 0,
+      "workerStackMinB": 0,
+      "tlsRequestedB": 0,
+      "tlsPeakRequestedB": 0,
+      "tlsInternalPeakRequestedB": 0,
+      "tlsFailures": 0
+    },
+    "post-combined-abort": {
+      "sampled": false,
+      "sampledReports": 0,
+      "minInternalB": 0,
+      "minLargestInternalB": 0,
+      "maxPsramUsedB": 0,
+      "workerStackMinB": 0,
+      "tlsRequestedB": 0,
+      "tlsPeakRequestedB": 0,
+      "tlsInternalPeakRequestedB": 0,
+      "tlsFailures": 0
+    },
+    "usb-flush-validation": {
+      "sampled": true,
+      "sampledReports": 1,
+      "minInternalB": 107032,
+      "minLargestInternalB": 59380,
+      "maxPsramUsedB": 2202492,
+      "workerStackMinB": 3376,
+      "tlsRequestedB": 0,
+      "tlsPeakRequestedB": 51545,
+      "tlsInternalPeakRequestedB": 12376,
+      "tlsFailures": 0
+    },
+    "combined-validated": {
+      "sampled": true,
+      "sampledReports": 21,
+      "minInternalB": 107032,
+      "minLargestInternalB": 59380,
+      "maxPsramUsedB": 2203028,
+      "workerStackMinB": 3376,
+      "tlsRequestedB": 43557,
+      "tlsPeakRequestedB": 51545,
+      "tlsInternalPeakRequestedB": 12376,
+      "tlsFailures": 0
+    }
+  },
+  "buttonTimingCorrection": {
+    "observedLongHoldMs": 1064,
+    "longPressThresholdMs": 800
+  },
+  "stateVerificationChecks": 3,
+  "allRecordedStateChecksPassed": true,
+  "protocolUsbUptimeChecks": [
+    {
+      "phase": "wifi",
+      "consistent": true,
+      "toleranceMs": 30000,
+      "protocolSamples": 3
+    },
+    {
+      "phase": "combined-validated",
+      "consistent": true,
+      "toleranceMs": 30000,
+      "protocolSamples": 120
+    }
+  ],
+  "ackDerivedBootEpochSpreadSeconds": 4.313,
+  "limits": [
+    "Stitched exclusive USB sessions with handoff gaps; not an uninterrupted serial trace.",
+    "Each raw channel is screened for faults/identity changes and validated in capture order before merge.",
+    "High-water marks are fill-pattern observations including instrumentation, not a worst-case bound.",
+    "Deferred SDK record uptime is reporting time; exact callback time is not exported.",
+    "Scan timing excludes UART/logging time; task minima persist across workload phases.",
+    "LCD updater fields are sampled cumulative extrema, not phase-local allocation bounds. Zero minimum/peak fields mean unsampled; tlsFailures zero means no failure reported in sampled cumulative records.",
+    "Only 12 selected tasks are tracked; rolesUnobserved is relative to that allowlist, not a full firmware inventory. Wi-Fi-driver, IPC and ISR stacks were not measured.",
+    "No motion, pairing, limits or generic-board qualification is implied.",
+    "Manual menu Wi-Fi scan was not exercised in this evidence run.",
+    "The scheduled two-hour recovery includes user-reported menu navigation; strict uninterrupted idle is unqualified. Action selection and navigation duration are user reports only; unknown duration remains unknown, and no earlier quiet period is assumed."
+  ]
+}

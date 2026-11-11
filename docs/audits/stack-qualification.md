@@ -1,20 +1,35 @@
-# Remaining stack qualification
+# Stack qualification on v4.1.4
 
-[Issue #33](https://github.com/SidShaytay/ESPSomfy-RTS/issues/33) tracks this follow-up to the [completed bounded audit](firmware-stacks.md). Task stack allocations remain unchanged. The baseline does not qualify active RF, full updater TLS/download, local editing, deliberate Wi-Fi reconnects or long recovery.
+[Issue #33](https://github.com/SidShaytay/ESPSomfy-RTS/issues/33) tracks this follow-up to the [completed bounded audit](firmware-stacks.md). Task stack allocations remain unchanged. This follow-up adds active RF, updater TLS/download-only staging, local editing, deliberate Wi-Fi reconnects and longer recovery on the Plus board. The limits below remain part of the result.
 
 ## Current evidence
 
-The installed controlled image is **4.1.4 / `304774c`**, including #36. Clean ordinary/controlled builds, 1,320 native tests (one existing optional skip), 122 JavaScript tests and the integrated UI harness passed. Exact first-boot ELF/SDK confirmation and fresh configuration/model/counter equality passed after verified full recovery captures. The ten-minute combined run and five-minute recovery passed; the two-hour idle phase is running and remains unqualified until its final checks.
+The installed controlled image is **4.1.4 / `304774c`**, including #36. Clean ordinary/controlled builds, 1,320 native tests (one existing optional skip), 122 JavaScript tests and the integrated UI harness passed. Exact first-boot ELF/SDK confirmation and fresh configuration/model/counter equality passed after verified full recovery captures. The ten-minute combined run, five-minute immediate recovery and two-hour recovery passed their final checks. Sid reported approximately one minute of rotary/menu navigation without selected actions during the long recovery; this does not qualify two hours of uninterrupted idle. Fifty samples after the report span 1,469.195 seconds (about 24.5 minutes). Input absence during that period is based on Sid’s report, not independent input monitoring.
 
 Completed isolated coverage: five minutes idle with ten samples; three typed keyboard drafts discarded; one display preview cancelled with Back; a private draft expired after 32 seconds; four protected screenshot requests returned 423. Three intentional Wi-Fi reconnects recovered schema/discovery in 6.9–8.1 seconds, with observed outages and unchanged configuration/model/counters. HTTPS release/manifest checks and complete download-only verification passed twice. Updater stack minimum was 3,376 unused bytes of 12,288; sampled TLS requested peak 51,545 bytes, internal requested peak 12,376 and zero allocation failures. Idle-only radio/updater values from #35 are not reused as active coverage.
 
-Initial idle samples had 123,836 free internal bytes and a 77,812-byte largest block. After the first TLS run and matched idle observations, these were 123,296 and 73,716; the next identical TLS run varied by eight free bytes without further largest-block loss. This does not identify the first retained allocation or prove absence of leaks. The longer recovery will assess stability; lifetime minimum heap is a separate historical value and need not recover.
+Initial idle samples had 123,836 free internal bytes and a 77,812-byte largest block. After the first TLS run and matched idle observations, these were 123,296 and 73,716; the next identical TLS run varied by eight free bytes without further largest-block loss. This does not identify the first retained allocation or prove absence of leaks. The long recovery sampled 121,216–123,292 free internal bytes with a constant 73,716-byte largest block, ending at 123,292 free bytes: 544 below baseline, with the largest block 4,096 smaller. No continuing decline was observed in this bounded run; the retained offset remains unattributed. Lifetime minimum heap is a separate historical value and need not recover.
 
 Aborted combined attempts remain recorded. One first tap only woke a dimmed display. Later raw button edges stretched past the 800 ms long-press threshold while awaiting delayed USB output. These are failed harness runs, not completed combined qualification; no RF request was blindly replayed. A host-only status-helper workaround passed nine transport tests and three further board draft cycles, with measured device Down/Up spacing of 158–182 ms. The final combined workload uses a reversible display preview with encoder turns, normal TLS/download staging, read/capture load and a separately guarded semantic UP request. It preserves prior text-edit/RF overlap evidence without claiming a continuous successful run across failures.
 
+## Workloads and published data
+
+The successful combined workload recorded 120 schema/status samples, 120 HTTP 200 screenshots, twelve discovery replies, 299 USB encoder edits of a reversible display preview, verified TLS/download-only staging and one guarded semantic UP request. Screenshot latency was 421–2,798 ms; maximum reported loop-window maximum was 330,124 µs. The lifetime heap low of 90,944 bytes already existed before this successful combined run; its minimum sampled current free heap was 103,668 bytes. All three authorized UP requests across successful and aborted phases are accounted for; final settings/entities/rooms matched with only those counter advances.
+
+Recovery recorded twenty immediate samples and 240 long-recovery samples over 7,501.779 seconds total. The largest observed sampling gap was 33.872 seconds. Final settings/entities/rooms/effective counters matched. Every explicit raw channel was screened for recorded panic, allocation, watchdog, corruption and unexpected-boot markers; none was detected. Twelve exclusive USB sessions were stitched with the passive capture, so handoff gaps remain a limit. Two incomplete audit lines were rejected rather than repaired or counted.
+
+Public evidence excludes raw logs, screenshots, backups, credentials and network/entity identifiers:
+
+- [Runtime stack observations](runtime-stack-v4.1.4.json)
+- [Workload and recovery measurements](workloads-v4.1.4.json)
+- [Controlled compiler/frame report](stack-usage-v4.1.4.json)
+- [Ordinary compiler/frame report](stack-usage-v4.1.4-default.json)
+
+The optional manual LCD Wi-Fi scan has not yet been captured. Full GitHub flash installation under combined load, secured unlock/saved-setting edits, other board hardware, Wi-Fi-driver/IPC/interrupt stacks and exhaustive error paths remain unqualified.
+
 ## Observed stack margins
 
-These are cumulative minimum unused bytes from the current controlled run, including instrumentation. Recovery is still running, so the final export may lower them. Task allocations have not changed.
+These are cumulative minimum unused bytes from the current controlled run, including instrumentation. The frozen recovery export contains 3,647 stack samples across twelve selected tasks. Task allocations have not changed.
 
 | Task | Allocated bytes | Minimum unused bytes |
 | --- | ---: | ---: |
@@ -22,7 +37,7 @@ These are cumulative minimum unused bytes from the current controlled run, inclu
 | Arduino network events | 4,096 | 1,776 |
 | UDP | 4,096 | 684 |
 | Web | 16,384 | 10,948 |
-| Radio | 4,096 | 2,032 |
+| Radio | 4,096 | 2,000 |
 | Updater | 12,288 | 3,376 |
 | SDK system events | 4,608 | 2,468 |
 | TCP/IP | 4,608 | 2,516 |
