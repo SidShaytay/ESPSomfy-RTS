@@ -1,3 +1,9 @@
+# Historical issue 25 checkpoints
+
+Current execution is recorded in [issue-30-ux.md](issue-30-ux.md). The following checkpoints are retained as history; their old holds, pending decisions and next steps are superseded by the current record.
+
+## Consolidated workspace checkpoint
+
 # Consolidated issue25 workspace
 
 Sid asked to continue work in this checkout after consolidating the issue25 trees. Use this branch for the next changes; do not recreate the old implementation/review trees by default. The unchanged full-history backup is `../issue-25-engineering-v481` at23b239c. The working firmware tree is identical to it; only task handoff files differ in the second commit. Main and release history were not rewritten.
@@ -39,3 +45,21 @@ Root alone operates controller/USB/services. Ongoing phase flashes/publication a
 All three agents are finished unless assigned: phase2_status authored implementation/docs; checkpoint_review actual Runtime tests; phase2_independent_review package/raw/state/independent source reviews. No agent device authority. Preserve worktrees/tags/private data. Human GitHub exception: verify SidShaytay with `env -u GH_CONFIG_DIR /home/linuxbrew/.linuxbrew/bin/gh`; Git network uses GIT_CONFIG_COUNT=0 and SSH_AUTH_SOCK=/run/user/1000/gcr/ssh. Workflows are disabled_manually; local gates passed, do not claim CI. Follow current AGENTS.md and docs/flashing.md. Detailed history is in issue-25.log; read only when needed.
 
 Current independent offline work is finished. Candidate481 and its package are ready, and Root has conditionally reviewed the next read/reset operators. The only immediate hardware dependency is Sid's physical-check-finished reply; do not probe/reset/load the board while that check is pending. No new permission is needed beyond that missing observation.
+
+
+## Earlier main checkpoint
+
+# Issue 25 execution record
+
+Objective: complete standalone LCD control/administration and one shared CC1101/Plus firmware, tests/docs/independent review. **Incomplete.** Root alone writes this record; archive issue-25.log. Workspace /var/mnt/data/projects/personal/ESPSomfy-RTS; root issue-25-design/codex/25-lcd-design. Local main **450f580**, remote main last verified fc5a294; nothing pushed. Preserve all worktrees, especially dirty historical #12.
+
+Authority: Sid now explicitly authorizes flashing the board. Prepare intended reviewed build, identify actual hardware/running state and obtain fresh verified backup/exact recovery-write plan per docs/flashing.md before writing. NO RF/motor/GPIO commands, pairing/calibration/limits or HA changes authorized. Do not disturb occupants. No board access/flash performed yet. Human GitHub fallback SidShaytay verified; issue25 original title/body rewritten and verified open, consolidated agreed requirements and explicit pending work. No release or code push. Per-command commit.gpgsign=false only.
+
+1.[x] Complete issue/instructions, capability/security/build/#12 audits. Matrix inventories scope; does not prove parity.
+2.[x] Decisions: same web credential for local controls/admin,120s inactivity, independent local throttle. STOP grace ends at observed stop or30s after ORIGINAL expiry; unchanged original continuing target/session only, never later motion. One canonical lilygo-t-embed-cc1101 firmware. Browser owns backups/restore/manual files; no hybrid approval. LCD standalone updater trusts verified HTTPS repository releases/digests.
+3.[!] Pending: web-assets architecture. Sid requested more explanation; bundling means matching firmware/web rollback, larger app, retires separate web upload on LILYGO; separate files require coordinated recovery. Explained; NO selection yet. Also fonts/languages, ambiguous GP_Relay separate/Euro tilt mapping, web visual-only light disposition. Continue independent work; do not implement dependent installer/assets mode.
+4.[x] Main450f580: controls/auth/STOP/graphics cleanup, checked settings/model persistence,49 settings fields, bounded entity forms/backend, Health, Rooms/Devices/Groups encoder CRUD; shared GPIO safety/browser repair; sparse packed allocation fix. Latest combined947native passed+1optional skip,82JS, actual UI/runtime/backend fake-domain journeys and shared/generic firmware passed. Independent review/mutations passed. No hardware proof.
+5.[-] ROOT review/integration: issue-25-consumer-integration at1d51cfa (consumer2eebd50 onto450f580; LoopHarness real Utils guard preserved). Manual uploads/restore/queued sources/final restart owner reservation; NOT integrated. build_audit found Required unsynchronized reboot record and restore disconnect claim leak. interaction_security fixes both in issue-25-counter-consumers; reviewer continues. web_inventory NEW typed Settings restart-refusal UI from1d51cfa, isolated tree; must precede consumer integration. Root independently reviews Reorder7c0b62a+9ba8eb3 in issue-25-local-order (29focused,960native+skip/GFX actor evidence). Parent Reorder unwired; integrate component after review/build before parent feature.
+6.[ ] Remaining: Reorder parent journeys, remote/group/repeater administration, checked explicit-counter domain/current-model-file persistence and UI/wizards, scans/diagnostics/System, standalone updater install/admission/health/rollback, browser route safety, final docs/review/offline acceptance. No parity deferrals approved. Inactive metadata updater a0b9034, explicit-counter writer baf4ec5, restart coordinator911d9a1 are foundations only. Raw mounted LittleFS upload remains unsafe. Counter correction must update ALL matching RAM aliases/NVS/current model file; old higher model file otherwise undoes a lower correction after boot. No new journal/automatic TX algorithm rewrite.
+
+Tools: pio6.2 ~/.platformio/penv/bin/pio; native PATH ~/.cache/espsomfy-lilygo/native-toolbin. Host compiler rocm-7.2.3 toolbox; pinned GFX/JSON issue-25-design/.pio/libdeps. Firmware builds serial per tree; no concurrent native commands sharing build dir. Generated previews ignored. GitHub fallback: env -u GH_CONFIG_DIR /home/linuxbrew/.linuxbrew/bin/gh; Git SSH GIT_CONFIG_COUNT=0 with existing ed25519_2026_vega identity. Next ID:8.

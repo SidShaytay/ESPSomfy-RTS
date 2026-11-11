@@ -1278,7 +1278,7 @@ class Security {
 }
 var security = new Security();
 
-// let appVersion = 'v4.8.1'; // Default placeholder
+// let appVersion = 'v4.9.1'; // Default placeholder
 async function getAppVersion() {
     try {
         const response = await fetch('/appversion?v='+Date.now());
@@ -1291,7 +1291,7 @@ async function getAppVersion() {
         // Trigger any UI updates here
     } catch (error) {
         console.error("Error loading App version:", error);
-        appVersion = 'v4.8.1'; // Default placeholder
+        appVersion = 'v4.9.1'; // Default placeholder
     }
     return appVersion;
 }
@@ -1904,7 +1904,7 @@ class Wifi {
             let clkMode = this.clockModes().find(elem => obj.ethernet.CLKMode === elem.val);
             let div = document.createElement('div');
             let html = `<div id="divLanSettings" class="inst-overlay">`;
-            html += '<div style="width:100%;color:red;text-align:center;font-weight:bold;"><span style="padding:10px;display:inline-block;width:100%;border-radius:5px;border-top-right-radius:17px;border-top-left-radius:17px;background:white;">BEWARE ... WARNING ... DANGER<span></div>';
+            html += '<div style="width:100%;color:red;text-align:center;font-weight:bold;"><span style="padding:10px;display:inline-block;width:100%;border-radius:5px;border-top-right-radius:17px;border-top-left-radius:17px;background:var(--surface, white);">BEWARE ... WARNING ... DANGER<span></div>';
             html += '<p style="font-size:14px;">Incorrect Ethernet settings can damage your ESP32.  Please verify the settings below and ensure they match the manufacturer spec sheet.</p>';
             html += '<p style="font-size:14px;margin-bottom:0px;">If you are unsure do not press the Red button and press the Green button.  If any of the settings are incorrect please use the Custom Board type and set them to the correct values.';
             html += '<hr/><div>';
@@ -3517,11 +3517,11 @@ class Somfy {
         let div = document.createElement('div');
         div.setAttribute('id', 'divRollingCode');
         let html = `<div class="instructions" data-shadeid="${shadeId}">`;
-        html += '<div style="width:100%;color:red;text-align:center;font-weight:bold;"><span style="background:yellow;padding:10px;display:inline-block;border-radius:5px;background:white;">BEWARE ... WARNING ... DANGER<span></div>';
+        html += '<div style="width:100%;color:red;text-align:center;font-weight:bold;"><span style="background:yellow;padding:10px;display:inline-block;border-radius:5px;background:var(--surface, white);">BEWARE ... WARNING ... DANGER<span></div>';
         html += '<hr style="width:100%;margin:0px;"></hr>';
         html += '<p style="font-size:14px;">If this shade is already paired with a motor then changing the rolling code WILL cause it to stop working.  Rolling codes are tied to the remote address and the Somfy motor expects these to be sequential.</p>';
         html += '<p style="font-size:14px;">If you hesitated just a little bit do not press the red button.  Green represents safety so press it, wipe the sweat from your brow, and go through the normal pairing process.';
-        html += '<div class="field-group" style="border-radius:5px;background:white;width:50%;margin-left:25%;text-align:center">';
+        html += '<div class="field-group" style="border-radius:5px;background:var(--surface, white);width:50%;margin-left:25%;text-align:center">';
         html += `<input id="fldNewRollingCode" min="0" max="65535" name="newRollingCode" type="number" length="12" style="text-align:center;font-size:24px;" placeholder="New Code" value="${shade.lastRollingCode}"></input>`;
         html += '<label for="fldNewRollingCode">Rolling Code</label>';
         html += '</div>';
@@ -3796,7 +3796,7 @@ class Somfy {
     linkGroupShade(groupId) {
         let div = document.createElement('div');
         let html = `<div id="divLinkGroup" class="inst-overlay wizard" data-type="link-shade" data-groupid="${groupId}" data-stepid="1">`;
-        html += '<div style="width:100%;text-align:center;font-weight:bold;"><div style="padding:10px;display:inline-block;width:100%;color:#00bcd4;border-radius:5px;border-top-right-radius:17px;border-top-left-radius:17px;background:white;"><div>ADD SHADE TO GROUP</div><div id="divGroupName" style="font-size:14px;"></div></div></div>';
+        html += '<div style="width:100%;text-align:center;font-weight:bold;"><div style="padding:10px;display:inline-block;width:100%;color:#00bcd4;border-radius:5px;border-top-right-radius:17px;border-top-left-radius:17px;background:var(--surface, white);"><div>ADD SHADE TO GROUP</div><div id="divGroupName" style="font-size:14px;"></div></div></div>';
 
         html += '<div class="wizard-step" data-stepid="1">';
         html += '<p style="font-size:14px;">This wizard will walk you through the steps required to add shades into a group.  Follow all instructions at each step until the shade is added to the group.</p>';
@@ -3809,8 +3809,8 @@ class Somfy {
         html += '<p style="font-size:14px;">Choose a shade that you would like to include in this group.  Once you have chosen the shade to include in the link press the NEXT button.</p>';
         html += '<p style="font-size:14px;">Only shades that have not already been included in this group are available the dropdown.  Each shade can be included in multiple groups.</p>';
         html += '<hr></hr>';
-        html += `<div class="field-group" style="text-align:center;background-color:white;border-radius:5px;">`;
-        html += `<select id="selAvailShades" style="font-size:22px;min-width:277px;text-align:center;" data-bind="shadeId" data-datatype="int" onchange="document.getElementById('divWizShadeName').innerHTML = this.options[this.selectedIndex].text;"><options style="color:black;"></options></select><label for="selAvailShades">Select a Shade</label></div >`;
+        html += `<div class="field-group" style="text-align:center;background-color:var(--surface, white);border-radius:5px;">`;
+        html += `<select id="selAvailShades" style="font-size:22px;min-width:277px;text-align:center;" data-bind="shadeId" data-datatype="int" onchange="document.getElementById('divWizShadeName').innerHTML = this.options[this.selectedIndex].text;"><options style="color:var(--text, black);"></options></select><label for="selAvailShades">Select a Shade</label></div >`;
         html += '</div>';
 
         html += '<div class="wizard-step" data-stepid="3">';
@@ -3921,7 +3921,7 @@ class Somfy {
     unlinkGroupShade(groupId, shadeId) {
         let div = document.createElement('div');
         let html = `<div id="divUnlinkGroup" class="inst-overlay wizard" data-type="link-shade" data-groupid="${groupId}" data-stepid="1">`;
-        html += '<div style="width:100%;text-align:center;font-weight:bold;"><div style="padding:10px;display:inline-block;width:100%;color:#00bcd4;border-radius:5px;border-top-right-radius:17px;border-top-left-radius:17px;background:white;"><div>REMOVE SHADE FROM GROUP</div><div id="divGroupName" style="font-size:14px;"></div></div></div>';
+        html += '<div style="width:100%;text-align:center;font-weight:bold;"><div style="padding:10px;display:inline-block;width:100%;color:#00bcd4;border-radius:5px;border-top-right-radius:17px;border-top-left-radius:17px;background:var(--surface, white);"><div>REMOVE SHADE FROM GROUP</div><div id="divGroupName" style="font-size:14px;"></div></div></div>';
 
         html += '<div class="wizard-step" data-stepid="1">';
         html += '<p style="font-size:14px;">This wizard will walk you through the steps required to remove a shade from a group.  Follow all instructions at each step until the shade is removed from the group.</p>';
@@ -4338,7 +4338,7 @@ class Firmware {
 
     procFwStatus(rel) {
         let div = document.getElementById('divFirmwareUpdate');
-        div.style.color = 'black';
+        div.style.color = 'var(--text, black)';
         div.innerHTML = `Firmware ${rel.fwVersion.name} Installed`;
         div.style.display = '';
     }
@@ -4368,7 +4368,7 @@ class Firmware {
             ? '<div style="font-size:14px;margin-bottom:20px;">Select firmware.bin from the validated shared-board package, or firmware-lilygo-t-embed-cc1101.bin from its matching release. This firmware contains the web UI too. Use the shared-board package approved for this device and its current partition layout.</div>'
             : `<div style="font-size:14px;margin-bottom:20px;">Select a binary file [SomfyController.ino.esp32${chip}.bin] containing the device firmware then press the Upload File button.</div>`;
         if (this.isMobile()) {
-            html += `<div style="width:100%;color:red;text-align:center;font-weight:bold;"><span style="margin-top:7px;width:100%;background:yellow;padding:3px;display:inline-block;border-radius:5px;background:white;">WARNING<span></div>`;
+            html += `<div style="width:100%;color:red;text-align:center;font-weight:bold;"><span style="margin-top:7px;width:100%;background:yellow;padding:3px;display:inline-block;border-radius:5px;background:var(--surface, white);">WARNING<span></div>`;
             html += '<hr/><div style="font-size:14px;margin-bottom:10px;">This browser does not support automatic backups.  It is highly recommended that you back up your configuration using the backup button before proceeding.</div>';
         }
         else {
@@ -4392,7 +4392,7 @@ class Firmware {
         let chip = chipModel();
         inst.innerHTML = `<div style="font-size:14px;">Select a binary file [SomfyController.littlefs.esp32${chip}.bin] containing the littlefs data for the application then press the Upload File button.</div>`;
         if (this.isMobile()) {
-            inst.innerHTML += `<div style="width:100%;color:red;text-align:center;font-weight:bold;"><span style="margin-top:7px;width:100%;background:yellow;padding:3px;display:inline-block;border-radius:5px;background:white;">WARNING<span></div>`;
+            inst.innerHTML += `<div style="width:100%;color:red;text-align:center;font-weight:bold;"><span style="margin-top:7px;width:100%;background:yellow;padding:3px;display:inline-block;border-radius:5px;background:var(--surface, white);">WARNING<span></div>`;
             inst.innerHTML += '<hr/><div style="font-size:14px;margin-bottom:10px;">This browser does not support automatic backups.  It is highly recommended that you back up your configuration using the backup button before proceeding.</div>';
         }
         else

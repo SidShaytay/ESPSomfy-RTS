@@ -3,7 +3,7 @@
     max-width: 450px;
     padding: 20px;
     box-shadow: 0 10px 20px rgba(0,0,0,0.19), 0 6px 6px rgba(0,0,0,0.23);
-    background-color: #ffffff;
+    background-color: var(--surface, #ffffff);
     user-select: none;
     position: relative;
     border-radius: 27px;
@@ -14,8 +14,8 @@
 
 .header-message {
     text-align: center;
-    background: gainsboro;
-    color: gray;
+    background: var(--muted-surface, gainsboro);
+    color: var(--muted, gray);
     margin-bottom: 7px;
     text-transform: uppercase;
     font-weight: bold;
@@ -36,7 +36,7 @@
     align-content: flex-start;
     position: absolute;
     border-radius: 27px;
-    background: gray;
+    background: var(--overlay, gray);
     opacity: .9;
     padding: 10px;
     font-size: 20px;
@@ -302,7 +302,7 @@
     flex-flow: column;
     font-size: 30px;
     margin-top: -10px;
-    color: var(--shade-color, gray);
+    color: var(--shade-color, var(--muted, gray));
     font-weight:bold;
     text-shadow:1px 1px 1px silver;
     justify-content:center;
@@ -323,12 +323,12 @@
     position: absolute;
     min-width: 50%;
     font-size: 1.37rem;
-    border: solid 1px gray;
+    border: solid 1px var(--muted, gray);
     box-shadow: 4px 4px 4px gray;
     border-radius: 3px;
     padding-left: 1rem;
     padding-right:1rem;
-    background:white;
+    background:var(--surface, white);
     z-index:1000;
     display:none;
     cursor:pointer;
@@ -336,11 +336,11 @@
 }
     .room-selector-list .room-row {
         cursor: pointer;
-        color: gray;
+        color: var(--muted, gray);
         text-shadow:none;
     }
         .room-selector-list .room-row:hover {
-            color: var(--shade-color, gray);
+            color: var(--shade-color, var(--muted, gray));
         }
 span.tabname-virtual-remote:after {
     content: "Virtual Remote";
@@ -350,6 +350,8 @@ span.tabname-virtual-remote:after {
     body {
         margin-top: 0px;
     }
+
+    .appearance-control { margin-top: 12px; }
 
     .container {
         padding-left: 10px;
