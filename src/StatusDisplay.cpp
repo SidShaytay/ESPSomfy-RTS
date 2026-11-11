@@ -6,25 +6,28 @@ namespace StatusDisplay {
 void formatHealthLine(const Health &h,uint8_t row,char *out,size_t size) {
   switch(row) {
     case 0:
-      if(!h.sampled) snprintf(out,size,"Internal: unavailable");
-      else snprintf(out,size,"Internal: %lu KiB (low %lu)",static_cast<unsigned long>(h.internalFreeBytes/1024),static_cast<unsigned long>(h.internalMinimumBytes/1024));
+      if(!h.sampled) snprintf(out,size,"RAM (free): unavailable");
+      else snprintf(out,size,"RAM (free): %lu / %lu KiB",static_cast<unsigned long>(h.internalFreeBytes/1024),static_cast<unsigned long>(h.internalTotalBytes/1024));
       break;
     case 1:
-      if(!h.sampled) snprintf(out,size,"Largest block: unavailable");
-      else snprintf(out,size,"Largest block: %lu KiB",static_cast<unsigned long>(h.internalLargestBytes/1024));
+      if(!h.sampled) snprintf(out,size,"RAM (lowest free): unavailable");
+      else snprintf(out,size,"RAM (lowest free): %lu KiB",static_cast<unsigned long>(h.internalMinimumBytes/1024));
       break;
     case 2:
-      if(!h.sampled) snprintf(out,size,"PSRAM: unavailable");
-      else if(!h.psramPresent) snprintf(out,size,"PSRAM: not present");
-      else snprintf(out,size,"PSRAM free: %lu KiB",static_cast<unsigned long>(h.psramFreeBytes/1024));
+      if(!h.sampled) snprintf(out,size,"Largest free block: unavailable");
+      else snprintf(out,size,"Largest free block: %lu KiB",static_cast<unsigned long>(h.internalLargestBytes/1024));
       break;
     case 3:
-      if(!h.loopSampled) snprintf(out,size,"Loop: awaiting sample");
+      if(!h.sampled) snprintf(out,size,"Ext RAM (free): unavailable");
+      else if(!h.psramPresent) snprintf(out,size,"Ext RAM (free): not present");
+      else snprintf(out,size,"Ext RAM (free): %lu / %lu KiB",static_cast<unsigned long>(h.psramFreeBytes/1024),static_cast<unsigned long>(h.psramTotalBytes/1024));
+      break;
+    case 4:
+      if(!h.loopSampled) snprintf(out,size,"FW loop: awaiting sample");
       else {
-        const bool kiloRate=h.loopRate>=10000,seconds=h.loopMaxUs>=1000000;
-        const uint32_t scale=seconds?1000000:1000;
-        snprintf(out,size,"Loop: %lu%s/s max %lu.%03lu %s",static_cast<unsigned long>(h.loopRate/(kiloRate?1000:1)),kiloRate?"k":"",
-          static_cast<unsigned long>(h.loopMaxUs/scale),static_cast<unsigned long>((h.loopMaxUs%scale)/(seconds?1000:1)),seconds?"s":"ms");
+        const bool kiloRate=h.loopRate>=10000;
+        snprintf(out,size,"FW loop: %lu %sHz, max %lu.%02lu ms",static_cast<unsigned long>(h.loopRate/(kiloRate?1000:1)),kiloRate?"k":"",
+          static_cast<unsigned long>(h.loopMaxUs/1000),static_cast<unsigned long>((h.loopMaxUs%1000)/10));
       }
       break;
     default: if(size) out[0]=0;break;
