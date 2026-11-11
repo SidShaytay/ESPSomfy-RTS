@@ -1,3 +1,4 @@
+#include "StackAudit.h"
 #include <functional>
 #include <AsyncUDP.h>
 #include "esp_log.h"
@@ -665,6 +666,9 @@ void SSDPClass::_printPacket(ssdp_packet_t *pkt) {
     pkt->st, pkt->man, pkt->agent, pkt->host, pkt->mx, pkt->type, pkt->valid);
 }
 void SSDPClass::_processRequest(AsyncUDPPacket &p) {
+#ifdef ESPSOMFY_STACK_AUDIT
+  StackAudit::Scope stackAudit;
+#endif
   // This pending BS should probably be for unicast request only but we will play along for now.
   if(!this->_server.connected()) return;
   if(p.length() == 0) {

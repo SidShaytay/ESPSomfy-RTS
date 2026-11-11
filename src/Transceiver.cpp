@@ -1,3 +1,4 @@
+#include "StackAudit.h"
 #include <Preferences.h>
 #include <ELECHOUSE_CC1101_SRC_DRV.h>
 #include <SPI.h>
@@ -1068,6 +1069,9 @@ void Transceiver::txTask(void *arg) {
       TxQueueLock lock;
       haveJob = trans->sched.next(millis(), job, waitMs);
     }
+#ifdef ESPSOMFY_STACK_AUDIT
+    StackAudit::observeCurrent();
+#endif
     if(haveJob) trans->runJob(job);
     // submitTx() and suspendTx() wake us for a new job or a flush.
     else ulTaskNotifyTake(pdTRUE, waitMs == RADIO_WAIT_FOREVER ? portMAX_DELAY : pdMS_TO_TICKS(waitMs) + 1);

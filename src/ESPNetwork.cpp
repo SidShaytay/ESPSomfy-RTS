@@ -1,3 +1,4 @@
+#include "StackAudit.h"
 #include "PinOwnership.h"
 #include <WiFi.h>
 #include <esp_wifi.h>
@@ -609,6 +610,9 @@ bool ESPNetwork::connecting() {
 }
 void ESPNetwork::clearConnecting() { this->_connecting = false; }
 void ESPNetwork::networkEvent(WiFiEvent_t event) {
+#ifdef ESPSOMFY_STACK_AUDIT
+  StackAudit::Scope stackAudit;
+#endif
   switch(event) {
     case ARDUINO_EVENT_WIFI_READY:               ESP_LOGI(TAG, "(evt) WiFi interface ready"); break;
     case ARDUINO_EVENT_WIFI_SCAN_DONE:           

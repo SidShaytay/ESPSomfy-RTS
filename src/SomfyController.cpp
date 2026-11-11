@@ -1,3 +1,4 @@
+#include "StackAudit.h"
 #include "FrequencyScanService.h"
 #include "RestoreExecution.h"
 #include "ModelLoadSnapshot.h"
@@ -208,6 +209,9 @@ void performLegacyShutdown() {
 }
 
 void loop() {
+#ifdef ESPSOMFY_STACK_AUDIT
+  StackAudit::Scope stackAudit;
+#endif
   // put your main code here, to run repeatedly:
   //uint32_t heap = ESP.getFreeHeap();
   // Times the whole pass for the memory event, including any time the loop task was

@@ -1,3 +1,4 @@
+#include "StackAudit.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <algorithm>
@@ -434,6 +435,9 @@ static void onFrame(AsyncWebSocketClient *client, AwsFrameInfo *info, uint8_t *d
   }
 }
 void ProtoSocket::wsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+#ifdef ESPSOMFY_STACK_AUDIT
+  StackAudit::Scope stackAudit;
+#endif
   (void)server;
   switch(type) {
     case WS_EVT_CONNECT: onConnect(client, static_cast<AsyncWebServerRequest *>(arg)); break;

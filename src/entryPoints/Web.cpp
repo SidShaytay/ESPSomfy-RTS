@@ -1,3 +1,4 @@
+#include "StackAudit.h"
 #include <WiFi.h>
 #include <esp_timer.h>
 #include "esp_log.h"
@@ -391,6 +392,9 @@ static void logRequestTime(AsyncWebServerRequest *request, const IPAddress &ip, 
 // long the whole exchange took.  The total includes bodies sent after the
 // handler returns, such as a web UI file.
 static void timeRequest(AsyncWebServerRequest *request, ArMiddlewareNext next) {
+#ifdef ESPSOMFY_STACK_AUDIT
+  StackAudit::Scope stackAudit;
+#endif
   ElapsedTimer timer;
   // Taken now as the client may already be gone when the disconnect runs.
   IPAddress ip = request->client() ? request->client()->remoteIP() : IPAddress();

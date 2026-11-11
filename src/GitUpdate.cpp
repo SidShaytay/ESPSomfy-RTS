@@ -1,3 +1,4 @@
+#include "StackAudit.h"
 #if defined(ARDUINO) && (defined(GIT_UPDATE_HOST_TEST) || defined(GIT_UPDATE_TRANSFER_CLOCK_TEST))
 #error "Updater host test hooks are forbidden in firmware"
 #endif
@@ -665,6 +666,9 @@ void writeInstallation() {
 }
 void worker(void *) {
   for(;;) {
+#ifdef ESPSOMFY_STACK_AUDIT
+    StackAudit::observeCurrent();
+#endif
     uint32_t command=0;xTaskNotifyWait(0,UINT32_MAX,&command,portMAX_DELAY);
     uint64_t lease;GitUpdateCandidate expected;
     {
