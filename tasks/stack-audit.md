@@ -1,4 +1,4 @@
-# Issue 35 — final closeout
+# Issue 35 — complete
 
 Objective: complete the firmware stack audit and publish sanitized, reproducible measurements. GitHub #35 is authoritative. Broader physical/full-load acceptance remains #33.
 
@@ -10,7 +10,7 @@ Workspace: stack-audit / codex/stack-audit. Code fixes are integrated/pushed to 
 - [x] S2 Opt-in self-sampling for6 roles and sanitized exporter. Release-level output failure reproduced/fixed; emitted-binary gate prevents silent probes. Actual probe frame48B; logging latency unmeasured.
 - [x] S3 Reviewed SSDP handoff/deadline/lifecycle fixes, versioned source checkpoints, clean normal/instrumented/shared+generic builds. Native1318passed/1existing optional skip; focused production-method/concurrency, collector/privacy/provenance, release-level/default-disabled, fresh-build and version tests passed. Reviews approved.
 - [x] S4 Two fresh full16MiB backups at4M verified layout, both app checksums/SHA, OTA state, NVS CRCs, LittleFS configuration and effective counters. Guarded bootbacks/state comparisons passed. Exact4.1.2 app1 boot/SDKconfirmation and final settings/entities/rooms/counters unchanged; previous app0 retained. First4.1.1 image was healthy but logging-silent, so contributes no runtime measurements.
-- [-] S5 Final public report/data review approved; finish publication and issue closeout. Runtime98records/all6roles;5minidle,5minload,1minrecovery;74syncs,60HTTP200screenshots,6discovery replies. Host top-downBMP assertion corrected after preserving idle/failure evidence; pause disclosed. No unexpected reset/allocation/health markers. Minimum unused bytes:loop2932,network1960,UDP728,web12652,radio3412,updater10856. UDP is narrowest; no stack downsizing. Radio/updater idle only; activeRF/TLS, physical edits, deliberateWiFi reconnect, other boards and long idle remain unqualified.
-  Next: commit/push reviewed report and datasets; mark #35 acceptance with evidence and close; verify final device identity/status without changing it.
+- [x] S5 Reviewed public report/data are committed and pushed in c306189. GitHub #35 is closed with every acceptance item checked. Remote public dataset blob matches the reviewed local file; final live version4.1.2/same-boot/failure checks and active diagnostics service passed. Runtime98records/all6roles;5minidle,5minload,1minrecovery;74syncs,60HTTP200screenshots,6discovery replies. Host top-downBMP assertion corrected after preserving idle/failure evidence; pause disclosed. No unexpected reset/allocation/health markers. Minimum unused bytes:loop2932,network1960,UDP728,web12652,radio3412,updater10856. UDP is narrowest; no stack downsizing. Radio/updater idle only; activeRF/TLS, physical edits, deliberateWiFi reconnect, other boards and long idle remain unqualified.
+  No required work remains in #35. Keep #33 separate for unexercised physical/full-load acceptance. Future writes require fresh identity/state/recovery checks; never restore dated counters.
 
 Next ID: S6.
