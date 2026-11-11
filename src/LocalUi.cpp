@@ -2,14 +2,13 @@
 #include <stdlib.h>
 namespace LocalUi {
 namespace {
-constexpr uint8_t levels[] = {2, 4, 8, 16, 32, 64, 128, 255};
+constexpr uint8_t levels[] = {2, 4, 8, 13, 20, 26, 38, 51, 64, 77, 89, 102, 115, 128, 140, 153, 166, 179, 191, 204, 217, 230, 242, 255};
+constexpr int levelCount=sizeof(levels)/sizeof(*levels);
 constexpr uint16_t delays[] = {0, 5, 10, 15, 20, 30, 60, 120, 300};
 } // namespace
 void Controller::setBrightness(uint8_t value) {
-  state.level = 32;
-  for(auto level : levels)
-    if(level == value)
-      state.level = value;
+  // Keep previously saved levels exact; only wheel adjustment uses the new steps.
+  state.level = value ? value : 32;
 }
 void Controller::setPreferences(const DisplayPreferences &p) {
   setBrightness(p.brightness);
@@ -589,11 +588,11 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
     } else if(state.screen==Screen::settings || state.screen==Screen::administration || state.screen==Screen::system) formInput.turn=turn>0?1:-1;
     else if(state.screen == Screen::brightness) {
       if(state.setting == 0) {
-        int index = 0;
-        while(index < 7 && levels[index] != state.level)
-          ++index;
-        index += turn > 0 ? 1 : -1;
-        state.level = levels[index < 0 ? 0 : index > 7 ? 7 : index];
+        if(turn>0) {
+          for(auto level:levels) if(level>state.level) {state.level=level;break;}
+        } else {
+          for(int i=levelCount-1;i>=0;--i) if(levels[i]<state.level) {state.level=levels[i];break;}
+        }
       } else {
         uint16_t &value = state.setting == 1 ? state.dimSeconds : state.offSeconds;
         int index = 0;
