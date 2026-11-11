@@ -17,10 +17,11 @@ int main(int argc,char **argv) {
   assert(argc==2);std::vector<uint16_t> buffer(screenWidth*screenHeight+2,0xdead);
   Canvas canvas;canvas.attach(buffer.data()+1);
   Model m;m.ready=m.controlsEnabled=m.authorized=m.pageValid=true;m.authMode=AuthMode::none;
-  m.page.total=32;m.page.count=3;
+  m.page.total=32;m.page.count=4;
   m.page.rows[0]={7,0,0,"Bedroom curtain",700,1,35,true,true};
   m.page.rows[1]={22,0,1,"Duplicate long name",2200,1,90,false,true};
   m.page.rows[2]={31,0,2,"Duplicate long name",3100,1,-1,false,false};
+  m.page.rows[3]={4,0,3,"Guest room",400,1,100,false,true};
   auto &target=m.target;target.ref={EntityKind::device,7};target.exists=target.valid=target.moving=true;
   target.token=99;target.identity=700;target.revision=1;target.capabilities=7;target.position=35;
   strcpy(target.name,"Bedroom curtain");target.descriptor.shadeType=shade_types::cdrapery;target.descriptor.bitLength=56;
@@ -40,9 +41,10 @@ int main(int argc,char **argv) {
   strcpy(m.page.rows[0].name,"\xc3\xa9\n");canvas.paint(m,v,s);const auto fallback=buffer;
   strcpy(m.page.rows[0].name,"??");canvas.paint(m,v,s);assert(buffer==fallback); // one glyph per codepoint; no newline layout effect
   strcpy(m.page.rows[0].name,"\xe5\xb8\x98\xc3\xa9 longue porte");canvas.paint(m,v,s);save(argv[1],"catalogue-fallback",buffer);
-  // Existing Status hold -> Details scroll reaches all four Health rows.
+  // Existing Status hold -> Details scroll reaches all five Health rows.
   v.screen=Screen::details;v.detailsOffset=detailsRowCount-detailsVisibleRows;
   s.health={true,true,true,65536,32768,16384,6u*1024*1024,400,12345};
+  s.health.internalTotalBytes=256*1024;s.health.psramTotalBytes=8*1024*1024;
   canvas.paint(m,v,s);save(argv[1],"details-health",buffer);
   const auto populatedHealth=buffer;
   s.health={};canvas.paint(m,v,s);assert(buffer!=populatedHealth);save(argv[1],"details-health-unavailable",buffer);
@@ -50,11 +52,11 @@ int main(int argc,char **argv) {
   canvas.paint(m,v,s);save(argv[1],"details-health-zero",buffer);
   s.health.internalFreeBytes=s.health.internalMinimumBytes=s.health.internalLargestBytes=s.health.psramFreeBytes=s.health.loopRate=s.health.loopMaxUs=UINT32_MAX;
   canvas.paint(m,v,s);save(argv[1],"details-health-max",buffer);
-  for(uint8_t row=0;row<4;row++) {
+  for(uint8_t row=0;row<5;row++) {
     char text[96];StatusDisplay::formatHealthLine(s.health,row,text,sizeof(text));
     int16_t x,y;uint16_t width,height;canvas.getTextBounds(text,0,0,&x,&y,&width,&height);
-    if(strlen(text)>=48 || width>296) fprintf(stderr,"Health row %u exceeds bounds (%u px): %s\n",unsigned(row),unsigned(width),text);
-    assert(strlen(text)<48 && width<=296);
+    if(width>296){canvas.setFont(nullptr);canvas.getTextBounds(text,0,0,&x,&y,&width,&height);}
+    assert(strlen(text)<48 && width<=296); // Same small-font fallback as production.
   }
   m.page.count=m.page.total=0;canvas.paint(m,v,s);save(argv[1],"devices-empty",buffer);
   v.catalogue=CatalogueKind::rooms;m.page.total=18;m.page.count=3;m.page.offset=15;m.page.cursor=17;
@@ -91,6 +93,11 @@ int main(int argc,char **argv) {
   v.retryAfterMs=30000;v.notice=Notice::unlockWait;canvas.paint(m,v,s);save(argv[1],"unlock-throttled",buffer);
   v.retryAfterMs=UINT32_MAX-998;canvas.paint(m,v,s);original=buffer;
   v.retryAfterMs=UINT32_MAX;canvas.paint(m,v,s);assert(buffer!=original);save(argv[1],"unlock-long-clock-wait",buffer);
+  m.quickReady=true;m.quickAccess.assign(0,{EntityKind::group,1},700);m.quickAccess.assign(1,{EntityKind::device,2},2200);m.quickAccess.assign(2,{EntityKind::device,3},3100);
+  strcpy(m.page.rows[0].name,"Both rooms");strcpy(m.page.rows[1].name,"Master Bedroom");strcpy(m.page.rows[2].name,"Master Bathroom");
+  v.screen=Screen::quickHome;v.notice=Notice::none;v.selected=0;canvas.paint(m,v,s);save(argv[1],"quick-home",buffer);
+  v.selected=4;canvas.paint(m,v,s);save(argv[1],"home-destinations",buffer);
+  v.selected=8;canvas.paint(m,v,s);save(argv[1],"home-tools",buffer);
   assert(buffer.front()==0xdead && buffer.back()==0xdead);
   puts("Production renderer: dynamic pages, rooms, duplicate/UTF-8 labels, controls and protected entry bounds passed.");
 }

@@ -180,6 +180,7 @@ static void risky_save_defaults_to_cancel_and_partial_retains_explicit_retry() {
   TEST_ASSERT_EQUAL(Notice::partial, form.view().notice);
   TEST_ASSERT_TRUE(form.view().dirty);
   form.back(1);
+  TEST_ASSERT_EQUAL(Mode::discard,form.view().mode);form.turn(1,1);form.activate(1);
   TEST_ASSERT_TRUE(form.closed());
   TEST_ASSERT_EQUAL(0, mem.active);
 }
@@ -234,14 +235,23 @@ static void allocation_failure_closes_and_never_applies() {
   TEST_ASSERT_EQUAL(0, backend.saves);
   TEST_ASSERT_EQUAL(0, mem.active);
 }
-static void pickerSelect(Form &f, unsigned &selected, unsigned next) {
-  while (selected < next) {
-    f.turn(1, 1);
-    ++selected;
-  }
-  while (selected > next) {
-    f.turn(-1, 1);
-    --selected;
+static void keyboardSelect(Form &f,unsigned next) {
+  while(f.view().keyboard.selected!=next) f.turn(1,1);
+}
+static void pickerSelect(Form &f,unsigned &selected,unsigned next) {
+  using namespace LocalUi;
+  if(next>=95) {keyboardSelect(f,RotaryKeyboard::actionOffset(f.view().keyboard)+(next==95?4:5));return;}
+  const char wanted=char(next+32);
+  if(wanted==' ') {keyboardSelect(f,RotaryKeyboard::actionOffset(f.view().keyboard)+3);return;}
+  for(unsigned bank=0;bank<3;bank++) {
+    KeyboardView probe;probe.bank=bank;probe.shift=wanted>='A'&&wanted<='Z';
+    const char *found=strchr(RotaryKeyboard::characters(probe),wanted);if(!found)continue;
+    if(f.view().keyboard.bank!=bank) {
+      if(bank==0) {keyboardSelect(f,RotaryKeyboard::actionOffset(f.view().keyboard)+(f.view().keyboard.bank==1?1:2));f.activate(1);}
+      else {keyboardSelect(f,RotaryKeyboard::actionOffset(f.view().keyboard)+(bank==1?1:2));f.activate(1);}
+    }
+    if(bank==0 && f.view().keyboard.shift!=probe.shift) {keyboardSelect(f,26);f.activate(1);}
+    keyboardSelect(f,unsigned(found-RotaryKeyboard::characters(probe)));return;
   }
 }
 static void textApply(Form &f, const char *text) {
@@ -297,6 +307,7 @@ invalid_ip_is_refused_by_shared_validator_without_polluting_draft() {
   textApply(form, "192.168.1.2");
   TEST_ASSERT_TRUE(form.view().dirty);
   form.back(1);
+  TEST_ASSERT_EQUAL(Mode::discard,form.view().mode);form.turn(1,1);form.activate(1);
   TEST_ASSERT_TRUE(form.closed());
   TEST_ASSERT_EQUAL(0, mem.active);
 }
@@ -565,6 +576,7 @@ invalid_original_replacement_keeps_other_drafts_and_valid_boundaries() {
   TEST_ASSERT_EQUAL(Mode::fields, form.view().mode);
   TEST_ASSERT_TRUE(form.view().dirty);
   form.back(1);
+  TEST_ASSERT_EQUAL(Mode::discard,form.view().mode);form.turn(1,1);form.activate(1);
   TEST_ASSERT_EQUAL(0, mem.active);
   backend.overrideField = proto_field_t::rxBandwidth;
   backend.overrideNumber = 58.03f;
@@ -923,8 +935,22 @@ static void applied_radio_failure_closes_and_wipes_without_replaying_save() {
  TEST_ASSERT_EQUAL(0,mem.active);TEST_ASSERT_EQUAL(1,backend.saves);form.activate(2);TEST_ASSERT_EQUAL(1,backend.saves);
  }
 }
+static void keyboard_back_keeps_working_value_and_form_exit_confirms_discard() {
+  Memory mem;Fake backend;Form form(backend,mem);
+  form.openSection(settings_section_t::general,0);form.activate(1);
+  form.activate(1); // Append a to hostname
+  form.back(1);TEST_ASSERT_EQUAL(Mode::fields,form.view().mode);
+  TEST_ASSERT_EQUAL_STRING("old-hosta",form.view().rows[0].value);
+  TEST_ASSERT_TRUE(form.view().dirty);TEST_ASSERT_EQUAL(0,backend.saves);
+  form.back(1);TEST_ASSERT_EQUAL(Mode::discard,form.view().mode);
+  form.activate(1);TEST_ASSERT_EQUAL(Mode::fields,form.view().mode);
+  TEST_ASSERT_TRUE(form.view().dirty);
+  form.back(1);form.turn(1,1);form.activate(1);
+  TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(0,mem.active);
+}
 int main() {
-  UNITY_BEGIN();RUN_TEST(applied_radio_failure_closes_and_wipes_without_replaying_save);RUN_TEST(unsupported_frequency_requires_explicit_valid_replacement_without_losing_other_drafts);RUN_TEST(unavailable_snapshot_closes_without_default_replace_or_save);
+  UNITY_BEGIN();
+  RUN_TEST(keyboard_back_keeps_working_value_and_form_exit_confirms_discard);RUN_TEST(applied_radio_failure_closes_and_wipes_without_replaying_save);RUN_TEST(unsupported_frequency_requires_explicit_valid_replacement_without_losing_other_drafts);RUN_TEST(unavailable_snapshot_closes_without_default_replace_or_save);
   RUN_TEST(scanned_frequency_stages_only_with_exact_authority_and_radio_history);
   RUN_TEST(current_scanned_ssid_is_clean_and_save_is_unchanged);
   RUN_TEST(scanned_ssid_stages_only_after_exact_authority_and_network_revision);

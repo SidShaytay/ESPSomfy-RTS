@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include "LocalKeyboard.h"
 namespace LocalUi {
 namespace EntityAdmin {
 enum class Kind : uint8_t { room, shade, group };
@@ -10,6 +11,7 @@ enum class Mode : uint8_t {
   text,
   actions,
   confirm,
+  discard,
   result,
   replace,
   draft,
@@ -23,7 +25,8 @@ enum class Mode : uint8_t {
   groupProgrammingReview,
   sensorReview,
   updateReview,
-  updateStatus
+  updateStatus,
+  wifiList
 };
 enum class Notice : uint8_t {
   none,
@@ -46,12 +49,14 @@ struct FormRow {
 };
 struct FormView {
   char title[32] = {}, hint[64] = {};
-  FormRow rows[3];
+  FormRow rows[4];
   uint8_t rowCount = 0, selected = 0, total = 0, offset = 0, id = 0;
   Kind kind = Kind::room;
   Mode mode = Mode::closed;
   Notice notice = Notice::none;
   bool protectedFrame = true, dirty = false;
+  KeyboardView keyboard;
+  uint8_t textLength=0, textLimit=0;
 };
 } // namespace EntityAdmin
 } // namespace LocalUi

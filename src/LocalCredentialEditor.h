@@ -1,11 +1,13 @@
 #pragma once
 #include "LocalAuthorization.h"
+#include "LocalKeyboard.h"
 namespace LocalUi {
 enum class EditorResult : uint8_t { editing, submitted, cancelled };
 // Only the masked length, input choice and field kind may reach the renderer.
 // ASCII is convenient; Byte 01..FF can enter exact existing UTF-8 credentials.
 class CredentialEditor {
   Credentials draft;
+  RotaryKeyboard keyboard;
   uint16_t choice = 0;
   uint8_t limit = 0;
   bool user = false, bytes = false, pending = false;
@@ -16,6 +18,7 @@ public:
   ~CredentialEditor() { cancel(); }
   void begin(AuthMode mode) {
     cancel();
+    keyboard.reset(mode==AuthMode::pin?1:0);
     user = mode == AuthMode::password;
     limit = mode == AuthMode::pin ? 4 : mode == AuthMode::password ? 32 : 0;
   }
@@ -52,6 +55,21 @@ public:
     }
     return EditorResult::editing;
   }
+  const KeyboardView &keyboardView() const {return keyboard.view();}
+  void keyboardTurn(int direction) {keyboard.turn(direction);}
+  bool keyboardBack() {return keyboard.back();}
+  EditorResult keyboardPress() {
+    const auto input=keyboard.press();
+    const auto n=length();
+    if(input.action==KeyboardAction::done) {
+      if(user){user=false;keyboard.reset();}
+      else pending=true;
+      return pending?EditorResult::submitted:EditorResult::editing;
+    }
+    if(input.action==KeyboardAction::erase && n)field()[n-1]=0;
+    else if(input.action==KeyboardAction::append && n<limit)field()[n]=char(input.byte);
+    return EditorResult::editing;
+  }
   bool take(Credentials &out) {
     if(!pending) return false;
     out = draft;
@@ -59,7 +77,7 @@ public:
     return true;
   }
   void cancel() {
-    draft.clear();
+    draft.clear();keyboard.reset();
     choice = 0;
     limit = 0;
     user = bytes = pending = false;

@@ -478,15 +478,6 @@ int main(int argc,char **argv){
   auto back=[&]{testPins[6]=0;tick();tick();testPins[6]=1;tick();tick();};
   auto releaseHold=[&]{holdEncoder=false;tick(false);tick(false);tick(false,2);};
   auto beginHold=[&]{const auto before=submitted.size();holdEncoder=true;tick(true);tick(true);tick(true,749);assert(submitted.size()==before);tick(true,51);tick(true,2);};
-  auto openBrowseHome=[&]{
-    if(RuntimeTestAccess::view(*active).screen==Screen::status){rotate(1);idle();}
-    if(RuntimeTestAccess::view(*active).screen==Screen::quickHome){
-      for(unsigned i=0;i<5&&RuntimeTestAccess::view(*active).selected!=3;++i){rotate(RuntimeTestAccess::view(*active).selected<3?1:-1);idle();}
-      click();idle();
-    }
-    assert(RuntimeTestAccess::view(*active).screen==Screen::home);
-    for(unsigned i=0;i<homeRows&&RuntimeTestAccess::view(*active).selected;++i){rotate(-1);idle();}
-  };
   auto homeQuick=[&]{
     for(unsigned i=0;i<16 && RuntimeTestAccess::view(*active).screen!=Screen::quickHome;++i){
       if(RuntimeTestAccess::view(*active).screen==Screen::status){click();idle();}else{back();idle();}
@@ -494,10 +485,11 @@ int main(int argc,char **argv){
     assert(RuntimeTestAccess::view(*active).screen==Screen::quickHome);
   };
   auto selectMenu=[&](unsigned row){
-    for(unsigned i=0;i<10 && RuntimeTestAccess::view(*active).selected!=row;++i){rotate(RuntimeTestAccess::view(*active).selected<row?1:-1);idle();}
+    for(unsigned i=0;i<16 && RuntimeTestAccess::view(*active).selected!=row;++i){rotate(RuntimeTestAccess::view(*active).selected<row?1:-1);idle();}
     assert(RuntimeTestAccess::view(*active).selected==row);
   };
-  auto openController=[&]{homeQuick();selectMenu(4);click();idle();assert(RuntimeTestAccess::view(*active).screen==Screen::controllerMenu);};
+  auto openDevices=[&]{homeQuick();selectMenu(4);click();idle();assert(RuntimeTestAccess::view(*active).screen==Screen::catalogue);};
+  auto openController=[&]{homeQuick();selectMenu(7);click();idle();assert(RuntimeTestAccess::view(*active).screen==Screen::controllerMenu);};
   auto openConfigure=[&](unsigned row){openController();selectMenu(0);click();idle();assert(RuntimeTestAccess::view(*active).screen==Screen::configureMenu);selectMenu(row);};
   auto openNetworkMenu=[&]{openConfigure(2);click();idle();assert(RuntimeTestAccess::view(*active).screen==Screen::networkMenu);};
   auto selectSystem=[&](unsigned row){for(unsigned i=0;i<8 && RuntimeTestAccess::system(*active).selected!=row;++i){rotate(RuntimeTestAccess::system(*active).selected<row?1:-1);idle();}assert(RuntimeTestAccess::system(*active).selected==row);};
@@ -570,7 +562,7 @@ int main(int argc,char **argv){
   status.health.internalFreeBytes+=1024;++status.uptimeSeconds;idle();
   assert(bands>healthBands && submitted.empty());
   saveFrame(preview,"runtime-health-updated");back();idle();assert(lastQuery.screen==Screen::status);
-  openBrowseHome();rotate(1);idle();click();idle(); // Quick -> Browse -> Devices
+  openDevices(); // Quick -> Browse -> Devices
   assert(lastQuery.screen==Screen::catalogue);
   busBusy=true;click();idle(10);assert(lastQuery.screen==Screen::control);
   assert(presentations==0);click();assert(submitted.empty()); // never-presented STOP is blocked
@@ -591,13 +583,18 @@ int main(int argc,char **argv){
   ++two.address;++two.configurationRevision;++somfy.configurationRevision;idle(10);click();assert(submitted.size()==2);
   busBusy=false;back();idle();rotate(-1);idle();click();idle();
   assert(lastQuery.screen==Screen::control && lastQuery.entity.id==7);
-  authorization.configure(AuthMode::pin,"","!!!!");click();idle();
+  authorization.configure(AuthMode::pin,"","1111");click();idle();
   assert(lastQuery.screen==Screen::unlock && captureProtected && submitted.size()==2);
   busBusy=true;back();assert(captureProtected);busBusy=false;idle();assert(!captureProtected);
   click();idle();assert(lastQuery.screen==Screen::unlock && captureProtected);
-  rotate(1);for(unsigned i=0;i<4;i++)click();
-  for(unsigned i=0;i<96;i++)rotate(1);
-  click();idle();assert(lastQuery.screen==Screen::control && !captureProtected);
+  busBusy=true;rotate(1);click();
+  assert(lastQuery.screen==Screen::unlock && RuntimeTestAccess::view(ui).credentialLength==0 && !authorization.allowed(testNow));
+  busBusy=false;idle();for(unsigned i=0;i<4;i++)click();
+  assert(RuntimeTestAccess::view(ui).credentialLength==4 && !authorization.allowed(testNow));
+  busBusy=true;
+  while(RuntimeTestAccess::view(*active).credentialKeyboard.selected!=RotaryKeyboard::actionOffset(RuntimeTestAccess::view(*active).credentialKeyboard)+5){rotate(1);idle();}
+  click();assert(lastQuery.screen==Screen::unlock && RuntimeTestAccess::view(ui).credentialLength==4 && !authorization.allowed(testNow) && submitted.size()==2);
+  busBusy=false;idle();click();idle();assert(lastQuery.screen==Screen::control && !captureProtected);
   assert(submitted.size()==2); // unlock does not replay the initial command
   // Existing authorized motion retains only the bounded 30 s expiry lease.
   testNow+=120000;ui.tick(testNow,status,false,send,light);assert(submitted.size()==2);
@@ -609,7 +606,7 @@ int main(int argc,char **argv){
   testNow+=100;ui.tick(testNow,status,false,send,light);assert(locks==beforeSleep+1);
   // Numeric movement requires the exact Apply choice to finish reaching LCD.
   authorization.configure(AuthMode::none,"","");one.idle=false;idle();
-  openBrowseHome();rotate(1);idle();click();idle();click();idle();
+  openDevices();click();idle();
   assert(lastQuery.screen==Screen::control && lastQuery.entity.id==7);
   rotate(1);idle();rotate(1);idle();click();idle();
   assert(lastQuery.screen==Screen::actions);click();idle();
@@ -651,7 +648,7 @@ int main(int argc,char **argv){
   auto controlFromStatus=[&]{
     for(unsigned i=0;i<10&&RuntimeTestAccess::view(ui).screen!=Screen::status;++i){back();idle();}
     assert(RuntimeTestAccess::view(ui).screen==Screen::status);
-    openBrowseHome();rotate(1);idle();click();idle();click();idle();
+    openDevices();click();idle();
     assert(lastQuery.screen==Screen::control && lastQuery.entity.id==7);
   };
   auto admitRepeatedUp=[&](unsigned count,bool onAir=true,Action desired=Action::up,unsigned step=0,bool arm=true){
@@ -702,7 +699,7 @@ int main(int argc,char **argv){
     const auto ticket=admitRepeatedUp(2);const auto requests=submitted.size();
     const auto address=one.address;uint16_t *pixels=nullptr;
     if(cause==0){++one.address;idle();} // Exact target identity changed.
-    else if(cause==1){authorization.configure(AuthMode::pin,"","!!!!");idle();}
+    else if(cause==1){authorization.configure(AuthMode::pin,"","1111");idle();}
     else if(cause==2){pixels=RuntimeTestAccess::losePixels(ui);assert(!ui.tick(testNow,status,false,send,light));}
     else tick(false,6000); // Derived admitted-air deadline, not queue admission age.
     assert(localControlPending() && somfy.transceiver.cancelledTicket==ticket);
@@ -769,6 +766,17 @@ int main(int argc,char **argv){
   openConfigure(0);click();idle(); // Configure General directly
   assert(lastQuery.screen==Screen::settings && captureProtected);
   saveFrame(preview,"runtime-settings-general"); // Actual form/runtime frame
+  // A changed keyboard selection has the same value/length until pressed.
+  // Only its exact fully displayed metadata may authorize that press.
+  click();idle();assert(RuntimeTestAccess::settings(settingsUi).mode==Settings::Mode::text);
+  const auto keyboardLength=RuntimeTestAccess::settings(settingsUi).textLength;
+  busBusy=true;rotate(1);click();assert(RuntimeTestAccess::settings(settingsUi).textLength==keyboardLength && settingsSaves==0);
+  busBusy=false;idle();click();idle();assert(RuntimeTestAccess::settings(settingsUi).textLength==keyboardLength+1);
+  saveFrame(preview,"runtime-settings-keyboard");back();idle();assert(RuntimeTestAccess::settings(settingsUi).dirty);
+  back();idle();assert(RuntimeTestAccess::settings(settingsUi).mode==Settings::Mode::discard);
+  click();idle();assert(RuntimeTestAccess::settings(settingsUi).mode==Settings::Mode::fields && RuntimeTestAccess::settings(settingsUi).dirty);
+  back();idle();rotate(1);idle();click();idle();assert(lastQuery.screen==Screen::configureMenu && settingsSaves==0);
+  click();idle();assert(RuntimeTestAccess::settings(settingsUi).mode==Settings::Mode::fields);
   busBusy=true;rotate(1);click();assert(settingsSaves==0); // unseen field cannot open
   busBusy=false;idle();click();idle(); // Broadcast editor
   rotate(1);idle();click();idle(); // true -> numeric/boolean actions
@@ -810,7 +818,7 @@ int main(int argc,char **argv){
   assert(RuntimeTestAccess::noPresentation(settingsUi) && captureProtected);
   busBusy=false;tick(false);idle();assert(!captureProtected);
   // An old presented target and its queued start cannot survive resource loss.
-  openBrowseHome();rotate(1);idle();click();idle();click();idle();
+  openDevices();click();idle();
   assert(lastQuery.screen==Screen::control && lastQuery.openedToken);
   Command old{lastQuery.entity,lastQuery.openedToken,Action::up};
   old.authGeneration=pollAuthorization().generation;
@@ -825,7 +833,7 @@ int main(int argc,char **argv){
   RuntimeTestAccess::restorePixels(settingsUi,savedPixels);somfy.transceiver.room=true;
   idle();assert(RuntimeTestAccess::view(settingsUi).screen==Screen::quickHome);
   assert(RuntimeTestAccess::view(settingsUi).notice==Notice::none && !captureProtected);
-  openBrowseHome();rotate(1);idle();click();idle();click();idle();
+  openDevices();click();idle();
   assert(lastQuery.openedToken>old.token);
   old.authGeneration=pollAuthorization().generation;
   assert(dispatch(old)==DispatchResult::stale && submitted.size()==beforeGraphicsCommand);
@@ -1061,7 +1069,7 @@ int main(int argc,char **argv){
   assert(!strcmp(RuntimeTestAccess::settings(settingsUi).rows[1].value,wifiReview.rows[2].value));
   assert(RuntimeTestAccess::settings(settingsUi).rows[1].dirty && !wifiScanFeed().pending());
   assert(settingsSaves==beforeWifiSaves && submitted.size()==beforeWifiRF && captureProtected);
-  saveFrame(preview,"runtime-wifi-network-draft");back();idle();assert(RuntimeTestAccess::view(settingsUi).screen==Screen::networkMenu);
+  saveFrame(preview,"runtime-wifi-network-draft");back();idle();assert(RuntimeTestAccess::settings(settingsUi).mode==Settings::Mode::discard);rotate(1);idle();click();idle();assert(RuntimeTestAccess::view(settingsUi).screen==Screen::networkMenu);
   assert(Settings::runtimeMemory().used()==0);
   auto openWifiRequest=[&](){
     openNetworkMenu();selectMenu(1);click();idle();rotate(1);idle();click();idle();assert(wifiScanFeed().pending());
@@ -1076,7 +1084,7 @@ int main(int argc,char **argv){
   else {back();idle();back();idle();}
   openWifiRequest();savedPixels=RuntimeTestAccess::losePixels(settingsUi);
   assert(!settingsUi.tick(testNow,status,false,send,light));assert(!wifiScanFeed().pending() && Settings::runtimeMemory().used()==0);
-  RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();openBrowseHome();
+  RuntimeTestAccess::restorePixels(settingsUi,savedPixels);idle();homeQuick();
   // Real System child, protected presentation, exact-owned scan context and
   // separate Radio settings draft; RF boundaries remain fake.
   for(auto &shade:somfy.shades)shade.idle=true;
@@ -1099,7 +1107,7 @@ int main(int argc,char **argv){
   busBusy=true;rotate(1);click();assert(settingsSaves==scanSaves);
   busBusy=false;idle();click();idle();assert(lastQuery.screen==Screen::settings);
   assert(!strcmp(RuntimeTestAccess::settings(settingsUi).title,"Radio")&&RuntimeTestAccess::settings(settingsUi).dirty&&settingsSaves==scanSaves);
-  saveFrame(preview,"runtime-radio-settings-draft");back();idle();
+  saveFrame(preview,"runtime-radio-settings-draft");back();idle();assert(RuntimeTestAccess::settings(settingsUi).mode==Settings::Mode::discard);rotate(1);idle();click();idle();
   assert(lastQuery.screen==Screen::system && !strcmp(RuntimeTestAccess::system(settingsUi).title,"Diagnostics") && RuntimeTestAccess::system(settingsUi).selected==2);
   // Back discards the staged change without saving.
   assert(settingsSaves==scanSaves);somfy.transceiver.ready=priorRadioReady;
@@ -1147,7 +1155,7 @@ int main(int argc,char **argv){
     openMaintenance();selectSystem(0);click();idle();
     assert(!strcmp(RuntimeTestAccess::system(settingsUi).title,"System updates"));
   };
-  authorization.configure(AuthMode::pin,"","!!!!");Credentials installLogin;strcpy(installLogin.secret,"!!!!");
+  authorization.configure(AuthMode::pin,"","1111");Credentials installLogin;strcpy(installLogin.secret,"1111");
   assert(authorization.unlock(installLogin,testNow)==AuthResult::unlocked);installLogin.clear();
   auto &update=Updates::previewBackend;openUpdates();assert(!update.checks && captureProtected);
   saveFrame(preview,"runtime-updates-home");click();idle();assert(update.checks==1 && !update.installs);
@@ -1190,7 +1198,7 @@ int main(int argc,char **argv){
   const auto resumedChecks=update.checks,resumedInstalls=update.installs;const auto continuedOperation=update.value.operation;
   back();idle();assert(!RuntimeTestAccess::updatesActive(settingsUi) && update.value.busy && update.cancels==updateCancelsBeforeSleep); // Acknowledge the retained locked status.
   homeQuick();openController();selectMenu(1);click();idle();assert(lastQuery.screen==Screen::unlock && captureProtected);
-  rotate(1);for(unsigned i=0;i<4;++i)click();for(unsigned i=0;i<96;++i)rotate(1);click();idle();
+  rotate(1);for(unsigned i=0;i<4;++i)click();while(RuntimeTestAccess::view(*active).credentialKeyboard.selected!=RotaryKeyboard::actionOffset(RuntimeTestAccess::view(*active).credentialKeyboard)+5){rotate(1);idle();}click();idle();
   assert(pollAuthorization().allowed && lastQuery.screen==Screen::controllerMenu);click();idle();selectSystem(0);click();idle();
   assert(RuntimeTestAccess::updatesActive(settingsUi) && update.value.operation==continuedOperation && update.value.busy && update.checks==resumedChecks && update.installs==resumedInstalls);
   saveFrame(preview,"runtime-updates-resumed");click();idle();assert(update.cancels==1 && !update.value.busy);
@@ -1646,7 +1654,7 @@ int main(int argc,char **argv){
   assert(RuntimeTestAccess::view(quickUi).screen==Screen::quickHome && !captureProtected);
   auto selectQuick=[&](unsigned choice){
     assert(RuntimeTestAccess::view(quickUi).screen==Screen::quickHome);
-    for(unsigned i=0;i<5&&RuntimeTestAccess::view(quickUi).selected!=choice;++i){rotate(RuntimeTestAccess::view(quickUi).selected<choice?1:-1);idle();}
+    for(unsigned i=0;i<12&&RuntimeTestAccess::view(quickUi).selected!=choice;++i){rotate(RuntimeTestAccess::view(quickUi).selected<choice?1:-1);idle();}
     assert(RuntimeTestAccess::view(quickUi).selected==choice);
   };
   const EntityRef expectedQuick[]={{EntityKind::group,1},{EntityKind::device,1},{EntityKind::device,2}};
@@ -1660,9 +1668,9 @@ int main(int argc,char **argv){
     assert(RuntimeTestAccess::view(quickUi).quickOrigin);back();idle();
     assert(lastQuery.screen==Screen::quickHome && submitted.size()==beforeQuickNavigation && quickWrites==writesAtQuickBoot);
   }
-  // The fourth navigation choice opens This controller, not shortcut editing.
+  // System opens directly from the first destination page.
   // Home navigation must not allocate a private preferences draft or send RF.
-  selectQuick(4);click();idle();
+  selectQuick(7);click();idle();
   assert(!RuntimeTestAccess::view(quickUi).quickEditing && lastQuery.screen==Screen::controllerMenu && submitted.size()==beforeQuickNavigation && quickWrites==writesAtQuickBoot);
   saveFrame(preview,"runtime-controller-menu");
   selectMenu(0);click();idle();assert(lastQuery.screen==Screen::configureMenu);saveFrame(preview,"runtime-configure-menu");
@@ -1681,7 +1689,7 @@ int main(int argc,char **argv){
   assert(lastQuery.screen==Screen::configureMenu && RuntimeTestAccess::view(quickUi).selected==5);
   for(unsigned cause=0;cause<2;++cause){
     selectMenu(5);click();idle();assert(lastQuery.screen==Screen::brightness);
-    if(cause==0)authorization.configurationChanged();else authorization.configure(AuthMode::pin,"","!!!!");
+    if(cause==0)authorization.configurationChanged();else authorization.configure(AuthMode::pin,"","1111");
     idle();assert(lastQuery.screen==Screen::configureMenu && RuntimeTestAccess::view(quickUi).selected==5);
     authorization.configure(AuthMode::none,"","");idle();
     assert(settingsSaves==navigationSaves && submitted.size()==beforeQuickNavigation && quickWrites==writesAtQuickBoot);
@@ -1693,11 +1701,33 @@ int main(int argc,char **argv){
   selectMenu(2);click();idle();assert(lastQuery.screen==Screen::status);back();idle();assert(lastQuery.screen==Screen::controllerMenu && RuntimeTestAccess::view(quickUi).selected==2);
   selectMenu(3);click();idle();assert(lastQuery.screen==Screen::details);saveFrame(preview,"runtime-about");back();idle();assert(lastQuery.screen==Screen::controllerMenu && RuntimeTestAccess::view(quickUi).selected==3);
   selectMenu(4);click();idle();assert(!strcmp(RuntimeTestAccess::system(quickUi).title,"Diagnostics") && RuntimeTestAccess::system(quickUi).total==4);saveFrame(preview,"runtime-diagnostics-menu");selectSystem(3);saveFrame(preview,"runtime-diagnostics-copy-log");back();idle();assert(lastQuery.screen==Screen::controllerMenu && RuntimeTestAccess::view(quickUi).selected==4);
-  back();idle();assert(lastQuery.screen==Screen::quickHome && RuntimeTestAccess::view(quickUi).selected==4);
+  back();idle();assert(lastQuery.screen==Screen::quickHome && RuntimeTestAccess::view(quickUi).selected==7);
   assert(settingsSaves==navigationSaves && submitted.size()==beforeQuickNavigation && quickWrites==writesAtQuickBoot);
-  selectQuick(3);click();idle();assert(lastQuery.screen==Screen::home);saveFrame(preview,"runtime-browse-all");
-  for(unsigned row=0;row<3;++row){selectMenu(row);click();idle();assert(lastQuery.screen==Screen::catalogue);back();idle();assert(lastQuery.screen==Screen::home && RuntimeTestAccess::view(quickUi).selected==row);}
-  back();idle();assert(lastQuery.screen==Screen::quickHome && RuntimeTestAccess::view(quickUi).selected==3);
+  for(unsigned row=4;row<7;++row){selectQuick(row);click();idle();assert(lastQuery.screen==Screen::catalogue);saveFrame(preview,row==4?"runtime-devices":row==5?"runtime-groups":"runtime-rooms");back();idle();assert(lastQuery.screen==Screen::quickHome && RuntimeTestAccess::view(quickUi).selected==row);}
+  selectQuick(3);click();idle();assert(lastQuery.screen==Screen::quickManage && captureProtected);back();idle();assert(lastQuery.screen==Screen::quickHome && RuntimeTestAccess::view(quickUi).selected==3);
+  // Room filtering combines devices and groups without conflating equal IDs.
+  auto *mixedRoom=static_cast<decltype(&somfy.rooms[0])>(nullptr);
+  for(auto &room:somfy.rooms)if(!room.roomId){mixedRoom=&room;break;}
+  assert(mixedRoom);*mixedRoom={14,2,"Kitchen"};
+  quickOne.roomId=quickBoth.roomId=14;quickTwo.roomId=0;++somfy.configurationRevision;idle();
+  selectQuick(6);click();idle();
+  assert(lastQuery.screen==Screen::catalogue && lastQuery.catalogue==CatalogueKind::rooms);
+  auto currentCatalogueEntry=[&]{const auto model=adapterSnapshotModel(true,RuntimeTestAccess::view(quickUi));assert(model.pageValid && model.page.cursor>=model.page.offset && model.page.cursor-model.page.offset<model.page.count);return model.page.rows[model.page.cursor-model.page.offset];};
+  for(unsigned i=0;i<16 && currentCatalogueEntry().id!=14;i++){rotate(1);idle();}
+  assert(currentCatalogueEntry().id==14);const auto mixedRoomCursor=RuntimeTestAccess::view(quickUi).cursor;
+  click();idle();assert(lastQuery.catalogue==CatalogueKind::roomContents && lastQuery.room==14);
+  auto mixedPage=adapterSnapshotModel(true,RuntimeTestAccess::view(quickUi));
+  assert(mixedPage.pageValid && mixedPage.page.total==2 && mixedPage.page.count==2);
+  assert(mixedPage.page.rows[0].id==1 && mixedPage.page.rows[1].id==1 && mixedPage.page.rows[0].group!=mixedPage.page.rows[1].group);
+  for(unsigned i=0;i<2;i++) {
+    const auto entry=currentCatalogueEntry();const auto roomChildCursor=RuntimeTestAccess::view(quickUi).cursor;
+    click();idle();assert(lastQuery.screen==Screen::control && lastQuery.entity==(EntityRef{entry.group?EntityKind::group:EntityKind::device,1}));
+    back();idle();assert(lastQuery.screen==Screen::catalogue && lastQuery.catalogue==CatalogueKind::roomContents && lastQuery.room==14 && RuntimeTestAccess::view(quickUi).cursor==roomChildCursor);
+    if(!i){rotate(1);idle();}
+  }
+  saveFrame(preview,"runtime-room-mixed-contents");back();idle();
+  assert(lastQuery.catalogue==CatalogueKind::rooms && RuntimeTestAccess::view(quickUi).cursor==mixedRoomCursor && currentCatalogueEntry().id==14);
+  back();idle();assert(lastQuery.screen==Screen::quickHome && RuntimeTestAccess::view(quickUi).selected==6 && submitted.size()==beforeQuickNavigation);
   // Live labels change without repinning; identity changes never retarget a pin.
   strcpy(quickOne.name,"Renamed device");++somfy.configurationRevision;idle();
   auto quickProjection=adapterSnapshotModel(true,RuntimeTestAccess::view(quickUi));
@@ -1747,7 +1777,7 @@ int main(int argc,char **argv){
     manageQuick();manageRow(0);click();idle();quickAction(4);
     if(cause==0){++somfy.configurationRevision;idle();}
     else if(cause==1){++somfy.restoreRevision;idle();}
-    else if(cause==2){authorization.configure(AuthMode::pin,"","!!!!");idle();authorization.configure(AuthMode::none,"","");idle();}
+    else if(cause==2){authorization.configure(AuthMode::pin,"","1111");idle();authorization.configure(AuthMode::none,"","");idle();}
     else {tick(false,21000);idle();}
     assert(quickWrites==savedQuickWrites && submitted.size()==quickRfBaseline);
     for(unsigned i=0;i<8&&RuntimeTestAccess::view(quickUi).screen!=Screen::quickHome;++i){if(RuntimeTestAccess::view(quickUi).screen==Screen::status){click();idle();}else{back();idle();}}

@@ -110,9 +110,17 @@ int main(int argc,char **argv) {
     view.notice=stale;canvas.paintSettings(view);assert(pixels==replacement);
   }
   view.notice=Settings::Notice::none;
-  view.mode=Settings::Mode::text;view.rowCount=3;
+  view.mode=Settings::Mode::text;view.rowCount=3;view.total=0;view.textLength=47;view.textLimit=64;strcpy(view.title,"WiFi network");
   strcpy(view.rows[0].label,"WiFi network");strcpy(view.rows[0].value,full);
   strcpy(view.rows[1].label,"Character");strcpy(view.rows[1].value,"'D' (68)");
   strcpy(view.rows[2].label,"Back cancels edit");strcpy(view.hint,"47/64 bytes; press adds, Back cancels");
   canvas.paintSettings(view);save(std::string(argv[1])+"/settings-edit-tail.ppm",pixels);
+  const auto keyboard=pixels;view.keyboard.selected=1;
+  canvas.paintSettings(view);assert(pixels!=keyboard);save(std::string(argv[1])+"/settings-keyboard-selected.ppm",pixels);
+  view.keyboard.bank=1;view.keyboard.selected=0;
+  canvas.paintSettings(view);save(std::string(argv[1])+"/settings-keyboard-numbers.ppm",pixels);
+  view.keyboard.bank=2;
+  canvas.paintSettings(view);save(std::string(argv[1])+"/settings-keyboard-symbols.ppm",pixels);
+  view.keyboard.bank=3;view.keyboard.selected=194;canvas.paintSettings(view);save(std::string(argv[1])+"/settings-keyboard-bytes.ppm",pixels);
+
 }

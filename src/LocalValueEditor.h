@@ -1,5 +1,6 @@
 #pragma once
 #include "LocalCharacterPicker.h"
+#include "LocalKeyboard.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -15,6 +16,7 @@ enum class EditOutcome : uint8_t { idle, editing, applied, cancelled, expired, i
 class ValueEditor {
   char original[65]={}, draft[65]={};
   CharacterPicker picker;
+  RotaryKeyboard keyboard;
   int64_t number=0, before=0, minimum=0, maximum=0, increment=1;
   uint64_t activity=0, observed=0;
   ValueKind type=ValueKind::none;
@@ -27,7 +29,7 @@ class ValueEditor {
     while(bytes--) *out++=0;
   }
   void close(EditOutcome result) {
-    wipe(original,sizeof(original)); wipe(draft,sizeof(draft)); picker.reset();
+    wipe(original,sizeof(original)); wipe(draft,sizeof(draft)); picker.reset(); keyboard.reset();
     number=before=minimum=maximum=activity=observed=limit=0; increment=1;
     type=ValueKind::none; editing=secret=false; state=result;
   }
@@ -138,6 +140,32 @@ public:
     else if(input.action==CharacterAction::append) {
       if(count==limit) state=EditOutcome::full;
       else draft[count]=char(input.byte);
+    }
+    return state;
+  }
+  const KeyboardView &keyboardView() const {return keyboard.view();}
+  void keyboardTurn(int direction,uint64_t now) {
+    tick(now);if(!editing || type!=ValueKind::text || !direction)return;
+    keyboard.turn(direction);activity=now;state=EditOutcome::editing;
+  }
+  bool keyboardBack(uint64_t now) {
+    tick(now);if(!editing || type!=ValueKind::text)return false;
+    const bool back=keyboard.back();if(back)activity=now;return back;
+  }
+  EditOutcome keyboardPress(uint64_t now) {
+    tick(now);if(!editing || type!=ValueKind::text)return state;
+    activity=now;state=EditOutcome::editing;
+    const auto input=keyboard.press();
+    if(input.action==KeyboardAction::done)return apply(now);
+    const uint8_t count=length();
+    if(input.action==KeyboardAction::erase && count) {
+      uint8_t start=count-1;
+      if(encoding==TextEncoding::utf8 && utf8(draft))
+        while(start && (uint8_t(draft[start])&0xc0)==0x80)--start;
+      wipe(draft+start,sizeof(draft)-start);
+    } else if(input.action==KeyboardAction::append) {
+      if(count==limit)state=EditOutcome::full;
+      else {draft[count]=char(input.byte);draft[count+1]=0;}
     }
     return state;
   }

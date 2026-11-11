@@ -73,7 +73,7 @@ int main(int argc, char **argv) {
   save(canvas, pixels.data(), view, argv[1], "entity-room-file-failed");
   view.notice = EntityAdmin::Notice::uncertain;
   save(canvas, pixels.data(), view, argv[1], "entity-room-file-uncertain");
-  view.mode = EntityAdmin::Mode::text;
+  view.mode = EntityAdmin::Mode::text;view.textLength=20;view.textLimit=20;
   strcpy(view.title,"Edit Room 9");
   view.notice = EntityAdmin::Notice::none;
   view.rowCount = 3;
@@ -94,13 +94,13 @@ int main(int argc, char **argv) {
   int16_t x, y;
   uint16_t width, height;
   canvas.getTextBounds(start, 0, 0, &x, &y, &width, &height);
-  assert(width > 296);
+  assert(width > 246);
   do {
     ++start;
     snprintf(expected, sizeof(expected), "...%s", start);
     canvas.getTextBounds(expected, 0, 0, &x, &y, &width, &height);
-  } while (width > 296);
-  assert(width <= 296 && !strcmp(expected + strlen(expected) - 3, "END"));
+  } while (width > 246);
+  assert(width <= 246 && !strcmp(expected + strlen(expected) - 3, "END"));
   strcpy(view.rows[0].value, expected);
   save(canvas, pixels.data(), view, argv[1], "entity-room-wide-tail-expected");
   assert(wide ==
@@ -108,8 +108,8 @@ int main(int argc, char **argv) {
   strcpy(view.rows[0].value, "WWWWWWWWWWWWWWWWWXYZ");
   save(canvas, pixels.data(), view, argv[1], "entity-room-wide-tail-alternate");
   bool lastChanged = false;
-  for (unsigned row = 65; row < 86; row++)
-    for (unsigned col = 235; col < 309; col++)
+  for (unsigned row = 34; row < 54; row++)
+    for (unsigned col = 170; col < 258; col++)
       lastChanged |= pixels[row * 320 + col] != wide[row * 320 + col];
   assert(lastChanged); // The newest suffix reaches the visible right edge.
   view = {};

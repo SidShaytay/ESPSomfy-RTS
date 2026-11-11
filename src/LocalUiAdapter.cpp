@@ -227,7 +227,7 @@ bool samePage(const CataloguePage &a,const CataloguePage &b) {
   if(a.offset!=b.offset || a.cursor!=b.cursor || a.count!=b.count || a.total!=b.total) return false;
   for(uint8_t i=0;i<a.count;i++) {
     const auto &x=a.rows[i],&y=b.rows[i];
-    if(x.id!=y.id || x.roomId!=y.roomId || x.sortOrder!=y.sortOrder || x.identity!=y.identity ||
+    if(x.id!=y.id || x.group!=y.group || x.roomId!=y.roomId || x.sortOrder!=y.sortOrder || x.identity!=y.identity ||
        x.revision!=y.revision || memcmp(x.name,y.name,21)!=0) return false;
   }
   return true;
@@ -413,7 +413,7 @@ Model snapshotModel(bool running,const View &view) {
     m.pageValid=m.quickReady;
   } else if(view.catalogue==CatalogueKind::rooms) m.pageValid=roomCataloguePage(source,view.cursor,m.page,view.anchorId,view.anchored);
   else if(view.room==0 || view.room==allRooms || somfy.getRoomById(view.room))
-    m.pageValid=cataloguePage(source,view.catalogue,view.cursor,view.room,m.page,view.anchorId,view.anchored);
+    m.pageValid=cataloguePage(source,view.catalogue,view.cursor,view.room,m.page,view.anchorId,view.anchored,view.anchorGroup);
   if(m.pageValid && (!pageCached || previousQuickPage!=quickPage ||
       (quickPage && !sameQuick(previousQuickBindings,bindings)) || previousKind!=m.catalogue || previousRoom!=m.room ||
       previousModelRevision!=m.modelRevision || previousRestore!=m.restoreRevision || !samePage(previousPage,m.page))) {

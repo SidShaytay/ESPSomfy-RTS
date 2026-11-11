@@ -215,8 +215,43 @@ static void review_preserves_channel_rssi_and_honest_security_metadata() {
     f.discard();
   }
 }
+static void list_prioritizes_ssid_and_pages_four_readable_rows() {
+  State b;JsonAllocator memory(4096,malloc,free);WifiScan::Form f(b,memory);Reader reader;
+  reader.row.rssi=-55;reader.row.authentication=3;
+  f.open(0);f.turn(1,1);f.activate(2);b.time=3;b.source.finish(b.source.token(),true,reader);
+  EntityAdmin::FormView v;f.render(v);
+  TEST_ASSERT_EQUAL(4,v.rowCount);TEST_ASSERT_EQUAL_STRING("network",v.rows[0].value);
+  TEST_ASSERT_EQUAL_STRING("-55dBm Secured",v.rows[0].label);
+  TEST_ASSERT_NULL(strstr(v.rows[0].value,"00:00"));
+  for(unsigned i=0;i<4;i++)f.turn(1,4+i);
+  f.render(v);TEST_ASSERT_EQUAL(4,v.offset);TEST_ASSERT_EQUAL(4,v.rowCount);TEST_ASSERT_TRUE(v.rows[0].selected);
+  f.activate(8);f.render(v);TEST_ASSERT_EQUAL_STRING("network",v.rows[2].value);
+  TEST_ASSERT_NOT_NULL(strstr(v.rows[2].label,"00:00:00:00:00:04"));
+}
+static void list_labels_hidden_and_manual_choices_honestly() {
+  State b;JsonAllocator memory(4096,malloc,free);WifiScan::Form f(b,memory);Reader reader;reader.total=1;
+  reader.row.ssid[0]=0;reader.row.authentication=255;reader.row.rssi=-96;
+  f.open(0);f.turn(1,1);f.activate(2);b.time=3;b.source.finish(b.source.token(),true,reader);
+  EntityAdmin::FormView v;f.render(v);
+  TEST_ASSERT_EQUAL_STRING("Hidden network",v.rows[0].value);
+  TEST_ASSERT_EQUAL_STRING("-96dBm Unknown",v.rows[0].label);
+  TEST_ASSERT_EQUAL_STRING("Enter SSID manually",v.rows[1].label);
+  TEST_ASSERT_EQUAL_STRING("",v.rows[1].value);
+}
+static void full_length_ssid_survives_list_review_and_handoff() {
+  State b;JsonAllocator memory(4096,malloc,free);WifiScan::Form f(b,memory);Reader reader;reader.total=1;
+  strcpy(reader.row.ssid,"12345678901234567890123456789012");
+  f.open(0);f.turn(1,1);f.activate(2);b.time=3;b.source.finish(b.source.token(),true,reader);
+  EntityAdmin::FormView v;f.render(v);TEST_ASSERT_EQUAL_STRING(reader.row.ssid,v.rows[0].value);
+  f.activate(4);f.render(v);TEST_ASSERT_EQUAL_STRING(reader.row.ssid,v.rows[2].value);
+  f.turn(1,5);f.activate(6);char ssid[33];SecuritySnapshot auth;uint64_t revision;
+  TEST_ASSERT_TRUE(f.takeSSID(ssid,7,auth,revision));TEST_ASSERT_EQUAL_STRING(reader.row.ssid,ssid);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(full_length_ssid_survives_list_review_and_handoff);
+  RUN_TEST(list_prioritizes_ssid_and_pages_four_readable_rows);
+  RUN_TEST(list_labels_hidden_and_manual_choices_honestly);
   RUN_TEST(review_preserves_channel_rssi_and_honest_security_metadata);
   RUN_TEST(busy_receipt_loss_and_late_completion_never_retain_listener);
   RUN_TEST(explicit_start_default_cancel_results_review_only_handoff);

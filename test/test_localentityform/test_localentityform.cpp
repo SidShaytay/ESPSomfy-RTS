@@ -257,9 +257,8 @@ add_order_128_requires_explicit_replacement_without_losing_name_draft() {
   Form form(backend, memory);
   TEST_ASSERT_TRUE(form.open(Kind::room, 0, 0));
   form.activate(1);
-  form.activate(1);
-  turn(form, 97);
-  form.activate(1); // append space; Apply name
+  turn(form, 29);form.activate(1); // Space
+  turn(form, 2);form.activate(1); // Done
   turn(form, 2);
   form.activate(1); // name-only Save must not wrap offered order
   TEST_ASSERT_EQUAL(0, backend.applies);
@@ -311,10 +310,9 @@ static void malformed_utf8_name_has_separate_cancel_or_replace_flow() {
   form.activate(1);
   TEST_ASSERT_EQUAL(Mode::text, form.view().mode);
   TEST_ASSERT_EQUAL_STRING("", form.view().rows[0].value);
-  turn(form, 33);
-  form.activate(1);
-  turn(form, 64);
-  form.activate(1); // A, then explicit Apply
+  turn(form,26);form.activate(1); // Shift
+  form.activate(1); // A
+  form.turn(-1,1);form.activate(1); // Done
   TEST_ASSERT_EQUAL(0, backend.applies);
   turn(form, 2);
   form.activate(1);
@@ -582,8 +580,27 @@ static void whole_form_refusal_never_misidentifies_a_scalar_repair_field() {
   TEST_ASSERT_EQUAL(Mode::fields, form.view().mode);
   TEST_ASSERT_EQUAL(0, backend.applies);
 }
+static void keyboard_back_keeps_field_draft_and_form_back_confirms_discard() {
+  Memory memory;Fake backend;Form form(backend,memory);
+  form.open(Kind::room,4,0);form.activate(1);
+  TEST_ASSERT_EQUAL(Mode::text,form.view().mode);
+  form.activate(1); // append a
+  form.back(1);
+  TEST_ASSERT_EQUAL(Mode::fields,form.view().mode);
+  TEST_ASSERT_TRUE(form.view().dirty);
+  TEST_ASSERT_EQUAL_STRING("Rooma",form.view().rows[0].value);
+  TEST_ASSERT_EQUAL(0,backend.applies);
+  form.back(1);TEST_ASSERT_EQUAL(Mode::discard,form.view().mode);
+  form.activate(1); // Keep editing default
+  TEST_ASSERT_EQUAL(Mode::fields,form.view().mode);
+  TEST_ASSERT_TRUE(form.view().dirty);
+  form.back(1);form.turn(1,1);form.activate(1);
+  TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(0,memory.active);
+  TEST_ASSERT_EQUAL(0,backend.applies);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(keyboard_back_keeps_field_draft_and_form_back_confirms_discard);
   RUN_TEST(whole_form_refusal_never_misidentifies_a_scalar_repair_field);
   RUN_TEST(changed_choice_must_resolve_again_before_final_save);
   RUN_TEST(dirty_field_revert_is_explicit_and_preserves_other_drafts);
