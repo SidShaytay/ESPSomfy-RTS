@@ -47,7 +47,7 @@ bool Form::open(uint64_t now,Menu requested,uint8_t initial) {
     notice=EntityAdmin::Notice::locked;return false;
   }
   generation=auth.generation;configurationGeneration=auth.configurationGeneration;
-  observedAt=activityAt=now;menu=requested;cursor=initial<=(menu==Menu::maintenance?2:menu==Menu::diagnostics?3:menu==Menu::legacy?6:0)?initial:0;page=menu==Menu::wifiScan?Page::wifi:Page::menu;return true;
+  observedAt=activityAt=now;menu=requested;cursor=initial<=(menu==Menu::maintenance?2:menu==Menu::diagnostics?3:menu==Menu::legacy?6:0)?initial:0;page=menu==Menu::wifiScan?Page::wifi:menu==Menu::updates?Page::updates:Page::menu;return true;
 }
 bool Form::guard(uint64_t now) {
   if(closed())return false;
@@ -118,7 +118,7 @@ void Form::render(EntityAdmin::FormView &out) const {
   out={};out.notice=notice;
   if(closed())return;
   out.mode=EntityAdmin::Mode::fields;
-  const char *title="System",*hint=menu==Menu::legacy?"Press: choose   Back: Home":"Press: choose   Back: This controller";
+  const char *title="System",*hint=menu==Menu::legacy?"Press: choose   Back: Home":"Press: choose   Back: System";
   if(page==Page::menu) {
     const char *labels[]={"Restart","Browser files & Web","WiFi scan","Receive diagnostics","Network details","Radio frequency scan","GitHub updates"};
     const char *maintenance[]={"GitHub updates","Restart","Browser files & Web"};

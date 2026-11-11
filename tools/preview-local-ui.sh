@@ -21,7 +21,7 @@ PYCODE
 "$scratch/presentation"
 "${CXX:-c++}" -std=c++17 -O2 -DARDUINO=10800 -DLOCAL_UI_HOST_PREVIEW \
   -I"$repo/tests/ui-render" -I"$repo/tests/ui-adapter" -I"$repo/test/stubs" -I"$repo/src" -I"$gfx" \
-  "$repo/tests/ui-render/render.cpp" "$repo/src/LocalUiRenderer.cpp" "$repo/src/LocalControlPolicy.cpp" "$repo/src/StatusDisplay.cpp" "$gfx/Adafruit_GFX.cpp" \
+  "$repo/tests/ui-render/render.cpp" "$repo/src/LocalQuickAccess.cpp" "$repo/src/LocalUiRenderer.cpp" "$repo/src/LocalControlPolicy.cpp" "$repo/src/StatusDisplay.cpp" "$gfx/Adafruit_GFX.cpp" \
   -o "$scratch/render"
 "$scratch/render" "$out"
 # The actual ownership service is compiled without SDK/worker startup paths.

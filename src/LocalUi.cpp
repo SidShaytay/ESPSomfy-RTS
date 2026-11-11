@@ -40,6 +40,7 @@ void Controller::discardTransient() {
   brightnessBefore=keep;setPreferences(keep);
 }
 void Controller::editorView() {
+  state.credentialKeyboard=editor.keyboardView();
   state.credentialChoice = editor.selected();
   state.credentialLength = editor.length();
   state.credentialMaximum = editor.maximum();
@@ -69,17 +70,18 @@ void Controller::goBack() {
   else if(state.screen==Screen::quickActions || state.screen==Screen::quickSave) {state.screen=Screen::quickManage;state.selected=state.quickSlot;}
   else if(state.screen==Screen::quickManage) {discardQuick();if(state.routed)closeForm();else {state.screen=Screen::quickHome;state.selected=4;}}
   else if(state.screen==Screen::catalogue && state.quickPicking) {state.quickPicking=false;state.screen=Screen::quickActions;state.selected=0;}
-  else if(state.screen==Screen::controllerMenu) {state.screen=Screen::quickHome;state.selected=4;}
+  else if(state.screen==Screen::controllerMenu) {state.screen=Screen::quickHome;state.selected=7;}
   else if(state.screen==Screen::configureMenu) {state.screen=Screen::controllerMenu;state.selected=0;}
-  else if(state.screen==Screen::networkMenu) {state.screen=Screen::configureMenu;state.selected=2;}
+  else if(state.screen==Screen::networkMenu) {if(state.networkHome){state.networkHome=false;state.routed=false;state.screen=Screen::quickHome;state.selected=9;}else {state.screen=Screen::configureMenu;state.selected=2;}}
   else if((state.screen==Screen::details || state.screen==Screen::status) && state.routed)closeForm();
   else if(state.screen==Screen::home && quickEnabled) {state.screen=Screen::quickHome;state.selected=3;}
-  else if(state.screen==Screen::unlock) { editor.cancel(); editorView(); state.screen=afterUnlock; }
+  else if(state.screen==Screen::unlock) {if(!editor.keyboardBack()){editor.cancel();state.screen=afterUnlock;}editorView();}
   else if(state.screen==Screen::brightness) { setPreferences(brightnessBefore); savePending=false; if(state.routed)closeForm();else {state.screen=Screen::home;state.selected=4;} }
   else if(state.screen==Screen::control) {state.screen=state.quickOrigin?Screen::quickHome:Screen::catalogue;if(state.quickOrigin)state.selected=state.quickSlot;}
   else if(state.screen==Screen::catalogue) {
-    if(state.catalogue!=CatalogueKind::rooms && state.room!=allRooms) { state.screen=Screen::roomKinds; state.selected=0; }
-    else { state.screen=Screen::home; state.selected=state.catalogue==CatalogueKind::rooms?0:state.catalogue==CatalogueKind::devices?1:2; }
+    if(state.catalogue==CatalogueKind::roomContents) {
+      openCatalogue(CatalogueKind::rooms,allRooms);state.cursor=roomCursor;state.anchorId=roomAnchor;state.anchored=roomAnchored;
+    } else {state.screen=state.catalogueReturnScreen;state.selected=state.catalogueReturnSelection;}
   } else if(state.screen==Screen::roomKinds) openCatalogue(CatalogueKind::rooms,allRooms);
   else if(state.screen==Screen::settings || state.screen==Screen::administration || state.screen==Screen::system) formInput.back=true;
   else if(state.screen==Screen::actions || state.screen==Screen::value || state.screen==Screen::repeatActions || state.screen==Screen::repeatValue || state.screen==Screen::favouriteObserve || state.screen==Screen::favouriteConfirm) {cancelValue();state.screen=Screen::control;}
@@ -135,8 +137,18 @@ void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
       if(!binding || binding->empty() || !entry.revision || entry.id!=binding->ref.id || entry.identity!=binding->identity)
         {state.notice=Notice::quickUnavailable;break;}
       state.quickSlot=state.selected;bindEntry(m,binding->ref,entry,true);
-    } else if(state.selected==3){state.screen=Screen::home;state.selected=0;}
-    else {state.screen=Screen::controllerMenu;state.selected=0;}
+    } else if(state.selected>=4 && state.selected<=6) {
+      state.catalogueReturnScreen=Screen::quickHome;state.catalogueReturnSelection=state.selected;
+      openCatalogue(state.selected==4?CatalogueKind::devices:state.selected==5?CatalogueKind::groups:CatalogueKind::rooms,allRooms);
+    } else if(state.selected==7) {state.screen=Screen::controllerMenu;state.selected=0;}
+    else if(state.selected==9) {state.routed=true;state.returnScreen=Screen::quickHome;state.returnSelection=9;state.networkHome=true;state.screen=Screen::networkMenu;state.selected=0;}
+    else if(!m.authorized)beginUnlock(now,m,Screen::quickHome);
+    else {
+      state.routed=true;state.returnScreen=Screen::quickHome;state.returnSelection=state.selected;formInput={};
+      if(state.selected==3){state.quickDraft=m.quickAccess;state.quickEditing=true;state.quickPicking=false;quickGuard={m.quickAccess,m.modelRevision,m.restoreRevision,m.quickRevision,m.authGeneration,m.authConfigurationGeneration};state.screen=Screen::quickManage;state.selected=0;}
+      else if(state.selected==8){brightnessBefore=preferences();brightnessConfigurationGeneration=m.authConfigurationGeneration;state.screen=Screen::brightness;state.setting=0;}
+      else {state.systemSection=state.selected==10?4:2;state.systemSelection=0;state.screen=Screen::system;}
+    }
     break;
   case Screen::controllerMenu:
     if(!visible){state.notice=Notice::wait;break;}
@@ -149,7 +161,7 @@ void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
   case Screen::networkMenu: {
     if(!visible){state.notice=Notice::wait;break;}
     const bool network=state.screen==Screen::networkMenu;
-    if(!network && state.selected==2){state.screen=Screen::networkMenu;state.selected=0;break;}
+    if(!network && state.selected==2){state.networkHome=false;state.screen=Screen::networkMenu;state.selected=0;break;}
     if(!m.authorized){beginUnlock(now,m,state.screen);break;}
     state.routed=true;state.returnScreen=state.screen;state.returnSelection=state.selected;formInput={};
     if(network && state.selected==1){state.systemSection=3;state.screen=Screen::system;}
@@ -181,12 +193,14 @@ void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
     else {quickSavePending=true;state.notice=Notice::queued;}
     break;
   case Screen::unlock:
-    if(editor.press()==EditorResult::cancelled) state.screen=afterUnlock;
+    if(!visible){state.notice=Notice::wait;break;}
+    if(editor.keyboardPress()==EditorResult::cancelled) state.screen=afterUnlock;
     editorView(); break;
   case Screen::status: state.screen=quickEnabled?Screen::quickHome:Screen::home; state.selected=0; break;
   case Screen::details: if(state.routed)closeForm();else state.screen=Screen::status; break;
   case Screen::home:
     if(state.selected<3) {
+      state.catalogueReturnScreen=Screen::home;state.catalogueReturnSelection=state.selected;
       openCatalogue(state.selected==0?CatalogueKind::rooms:state.selected==1?CatalogueKind::devices:CatalogueKind::groups,allRooms);
     } else if(state.selected==3) {
       if(!m.authorized) beginUnlock(now,m,Screen::home);
@@ -215,10 +229,11 @@ void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
     }
     const auto &entry=m.page.rows[row];
     if(state.catalogue==CatalogueKind::rooms) {
-      state.room=entry.id; memcpy(state.roomName,entry.name,sizeof(state.roomName));
-      state.screen=Screen::roomKinds; state.selected=0;
+      roomCursor=state.cursor;roomAnchor=entry.id;roomAnchored=true;
+      memcpy(state.roomName,entry.name,sizeof(state.roomName));
+      openCatalogue(CatalogueKind::roomContents,entry.id);
     } else {
-      const EntityRef ref{state.catalogue==CatalogueKind::devices?EntityKind::device:EntityKind::group,entry.id};
+      const EntityRef ref{state.catalogue==CatalogueKind::groups || (state.catalogue==CatalogueKind::roomContents && entry.group)?EntityKind::group:EntityKind::device,entry.id};
       if(state.quickPicking) {
         const auto edited=state.quickDraft.assign(state.quickSlot,ref,entry.identity);
         state.quickPicking=false;state.screen=Screen::quickManage;state.selected=state.quickSlot;
@@ -372,7 +387,7 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
     state.cursor=m.page.cursor;
     const unsigned row=state.cursor>=m.page.offset?state.cursor-m.page.offset:catalogueRows;
     state.anchored=row<m.page.count;
-    if(state.anchored) state.anchorId=m.page.rows[row].id;
+    if(state.anchored) {state.anchorId=m.page.rows[row].id;state.anchorGroup=m.page.rows[row].group;}
   }
   if(state.screen==Screen::control && bindTarget && m.target.exists && m.target.ref==state.entity) {
     if(m.target.identity==chosenIdentity && m.target.revision==chosenRevision &&
@@ -558,7 +573,7 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
     }
     state.notice = Notice::none;
     if(state.screen == Screen::unlock) {
-      editor.turn(turn);
+      editor.keyboardTurn(turn);
       editorView();
     } else if(state.screen == Screen::details) {
       int offset = int(state.detailsOffset) + (turn > 0 ? 1 : -1);
@@ -568,7 +583,7 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
       state.screen = quickEnabled?Screen::quickHome:Screen::home;
       state.selected = 0;
     } else if(state.screen==Screen::quickHome || state.screen==Screen::quickManage || state.screen==Screen::quickActions) {
-      const int last=state.screen==Screen::quickActions?5:4;
+      const int last=state.screen==Screen::quickActions?5:state.screen==Screen::quickHome?11:4;
       const int next=int(state.selected)+(turn>0?1:-1);state.selected=next<0?0:next>last?last:next;
     } else if(state.screen==Screen::quickSave) {state.valueChoice=turn>0?1:0;
     } else if(state.screen==Screen::controllerMenu || state.screen==Screen::configureMenu || state.screen==Screen::networkMenu) {
@@ -584,7 +599,7 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
       state.cursor=next<0?0:next>last?last:next;
       const unsigned row=state.cursor>=m.page.offset?state.cursor-m.page.offset:catalogueRows;
       state.anchored=row<m.page.count;
-      if(state.anchored) state.anchorId=m.page.rows[row].id;
+      if(state.anchored) {state.anchorId=m.page.rows[row].id;state.anchorGroup=m.page.rows[row].group;}
     } else if(state.screen==Screen::settings || state.screen==Screen::administration || state.screen==Screen::system) formInput.turn=turn>0?1:-1;
     else if(state.screen == Screen::brightness) {
       if(state.setting == 0) {

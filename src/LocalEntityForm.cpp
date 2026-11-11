@@ -278,23 +278,10 @@ void Form::render() {
     copy(frame.rows[0].label, sizeof(frame.rows[0].label), label(f.field));
     editor.previewTail(frame.rows[0].value, sizeof(frame.rows[0].value));
     if (mode == Mode::text) {
-      copy(frame.rows[1].label, sizeof(frame.rows[1].label), "Character");
-      const auto p = editor.selected();
-      if (editor.byteMode())
-        snprintf(frame.rows[1].value, sizeof(frame.rows[1].value), "Byte %u",
-                 p);
-      else if (p < 95)
-        snprintf(frame.rows[1].value, sizeof(frame.rows[1].value), "'%c' (%u)",
-                 char(p + 32), p + 32);
-      else
-        copy(frame.rows[1].value, sizeof(frame.rows[1].value),
-             p == 95   ? "Delete byte"
-             : p == 96 ? "Exact byte"
-             : p == 97 ? "Apply to draft"
-                       : "Cancel field");
-      snprintf(frame.hint, sizeof(frame.hint),
-               "%u/%u bytes. Apply to draft; Back cancels.", editor.length(),
-               editor.maximumBytes());
+      copy(frame.title,sizeof(frame.title),label(f.field));
+      frame.keyboard=editor.keyboardView();
+      frame.textLength=editor.length();frame.textLimit=editor.maximumBytes();
+      snprintf(frame.hint,sizeof(frame.hint),"%u/%u bytes. Done or Back keeps draft.",editor.length(),editor.maximumBytes());
     } else {
       if (editor.kind() == ValueKind::choice) {
         char raw[48]; editor.preview(raw, sizeof(raw));
@@ -356,6 +343,12 @@ void Form::render() {
       copy(frame.hint, sizeof(frame.hint), activeField ? "Revert keeps other drafts." : "Inactive; Revert or change protocol.");
     }
     frame.rows[selected].selected = true;
+  } else if(mode==Mode::discard) {
+    frame.rowCount=frame.total=2;frame.selected=selected;
+    copy(frame.rows[0].label,sizeof(frame.rows[0].label),"Keep editing");
+    copy(frame.rows[1].label,sizeof(frame.rows[1].label),"Discard changes");
+    frame.rows[selected].selected=true;
+    copy(frame.hint,sizeof(frame.hint),"Unsaved changes will be lost.");
   } else if (mode == Mode::confirm) {
     frame.rowCount = frame.total = 2;
     frame.selected = selected;
@@ -589,7 +582,9 @@ void Form::turn(int direction, uint64_t now) {
   if (!direction || !guard(now))
     return;
   touch(now);
-  if (frame.mode == Mode::text || frame.mode == Mode::adjust)
+  if (frame.mode == Mode::text)
+    editor.keyboardTurn(direction, now);
+  else if (frame.mode == Mode::adjust)
     editor.rotate(direction, now);
   else if (direction > 0 && selected + 1 < frame.total)
     ++selected;
@@ -614,8 +609,8 @@ void Form::activate(uint64_t now) {
       return;
     }
     if (selected == metadata()->count + 1) {
-      discard();
-      return;
+      if(changes.size()){frame.mode=Mode::discard;selected=0;break;}
+      discard();return;
     }
     deleting = selected > metadata()->count + 1;
     if (deleting) {
@@ -637,7 +632,7 @@ void Form::activate(uint64_t now) {
     selected = 1;
     break;
   case Mode::text: {
-    const auto result = editor.press(now);
+    const auto result = editor.keyboardPress(now);
     if (result == EditOutcome::applied) {
       applyField(now);
       return;
@@ -702,6 +697,9 @@ void Form::activate(uint64_t now) {
     frame.mode = Mode::fields;
     selected = editing;
     break;
+  case Mode::discard:
+    if(selected){discard();return;}
+    frame.mode=Mode::fields;selected=editing;break;
   case Mode::confirm:
     if (selected) {
       save(now);
@@ -741,7 +739,11 @@ void Form::back(uint64_t now) {
   if (!guard(now))
     return;
   touch(now);
-  if (frame.mode == Mode::text || frame.mode == Mode::adjust ||
+  if(frame.mode==Mode::text) {
+    if(editor.keyboardBack(now)){render();return;}
+    editor.apply(now);applyField(now);return;
+  }
+  if (frame.mode == Mode::adjust ||
       frame.mode == Mode::actions || frame.mode == Mode::draft ||
       frame.mode == Mode::validation) {
     editor.cancel();
@@ -756,9 +758,12 @@ void Form::back(uint64_t now) {
     frame.mode = Mode::fields;
     selected = metadata()->count + (deleting ? 2 : 0);
     deleting = false;
+  } else if(frame.mode==Mode::discard) {
+    frame.mode=Mode::fields;selected=editing;
+  } else if(frame.mode==Mode::fields && changes.size()) {
+    frame.mode=Mode::discard;selected=0;
   } else {
-    discard();
-    return;
+    discard();return;
   }
   render();
 }

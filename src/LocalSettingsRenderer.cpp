@@ -111,6 +111,10 @@ void Canvas::paintSettings(const Settings::FormView &view) {
     text(12,104,second,false,warning,296);
     text(12,161,"Press or Back: return Home",false,muted,296);return;
   }
+  if(view.mode==Settings::Mode::text) {
+    char visible[48];tail(*this,view.rows[0].value,visible,246);
+    keyboard(view.keyboard,visible,view.textLength,view.textLimit);return;
+  }
   const bool editing=view.mode==Settings::Mode::text || view.mode==Settings::Mode::adjust;
   const bool partial=view.notice==Settings::Notice::partial && view.mode==Settings::Mode::fields;
   if(editing) {
@@ -129,7 +133,7 @@ void Canvas::paintSettings(const Settings::FormView &view) {
     if(row.dirty) fillCircle(304,top+13,2,warning);
   }
   if((view.mode==Settings::Mode::confirm || view.mode==Settings::Mode::secret ||
-      view.mode==Settings::Mode::replace)) {
+      view.mode==Settings::Mode::replace || view.mode==Settings::Mode::discard)) {
     char first[48],second[48];warningLines(*this,view.hint,first,second);
     text(12,126,first,false,warning,296);text(12,150,second,false,warning,296);
     return;

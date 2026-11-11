@@ -233,21 +233,20 @@ void Form::render(FormView &out) const {
     hint = "Scan unavailable or failed. No automatic retry.";
   } else if (s.page == Session::Page::list ||
              s.page == Session::Page::selected) {
-    out.mode = Mode::stackedRows;
+    out.mode = Mode::wifiList;
+    snprintf(out.title,sizeof(out.title),"%s",s.overflow?"Wi-Fi: first 16":s.count?"Wi-Fi networks":"No Wi-Fi found");
     out.total = s.count + 1;
-    out.offset = s.cursor / 3 * 3;
-    for (uint8_t i = out.offset; i < out.total && out.rowCount < 3; ++i) {
+    out.offset = s.cursor / 4 * 4;
+    for (uint8_t i = out.offset; i < out.total && out.rowCount < 4; ++i) {
       auto &row = out.rows[out.rowCount++];
       if (i == s.count)
         strcpy(row.label, "Enter SSID manually");
       else {
         auto &r = s.rows[i];
-        snprintf(row.label, sizeof(row.label),
-                 "#%u %02X:%02X:%02X:%02X:%02X:%02X", unsigned(i) + 1,
-                 r.bssid[0], r.bssid[1], r.bssid[2], r.bssid[3], r.bssid[4],
-                 r.bssid[5]);
-        snprintf(row.value, sizeof(row.value), "%s",
-                 r.ssid[0] ? r.ssid : "<hidden; manual>");
+        // This dedicated view uses value for the full 32-byte SSID plus NUL.
+        snprintf(row.value, sizeof(row.value), "%s",r.ssid[0]?r.ssid:"Hidden network");
+        const char *security=!r.authentication?"Open":r.authentication<=16?"Secured":"Unknown";
+        snprintf(row.label,sizeof(row.label),"%ddBm %s",int(r.rssi),security);
       }
     }
     hint = s.overflow ? "First 16 results. Others/hidden SSIDs: enter manually."

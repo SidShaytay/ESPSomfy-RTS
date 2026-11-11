@@ -47,7 +47,7 @@ class Runtime {
   static void wipePrivateProjection(EntityAdmin::FormView &view) {
     static_assert(std::is_trivially_copyable<EntityAdmin::FormView>::value,
                   "Only plain projected fields may be byte-erased");
-    static_assert(sizeof(EntityAdmin::FormView)<=352,"Bound private projection erasure");
+    static_assert(sizeof(EntityAdmin::FormView)<=448,"Bound private projection erasure");
     auto *bytes=reinterpret_cast<volatile unsigned char *>(&view);
     for(size_t i=0;i<sizeof(view);++i)bytes[i]=0;
     view.protectedFrame=true;

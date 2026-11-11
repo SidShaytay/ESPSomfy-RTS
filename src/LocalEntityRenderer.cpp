@@ -100,7 +100,7 @@ void Canvas::paintEntity(const EntityAdmin::FormView &view) {
   fillScreen(background);
   const bool numbered = (view.mode == Mode::fields || view.mode == Mode::stackedRows) && view.total > 3;
   text(12, 24, view.title[0] ? view.title : "Entity administration", true,
-       accent, numbered ? 230 : 296);
+       accent, numbered || view.mode==Mode::wifiList ? 230 : 296);
   if (numbered) {
     char progress[12];
     snprintf(progress, sizeof(progress), "%u/%u", unsigned(view.selected) + 1, unsigned(view.total));
@@ -126,6 +126,30 @@ void Canvas::paintEntity(const EntityAdmin::FormView &view) {
     }
     char first[48],second[48];lines(*this,view.hint,first,second);
     text(12,143,first,false,muted,296);text(12,166,second,false,muted,296);return;
+  }
+  if(view.mode==Mode::wifiList) {
+    char progress[12];snprintf(progress,sizeof(progress),"%u/%u",unsigned(view.selected)+1,unsigned(view.total));
+    text(256,24,progress,false,muted,52);
+    for(uint8_t i=0;i<view.rowCount && i<4;++i) {
+      const auto &row=view.rows[i];const int top=36+i*32;
+      if(row.selected)fillRoundRect(8,top,304,30,4,selection);
+      if(!row.value[0]) {text(14,top+21,row.label,false,foreground,284);continue;}
+      const char *security=strrchr(row.label,' ');
+      char signal[16]={};
+      const size_t length=security?size_t(security-row.label):strlen(row.label);
+      const size_t bounded=length<sizeof(signal)-1?length:sizeof(signal)-1;
+      memcpy(signal,row.label,bounded);
+      text(12,top+21,"",false,foreground,296); // Select body font for measurement.
+      int16_t x,y;uint16_t width,height;getTextBounds(signal,0,0,&x,&y,&width,&height);
+      const int signalX=292-width;
+      text(14,top+21,row.value,false,foreground,signalX-22);
+      text(signalX,top+21,signal,false,row.selected?accent:muted,width+2);
+      if(security && !strcmp(security+1,"Secured")) {
+        drawRoundRect(298,top+13,10,9,1,muted);
+        drawRoundRect(300,top+7,6,10,3,muted);
+      } else if(security && !strcmp(security+1,"Unknown"))text(298,top+21,"?",false,muted,10);
+    }
+    return;
   }
   if (view.mode == Mode::stackedRows) {
     for(uint8_t i=0;i<view.rowCount && i<3;i++) {
@@ -190,6 +214,10 @@ void Canvas::paintEntity(const EntityAdmin::FormView &view) {
     }
     return;
   }
+  if(view.mode==Mode::text) {
+    char visible[48];tail(*this,view.rows[0].value,visible,246);
+    keyboard(view.keyboard,visible,view.textLength,view.textLimit);return;
+  }
   const bool editor = view.mode == Mode::text || view.mode == Mode::adjust;
   if (editor) {
     text(12, 55, view.rows[0].label, false, muted, 296);
@@ -213,7 +241,7 @@ void Canvas::paintEntity(const EntityAdmin::FormView &view) {
       if (r.dirty)
         fillCircle(304, top + 13, 2, warning);
     }
-  if (view.mode == Mode::confirm || view.mode == Mode::replace || view.mode == Mode::validation) {
+  if (view.mode == Mode::confirm || view.mode == Mode::replace || view.mode == Mode::validation || view.mode == Mode::discard) {
     char first[48], second[48];
     lines(*this, view.hint, first, second);
     text(12, 126, first, false, warning, 296);
