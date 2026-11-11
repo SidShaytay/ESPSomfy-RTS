@@ -1,17 +1,36 @@
 ﻿:root {
     --shade-color: #00bcd4;
 }
+:root[data-theme="dark"] {
+    color-scheme: dark;
+    --overlay: #354355;
+    --text: #e4e8ee;
+    --page: #10151d;
+    --heading: #b9c4d2;
+    --label: #b3becd;
+    --input-text: #e4e8ee;
+    --input: #202b39;
+    --surface: #1b2430;
+    --tab: #263344;
+    --muted-surface: #303e50;
+    --muted: #b3becd;
+    --positioner: #293746;
+    --stripe: #263344;
+    --border: #536275;
+    --silver: #8190a3;
+}
+:root[data-theme="light"] { color-scheme: light; }
 * {
     box-sizing: border-box;
 }
 
 body {
-    color: #434343;
+    color: var(--text, #434343);
     font-family: "Helvetica Neue",Helvetica,Arial,sans-serif;
     font-size: 14px;
-    background-color: #eeeeee;
+    background-color: var(--page, #eeeeee);
     box-sizing: border-box;
-    margin-top: 77px;
+    margin-top: 22px;
 }
 
 
@@ -19,7 +38,7 @@ h1 {
     text-align: center;
     margin-bottom: 10px;
     margin-top: 0px;
-    color: #939393;
+    color: var(--heading, #939393);
     font-size: 28px;
 }
 hr {
@@ -98,7 +117,7 @@ form {
 }
 
     .field-group1 > span {
-        color: #757575;
+        color: var(--label, #757575);
         display: inline-block;
         margin: 0 0 5px 0;
         padding: 5px 0 0;
@@ -134,8 +153,8 @@ input[type=text] {
     font-size: 15px;
     margin-bottom: 14px;
     -webkit-appearance: none;
-    background: #fafafa;
-    color: #636363;
+    background: var(--input, #fafafa);
+    color: var(--input-text, #636363);
     border: none;
     border-radius: 0;
     border-top: none;
@@ -148,8 +167,8 @@ input[type=text] {
 select {
     font-size: 15px;
     -webkit-appearance: none;
-    background: #fafafa;
-    color: #636363;
+    background: var(--input, #fafafa);
+    color: var(--input-text, #636363);
     border: none;
     border-radius: 0;
     border-top: none;
@@ -229,7 +248,7 @@ div.error-message {
     color:white;
     display:flex;
     flex-wrap:wrap;
-    background:gray;
+    background:var(--overlay, gray);
     opacity:.9;
     padding:10px;
     align-items:center;
@@ -267,7 +286,7 @@ div.instructions {
     width: 100%;
     height: 100%;
     color: white;
-    background: gray;
+    background: var(--overlay, gray);
     opacity: .9;
     padding: 10px;
     display: flex;
@@ -306,41 +325,41 @@ div.instructions {
     width: calc(100% - 7px);
     margin-bottom: -1px;
     overflow: visible;
-    border-bottom: 1px solid #ccc;
+    border-bottom: 1px solid var(--border, #ccc);
 }
     .subtab-container > span {
         display:inline-block;
-        background:white;
+        background:var(--surface, white);
         margin-bottom:-1px;
         padding-left: 10px;
         padding-right:10px;
         padding-top:5px;
         padding-bottom:5px;
-        border-top: 1px solid #ccc;
-        border-left: 1px solid #ccc;
-        border-right: 1px solid #ccc;
-        border-bottom: 1px solid #ccc;
+        border-top: 1px solid var(--border, #ccc);
+        border-left: 1px solid var(--border, #ccc);
+        border-right: 1px solid var(--border, #ccc);
+        border-bottom: 1px solid var(--border, #ccc);
         border-top-left-radius: 5px;
         border-top-right-radius: 5px;
         cursor:pointer;
-        background:ghostwhite;
+        background:var(--tab, ghostwhite);
     }
     .subtab-container > span.selected {
         border-bottom:none;
-        background:white;
+        background:var(--surface, white);
     }
 .subtab-content {
     display: block;
-    border-left: 1px solid #ccc;
-    border-right: 1px solid #ccc;
-    border-bottom: 1px solid #ccc;
+    border-left: 1px solid var(--border, #ccc);
+    border-right: 1px solid var(--border, #ccc);
+    border-bottom: 1px solid var(--border, #ccc);
     border-radius: 5px;
     padding: 25px;
     position: relative;
 }
 fieldset {
     display: block;
-    border: 1px solid #ccc;
+    border: 1px solid var(--border, #ccc);
     border-radius: 5px;
     padding: 25px;
     margin-top: 20px;
@@ -355,7 +374,7 @@ div.field-group1.inputPin {
     margin-top:-10px;
 }
 legend {
-    border: 1px solid #ccc;
+    border: 1px solid var(--border, #ccc);
     border-bottom: 0;
     border-radius: 5px 5px 0 0;
     padding: 8px 18px 0;
@@ -465,7 +484,7 @@ div.wait-overlay > .lds-roller {
             width: 7px;
             height: 7px;
             border-radius: 50%;
-            background: gray;
+            background: var(--overlay, gray);
             margin: -4px 0 0 -4px;
         }
         .lds-roller div:nth-child(1) {
@@ -589,7 +608,7 @@ div.wait-overlay > .lds-roller {
 .progress-bar {
     display:block;
     width:100%;
-    background:white;
+    background:var(--surface, white);
     border-radius:calc(1em / 2);
     height:1em;
     overflow:hidden;
@@ -622,7 +641,7 @@ div.wait-overlay > .lds-roller {
 .somfyGroupCtl,
 .somfyShadeCtl {
     height:60px;
-    border-bottom:dotted 2px gainsboro;
+    border-bottom:dotted 2px var(--muted-surface, gainsboro);
     position:relative;
     display:flex;
     vertical-align:middle;
@@ -659,7 +678,7 @@ div.wait-overlay > .lds-roller {
     .somfyGroupCtl .groupctl-name,
     .somfyShadeCtl .shadectl-name {
         font-size: 1.37em;
-        color: silver;
+        color: var(--silver, silver);
         display: block;
         vertical-align: middle;
         white-space: nowrap;
@@ -667,7 +686,7 @@ div.wait-overlay > .lds-roller {
     }
     .somfyGroupCtl label,
     .somfyShadeCtl label {
-        color:silver;
+        color:var(--silver, silver);
     }
     .somfyShadeCtl .shadectl-room,
     .somfyGroupCtl .groupctl-room {
@@ -711,8 +730,8 @@ div.wait-overlay > .lds-roller {
 .shade-positioner {
     position: absolute;
     width: 100%;
-    background-color: oldlace;
-    color: gray;
+    background-color: var(--positioner, oldlace);
+    color: var(--muted, gray);
     min-height: 60px;
     top: 0px;
     padding-left: 7px;
@@ -721,7 +740,7 @@ div.wait-overlay > .lds-roller {
     z-index: 100;
     margin-top: -7px;
     box-shadow: 4px 4px 4px gray;
-    border: solid 1px silver;
+    border: solid 1px var(--silver, silver);
     border-radius: 5px;
 }
 .shade-positioner .shade-name {
@@ -740,7 +759,7 @@ div.wait-overlay > .lds-roller {
     font-size:1em;
     margin-top:-3px;
     margin-left:27px;
-    color:gray;
+    color:var(--muted, gray);
 }
     .shade-positioner label > span:last-child {
         float: right;
@@ -765,16 +784,16 @@ div.eth-setting-line label {
     color:mediumspringgreen;
 }
 div.frame-log {
-    background:gainsboro;
+    background:var(--muted-surface, gainsboro);
 }
 div.frame-list {
     position:relative;
     width: 100%;
     max-height:357px;
-    background:white;
+    background:var(--surface, white);
     min-height:127px;
     overflow-y:auto;
-    border-bottom:solid 1px silver;
+    border-bottom:solid 1px var(--silver, silver);
 }
 div.frame-header {
     border-top-left-radius:5px;
@@ -839,12 +858,12 @@ div.frame-header > span {
     }
 
 div.frame-list > div:nth-child(2n+1) {
-    background: beige;
+    background: var(--stripe, beige);
 }
 div.frame-row {
     font-size:12px;
     width:100%;
-    background:white;
+    background:var(--surface, white);
 }
 div.frame-row[data-valid="false"] {
     text-decoration:line-through;
@@ -879,3 +898,26 @@ div.frame-pulses {
     font-size: 14px;
     text-align: center;
 }
+
+.appearance-control {
+    max-width: 450px;
+    margin: 0 auto 20px;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.appearance-control select { margin-bottom: 0; }
+:root[data-theme="dark"] option {
+    background: var(--surface);
+    color: var(--text);
+}
+:root[data-theme="dark"] a { color: #61d5e4; }
+:root[data-theme="dark"] :focus-visible { outline: 2px solid #61d5e4; outline-offset: 3px; }
+
+:root[data-theme="dark"] button,
+:root[data-theme="dark"] .frame-header,
+:root[data-theme="dark"] .progress-bar::after { color: #10222b; }
+:root[data-theme="dark"] .frame-row[data-valid="false"] { color: #ff9191; }
+:root[data-theme="dark"] input::placeholder { color: var(--muted); opacity: 1; }
