@@ -13,8 +13,9 @@ struct Health {
   bool sampled=false,psramPresent=false,loopSampled=false;
   uint32_t internalFreeBytes=0,internalMinimumBytes=0,internalLargestBytes=0,psramFreeBytes=0;
   uint32_t loopRate=0,loopMaxUs=0;
+  uint32_t internalTotalBytes=0,psramTotalBytes=0;
 };
-static_assert(sizeof(Health)<=32,"Keep LCD health metadata bounded");
+static_assert(sizeof(Health)<=40,"Keep LCD health metadata bounded");
 struct Snapshot {
   BootRecoveryNotice recovery=BootRecoveryNotice::none;
   Health health;

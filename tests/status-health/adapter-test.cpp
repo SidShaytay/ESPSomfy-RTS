@@ -21,7 +21,7 @@ struct LoopStats {
   uint32_t publishedRate() {++reads;return rate;}
   uint32_t publishedMaxUs() {++reads;return maximum;}
 } loopStats;
-uint32_t fakeNow=0;int pins[64]={};bool attachOK=true;SerialStub Serial;
+uint32_t fakeNow=0;int pins[64]={};bool attachOK=true,owned=false,updaterSampling=false;SerialStub Serial;
 #include "../../src/StatusAdapter.cpp"
 int main() {
   LocalUi::EntityAdmin::FormRow network;
@@ -46,6 +46,7 @@ int main() {
   assert(sample.health.sampled && sample.health.psramPresent);
   assert(sample.health.internalFreeBytes==65536 && sample.health.internalMinimumBytes==32768 && sample.health.internalLargestBytes==16384);
   assert(sample.health.psramFreeBytes==6u*1024*1024);
+  assert(sample.health.internalTotalBytes==128u*1024 && sample.health.psramTotalBytes==8u*1024*1024);
   assert(!sample.health.loopSampled && loopStats.reads==0);
   assert(strstr(sample.build,"CC1101 / Plus UI") && strcmp(sample.firmwareVersion,"health-test")==0);
   loopStats.ready=true;sample=StatusPanel::snapshot(true);
@@ -56,5 +57,5 @@ int main() {
   assert(sample.health.loopSampled && !sample.health.loopRate && !sample.health.loopMaxUs && loopStats.reads==4);
   assert(sample.health.psramPresent && !sample.health.psramFreeBytes && !sample.health.internalFreeBytes);
   FakeHeap::psramTotal=0;const auto reads=FakeHeap::psramReads;
-  sample=StatusPanel::snapshot(true);assert(!sample.health.psramPresent && FakeHeap::psramReads==reads);
+  sample=StatusPanel::snapshot(true);assert(!sample.health.psramPresent && !sample.health.psramTotalBytes && !sample.health.psramFreeBytes && FakeHeap::psramReads==reads);
 }
