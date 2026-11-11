@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <AsyncUDP.h>
+#include <freertos/FreeRTOS.h>
 
 #define SSDP_UUID_SIZE              42
 #define SSDP_SCHEMA_URL_SIZE        64
@@ -107,11 +108,32 @@ struct ssdp_response_t {
   unsigned long sendTime;
   char st[SSDP_DEVICE_TYPE_SIZE];
   response_types_t responseType;
+  uint32_t expiresAt = 0;
+};
+// UDP owns parsing only. This bounded value has no device/model pointers.
+struct ssdp_request_t {
+  IPAddress address;
+  uint16_t port = 0;
+  uint32_t received = 0;
+  char st[SSDP_FIELD_LEN] = {};
+  uint8_t mx = 0;
+  ssdp_req_types_t type = UNKNOWN;
 };
 class SSDPClass {
   uint8_t m_cdeviceTypes = SSDP_CHILD_DEVICES + 1;
   protected:
     ssdp_response_t sendQueue[SSDP_QUEUE_SIZE];
+    portMUX_TYPE requestMux = portMUX_INITIALIZER_UNLOCKED;
+    ssdp_request_t requests[SSDP_QUEUE_SIZE];
+    uint8_t requestHead = 0, requestCount = 0;
+    uint32_t requestGeneration = 0;
+    bool acceptingRequests = false;
+    void _resetRequests(bool accepting);
+    uint32_t _requestEpoch();
+    bool _enqueueRequest(const ssdp_request_t &request, uint32_t epoch);
+    bool _takeRequest(ssdp_request_t &request);
+    void _dispatchRequest(ssdp_request_t &request);
+    void _drainRequests();
     //ssdp_response_t sendQueue[SSDP_QUEUE_SIZE];
     //void _send(ssdp_method_t method, UPNPDeviceType *dev, bool useUUID);
     //void _sendAll(ssdp_method_t method, bool useUUID);
@@ -137,7 +159,7 @@ class SSDPClass {
     void _parsePacket(ssdp_packet_t *pkt, AsyncUDPPacket &p);
     void _printPacket(ssdp_packet_t *pkt);
     bool _startsWith(const char* pre, const char* str);
-    void _addToSendQueue(IPAddress addr, uint16_t port, UPNPDeviceType *d, const char *st, response_types_t responseType, uint8_t sec);
+    void _addToSendQueue(IPAddress addr, uint16_t port, UPNPDeviceType *d, const char *st, response_types_t responseType, uint8_t sec, uint32_t received);
    
   public:
     SSDPClass();

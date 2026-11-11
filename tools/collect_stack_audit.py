@@ -15,13 +15,21 @@ ANSI = re.compile(r'\x1b\[[0-9;]*m')
 def parse(lines):
     records, previous, rejected = [], {}, 0
     captured_elf = None
+    boot_seen = False
     for line in lines:
         clean = ANSI.sub('', line.rstrip('\r\n'))
         identity = IDENTITY.search(clean)
-        if BOUNDARY.search(clean) or identity:
+        if BOUNDARY.search(clean):
             if records:
-                raise ValueError('Boot/crash/image identity boundary after samples; split capture into separate runs')
-            captured_elf = identity[1] if identity else None
+                raise ValueError('Boot/crash boundary after samples; split capture into separate runs')
+            captured_elf = None
+            boot_seen = bool(re.search(r'ESP-ROM:|rst:0x', clean))
+        if identity:
+            # Tasks can log their first sample before setup prints the ELF.
+            # Bind that first identity only within an observed uninterrupted boot.
+            if records and (captured_elf is not None or not boot_seen):
+                raise ValueError('Image identity boundary after samples; split capture into separate runs')
+            captured_elf = identity[1]
         match = LINE.search(clean)
         if not match:
             rejected += int('STACK_AUDIT' in clean)

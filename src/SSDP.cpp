@@ -167,6 +167,7 @@ void UPNPDeviceType::setChipId(uint32_t chipId) {
 SSDPClass::SSDPClass():sendQueue{false, INADDR_NONE, 0, nullptr, false, 0, "", response_types_t::root} {}
 SSDPClass::~SSDPClass() { end(); this->isStarted = false; }
 bool SSDPClass::begin() { 
+  this->_resetRequests(false);
   for(int i = 0; i < SSDP_QUEUE_SIZE; i++) {
     this->sendQueue[i].waiting = false;
   }
@@ -200,13 +201,15 @@ bool SSDPClass::begin() {
     ESP_LOGI(TAG, "SSDP: %s - %s", this->deviceTypes[i].deviceType, this->deviceTypes[i].isActive ? "true" : "false");
   }
   this->isStarted = true;
+  this->_resetRequests(true);
   this->_sendByeBye();
   this->_sendNotify();
   ESP_LOGI(TAG, "Connected to SSDP...");
   return true;
 }
-void SSDPClass::end() { 
-  if(!this->_server || !this->_server.connected()) return; // server isn't connected nothing to do
+void SSDPClass::end() {
+  this->_resetRequests(false);
+  for(auto &response : this->sendQueue) response.waiting = false;
   #ifdef DEBUG_SSDP
   DEBUG_SSDP.printf(PSTR("SSDP end ...\n "));
   #endif
@@ -583,7 +586,7 @@ void SSDPClass::_sendByeBye(UPNPDeviceType *d, bool root) {
                        d->getUSN(response_types_t::deviceType), this->bootId, this->configId);
    this->_sendNotify(buffer);
 }
-void SSDPClass::_addToSendQueue(IPAddress addr, uint16_t port, UPNPDeviceType *d, const char *st, response_types_t responseType, uint8_t sec) {
+void SSDPClass::_addToSendQueue(IPAddress addr, uint16_t port, UPNPDeviceType *d, const char *st, response_types_t responseType, uint8_t sec, uint32_t received) {
   /*
   typedef struct ssdp_response_t {
     IPAddress address;
@@ -595,6 +598,9 @@ void SSDPClass::_addToSendQueue(IPAddress addr, uint16_t port, UPNPDeviceType *d
   };
   */
   for(uint8_t i = 0; i < SSDP_QUEUE_SIZE; i++) {
+    if(this->sendQueue[i].waiting &&
+       int32_t(uint32_t(millis()) - this->sendQueue[i].expiresAt) > 0)
+      this->sendQueue[i].waiting = false;
     if(this->sendQueue[i].waiting) {
       // Check to see if this is a reply to the same place.
       ssdp_response_t *q = &this->sendQueue[i];
@@ -615,7 +621,13 @@ void SSDPClass::_addToSendQueue(IPAddress addr, uint16_t port, UPNPDeviceType *d
         #endif
         ssdp_response_t *q = &this->sendQueue[i];
         q->dev = d;
-        q->sendTime = millis() + (random(0, sec - 1) * 1000L);
+        const uint32_t now = uint32_t(millis());
+        const uint32_t deadline = received + (sec ? uint32_t(sec) * 1000u : 1000u);
+        const int32_t remaining = int32_t(deadline - now);
+        if(remaining < 0) return;
+        const uint32_t delay = sec > 1 ? uint32_t(random(0, sec - 1)) * 1000u : 0u;
+        q->sendTime = now + (delay < uint32_t(remaining) ? delay : uint32_t(remaining));
+        q->expiresAt = deadline;
         q->address = addr;
         q->port = port;
         q->responseType = responseType;
@@ -633,7 +645,11 @@ void SSDPClass::_sendQueuedResponses() {
   for(uint8_t i = 0; i < SSDP_QUEUE_SIZE; i++) {
     if(this->sendQueue[i].waiting) {
       ssdp_response_t *q = &this->sendQueue[i];
-      if(q->sendTime < millis()) {
+      if(int32_t(uint32_t(millis()) - q->expiresAt) > 0) {
+        q->waiting = false;
+        continue;
+      }
+      if(int32_t(uint32_t(millis()) - uint32_t(q->sendTime)) >= 0) {
           // Send the response and delete the pointer.
           #ifdef DEBUG_SSDP
             DEBUG_SSDP.print("Sending SSDP queued response ");
@@ -665,31 +681,94 @@ void SSDPClass::_printPacket(ssdp_packet_t *pkt) {
   ESP_LOGD(TAG, "ST: %s MAN: %s AGENT: %s HOST: %s MX: %d type: %d valid: %d",
     pkt->st, pkt->man, pkt->agent, pkt->host, pkt->mx, pkt->type, pkt->valid);
 }
+void SSDPClass::_resetRequests(bool accepting) {
+  portENTER_CRITICAL(&this->requestMux);
+  this->acceptingRequests = accepting;
+  if(++this->requestGeneration == 0) ++this->requestGeneration;
+  this->requestHead = this->requestCount = 0;
+  portEXIT_CRITICAL(&this->requestMux);
+}
+uint32_t SSDPClass::_requestEpoch() {
+  portENTER_CRITICAL(&this->requestMux);
+  const uint32_t epoch = this->acceptingRequests ? this->requestGeneration : 0;
+  portEXIT_CRITICAL(&this->requestMux);
+  return epoch;
+}
+bool SSDPClass::_enqueueRequest(const ssdp_request_t &request, uint32_t epoch) {
+  portENTER_CRITICAL(&this->requestMux);
+  bool accepted = this->acceptingRequests && epoch == this->requestGeneration;
+  if(accepted) {
+    for(uint8_t i = 0; i < this->requestCount; ++i) {
+      const auto &pending = this->requests[(this->requestHead + i) % SSDP_QUEUE_SIZE];
+      if(pending.address == request.address && pending.port == request.port &&
+         pending.type == request.type && strcmp(pending.st, request.st) == 0) {
+        portEXIT_CRITICAL(&this->requestMux);
+        return true; // One pending reply covers duplicate datagrams.
+      }
+    }
+    accepted = this->requestCount < SSDP_QUEUE_SIZE;
+    if(accepted) {
+      this->requests[(this->requestHead + this->requestCount) % SSDP_QUEUE_SIZE] = request;
+      ++this->requestCount;
+    }
+  }
+  portEXIT_CRITICAL(&this->requestMux);
+  return accepted;
+}
+bool SSDPClass::_takeRequest(ssdp_request_t &request) {
+  portENTER_CRITICAL(&this->requestMux);
+  const bool available = this->acceptingRequests && this->requestCount;
+  if(available) {
+    request = this->requests[this->requestHead];
+    this->requestHead = (this->requestHead + 1) % SSDP_QUEUE_SIZE;
+    --this->requestCount;
+  }
+  portEXIT_CRITICAL(&this->requestMux);
+  return available;
+}
 void SSDPClass::_processRequest(AsyncUDPPacket &p) {
 #ifdef ESPSOMFY_STACK_AUDIT
   StackAudit::Scope stackAudit;
 #endif
-  // This pending BS should probably be for unicast request only but we will play along for now.
-  if(!this->_server.connected()) return;
-  if(p.length() == 0) {
-    //this->_sendQueuedResponses();
-    return;
-  }
+  const uint32_t epoch = this->_requestEpoch();
+  if(!epoch || !p.length()) return;
   ssdp_packet_t pkt;
   this->_parsePacket(&pkt, p);
-  if(pkt.valid && pkt.method == SEARCH) {
+  if(!pkt.valid || pkt.method != SEARCH) return;
+  ssdp_request_t request;
+  request.address = p.remoteIP();
+  request.port = p.remotePort();
+  request.received = uint32_t(pkt.recvd);
+  request.type = pkt.type;
+  request.mx = pkt.mx;
+  strlcpy(request.st, pkt.st, sizeof(request.st));
+  this->_enqueueRequest(request, epoch);
+}
+void SSDPClass::_drainRequests() {
+  if(!this->isStarted || !this->_server.connected()) {
+    this->_resetRequests(false);
+    for(auto &response : this->sendQueue) response.waiting = false;
+    return;
+  }
+  ssdp_request_t request;
+  if(!this->_takeRequest(request)) return;
+  const uint32_t maxAge = request.type == MULTICAST ? uint32_t(request.mx) * 1000u : 1000u;
+  if(uint32_t(millis()) - request.received > maxAge) return;
+  this->_dispatchRequest(request);
+}
+void SSDPClass::_dispatchRequest(ssdp_request_t &pkt) {
     // Check to see if we have anything to respond to from this packet.
     if(strcmp("ssdp:all", pkt.st) == 0) {
       #ifdef DEBUG_SSDP
       DEBUG_SSDP.println("---------------   ALL   ---------------------");
-      this->_printPacket(&pkt);
+      DEBUG_SSDP.println(pkt.st);
       #endif
       for(uint8_t i = 0; i < this->m_cdeviceTypes; i++) {
         UPNPDeviceType *dev = &this->deviceTypes[i];
         if(strlen(this->deviceTypes[i].deviceType) > 0) {
-          this->_addToSendQueue(p.remoteIP(), p.remotePort(), dev, pkt.st, response_types_t::root, pkt.mx);
-          this->_addToSendQueue(p.remoteIP(), p.remotePort(), dev, pkt.st, response_types_t::uuid, pkt.mx);
-          this->_addToSendQueue(p.remoteIP(), p.remotePort(), dev, pkt.st, response_types_t::deviceType, pkt.mx);
+          this->_addToSendQueue(pkt.address, pkt.port, dev, pkt.st, response_types_t::root, pkt.mx, pkt.received);
+          this->_addToSendQueue(pkt.address, pkt.port, dev, pkt.st, response_types_t::uuid, pkt.mx, pkt.received);
+          this->_addToSendQueue(pkt.address, pkt.port, dev, pkt.st, response_types_t::deviceType, pkt.mx, pkt.received);
         }
       }
     }
@@ -697,12 +776,12 @@ void SSDPClass::_processRequest(AsyncUDPPacket &p) {
       UPNPDeviceType *dev = &this->deviceTypes[0];
       #ifdef DEBUG_SSDP
       DEBUG_SSDP.println("---------------   ROOT   ---------------------");
-      this->_printPacket(&pkt);
+      DEBUG_SSDP.println(pkt.st);
       #endif
       if(pkt.type == MULTICAST) 
-        this->_addToSendQueue(IPAddress(SSDP_MULTICAST_ADDR), SSDP_PORT, dev, pkt.st, response_types_t::root, pkt.mx);
+        this->_addToSendQueue(IPAddress(SSDP_MULTICAST_ADDR), SSDP_PORT, dev, pkt.st, response_types_t::root, pkt.mx, pkt.received);
       else 
-        this->_sendResponse(p.remoteIP(), p.remotePort(), dev, pkt.st, response_types_t::root);
+        this->_sendResponse(pkt.address, pkt.port, dev, pkt.st, response_types_t::root);
     }
     else {
       UPNPDeviceType *dev = nullptr;
@@ -714,19 +793,20 @@ void SSDPClass::_processRequest(AsyncUDPPacket &p) {
       else if(this->_startsWith("urn:", pkt.st)) { dev = this->findDeviceByType(pkt.st); }
       if(dev) {
         #ifdef DEBUG_SSDP
-        this->_printPacket(&pkt);
+        DEBUG_SSDP.println(pkt.st);
         DEBUG_SSDP.println("--------------   ACCEPT   --------------------");
         #endif
         if(pkt.type == MULTICAST)
-          this->_addToSendQueue(IPAddress(SSDP_MULTICAST_ADDR), SSDP_PORT, dev, pkt.st, useUUID ? response_types_t::uuid : response_types_t::root, pkt.mx);
+          this->_addToSendQueue(IPAddress(SSDP_MULTICAST_ADDR), SSDP_PORT, dev, pkt.st, useUUID ? response_types_t::uuid : response_types_t::root, pkt.mx, pkt.received);
         else {
-          this->_sendResponse(p.remoteIP(), p.remotePort(), dev, pkt.st, useUUID ? response_types_t::uuid : response_types_t::root);
+          this->_sendResponse(pkt.address, pkt.port, dev, pkt.st, useUUID ? response_types_t::uuid : response_types_t::root);
         }
       }
     }
-  }
 }
 void SSDPClass::loop() {
+  this->_drainRequests();
+  if(!this->isStarted || !this->_server.connected()) return;
   this->_sendQueuedResponses();
   // We need to send the notify if required.
   this->_sendNotify();

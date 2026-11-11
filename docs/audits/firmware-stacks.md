@@ -2,7 +2,7 @@
 
 The historical network-event overflow is fixed in #34. This broader audit checks where current firmware spends stack memory and prepares measurements of the remaining margin. Progress and remaining work are tracked in [#35](https://github.com/SidShaytay/ESPSomfy-RTS/issues/35); combined-load and physical acceptance remain [#33](https://github.com/SidShaytay/ESPSomfy-RTS/issues/33).
 
-**Status:** ESP32 compiler/binary measurements and host checks are complete for the baseline below. Opt-in runtime instrumentation builds successfully. No new board measurements, installation, resets or simulator runs are claimed.
+**Status:** baseline compiler/binary measurements and host checks are recorded below. The remaining SSDP ownership fixes are implemented and under final firmware verification. Sid authorized a fresh full backup, instrumented installation/reboots and bounded read-only measurement. Runtime results will be added after that stage; no simulator result is claimed.
 
 ## Measurements recorded on Vega
 
@@ -44,8 +44,8 @@ Other SDK tasks include the TCP/IP worker (4,096), system events (2,048) and hig
 ## Findings and priorities
 
 1. **Keep the #34 fix.** Discovery startup now runs on the same loop task that already owns ordinary discovery sends. This corrects the demonstrated 4 KiB event-stack failure without reserving another large stack or changing the asynchronous radio scheduler.
-2. **Resolve remaining SSDP callback ownership before aggressive discovery load.** Unicast root/UUID/device-type searches still call `_sendResponse` directly from `_processRequest`. The dispatcher’s 896-byte frame and reply’s 1,632-byte frame overlap before the network-library calls. This is a concrete narrow-budget path, not a reproduced second overflow. Multicast searches usually use the delayed reply queue.
-3. **Synchronize or transfer ownership of SSDP request state.** The UDP producer and loop consumer access the delayed reply queue without a lock/atomic handoff. Direct replies also mutate a device’s shared USN formatting buffer while the loop can announce that device. The audit identifies unsynchronized shared state; it does not claim an observed corruption. A bounded request handoff to the loop would address both sending context and ownership. Its overflow, duplicate, deadline, disconnect and shutdown behavior need regression tests.
+2. **SSDP reply sending now belongs to the loop.** The UDP callback parses a packet and copies a compact request into a five-entry bounded handoff under a short critical section. The loop performs device lookup, USN formatting and all reply transmission. This removes the overlapping UDP-dispatch/reply/network-send stack chain identified in the baseline.
+3. **SSDP shared state now has explicit ownership.** Only the loop accesses the delayed response queue and mutable device USN buffer. Incoming handoff slots contain values, not device pointers or borrowed packet data. Generations reject producers from an earlier end/restart; disconnect clears work. Full queues drop new packets, duplicates coalesce, expired entries are reclaimed, and delayed replies retain the original request deadline across queue residence and clock wrap. Production-method regressions cover these paths and concurrent handoff.
 4. **Measure loop/UI and updater margins before resizing.** UI functions have several 1–1.6 KiB frames; the updater has a 2.8 KiB download frame plus TLS/network calls. Their allocations alone do not establish adequate headroom. The updater already has its own stack/heap counters, which should be compared with this audit capture.
 5. **Reduce buffers only with explicit ownership.** Several SSDP functions keep 1,460-byte packet arrays on the stack through a send. Owned reusable storage could reduce pressure, but a shared global buffer would create concurrent-write problems. Blindly moving every buffer to the heap would introduce allocation/failure costs.
 

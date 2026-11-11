@@ -41,5 +41,11 @@ class CollectorTests(unittest.TestCase):
         identity_b='LCD running slot=app1 elfSHA256='+('b'*64)
         self.assertEqual(collector.parse([identity]+reboot+[identity_b,sample])['capturedElfSha256'],'b'*64)
 
+    def test_first_identity_can_follow_early_samples_in_same_observed_boot(self):
+        sample='STACK_AUDIT schema=1 role=radio uptimeMs=20 minimumUnusedBytes=3000 samples=1 maxScanUs=8'
+        identity='LCD running slot=app0 elfSHA256='+('a'*64)
+        self.assertEqual(collector.parse(['ESP-ROM:esp32s3-20210327',sample,identity])['capturedElfSha256'],'a'*64)
+        with self.assertRaises(ValueError):collector.parse([sample,identity])
+
 
 if __name__=='__main__':unittest.main()
