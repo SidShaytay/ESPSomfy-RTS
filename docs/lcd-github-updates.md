@@ -1,6 +1,6 @@
 # Update firmware from the LCD
 
-**Navigation version:** These paths apply to **4.9.0 and later**. For 4.8.0 or 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
+**Navigation version:** These paths apply to **public v4.1.0** and engineering **4.9.x**. For engineering 4.8.0 or 4.7.3, see the [versioned path map](lilygo-local-ui.md#navigation-versions).
 
 **Home → Updates** (also **System → Maintenance → GitHub updates**) checks and installs a newer stable release from
 `SidShaytay/ESPSomfy-RTS` without a computer. The shared CC1101 / Plus image
@@ -15,7 +15,7 @@ browser companion or separate LCD web-image upload.
 
 1. Unlock with the controller's configured PIN or password, if enabled.
 2. Choose **Check GitHub release**. Opening the screen starts no download.
-3. In 4.7.3 and later, an eligible result opens its review automatically with **Cancel** selected. Read the full release version. Earlier builds require choosing **Review release** first.
+3. In public v4.1.0 (and engineering 4.7.3 onward), an eligible result opens its review automatically with **Cancel** selected. Read the full release version. Earlier builds require choosing **Review release** first.
 4. Turn from the default **Cancel** to **Install and restart**, then press.
 5. Keep power connected while the controller verifies and installs the update.
 
@@ -23,7 +23,7 @@ Installation saves the current model and checks that movement and pending work
 have finished. If the release or controller state changes, it can refuse and
 require a new review. A terminal failure needs a new explicit request; temporary download errors during an active confirmed installation follow the retry rules below.
 
-In 4.7.3 and later, display inactivity dims the screen while keeping update progress or its result visible. It does not return to Home. Ordinary Check or review sessions still expire and show a protected read-only result. Confirmed 4.8.0 installations continue after the menus lock, as described below. Keeping the screen does not extend authentication.
+In public v4.1.0 (and engineering 4.7.3 onward), display inactivity dims the screen while keeping update progress or its result visible. It does not return to Home. Ordinary Check or review sessions still expire and show a protected read-only result. Confirmed public v4.1.0 installations (and engineering 4.8.0 onward) continue after the menus lock, as described below. Keeping the screen does not extend authentication.
 
 After you confirm **Install and restart**, that exact GitHub operation has up to **30 minutes from the original confirmation** to finish. Inactivity does not cancel it. PIN/password menus still lock after two minutes; progress does not renew access to controls or administration. None mode remains open as configured.
 

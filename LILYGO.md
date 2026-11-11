@@ -1,12 +1,6 @@
 # LILYGO T-Embed CC1101 and CC1101 Plus
 
-**ENGINEERING BUILD — INCOMPLETE. Applies to all builds currently produced by this fork.**
-
-> WARNING: Please do not load these builds, these are still a preview of the final approach.
-
-An actual controller GitHub download and installation has **never yet completed**.
-Host/offline tests and successful desktop asset downloads do not prove that path.
-See the [remaining qualification](docs/lcd-completion-qualification.md).
+The public release is **v4.1.0**. See the [release notes](docs/releases/v4.1.0.md) and [first-install guide](docs/first-install.md) when coming from another firmware. A physical LCD GitHub installation completed during engineering qualification; [remaining checks](docs/lcd-completion-qualification.md) are tracked separately.
 
 For backup, firmware-only A/B installation, verification and recovery, follow [the standard flashing procedure](docs/flashing.md). Use the shared `lilygo-t-embed-cc1101` firmware for either CC1101 or CC1101 Plus; it includes display, interactive UI, local commands and the matching web UI.
 
