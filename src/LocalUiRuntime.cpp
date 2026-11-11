@@ -1,5 +1,8 @@
 #ifdef ESPSOMFY_LOCAL_UI
 #include "LocalUiRuntime.h"
+#ifdef ESPSOMFY_AUDIT_CONTROL
+#include "AuditConsole.h"
+#endif
 #include "LocalUiAdapter.h"
 #include "LocalUiCapture.h"
 #include "LocalUiAuthorizationAdapter.h"
@@ -186,8 +189,26 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
       before.dimSeconds==presentedView.dimSeconds && before.offSeconds==presentedView.offSeconds;
   visible &= before.quickEditing==presentedView.quickEditing && before.quickPicking==presentedView.quickPicking &&
     before.quickSlot==presentedView.quickSlot;
-  const int8_t turn=encoder.sample((digitalRead(BoardProfile::encoderA)<<1)|digitalRead(BoardProfile::encoderB));
-  controller.tick(now,model,turn,pressed,visible,digitalRead(BoardProfile::backButton)==0,systemChild==SystemChild::updates);
+  int8_t turn=encoder.sample((digitalRead(BoardProfile::encoderA)<<1)|digitalRead(BoardProfile::encoderB));
+  bool backPressed=digitalRead(BoardProfile::backButton)==0;
+#ifdef ESPSOMFY_AUDIT_CONTROL
+  // Debug inputs enter the same raw-button debounce and presented-frame
+  // authorization path as the physical controls. No Form is called directly.
+  AuditConsole::UiInput auditInput;
+  if(AuditConsole::uiInput(auditInput)) {
+    turn=auditInput.turn;pressed=auditInput.pressed;backPressed=auditInput.back;
+  }
+  uint8_t auditMode=255,auditSelection=0;
+  if(before.screen==Screen::settings && settingsActive) {
+    auditMode=uint8_t(settingsForm.view().mode);auditSelection=settingsForm.view().selected;
+  } else if(before.screen==Screen::administration && administrationActive) {
+    auditMode=uint8_t(administration.view().mode);auditSelection=administration.view().selected;
+  } else if(before.screen==Screen::system && systemActive) {
+    auditMode=uint8_t(systemView.mode);auditSelection=systemView.selected;
+  }
+  AuditConsole::uiState(uint8_t(before.screen),before.selected,auditMode,auditSelection,visible);
+#endif
+  controller.tick(now,model,turn,pressed,visible,backPressed,systemChild==SystemChild::updates);
   if(controller.takeCancellation()) cancelUnsubmittedLocalControl();
   if(!controller.view().quickEditing) {frameView.quickDraft={};presentedView.quickDraft={};}
   QuickPreferenceRequest quickSave;

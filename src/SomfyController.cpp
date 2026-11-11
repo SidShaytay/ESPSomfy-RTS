@@ -1,4 +1,5 @@
 #include "StackAudit.h"
+#include "AuditConsole.h"
 #include "FrequencyScanService.h"
 #include "RestoreExecution.h"
 #include "ModelLoadSnapshot.h"
@@ -253,6 +254,12 @@ void loop() {
   // Observe newly decoded movement before local input, so a cancelled restart
   // cannot reject a STOP press for motion that this pass has already seen.
   if(restartLoop()) return;
+#ifdef ESPSOMFY_STACK_AUDIT
+  static bool sdkAuditBegan=false;
+  if(!sdkAuditBegan){sdkAuditBegan=true;StackAudit::beginSdk();}
+  StackAudit::pollSdk();
+#endif
+  AuditConsole::loop();
   StatusPanel::loop();
 #if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
   // Normal accepted work drains before preparation. While paused, keep only

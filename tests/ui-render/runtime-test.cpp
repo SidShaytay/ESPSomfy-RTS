@@ -1,4 +1,18 @@
 #include "LocalUiRuntime.h"
+#ifdef AUDIT_UI_RUNTIME_HOST_TEST
+#include "AuditConsole.h"
+namespace AuditConsole {
+bool inputActive=false;
+UiInput injectedInput;
+uint8_t reportedScreen=255,reportedSelected=255,reportedMode=255,reportedFormSelected=255;
+bool reportedVisible=false;
+unsigned stateReports=0;
+bool uiInput(UiInput &out){if(!inputActive)return false;out=injectedInput;injectedInput.turn=0;return true;}
+void uiState(uint8_t screen,uint8_t selected,uint8_t mode,uint8_t formSelected,bool visible){
+ reportedScreen=screen;reportedSelected=selected;reportedMode=mode;reportedFormSelected=formSelected;reportedVisible=visible;++stateReports;
+}
+}
+#endif
 #include "LocalQuickAccessNvs.h"
 #include "LocalReceive.h"
 #include "SafeRestart.h"
@@ -500,6 +514,26 @@ int main(int argc,char **argv){
   busBusy=false;idle();assert(bands==43 && !captureProtected && ui.healthy());
   assert(lastQuery.screen==Screen::status && submitted.empty());releaseHold();idle();
   auto unchanged=bands;idle();assert(bands==unchanged);
+#ifdef AUDIT_UI_RUNTIME_HOST_TEST
+  // Inject through the real tick/debounce/frame path, never through a form.
+  AuditConsole::inputActive=true;
+  tick(true);tick(true);tick(false);tick(false);idle();
+  assert(RuntimeTestAccess::view(ui).screen==Screen::status); // injected release overrides physical hold
+  AuditConsole::injectedInput.turn=1;tick();idle();
+  assert(RuntimeTestAccess::view(ui).screen==Screen::quickHome);
+  assert(AuditConsole::stateReports && AuditConsole::reportedScreen==uint8_t(Screen::quickHome) && AuditConsole::reportedVisible);
+  while(RuntimeTestAccess::view(ui).selected!=7){AuditConsole::injectedInput.turn=1;tick();idle();}
+  AuditConsole::injectedInput.pressed=true;tick();AuditConsole::injectedInput.pressed=false;tick();idle();
+  assert(RuntimeTestAccess::view(ui).screen==Screen::quickHome); // short raw pulse cannot bypass debounce
+  auto auditClick=[&]{AuditConsole::injectedInput.pressed=true;tick();tick();AuditConsole::injectedInput.pressed=false;tick();tick();idle();};
+  auto auditBack=[&]{AuditConsole::injectedInput.back=true;tick();tick();AuditConsole::injectedInput.back=false;tick();tick();idle();};
+  auditClick();assert(RuntimeTestAccess::view(ui).screen==Screen::controllerMenu);
+  assert(AuditConsole::reportedSelected==RuntimeTestAccess::view(ui).selected);
+  AuditConsole::inputActive=false;back();idle();back();idle();
+  assert(RuntimeTestAccess::view(ui).screen==Screen::status);
+  rotate(1);idle();assert(RuntimeTestAccess::view(ui).screen==Screen::quickHome);back();idle();
+  assert(RuntimeTestAccess::view(ui).screen==Screen::status); // ordinary physical encoder/back still work
+#endif
   // Measured hardware costs:1.5ms/4-row SPI plus7ms full paint. Model
   // real22/32ms loop gaps; sparse selection must not cost43 loop passes.
   // Measure remaining completion time AFTER the input/first retry tick. That
@@ -766,6 +800,21 @@ int main(int argc,char **argv){
   openConfigure(0);click();idle(); // Configure General directly
   assert(lastQuery.screen==Screen::settings && captureProtected);
   saveFrame(preview,"runtime-settings-general"); // Actual form/runtime frame
+#ifdef AUDIT_UI_RUNTIME_HOST_TEST
+  AuditConsole::inputActive=true;auditClick();
+  assert(RuntimeTestAccess::settings(settingsUi).mode==Settings::Mode::text);
+  const auto auditLength=RuntimeTestAccess::settings(settingsUi).textLength;
+  busBusy=true;AuditConsole::injectedInput.turn=1;tick();auditClick();
+  assert(RuntimeTestAccess::settings(settingsUi).textLength==auditLength && settingsSaves==0);
+  busBusy=false;idle();
+  assert(AuditConsole::reportedMode==uint8_t(Settings::Mode::text) && AuditConsole::reportedFormSelected==RuntimeTestAccess::settings(settingsUi).selected);
+  auditBack();assert(RuntimeTestAccess::settings(settingsUi).mode==Settings::Mode::fields && RuntimeTestAccess::settings(settingsUi).dirty);
+  auditBack();assert(RuntimeTestAccess::settings(settingsUi).mode==Settings::Mode::discard);
+  AuditConsole::injectedInput.turn=1;tick();idle();auditClick();
+  assert(RuntimeTestAccess::view(settingsUi).screen==Screen::configureMenu && settingsSaves==0);
+  AuditConsole::inputActive=false;click();idle();
+  assert(RuntimeTestAccess::settings(settingsUi).mode==Settings::Mode::fields && !RuntimeTestAccess::settings(settingsUi).dirty);
+#endif
   // A changed keyboard selection has the same value/length until pressed.
   // Only its exact fully displayed metadata may authorize that press.
   click();idle();assert(RuntimeTestAccess::settings(settingsUi).mode==Settings::Mode::text);
