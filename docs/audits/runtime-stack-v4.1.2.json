@@ -1,0 +1,929 @@
+{
+  "schema": 1,
+  "units": "bytes",
+  "measurement": "rtos-stack-fill-high-water-mark",
+  "samples": [
+    {
+      "role": "network",
+      "uptimeMs": 2369,
+      "minimumUnusedBytes": 3044,
+      "samples": 1,
+      "maxScanUs": 129
+    },
+    {
+      "role": "radio",
+      "uptimeMs": 2466,
+      "minimumUnusedBytes": 3412,
+      "samples": 1,
+      "maxScanUs": 144
+    },
+    {
+      "role": "updater",
+      "uptimeMs": 2497,
+      "minimumUnusedBytes": 10856,
+      "samples": 1,
+      "maxScanUs": 1096
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 2601,
+      "minimumUnusedBytes": 3056,
+      "samples": 1,
+      "maxScanUs": 133
+    },
+    {
+      "role": "web",
+      "uptimeMs": 8533,
+      "minimumUnusedBytes": 12908,
+      "samples": 1,
+      "maxScanUs": 547
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 12683,
+      "minimumUnusedBytes": 1912,
+      "samples": 1,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 32660,
+      "minimumUnusedBytes": 3056,
+      "samples": 7,
+      "maxScanUs": 133
+    },
+    {
+      "role": "web",
+      "uptimeMs": 39930,
+      "minimumUnusedBytes": 12652,
+      "samples": 7,
+      "maxScanUs": 4658
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 62744,
+      "minimumUnusedBytes": 3056,
+      "samples": 13,
+      "maxScanUs": 133
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 71049,
+      "minimumUnusedBytes": 808,
+      "samples": 3,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "web",
+      "uptimeMs": 79472,
+      "minimumUnusedBytes": 12652,
+      "samples": 13,
+      "maxScanUs": 4658
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 92851,
+      "minimumUnusedBytes": 3056,
+      "samples": 19,
+      "maxScanUs": 133
+    },
+    {
+      "role": "web",
+      "uptimeMs": 110209,
+      "minimumUnusedBytes": 12652,
+      "samples": 15,
+      "maxScanUs": 4658
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 122966,
+      "minimumUnusedBytes": 3056,
+      "samples": 25,
+      "maxScanUs": 133
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 131256,
+      "minimumUnusedBytes": 728,
+      "samples": 6,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "web",
+      "uptimeMs": 150980,
+      "minimumUnusedBytes": 12652,
+      "samples": 19,
+      "maxScanUs": 4658
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 153073,
+      "minimumUnusedBytes": 3056,
+      "samples": 31,
+      "maxScanUs": 133
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 183161,
+      "minimumUnusedBytes": 3056,
+      "samples": 37,
+      "maxScanUs": 133
+    },
+    {
+      "role": "web",
+      "uptimeMs": 187096,
+      "minimumUnusedBytes": 12652,
+      "samples": 23,
+      "maxScanUs": 4658
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 187499,
+      "minimumUnusedBytes": 728,
+      "samples": 8,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 213251,
+      "minimumUnusedBytes": 3056,
+      "samples": 43,
+      "maxScanUs": 133
+    },
+    {
+      "role": "web",
+      "uptimeMs": 217240,
+      "minimumUnusedBytes": 12652,
+      "samples": 26,
+      "maxScanUs": 4658
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 220971,
+      "minimumUnusedBytes": 728,
+      "samples": 10,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 243367,
+      "minimumUnusedBytes": 2964,
+      "samples": 49,
+      "maxScanUs": 133
+    },
+    {
+      "role": "web",
+      "uptimeMs": 247400,
+      "minimumUnusedBytes": 12652,
+      "samples": 29,
+      "maxScanUs": 4658
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 261836,
+      "minimumUnusedBytes": 728,
+      "samples": 12,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 273452,
+      "minimumUnusedBytes": 2964,
+      "samples": 55,
+      "maxScanUs": 133
+    },
+    {
+      "role": "web",
+      "uptimeMs": 277524,
+      "minimumUnusedBytes": 12652,
+      "samples": 32,
+      "maxScanUs": 4658
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 303557,
+      "minimumUnusedBytes": 2932,
+      "samples": 61,
+      "maxScanUs": 133
+    },
+    {
+      "role": "web",
+      "uptimeMs": 308011,
+      "minimumUnusedBytes": 12652,
+      "samples": 35,
+      "maxScanUs": 4658
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 310972,
+      "minimumUnusedBytes": 728,
+      "samples": 15,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 333666,
+      "minimumUnusedBytes": 2932,
+      "samples": 67,
+      "maxScanUs": 133
+    },
+    {
+      "role": "web",
+      "uptimeMs": 338126,
+      "minimumUnusedBytes": 12652,
+      "samples": 38,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 341100,
+      "minimumUnusedBytes": 728,
+      "samples": 17,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 363751,
+      "minimumUnusedBytes": 2932,
+      "samples": 73,
+      "maxScanUs": 133
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 371180,
+      "minimumUnusedBytes": 728,
+      "samples": 18,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "web",
+      "uptimeMs": 371210,
+      "minimumUnusedBytes": 12652,
+      "samples": 41,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 393855,
+      "minimumUnusedBytes": 2932,
+      "samples": 79,
+      "maxScanUs": 133
+    },
+    {
+      "role": "web",
+      "uptimeMs": 401345,
+      "minimumUnusedBytes": 12652,
+      "samples": 44,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 423982,
+      "minimumUnusedBytes": 2932,
+      "samples": 85,
+      "maxScanUs": 133
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 431079,
+      "minimumUnusedBytes": 728,
+      "samples": 20,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "web",
+      "uptimeMs": 431474,
+      "minimumUnusedBytes": 12652,
+      "samples": 47,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 454105,
+      "minimumUnusedBytes": 2932,
+      "samples": 91,
+      "maxScanUs": 133
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 461187,
+      "minimumUnusedBytes": 728,
+      "samples": 22,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "web",
+      "uptimeMs": 461612,
+      "minimumUnusedBytes": 12652,
+      "samples": 50,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 484213,
+      "minimumUnusedBytes": 2932,
+      "samples": 97,
+      "maxScanUs": 133
+    },
+    {
+      "role": "web",
+      "uptimeMs": 491735,
+      "minimumUnusedBytes": 12652,
+      "samples": 53,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 514337,
+      "minimumUnusedBytes": 2932,
+      "samples": 103,
+      "maxScanUs": 133
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 521098,
+      "minimumUnusedBytes": 728,
+      "samples": 24,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "web",
+      "uptimeMs": 521830,
+      "minimumUnusedBytes": 12652,
+      "samples": 56,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 544458,
+      "minimumUnusedBytes": 2932,
+      "samples": 109,
+      "maxScanUs": 133
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 551205,
+      "minimumUnusedBytes": 728,
+      "samples": 25,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "web",
+      "uptimeMs": 551924,
+      "minimumUnusedBytes": 12652,
+      "samples": 59,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 574595,
+      "minimumUnusedBytes": 2932,
+      "samples": 115,
+      "maxScanUs": 133
+    },
+    {
+      "role": "web",
+      "uptimeMs": 584626,
+      "minimumUnusedBytes": 12652,
+      "samples": 64,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 604711,
+      "minimumUnusedBytes": 2932,
+      "samples": 121,
+      "maxScanUs": 133
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 611099,
+      "minimumUnusedBytes": 728,
+      "samples": 29,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "network",
+      "uptimeMs": 611467,
+      "minimumUnusedBytes": 1960,
+      "samples": 3,
+      "maxScanUs": 129
+    },
+    {
+      "role": "web",
+      "uptimeMs": 619527,
+      "minimumUnusedBytes": 12652,
+      "samples": 69,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 634815,
+      "minimumUnusedBytes": 2932,
+      "samples": 127,
+      "maxScanUs": 133
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 641207,
+      "minimumUnusedBytes": 728,
+      "samples": 30,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "web",
+      "uptimeMs": 649740,
+      "minimumUnusedBytes": 12652,
+      "samples": 75,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 664947,
+      "minimumUnusedBytes": 2932,
+      "samples": 133,
+      "maxScanUs": 133
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 677462,
+      "minimumUnusedBytes": 728,
+      "samples": 33,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "web",
+      "uptimeMs": 684553,
+      "minimumUnusedBytes": 12652,
+      "samples": 81,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 695038,
+      "minimumUnusedBytes": 2932,
+      "samples": 139,
+      "maxScanUs": 133
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 715167,
+      "minimumUnusedBytes": 728,
+      "samples": 35,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "web",
+      "uptimeMs": 717643,
+      "minimumUnusedBytes": 12652,
+      "samples": 87,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 725156,
+      "minimumUnusedBytes": 2932,
+      "samples": 145,
+      "maxScanUs": 133
+    },
+    {
+      "role": "web",
+      "uptimeMs": 749615,
+      "minimumUnusedBytes": 12652,
+      "samples": 93,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 755244,
+      "minimumUnusedBytes": 2932,
+      "samples": 151,
+      "maxScanUs": 133
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 761011,
+      "minimumUnusedBytes": 728,
+      "samples": 37,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "web",
+      "uptimeMs": 784614,
+      "minimumUnusedBytes": 12652,
+      "samples": 99,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 785366,
+      "minimumUnusedBytes": 2932,
+      "samples": 157,
+      "maxScanUs": 133
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 791120,
+      "minimumUnusedBytes": 728,
+      "samples": 38,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 815454,
+      "minimumUnusedBytes": 2932,
+      "samples": 163,
+      "maxScanUs": 133
+    },
+    {
+      "role": "web",
+      "uptimeMs": 819524,
+      "minimumUnusedBytes": 12652,
+      "samples": 105,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 845543,
+      "minimumUnusedBytes": 2932,
+      "samples": 169,
+      "maxScanUs": 133
+    },
+    {
+      "role": "web",
+      "uptimeMs": 849525,
+      "minimumUnusedBytes": 12652,
+      "samples": 110,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 851575,
+      "minimumUnusedBytes": 728,
+      "samples": 42,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 875662,
+      "minimumUnusedBytes": 2932,
+      "samples": 175,
+      "maxScanUs": 133
+    },
+    {
+      "role": "web",
+      "uptimeMs": 879650,
+      "minimumUnusedBytes": 12652,
+      "samples": 114,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 905751,
+      "minimumUnusedBytes": 2932,
+      "samples": 181,
+      "maxScanUs": 133
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 912091,
+      "minimumUnusedBytes": 728,
+      "samples": 44,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "web",
+      "uptimeMs": 921211,
+      "minimumUnusedBytes": 12652,
+      "samples": 118,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 935822,
+      "minimumUnusedBytes": 2932,
+      "samples": 187,
+      "maxScanUs": 133
+    },
+    {
+      "role": "web",
+      "uptimeMs": 958583,
+      "minimumUnusedBytes": 12652,
+      "samples": 122,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 965939,
+      "minimumUnusedBytes": 2932,
+      "samples": 193,
+      "maxScanUs": 133
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 971043,
+      "minimumUnusedBytes": 728,
+      "samples": 47,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "web",
+      "uptimeMs": 988679,
+      "minimumUnusedBytes": 12652,
+      "samples": 125,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 996056,
+      "minimumUnusedBytes": 2932,
+      "samples": 199,
+      "maxScanUs": 133
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 1001178,
+      "minimumUnusedBytes": 728,
+      "samples": 48,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "web",
+      "uptimeMs": 1018797,
+      "minimumUnusedBytes": 12652,
+      "samples": 128,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 1026174,
+      "minimumUnusedBytes": 2932,
+      "samples": 205,
+      "maxScanUs": 133
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 1031264,
+      "minimumUnusedBytes": 728,
+      "samples": 49,
+      "maxScanUs": 2610
+    },
+    {
+      "role": "web",
+      "uptimeMs": 1048985,
+      "minimumUnusedBytes": 12652,
+      "samples": 131,
+      "maxScanUs": 10285
+    },
+    {
+      "role": "loop",
+      "uptimeMs": 1056306,
+      "minimumUnusedBytes": 2932,
+      "samples": 211,
+      "maxScanUs": 133
+    },
+    {
+      "role": "udp",
+      "uptimeMs": 1062290,
+      "minimumUnusedBytes": 728,
+      "samples": 51,
+      "maxScanUs": 3478
+    }
+  ],
+  "capturedElfSha256": "2a7d96ce2ca78e42940787c814aeac20e331b0b57b92c2fd7c8333e8e7d54291",
+  "rolesObserved": [
+    "loop",
+    "network",
+    "radio",
+    "udp",
+    "updater",
+    "web"
+  ],
+  "rolesUnobserved": [],
+  "rejectedAuditLines": 0,
+  "limits": [
+    "Fill-pattern high-water marks are observations, not a worst-case stack bound.",
+    "Samples include instrumentation effects; maxScanUs excludes UART/logging time.",
+    "Activity-dependent self-sampling: at most once per 5 seconds; output at most once per 30 seconds per role.",
+    "A role can retain its minimum across task recreation; split captures at reboot.",
+    "No RF, updater, network-reconnect or full-load coverage is implied by an idle sample.",
+    "Continuous capture is required: missing boot/identity markers can conceal a reboot."
+  ],
+  "sourceTag": "v4.1.2",
+  "declaredSourceCommit": "a945a59e97e59d776a832c4b50ea32df1324fd0a",
+  "declaredElfSha256": "2a7d96ce2ca78e42940787c814aeac20e331b0b57b92c2fd7c8333e8e7d54291",
+  "firmwareSha256": "6867deca172e8ab3aa52f1f557f9f755c64e63200748b4fa0b64d3ac49b7ae40",
+  "firmwareBytes": 2002224,
+  "capturedElfMatchesDeclared": true,
+  "boardModel": "t-embed-cc1101-plus",
+  "workload": "idle/read-load/recovery",
+  "roleSummary": {
+    "loop": {
+      "configuredBytes": 8192,
+      "minimumUnusedBytes": 2932,
+      "unusedPercent": 35.8,
+      "maxScanWallUs": 133,
+      "reportedRecords": 36,
+      "lastSelfSampleCount": 211,
+      "firstReportedUptimeMs": 2601,
+      "lastReportedUptimeMs": 1056306
+    },
+    "network": {
+      "configuredBytes": 4096,
+      "minimumUnusedBytes": 1960,
+      "unusedPercent": 47.9,
+      "maxScanWallUs": 129,
+      "reportedRecords": 2,
+      "lastSelfSampleCount": 3,
+      "firstReportedUptimeMs": 2369,
+      "lastReportedUptimeMs": 611467
+    },
+    "radio": {
+      "configuredBytes": 4096,
+      "minimumUnusedBytes": 3412,
+      "unusedPercent": 83.3,
+      "maxScanWallUs": 144,
+      "reportedRecords": 1,
+      "lastSelfSampleCount": 1,
+      "firstReportedUptimeMs": 2466,
+      "lastReportedUptimeMs": 2466
+    },
+    "udp": {
+      "configuredBytes": 4096,
+      "minimumUnusedBytes": 728,
+      "unusedPercent": 17.8,
+      "maxScanWallUs": 3478,
+      "reportedRecords": 25,
+      "lastSelfSampleCount": 51,
+      "firstReportedUptimeMs": 12683,
+      "lastReportedUptimeMs": 1062290
+    },
+    "updater": {
+      "configuredBytes": 12288,
+      "minimumUnusedBytes": 10856,
+      "unusedPercent": 88.3,
+      "maxScanWallUs": 1096,
+      "reportedRecords": 1,
+      "lastSelfSampleCount": 1,
+      "firstReportedUptimeMs": 2497,
+      "lastReportedUptimeMs": 2497
+    },
+    "web": {
+      "configuredBytes": 16384,
+      "minimumUnusedBytes": 12652,
+      "unusedPercent": 77.2,
+      "maxScanWallUs": 10285,
+      "reportedRecords": 33,
+      "lastSelfSampleCount": 131,
+      "firstReportedUptimeMs": 8533,
+      "lastReportedUptimeMs": 1048985
+    }
+  },
+  "phaseSummary": {
+    "idle": {
+      "requestedSeconds": 300,
+      "readOnlySyncs": 10,
+      "intervalSeconds": 30,
+      "firstUptimeMs": 90967,
+      "lastUptimeMs": 360994,
+      "freeHeap": {
+        "minimum": 124224,
+        "maximum": 124436,
+        "first": 124436,
+        "last": 124436
+      },
+      "maxHeap": {
+        "minimum": 81908,
+        "maximum": 81908,
+        "first": 81908,
+        "last": 81908
+      },
+      "minHeap": {
+        "minimum": 113524,
+        "maximum": 113524,
+        "first": 113524,
+        "last": 113524
+      },
+      "loopRate": {
+        "minimum": 35,
+        "maximum": 35,
+        "first": 35,
+        "last": 35
+      },
+      "loopMaxUs": {
+        "minimum": 31733,
+        "maximum": 47403,
+        "first": 47403,
+        "last": 31733
+      }
+    },
+    "read-load": {
+      "requestedSeconds": 300,
+      "readOnlySyncs": 60,
+      "intervalSeconds": 5,
+      "firstUptimeMs": 564636,
+      "lastUptimeMs": 859587,
+      "freeHeap": {
+        "minimum": 124224,
+        "maximum": 124436,
+        "first": 124436,
+        "last": 124436
+      },
+      "maxHeap": {
+        "minimum": 81908,
+        "maximum": 81908,
+        "first": 81908,
+        "last": 81908
+      },
+      "minHeap": {
+        "minimum": 107144,
+        "maximum": 112248,
+        "first": 112248,
+        "last": 107144
+      },
+      "loopRate": {
+        "minimum": 35,
+        "maximum": 35,
+        "first": 35,
+        "last": 35
+      },
+      "loopMaxUs": {
+        "minimum": 31225,
+        "maximum": 39561,
+        "first": 31225,
+        "last": 36155
+      }
+    },
+    "recovery": {
+      "requestedSeconds": 60,
+      "readOnlySyncs": 4,
+      "intervalSeconds": 15,
+      "firstUptimeMs": 864610,
+      "lastUptimeMs": 909691,
+      "freeHeap": {
+        "minimum": 124424,
+        "maximum": 124436,
+        "first": 124436,
+        "last": 124436
+      },
+      "maxHeap": {
+        "minimum": 81908,
+        "maximum": 81908,
+        "first": 81908,
+        "last": 81908
+      },
+      "minHeap": {
+        "minimum": 107144,
+        "maximum": 107144,
+        "first": 107144,
+        "last": 107144
+      },
+      "loopRate": {
+        "minimum": 35,
+        "maximum": 35,
+        "first": 35,
+        "last": 35
+      },
+      "loopMaxUs": {
+        "minimum": 31887,
+        "maximum": 37111,
+        "first": 36155,
+        "last": 31887
+      }
+    }
+  },
+  "screenshotSummary": {
+    "requests": 60,
+    "httpCounts": {
+      "200": 60
+    },
+    "minimumElapsedMs": 493.05,
+    "medianElapsedMs": 607.08,
+    "maximumElapsedMs": 2730.88,
+    "format": "320x-170 top-down RGB565 BMP, 108866 bytes"
+  },
+  "discoverySummary": {
+    "requests": 6,
+    "successfulReplies": 6,
+    "maximumElapsedMs": 53.7
+  },
+  "verification": {
+    "twoQualifiedFullBackups": true,
+    "exactImageEmbeddedElfVerified": true,
+    "firstBootElfMatched": true,
+    "SDKHealthConfirmationObserved": true,
+    "freshFinalSettingsEntitiesRoomsEffectiveCountersUnchanged": true,
+    "noUnexpectedResetAllocationOrHealthFailureMarker": true,
+    "continuousLogInodePreserved": true,
+    "noRFOrMotorOrHAWrites": true
+  },
+  "measurementNotes": [
+    "The five minute idle phase completed; a host screenshot assertion expected positive BMP height. The endpoint correctly returned top-down BMP. The failed harness record was preserved, then only the five minute load and one minute recovery were resumed.",
+    "Two additional200 screenshot format checks occurred before the resumed measured load. They are excluded from its 60 requests.",
+    "Radio and updater observations are idle-task samples; no RF transmission, TLS check/download, staging or installation load is qualified.",
+    "No deliberate WiFi reconnect, physical UI editing, forced rollback, alternate board revision or long idle was exercised.",
+    "maxScanUs is wall time around the stack scan and can include preemption; it excludes lookup and logging. Loop timing ends before the probe destructor, so it excludes final probe/logging cost.",
+    "The probe has a 48-byte compiler frame in this exact image. Logging call-chain cost is included in subsequent stack high-water observations; total logging latency is not measured.",
+    "UDP has the smallest observed margin. Keep its 4 KiB allocation; these samples do not justify downsizing or certify every input."
+  ]
+}

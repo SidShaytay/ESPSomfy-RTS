@@ -2,13 +2,13 @@
 
 The historical network-event overflow is fixed in #34. This broader audit checks where current firmware spends stack memory and prepares measurements of the remaining margin. Progress and remaining work are tracked in [#35](https://github.com/SidShaytay/ESPSomfy-RTS/issues/35); combined-load and physical acceptance remain [#33](https://github.com/SidShaytay/ESPSomfy-RTS/issues/33).
 
-**Status:** baseline compiler/binary measurements and host checks are recorded below. The remaining SSDP ownership fixes are implemented and under final firmware verification. Sid authorized a fresh full backup, instrumented installation/reboots and bounded read-only measurement. Runtime results will be added after that stage; no simulator result is claimed.
+**Status:** completed for the bounded audit in #35. The reviewed SSDP fixes are on main, and the exact **4.1.2 / `a945a59`** audit image is installed on a T-Embed CC1101 Plus after two verified recovery captures. First-boot ELF/SDK confirmation and final settings/entities/rooms/effective-counter continuity passed. Source tags are public; this work did not publish a binary release. Broader physical/full-load acceptance remains #33.
 
 ## Measurements recorded on Vega
 
 Baseline: main `ef5b1ad`, v4.1.0, `lilygo-t-embed-cc1101`; pinned Arduino 3.3.12 / ESP-IDF 5.5 platform 55.03.312; Xtensa GCC 14.2.0, crosstool-NG `esp-14.2.0_20260121`. The [sanitized compiler/binary dataset](stack-usage-v4.1.0.json) binds the exact ELF and source inputs by SHA256.
 
-The build produced 273 compiler stack-usage files and 2,074 unique repository function records. The dataset exports the largest frames and selected task/callback functions. A frame is the space one function reserves while active, including compiler inlining. It is **not** the total for a task: nested calls, indirect calls and interrupts need additional room. Separate sequential functions do not all add together.
+The baseline build produced 273 compiler stack-usage files and 2,074 unique repository function records. The final instrumented checkpoint has 2,081 records. The dataset exports the largest frames and selected task/callback functions. A frame is the space one function reserves while active, including compiler inlining. It is **not** the total for a task: nested calls, indirect calls and interrupts need additional room. Separate sequential functions do not all add together.
 
 | Function/path | Compiler frame, bytes | Context |
 | --- | ---: | --- |
@@ -51,6 +51,35 @@ Other SDK tasks include the TCP/IP worker (4,096), system events (2,048) and hig
 
 No blanket stack increases or packet-format changes are included in the audit instrumentation.
 
+## Observed runtime margins
+
+The [sanitized runtime dataset](runtime-stack-v4.1.2.json) contains 98 records from all six application roles, bound to the exact captured boot ELF and compiled image. The [4.1.2 compiler/binary report](stack-usage-v4.1.2.json) identifies the tested instrumented source and effective configuration. No raw logs, identifiers, screenshots, configuration or backups are published.
+
+| Task role | Configured bytes | Minimum recorded unused bytes | Unused fraction | Coverage |
+| --- | ---: | ---: | ---: | --- |
+| Main loop | 8,192 | 2,932 | 35.8% | Boot, idle, controlled reads/captures and recovery |
+| Network events | 4,096 | 1,960 | 47.9% | Naturally occurring callbacks; no deliberate Wi-Fi disconnection |
+| UDP input | 4,096 | 728 | 17.8% | SSDP callbacks, including six controlled valid discovery queries |
+| Web/socket | 16,384 | 12,652 | 77.2% | HTTP, screenshots and schema-sync reconnects |
+| Radio transmit | 4,096 | 3,412 | 83.3% | One idle/startup sample; no RF transmission |
+| GitHub updates | 12,288 | 10,856 | 88.3% | One idle/startup sample; no TLS check/download/staging |
+
+UDP has the narrowest observed reserve. The ownership fix removes the demonstrated small-task send chain; these measurements support retaining its existing 4 KiB allocation, not reducing it. They do not prove every parser/network path safe. If a larger guaranteed reserve is required, reduce callback scratch usage under explicit ownership and repeat measurements. This audit makes no blanket stack increase or worst-case guarantee.
+
+The controlled run completed five minutes idle (10 schema syncs at 30-second intervals), five minutes load (60 schema syncs and screenshots at five-second intervals, with six valid unicast discovery reads), and one minute recovery (four schema syncs at 15-second intervals). All 60 measured screenshots returned HTTP 200 with the source-defined 108,866-byte top-down RGB565 BMP. Screenshot latency was 493–2,731 ms (median 607 ms); all six discovery queries replied, at most 54 ms. The existing diagnostics collector and ordinary LAN traffic remained active; the controlled counts do not include their requests.
+
+A host-only assertion initially expected positive BMP height. The endpoint correctly returns height −170. Its completed idle phase and failed harness log were preserved; only the load/recovery phases were resumed after checking the format. Two extra HTTP 200 format checks precede the resumed load. The dataset records that pause instead of presenting the phases as one uninterrupted eleven-minute experiment. Stack records span boot through the final verification reads.
+
+Sampled current internal free heap was 124,224–124,436 bytes during idle/load and 124,424–124,436 during recovery; the final sample returned to 124,436. The largest free block remained 81,908 bytes. Lifetime minimum heap fell from 113,524 to 107,144 bytes under the broader observation/load window; that historical minimum does not recover. Sampled loop rate remained 35 Hz, with a largest reported loop window maximum of 47,403 µs. Sparse status samples do not capture every allocation peak or prove absence of long-term leaks.
+
+The emitted probe's compiler frame is 48 bytes. Maximum observed wall time around a stack scan was 10,285 µs on web, 3,478 µs on UDP, 1,096 µs on the idle updater and 129–144 µs on the other roles. These durations can include preemption; they are not pure CPU time. They exclude role lookup and logging. Loop timing ends before the probe destructor, so it also excludes that final probe/logging cost. Later high-water observations include the logging call chain, but total logging latency was not measured. Ordinary builds omit both probe and record string.
+
+No unexpected reset, canary, allocation-failure or boot-health failure marker appeared after the exact boot identity. Final settings, entities, rooms and effective counters matched the fresh pre-install capture. Both full backups verified the canonical layout, both application checksums/digests, OTA state, active NVS CRCs, LittleFS configuration and current effective counters. The second captured the known-good 4.1.1 image before 4.1.2 replaced the inactive slot; the previously active app0 is retained. No new layout or filesystem image was written.
+
+The first 4.1.1 audit image booted and preserved state but produced no measurements because release log level 2 removed info-level output. It contributes no runtime stack data. The corrected opt-in probe uses serialized `log_printf`, and the build now rejects an instrumented binary without its unique record format. Both the release-level regression and emitted-binary guard reproduced that failure before correction.
+
+Current checks passed: instrumented and normal shared firmware builds, generic ESP32 build of the SSDP fix, 1,318 native tests with one existing optional skip, focused production-method SSDP/discovery tests, release-level probe tests, collector/provenance/privacy tests, fresh-build isolation and version-script tests. Independent source review and deadline mutation checks passed. This covers software ownership and the stated board workload; it does not qualify active radio, full GitHub/TLS staging, physical menu editing, deliberate Wi-Fi reconnect, forced rollback, another board revision or long idle. Those remain in #33.
+
 ## Reproduce the compiler audit
 
 Use the repository's existing build prerequisites from [LILYGO.md](../../LILYGO.md), then run from the repository root:
@@ -59,7 +88,7 @@ Use the repository's existing build prerequisites from [LILYGO.md](../../LILYGO.
 bash tools/audit-stacks.sh static
 ```
 
-The script adds `-fstack-usage` to the existing canonical environment and writes `build/stack-audit/static/usage.json`. Each invocation preserves a fresh run directory and updates `build/stack-audit/static/LATEST` only on success, so obsolete `.su` files cannot contaminate a later run. It verifies the runtime record format is present exactly once in an instrumented firmware binary and absent in normal firmware, then records the source-input digest before compiling and refuses the report if those inputs change during the build. The report records the effective configuration hash and audit mode; its input-scope field lists the hashed source/assets/libraries/build tools. It never accesses a controller or serial port. `PLATFORMIO_LIBDEPS_DIR` can point to an existing pinned dependency cache. Generated objects, ELFs and logs remain ignored.
+The script adds `-fstack-usage` to the existing canonical environment and writes `build/stack-audit/static/run-*/usage.json`; `build/stack-audit/static/LATEST` names the last successful run. Each invocation preserves a fresh run directory and updates `build/stack-audit/static/LATEST` only on success, so obsolete `.su` files cannot contaminate a later run. It verifies the runtime record format is present exactly once in an instrumented firmware binary and absent in normal firmware, then records the source-input digest before compiling and refuses the report if those inputs change during the build. The report records the effective configuration hash and audit mode; its input-scope field lists the hashed source/assets/libraries/build tools. It never accesses a controller or serial port. `PLATFORMIO_LIBDEPS_DIR` can point to an existing pinned dependency cache. Generated objects, ELFs and logs remain ignored.
 
 The public baseline dataset hashes only `src/` and the original `platformio.ini`, as its explicit input-scope field states; its effective audit configuration is separately hashed. It was captured before telemetry hooks were added; later reports must retain their own source/ELF identifiers rather than overwrite that historical baseline.
 
@@ -81,7 +110,7 @@ The probe:
 
 Stack high-water marks inspect untouched fill bytes. They are observations, not a proof of worst-case stack usage; large reserved-but-unwritten regions can make them optimistic. Preserve compiler/binary frame evidence alongside them. Stop and investigate any reset, canary, allocation failure or persistently low margin rather than increasing load.
 
-After the exact candidate is reviewed, the fastest useful board stage is a quiet baseline followed by bounded read-only web/screenshot/WebSocket activity. Record duration, workload counts, covered roles, scan/logging overhead and unchanged state. Do not provoke Wi-Fi disconnection or exercise the identified direct-reply risk as a crash test. Updater staging, active radio, physical edits, installation and recovery tests require their separately authorized stages in #33.
+For a repeat run, use a quiet baseline followed by bounded read-only web/screenshot/WebSocket activity, after reviewing the exact candidate and fresh recovery plan. Record duration, workload counts, covered roles, scan/logging overhead and unchanged state. Do not provoke Wi-Fi disconnection or exercise the identified direct-reply risk as a crash test. Updater staging, active radio, physical edits, installation and recovery tests require their separately authorized stages in #33.
 
 ## Export a public dataset
 
@@ -97,4 +126,4 @@ python3 tools/collect_stack_audit.py <private-serial-log> \
 
 Use the actual board model and exercised workload. Only fixed roles and numeric fields are exported. Private prefixes and unrelated lines are discarded; malformed audit records are counted without copying their contents. Empty evidence is rejected, as are inconsistent per-role histories and observed boot/reset/crash/image-identity boundaries after sampling starts. Continuous capture is required: missing markers can conceal a reboot. Split captures across reboots and retain the exact source/ELF privately. The export lists unobserved roles explicitly. CLI source/ELF hashes are labeled declared metadata. A captured full boot ELF fingerprint is recorded separately and compared with the declared ELF; a mismatch is rejected. Absent that marker, running-image identity is unverified.
 
-Publication requires the sanitized dataset and methodology, not the raw logs, backups, configuration or coredumps. No runtime dataset is published yet because no runtime capture has been made.
+Publication requires the sanitized dataset and methodology, not the raw logs, backups, configuration or coredumps. The published runtime dataset above is the sanitized export from this completed capture. Raw evidence and recovery data remain private.
