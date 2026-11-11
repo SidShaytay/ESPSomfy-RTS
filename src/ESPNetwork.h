@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <atomic>
 #include "Utils.h"
 #include "LivePinClaims.h"
 
@@ -23,6 +24,8 @@
 class ESPNetwork {
   protected:
     LivePinClaims liveEthernetPins;
+    std::atomic<bool> discoveryPending{false};
+    void discoveryLoop();
     unsigned long lastEmit = 0;
     unsigned long lastMDNS = 0;
     RssiBroadcast rssiBroadcast;

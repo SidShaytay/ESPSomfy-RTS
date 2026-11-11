@@ -196,6 +196,7 @@ void ESPNetwork::loop() {
     resetTaskWdt(); // Make sure we do not reboot here.
   }
   
+  this->discoveryLoop();
   mqtt.loop();
   if(settings.ssdpBroadcast && this->connected()) {
     if(!SSDP.isStarted) SSDP.begin();
@@ -231,9 +232,8 @@ void ESPNetwork::emitStatus() {
   else this->rssiBroadcast.sent(-100, -1);
   protoSocket.wifi();
 }
-// Runs on the WiFi/Ethernet event task, so it sends nothing on the socket.
-// loop() broadcasts the new status and a client that reconnects gets it in its
-// sync.
+// May run on arduino_events. Discovery and its UDP sends belong to loop();
+// the event task has only a 4 KiB stack (historical panic in issue #34).
 void ESPNetwork::setConnected(conn_types_t connType) {
   resetTaskWdt();
   this->connType = connType;
@@ -300,6 +300,11 @@ void ESPNetwork::setConnected(conn_types_t connType) {
     }
 #endif
   }
+  this->discoveryPending.store(true);
+}
+void ESPNetwork::discoveryLoop() {
+  // Retain pending work while disconnected; a later GOT_IP refreshes it.
+  if(!this->connected() || !this->discoveryPending.exchange(false)) return;
   SSDP.setHTTPPort(80);
   SSDP.setSchemaURL(0, "upnp.xml");
   SSDP.setChipId(0, this->getChipId());
