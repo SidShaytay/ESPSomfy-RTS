@@ -10,6 +10,41 @@ namespace {
 constexpr uint16_t rgb(unsigned c) { return ((c >> 8) & 0xf800) | ((c >> 5) & 0x07e0) | ((c >> 3) & 0x001f); }
 constexpr uint16_t bg = rgb(0x111719), white = rgb(0xeaece8), muted = rgb(0x929d9b), teal = rgb(0x66c6b5),
                    amber = rgb(0xe5bc67), selected = rgb(0x21433f), line = rgb(0x3a4848);
+enum class MenuIcon:uint8_t { device,group,room,system,display,network,update,diagnostics,edit };
+void menuIcon(Canvas &c,MenuIcon icon,int x,int y,uint16_t color) {
+  switch(icon) {
+    case MenuIcon::device:
+      c.drawRect(x+2,y,15,19,color);for(int i=4;i<18;i+=4)c.drawFastHLine(x+4,y+i,11,color);break;
+    case MenuIcon::group:
+      c.drawRect(x,y,12,15,color);c.drawRect(x+6,y+5,12,15,color);
+      for(int i=9;i<19;i+=4)c.drawFastHLine(x+8,y+i,8,color);break;
+    case MenuIcon::room:
+      c.drawLine(x,y+8,x+9,y,color);c.drawLine(x+9,y,x+18,y+8,color);
+      c.drawRect(x+3,y+8,13,12,color);c.drawRect(x+8,y+13,4,7,color);break;
+    case MenuIcon::system:
+      c.drawCircle(x+9,y+10,6,color);c.drawCircle(x+9,y+10,2,color);
+      c.drawLine(x+9,y,x+9,y+4,color);c.drawLine(x+9,y+16,x+9,y+20,color);
+      c.drawLine(x,y+10,x+3,y+10,color);c.drawLine(x+15,y+10,x+18,y+10,color);
+      c.drawLine(x+2,y+3,x+5,y+6,color);c.drawLine(x+13,y+14,x+16,y+17,color);
+      c.drawLine(x+2,y+17,x+5,y+14,color);c.drawLine(x+13,y+6,x+16,y+3,color);break;
+    case MenuIcon::display:
+      c.drawRect(x,y+2,19,13,color);c.drawLine(x+9,y+15,x+9,y+19,color);
+      c.drawFastHLine(x+5,y+19,9,color);c.drawCircle(x+9,y+8,3,color);break;
+    case MenuIcon::network:
+      c.drawLine(x,y+6,x+4,y+3,color);c.drawFastHLine(x+4,y+3,11,color);c.drawLine(x+14,y+3,x+18,y+6,color);
+      c.drawLine(x+4,y+10,x+7,y+7,color);c.drawFastHLine(x+7,y+7,5,color);c.drawLine(x+11,y+7,x+14,y+10,color);
+      c.drawCircle(x+9,y+15,1,color);break;
+    case MenuIcon::update:
+      c.drawLine(x+9,y,x+9,y+12,color);c.drawLine(x+4,y+7,x+9,y+12,color);c.drawLine(x+9,y+12,x+14,y+7,color);
+      c.drawLine(x+1,y+14,x+1,y+19,color);c.drawLine(x+17,y+14,x+17,y+19,color);c.drawFastHLine(x+1,y+19,17,color);break;
+    case MenuIcon::diagnostics:
+      c.drawLine(x,y+11,x+4,y+11,color);c.drawLine(x+4,y+11,x+7,y+3,color);c.drawLine(x+7,y+3,x+11,y+18,color);
+      c.drawLine(x+11,y+18,x+14,y+9,color);c.drawLine(x+14,y+9,x+18,y+9,color);break;
+    case MenuIcon::edit:
+      c.drawLine(x+2,y+15,x+14,y+3,color);c.drawLine(x+5,y+18,x+17,y+6,color);
+      c.drawLine(x+14,y+3,x+17,y+6,color);c.drawLine(x+2,y+15,x+1,y+19,color);c.drawLine(x+1,y+19,x+5,y+18,color);break;
+  }
+}
 const char *notices[] = {"",
                          "Preview only - no commands",
                          "Command queued",
@@ -90,6 +125,24 @@ void Canvas::paintRecovery(BootRecoveryNotice notice) {
 void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot &s) {
   fillScreen(bg);
   char label[48];
+  const auto namedRow=[&](const CatalogueEntry &entry,MenuIcon icon,char kind,int y,const char *right,bool available) {
+    menuIcon(*this,icon,18,y+5,available?teal:muted);
+    const bool hasRight=right && right[0];
+    const int ordinaryEnd=hasRight?251:305;
+    char visible[21];lcdLabel(entry.name,visible,sizeof(visible));
+    setFont(&FreeSans9pt7b);setTextSize(1);
+    int16_t bx,by;uint16_t width,height;getTextBounds(visible,0,0,&bx,&by,&width,&height);
+    // Ellipsis can hide the only distinguishing suffix; retain context then.
+    const bool needsId=entry.ambiguous || width>ordinaryEnd-46;
+    const int idX=hasRight?211:263;
+    const int nameEnd=needsId?idX-6:ordinaryEnd;
+    text(46,y+21,entry.name,false,available?white:muted,nameEnd-46);
+    if(needsId) {
+      char id[8];snprintf(id,sizeof(id),"#%c%u",kind,unsigned(entry.id));
+      setFont(nullptr);setTextSize(1);setTextColor(muted);setCursor(idX,y+11);print(id);
+    }
+    if(hasRight)text(259,y+21,right,false,entry.moving?amber:muted,48);
+  };
   if(v.screen == Screen::unlock && s.running) {
     text(12,23,v.credentialUser?"Username":v.credentialMaximum==4?"Unlock PIN":"Unlock password",true,white,296);
     char masked[33]={};for(uint8_t i=0;i<v.credentialLength && i<32;++i)masked[i]='*';
@@ -145,17 +198,23 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
         for(unsigned i=0;i<4;++i) {
           const int y=36+i*32;const bool active=v.selected==i;
           fillRoundRect(10,y,300,29,4,active?selected:bg);drawRoundRect(10,y,300,29,4,active?teal:line);
-          if(i==3)snprintf(label,sizeof(label),"Edit shortcuts");
-          else {const auto &binding=*m.quickAccess.at(i);const auto &entry=m.page.rows[i];snprintf(label,sizeof(label),"%s",binding.empty()?"Unassigned":entry.name);}
-          text(18,y+21,label,false,white,i<3?224:284);
-          if(i<3) {const auto &binding=*m.quickAccess.at(i);if(!binding.empty()){snprintf(label,sizeof(label),"#%s%u",binding.ref.kind==EntityKind::group?"G":"D",unsigned(binding.ref.id));text(252,y+21,label,false,muted,52);}}
+          if(i==3){menuIcon(*this,MenuIcon::edit,18,y+5,teal);text(46,y+21,"Edit shortcuts",false,white,258);}
+          else {
+            const auto &binding=*m.quickAccess.at(i);const auto &entry=m.page.rows[i];
+            const bool group=binding.ref.kind==EntityKind::group;
+            if(binding.empty()) {
+              menuIcon(*this,MenuIcon::edit,18,y+5,muted);
+              text(46,y+21,"Empty shortcut",false,muted,258);
+            } else namedRow(entry,group?MenuIcon::group:MenuIcon::device,group?'G':'D',y,nullptr,entry.available);
+          }
         }
       } else {
         const char *destinations[]={"Devices","Groups","Rooms","System","Display","Network","Updates","Diagnostics"};
+        const MenuIcon icons[]={MenuIcon::device,MenuIcon::group,MenuIcon::room,MenuIcon::system,MenuIcon::display,MenuIcon::network,MenuIcon::update,MenuIcon::diagnostics};
         for(unsigned i=0;i<4;++i) {
-          const unsigned index=4+(page-1)*4+i;const int x=10+(i%2)*154,y=36+(i/2)*65;
-          const bool active=index==v.selected;fillRoundRect(x,y,146,61,5,active?selected:bg);drawRoundRect(x,y,146,61,5,active?teal:line);
-          text(x+12,y+36,destinations[index-4],false,active?teal:white,122);
+          const unsigned index=4+(page-1)*4+i;const int y=36+i*32;
+          const bool active=index==v.selected;fillRoundRect(10,y,300,29,4,active?selected:bg);drawRoundRect(10,y,300,29,4,active?teal:line);
+          menuIcon(*this,icons[index-4],18,y+5,teal);text(46,y+21,destinations[index-4],false,white,258);
         }
       }
       if(v.notice!=Notice::none){fillRect(10,0,300,33,bg);text(12,25,notices[int(v.notice)],false,amber,296);}
@@ -265,17 +324,14 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
       drawRoundRect(10,y,300,29,4,active?teal:line);
       if(list) {
         const auto &entry=m.page.rows[row];
-        if(v.catalogue==CatalogueKind::rooms && (entry.id==0 || entry.id==allRooms))
-          snprintf(label,sizeof(label),"%s",entry.name);
-        else snprintf(label,sizeof(label),"%s",entry.name);
-        text(18,y+21,label,false,entry.available || v.catalogue==CatalogueKind::rooms?white:muted,v.catalogue==CatalogueKind::rooms?284:210);
-        if(v.catalogue!=CatalogueKind::rooms) {
-          const bool group=v.catalogue==CatalogueKind::groups || entry.group;
-          if(!entry.available)snprintf(label,sizeof(label),"#%s%u Setup",group?"G":"D",unsigned(entry.id));
-          else if(group || entry.position<0)snprintf(label,sizeof(label),"#%s%u",group?"G":"D",unsigned(entry.id));
-          else snprintf(label,sizeof(label),"#D%u %d%%",unsigned(entry.id),int(entry.position));
-          setFont(nullptr);setTextSize(1);setTextColor(entry.moving?amber:muted);setCursor(236,y+11);print(label);
-        }
+        const bool rooms=v.catalogue==CatalogueKind::rooms;
+        const bool group=v.catalogue==CatalogueKind::groups || entry.group;
+        char right[12]={};
+        if(!rooms && !group) {
+          if(!entry.available || entry.position<0)snprintf(right,sizeof(right),"--");
+          else snprintf(right,sizeof(right),"%d%%",int(entry.position));
+        } else if(!rooms && v.catalogue==CatalogueKind::roomContents)snprintf(right,sizeof(right),"Group");
+        namedRow(entry,rooms?MenuIcon::room:group?MenuIcon::group:MenuIcon::device,rooms?'R':group?'G':'D',y,right,entry.available || rooms);
       } else text(22,y+21,settings?"Settings unavailable":roomKinds?(index?"Groups":"Devices"):home[index],false,white,280);
     }
 

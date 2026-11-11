@@ -1,5 +1,6 @@
 #pragma once
 #include "ShadeTypes.h"
+#include "LocalText.h"
 #include <string.h>
 
 namespace LocalUi {
@@ -12,8 +13,24 @@ struct CatalogueEntry {
   uint64_t revision = 0;
   int8_t position = -1;
   bool moving = false, available = false;
-  bool group = false;
+  bool group = false, ambiguous = false;
 };
+// A display fingerprint is deliberately independent of IDs and model text.
+// Unsupported UTF-8 glyphs collapse exactly as they do in the bundled font.
+inline uint32_t lcdNameHash(const char *name) {
+  char visible[21];lcdLabel(name,visible,sizeof(visible));
+  uint32_t hash=2166136261u;
+  for(const char *p=visible;*p;++p)hash=(hash^uint8_t(*p))*16777619u;
+  return hash;
+}
+inline void markAmbiguousRows(CatalogueEntry *rows,uint8_t count) {
+  for(uint8_t i=0;i<count;++i)rows[i].ambiguous=false;
+  for(uint8_t i=0;i<count;++i)for(uint8_t j=0;j<i;++j) {
+    if(!rows[i].id || !rows[j].id)continue;
+    char left[21],right[21];lcdLabel(rows[i].name,left,sizeof(left));lcdLabel(rows[j].name,right,sizeof(right));
+    if(!strcmp(left,right))rows[i].ambiguous=rows[j].ambiguous=true;
+  }
+}
 constexpr uint8_t catalogueRows = 4, allRooms = 255;
 struct CataloguePage {
   CatalogueEntry rows[catalogueRows];
@@ -47,7 +64,10 @@ inline bool cataloguePage(CatalogueSource &source, CatalogueKind kind, uint8_t o
   constexpr uint8_t maximum = SOMFY_MAX_SHADES+SOMFY_MAX_GROUPS;
   static_assert(SOMFY_MAX_GROUPS <= maximum && SOMFY_MAX_ROOMS <= maximum,
                 "catalogue sort storage must cover all configured maxima");
+  static_assert(maximum<=64,"Catalogue display flags fit one bounded bitmap");
   Key keys[maximum] = {};
+  uint32_t displayNames[maximum]={}; // 192 bytes at the current 48-entry limit.
+  uint64_t filtered=0,ambiguous=0;
   uint16_t ids[maximum] = {}; uint8_t seen = 0, count = 0;
   const auto read=[&](uint8_t slot,CatalogueEntry &entry) {
     const bool group=kind==CatalogueKind::groups || (kind==CatalogueKind::roomContents && slot>=SOMFY_MAX_SHADES);
@@ -64,6 +84,11 @@ inline bool cataloguePage(CatalogueSource &source, CatalogueKind kind, uint8_t o
       if(ids[i] == uint16_t(entry.id|(entry.group?256:0))) return false;
     ids[seen++] = uint16_t(entry.id|(entry.group?256:0));
     if(kind != CatalogueKind::rooms && room != allRooms && entry.roomId != room) continue;
+    const uint32_t display=lcdNameHash(entry.name);
+    for(uint8_t other=0;other<slot;++other)
+      if((filtered&(uint64_t(1)<<other)) && displayNames[other]==display)
+        ambiguous|=(uint64_t(1)<<slot)|(uint64_t(1)<<other);
+    filtered|=uint64_t(1)<<slot;displayNames[slot]=display;
     uint8_t at = count;
     while(at && (keys[at - 1].order > entry.sortOrder ||
           (keys[at - 1].order == entry.sortOrder &&
@@ -86,6 +111,20 @@ inline bool cataloguePage(CatalogueSource &source, CatalogueKind kind, uint8_t o
        entry.sortOrder != keys[i].order || entry.group!=keys[i].group ||
        entry.identity!=keys[i].identity || entry.revision!=keys[i].revision || !memchr(entry.name, 0, sizeof(entry.name)) ||
        (kind != CatalogueKind::rooms && room != allRooms && entry.roomId != room)) return false;
+    if(lcdNameHash(entry.name)!=displayNames[keys[i].slot])return false;
+    entry.ambiguous=false;
+    if(ambiguous&(uint64_t(1)<<keys[i].slot)) {
+      char visible[21];lcdLabel(entry.name,visible,sizeof(visible));
+      for(uint8_t other=0;other<count;++other) {
+        const auto &candidate=keys[other];
+        if(candidate.slot==keys[i].slot || displayNames[candidate.slot]!=displayNames[keys[i].slot])continue;
+        CatalogueEntry peer;
+        if(!read(candidate.slot,peer) || peer.id!=candidate.id || peer.group!=candidate.group ||
+           peer.identity!=candidate.identity || peer.revision!=candidate.revision || !memchr(peer.name,0,sizeof(peer.name)))return false;
+        char peerVisible[21];lcdLabel(peer.name,peerVisible,sizeof(peerVisible));
+        if(!strcmp(visible,peerVisible)){entry.ambiguous=true;break;}
+      }
+    }
     page.rows[page.count++] = entry;
   }
   out = page;
@@ -98,6 +137,13 @@ inline bool roomCataloguePage(CatalogueSource &source,uint8_t cursor,CataloguePa
   if(!cataloguePage(source,CatalogueKind::rooms,0,allRooms,stored) ||
      !cataloguePage(source,CatalogueKind::roomContents,0,0,unassigned))return false;
   const uint8_t extra=unassigned.total?1:0;
+  bool unassignedCollision=false;
+  if(extra)for(uint8_t slot=0;slot<SOMFY_MAX_ROOMS;++slot) {
+    CatalogueEntry entry;if(!source.read(CatalogueKind::rooms,slot,entry))continue;
+    if(!memchr(entry.name,0,sizeof(entry.name)))return false;
+    char visible[21];lcdLabel(entry.name,visible,sizeof(visible));
+    if(!strcmp(visible,"Unassigned"))unassignedCollision=true;
+  }
   if(anchored) {
     if(anchorId==0 && extra)cursor=0;
     else if(anchorId!=allRooms) {
@@ -111,12 +157,13 @@ inline bool roomCataloguePage(CatalogueSource &source,uint8_t cursor,CataloguePa
   page.offset=page.cursor/catalogueRows*catalogueRows;
   for(uint8_t at=page.offset;at<page.total && page.count<catalogueRows;++at) {
     CatalogueEntry entry;
-    if(extra && !at)strcpy(entry.name,"Unassigned");
+    if(extra && !at){strcpy(entry.name,"Unassigned");entry.ambiguous=unassignedCollision;}
     else {
       const uint8_t actual=at-extra;
       if(actual<stored.offset || actual>=stored.offset+stored.count)
         if(!cataloguePage(source,CatalogueKind::rooms,actual,allRooms,stored))return false;
       entry=stored.rows[actual-stored.offset];
+      if(extra) {char visible[21];lcdLabel(entry.name,visible,sizeof(visible));if(!strcmp(visible,"Unassigned"))entry.ambiguous=true;}
     }
     page.rows[page.count++]=entry;
   }
