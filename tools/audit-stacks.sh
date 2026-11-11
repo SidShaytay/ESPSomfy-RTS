@@ -33,6 +33,18 @@ Path(sys.argv[1]).write_text(json.dumps(state))
 PY
 export PLATFORMIO_BUILD_DIR="$out/objects"
 "$pio" run -c "$out/platformio.ini" -e lilygo-t-embed-cc1101 -j "${ESPSOMFY_BUILD_JOBS:-4}" > "$out/build.log" 2>&1 || { tail -50 "$out/build.log";exit 1; }
+python3 - "$PLATFORMIO_BUILD_DIR/lilygo-t-embed-cc1101/firmware.elf" "$PLATFORMIO_BUILD_DIR/lilygo-t-embed-cc1101/firmware.bin" "$mode" <<'PY'
+from pathlib import Path
+import sys
+# Check emitted firmware, not just a successfully compiled probe symbol: release
+# log-level filtering can otherwise silently remove every measurement record.
+image=Path(sys.argv[2])
+if sys.argv[3]=='instrumented':
+ if not image.is_file() or image.read_bytes().count(b'STACK_AUDIT schema=1 role=')!=1:
+  raise SystemExit('Instrumented image lacks its unique runtime record format')
+elif image.is_file() and b'STACK_AUDIT schema=1 role=' in image.read_bytes():
+ raise SystemExit('Default image unexpectedly contains stack-audit telemetry')
+PY
 python3 - "$out/source-state.json" <<'PY'
 import json,sys
 from pathlib import Path

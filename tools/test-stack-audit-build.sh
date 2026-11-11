@@ -11,6 +11,7 @@ from pathlib import Path
 root=Path(os.environ['PLATFORMIO_BUILD_DIR'])/'lilygo-t-embed-cc1101'
 root.mkdir(parents=True)
 (root/'firmware.elf').write_bytes(b'test-fixture-not-firmware')
+(root/'firmware.bin').write_bytes(b'test-fixture-with-no-record')
 (root/'test.cpp.su').write_text('src/Test.cpp:1:1:void current()\t64\tstatic\n')
 PY
 cat > "$scratch/compiler-g++" <<'SH'
@@ -38,3 +39,10 @@ done
 [[ "$(find "$scratch/out/static" -maxdepth 1 -type d -name 'run-*' | wc -l)" == 2 ]]
 [[ -f "$scratch/out/static/obsolete/objects/old.su" ]]
 printf 'Fresh audit runs exclude stale objects and preserve prior evidence\n'
+
+if ESPSOMFY_TOOL_CACHE="$scratch/cache" STACK_AUDIT_COMPILER="$scratch/compiler-g++" STACK_AUDIT_OUTPUT_ROOT="$scratch/out" \
+ bash "$repo/tools/audit-stacks.sh" instrumented > "$scratch/silent-probe.log" 2>&1;then
+ echo 'Instrumented firmware without a runtime record format was incorrectly accepted' >&2;exit 1
+fi
+[[ ! -f "$scratch/out/instrumented/LATEST" ]]
+printf 'Silent instrumented image rejected before publication or installation\n'

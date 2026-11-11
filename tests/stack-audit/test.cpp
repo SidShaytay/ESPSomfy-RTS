@@ -11,10 +11,11 @@ static std::vector<std::string> logs;
 const char *pcTaskGetName(void*){return task;}
 unsigned uxTaskGetStackHighWaterMark(void*){++reads;clockUs+=7;return unused;}
 int64_t esp_timer_get_time(){return clockUs;}
-void testAuditLog(const char *format,...){char buffer[400];va_list args;va_start(args,format);vsnprintf(buffer,sizeof(buffer),format,args);va_end(args);logs.emplace_back(buffer);}
+int log_printf(const char *format,...){char buffer[400];va_list args;va_start(args,format);const int size=vsnprintf(buffer,sizeof(buffer),format,args);va_end(args);logs.emplace_back(buffer);return size;}
 static void sample(){StackAudit::Scope scope;}
 int main(){
  sample();assert(reads==1 && logs.size()==1);
+ assert(logs.back()=="STACK_AUDIT schema=1 role=loop uptimeMs=0 minimumUnusedBytes=4096 samples=1 maxScanUs=7\n");
  assert(logs.back().find("role=loop")!=std::string::npos);
  assert(logs.back().find("minimumUnusedBytes=4096")!=std::string::npos);
  assert(logs.back().find("maxScanUs=7")!=std::string::npos);

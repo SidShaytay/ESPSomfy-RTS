@@ -5,7 +5,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <esp_timer.h>
-#include <esp_log.h>
+#include <esp32-hal-log.h>
 
 namespace StackAudit {
 namespace {
@@ -37,8 +37,9 @@ void observeCurrent() {
     ++sample.samples;
     if(sample.samples==1 || now-sample.lastReportUs>=30000000) {
       sample.lastReportUs=now;
-      // Fixed roles and numeric fields only. Scan timing excludes UART/logging.
-      ESP_LOGI("StackAudit","STACK_AUDIT schema=1 role=%s uptimeMs=%llu minimumUnusedBytes=%lu samples=%lu maxScanUs=%lu",
+      // Opt-in audit output must survive release log filtering. The project
+      // serializes log_printfv. Scan timing excludes UART/logging.
+      log_printf("STACK_AUDIT schema=1 role=%s uptimeMs=%llu minimumUnusedBytes=%lu samples=%lu maxScanUs=%lu\n",
         sample.role,(unsigned long long)(now/1000),(unsigned long)sample.minimumUnused,
         (unsigned long)sample.samples,(unsigned long)sample.maxScanUs);
     }
