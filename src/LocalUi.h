@@ -62,6 +62,7 @@ struct View {
   uint32_t selectionAuthGeneration=0;
   uint8_t level=32, setting=0, detailsOffset=0;
   uint16_t dimSeconds=10, offSeconds=20;
+  bool displayEditing=false;
   Action action=Action::stop;
   int16_t draftValue=0;
   uint8_t valueChoice=0, repeatStep=0;

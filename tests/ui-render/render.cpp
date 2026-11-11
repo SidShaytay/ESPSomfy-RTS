@@ -96,7 +96,10 @@ int main(int argc,char **argv) {
   canvas.paint(m,v,s);save(argv[1],"pending-idle-stop",buffer);original=buffer;
   m.controlPending=false;canvas.paint(m,v,s);assert(buffer!=original);
   v.notice=Notice::stopNotQueued;canvas.paint(m,v,s);save(argv[1],"stop-not-queued",buffer);v.notice=Notice::none;
-  v.screen=Screen::brightness;v.dimSeconds=v.offSeconds=0;v.setting=2;canvas.paint(m,v,s);save(argv[1],"no-timeouts",buffer);
+  v=View{};v.screen=Screen::brightness;canvas.paint(m,v,s);save(argv[1],"display-select",buffer);
+  const auto displaySelection=buffer;v.displayEditing=true;canvas.paint(m,v,s);save(argv[1],"display-edit",buffer);assert(buffer!=displaySelection);
+  v.displayEditing=false;v.setting=3;canvas.paint(m,v,s);save(argv[1],"display-save",buffer);assert(buffer!=displaySelection);
+  v.dimSeconds=v.offSeconds=0;v.setting=2;canvas.paint(m,v,s);save(argv[1],"no-timeouts",buffer);
   v.screen=Screen::unlock;v.credentialMaximum=4;v.credentialLength=4;v.credentialChoice=CredentialEditor::doneChoice;
   canvas.paint(m,v,s);save(argv[1],"unlock-pin",buffer);original=buffer;
   v.credentialMaximum=32;v.credentialLength=32;v.credentialUser=true;canvas.paint(m,v,s);save(argv[1],"unlock-username",buffer);assert(buffer!=original);

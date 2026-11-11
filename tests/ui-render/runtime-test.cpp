@@ -1685,7 +1685,12 @@ int main(int argc,char **argv){
   assert(lastQuery.screen==Screen::configureMenu && RuntimeTestAccess::view(quickUi).selected==2);
   selectMenu(5);click();idle();assert(lastQuery.screen==Screen::brightness);back();idle();assert(lastQuery.screen==Screen::configureMenu && RuntimeTestAccess::view(quickUi).selected==5);
   selectMenu(5);click();idle();assert(lastQuery.screen==Screen::brightness);
-  click();idle();click();idle();click();idle(); // Explicit Display Save, unchanged values.
+  const auto displayBefore=quickUi.preferences();
+  rotate(1);idle();assert(RuntimeTestAccess::view(quickUi).setting==1);
+  assert(quickUi.preferences().brightness==displayBefore.brightness && quickUi.preferences().dimSeconds==displayBefore.dimSeconds);
+  click();idle();assert(RuntimeTestAccess::view(quickUi).displayEditing); // Must repaint and present editing mode.
+  click();idle();assert(!RuntimeTestAccess::view(quickUi).displayEditing);
+  for(unsigned i=0;i<2;++i){rotate(1);idle();}click();idle(); // Explicit Display Save, unchanged values.
   assert(lastQuery.screen==Screen::configureMenu && RuntimeTestAccess::view(quickUi).selected==5);
   for(unsigned cause=0;cause<2;++cause){
     selectMenu(5);click();idle();assert(lastQuery.screen==Screen::brightness);

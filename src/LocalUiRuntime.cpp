@@ -19,7 +19,7 @@ uint32_t sceneHash(const Model &m,const View &v,const StatusDisplay::Snapshot &s
     uint32_t(v.entity.kind),v.entity.id,v.quickEditing,v.quickPicking,v.quickOrigin,v.quickSlot,uint32_t(m.quickStatus),uint32_t(m.quickRevision),uint32_t(m.quickRevision>>32),uint32_t(v.openedToken),uint32_t(v.openedToken>>32),uint32_t(v.action),
     uint32_t(v.favouriteRevision),uint32_t(v.favouriteRevision>>32),
     uint32_t(m.target.favouriteRevision),uint32_t(m.target.favouriteRevision>>32),m.target.favouriteReady,m.target.favouriteClearReady,
-    v.valueChoice,uint32_t(v.draftValue),uint32_t(v.notice),v.level,v.setting,v.detailsOffset,v.dimSeconds,v.offSeconds,
+    v.valueChoice,uint32_t(v.draftValue),uint32_t(v.notice),v.level,v.setting,v.displayEditing,v.detailsOffset,v.dimSeconds,v.offSeconds,
     v.credentialKeyboard.selected,v.credentialKeyboard.bank,v.credentialKeyboard.shift,v.credentialChoice,v.credentialLength,v.credentialMaximum,v.credentialUser,v.credentialByte,v.retryAfterMs/1000,
     m.authorized,m.authGeneration,m.authConfigurationGeneration,uint32_t(m.authMode),m.ready,m.controlsEnabled,m.controlPending,
     uint32_t(m.pageToken),uint32_t(m.pageToken>>32),m.page.total,m.page.cursor,m.target.exists,m.target.valid,
@@ -106,7 +106,7 @@ bool sameMeaning(const View &a,const View &b,uint64_t page,uint64_t framePage,ui
     return sameTarget;
   }
   if(a.screen==Screen::unlock) return sameCredentialChoice(a,b);
-  if(a.screen==Screen::brightness) return a.level==b.level && a.dimSeconds==b.dimSeconds && a.offSeconds==b.offSeconds && a.setting==b.setting;
+  if(a.screen==Screen::brightness) return a.level==b.level && a.dimSeconds==b.dimSeconds && a.offSeconds==b.offSeconds && a.setting==b.setting && a.displayEditing==b.displayEditing;
   if(a.screen==Screen::details) return a.detailsOffset==b.detailsOffset;
   return a.selected==b.selected && a.room==b.room;
 }
@@ -182,7 +182,7 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
   else if(before.screen==Screen::unlock)
     visible &= sameCredentialChoice(before,presentedView);
   else if(before.screen==Screen::brightness)
-    visible &= before.setting==presentedView.setting && before.level==presentedView.level &&
+    visible &= before.setting==presentedView.setting && before.displayEditing==presentedView.displayEditing && before.level==presentedView.level &&
       before.dimSeconds==presentedView.dimSeconds && before.offSeconds==presentedView.offSeconds;
   visible &= before.quickEditing==presentedView.quickEditing && before.quickPicking==presentedView.quickPicking &&
     before.quickSlot==presentedView.quickSlot;

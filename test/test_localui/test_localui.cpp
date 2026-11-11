@@ -156,18 +156,54 @@ static void wake_holds_and_mixed_gestures_do_not_emit() {
   held.devices(); held.tick(-1); held.tick(0,true);held.tick(1,true);held.tick();held.tick();
   TEST_ASSERT_FALSE(held.c.take(out));
 }
+static void display_wheel_selects_rows_and_only_explicit_save_persists() {
+  Drive d;d.home();for(unsigned i=0;i<4;i++)d.tick(1);d.click();
+  TEST_ASSERT_EQUAL(Screen::brightness,d.c.view().screen);
+  d.tick(1);
+  TEST_ASSERT_EQUAL(1,d.c.view().setting);
+  TEST_ASSERT_EQUAL(32,d.c.preference());
+  TEST_ASSERT_EQUAL(10,d.c.preferences().dimSeconds);
+  d.click();d.tick(1); // Edit Dim after.
+  TEST_ASSERT_EQUAL(1,d.c.view().setting);
+  TEST_ASSERT_EQUAL(15,d.c.preferences().dimSeconds);
+  d.click();d.tick(1); // Return to selection, then select Sleep after.
+  TEST_ASSERT_EQUAL(2,d.c.view().setting);
+  TEST_ASSERT_EQUAL(20,d.c.preferences().offSeconds);
+  d.click();d.tick(-1);d.click();
+  TEST_ASSERT_EQUAL(15,d.c.preferences().offSeconds);
+  DisplayPreferences saved;TEST_ASSERT_FALSE(d.c.takePreferences(saved));
+  d.tick(1); // Save row.
+  d.click(false);TEST_ASSERT_EQUAL(Screen::brightness,d.c.view().screen);
+  TEST_ASSERT_FALSE(d.c.takePreferences(saved));
+  d.click();TEST_ASSERT_TRUE(d.c.takePreferences(saved));
+  TEST_ASSERT_EQUAL(15,saved.dimSeconds);TEST_ASSERT_EQUAL(15,saved.offSeconds);
+  TEST_ASSERT_FALSE(d.c.takePreferences(saved));
+}
+static void display_cancel_timeout_and_reentry_discard_edits() {
+  for(unsigned reason=0;reason<3;++reason) {
+    Drive d;d.home();for(unsigned i=0;i<4;i++)d.tick(1);d.click();
+    d.click(false);d.tick(1); // An unseen press must not enter editing.
+    TEST_ASSERT_EQUAL(32,d.c.preference());TEST_ASSERT_EQUAL(1,d.c.view().setting);
+    d.tick(-1);d.click();d.tick(1);TEST_ASSERT_EQUAL(38,d.c.preference());
+    if(reason==0) {d.click();for(unsigned i=0;i<4;i++)d.tick(1);d.tick(1);TEST_ASSERT_EQUAL(4,d.c.view().setting);d.click();}
+    else if(reason==1)d.back();
+    else {d.f.base.anyMoving=false;d.tick(0,false,true,false,21000);}
+    DisplayPreferences saved;TEST_ASSERT_FALSE(d.c.takePreferences(saved));TEST_ASSERT_EQUAL(32,d.c.preference());
+    if(reason<2) {d.click();d.tick(1);TEST_ASSERT_EQUAL(1,d.c.view().setting);TEST_ASSERT_EQUAL(32,d.c.preference());}
+  }
+}
 static void brightness_back_cancels_and_explicit_save_reports_failure() {
   Drive d; d.home(); for(unsigned i=0;i<4;i++) d.tick(1); d.click();
   TEST_ASSERT_EQUAL(int(Screen::brightness),int(d.c.view().screen));
-  d.tick(1); TEST_ASSERT_EQUAL(38,d.c.preference()); d.back();
+  d.click();d.tick(1); TEST_ASSERT_EQUAL(38,d.c.preference()); d.back();
   DisplayPreferences saved; TEST_ASSERT_FALSE(d.c.takePreferences(saved)); TEST_ASSERT_EQUAL(32,d.c.preference());
-  d.click(); d.tick(1); d.click();d.click();d.click();
+  d.click();d.click();d.tick(1);d.click();for(unsigned i=0;i<3;i++)d.tick(1);d.click();
   TEST_ASSERT_TRUE(d.c.takePreferences(saved)); TEST_ASSERT_EQUAL(38,saved.brightness);
   d.c.brightnessResult(d.now,false); TEST_ASSERT_EQUAL(int(Notice::saveFailed),int(d.c.view().notice));
 }
 static void privileged_brightness_draft_reverts_on_expiry_or_configuration_change() {
   for(unsigned reason=0;reason<2;reason++) {
-    Drive d; d.home();for(unsigned i=0;i<4;i++) d.tick(1);d.click();d.tick(1);
+    Drive d; d.home();for(unsigned i=0;i<4;i++) d.tick(1);d.click();d.click();d.tick(1);
     if(reason==0) d.f.base.authorized=false; else ++d.f.base.authConfigurationGeneration;
     d.tick(1); TEST_ASSERT_NOT_EQUAL(int(Screen::brightness),int(d.c.view().screen));
     TEST_ASSERT_EQUAL(32,d.c.preference()); DisplayPreferences saved;TEST_ASSERT_FALSE(d.c.takePreferences(saved));
@@ -322,8 +358,8 @@ static void graphics_discard_clears_settings_events_and_preserves_live_preferenc
   events.tick(1);events.click();events.back();assertTransientDiscarded(events);
   const auto preserved=events.c.preferences();TEST_ASSERT_EQUAL(128,preserved.brightness);TEST_ASSERT_EQUAL(30,preserved.dimSeconds);TEST_ASSERT_EQUAL(60,preserved.offSeconds);
   for(unsigned phase=0;phase<4;phase++) {
-    Drive d;d.home();for(unsigned i=0;i<4;i++)d.tick(1);d.click();d.tick(1); //32->38 live preview
-    if(phase) {d.click();d.click();d.click();} // explicit Save produced, but not yet consumed
+    Drive d;d.home();for(unsigned i=0;i<4;i++)d.tick(1);d.click();d.click();d.tick(1); //32->38 live preview
+    if(phase) {d.click();for(unsigned i=0;i<3;i++)d.tick(1);d.click();} // explicit Save produced, but not yet consumed
     if(phase>=2) {DisplayPreferences output;TEST_ASSERT_TRUE(d.c.takePreferences(output));d.c.brightnessResult(d.now,phase==2);}
     assertTransientDiscarded(d);
     TEST_ASSERT_EQUAL(phase<2?32:38,d.c.preference()); // consumed failed Save also keeps its already applied live value
@@ -507,13 +543,13 @@ static void routed_display_revocation_returns_to_its_visible_origin(){
 static void routed_display_save_returns_to_configure_once(){
  Drive d;d.f.base.quickReady=true;d.f.base.quickRevision=3;d.f.base.anyMoving=false;d.tick();
  for(unsigned i=0;i<7;i++)d.tick(1);d.click();d.click();for(unsigned i=0;i<5;i++)d.tick(1);d.click();
- TEST_ASSERT_EQUAL(Screen::brightness,d.c.view().screen);d.click();d.click();d.click();
+ TEST_ASSERT_EQUAL(Screen::brightness,d.c.view().screen);for(unsigned i=0;i<3;i++)d.tick(1);d.click();
  TEST_ASSERT_EQUAL(Screen::configureMenu,d.c.view().screen);TEST_ASSERT_EQUAL(5,d.c.view().selected);
  DisplayPreferences prefs;Command command;TEST_ASSERT_TRUE(d.c.takePreferences(prefs));TEST_ASSERT_FALSE(d.c.takePreferences(prefs));TEST_ASSERT_FALSE(d.c.take(command));
 }
 static void upper_brightness_changes_in_five_percent_steps_without_losing_saved_levels() {
   Drive d; d.c.setPreferences({128,0,0});d.home();for(unsigned i=0;i<4;i++)d.tick(1);d.click();
-  TEST_ASSERT_EQUAL(Screen::brightness,d.c.view().screen);
+  TEST_ASSERT_EQUAL(Screen::brightness,d.c.view().screen);d.click();
   d.tick(1); TEST_ASSERT_EQUAL(55,(d.c.preference()*100+127)/255);
   d.tick(-1);TEST_ASSERT_EQUAL(50,(d.c.preference()*100+127)/255);
   for(unsigned i=0;i<10;i++)d.tick(1);
@@ -547,6 +583,8 @@ int main() {
   UNITY_BEGIN();
   RUN_TEST(unseen_unlock_key_never_appends_until_presented);
   RUN_TEST(unseen_unlock_done_never_submits_until_presented);
+  RUN_TEST(display_cancel_timeout_and_reentry_discard_edits);
+  RUN_TEST(display_wheel_selects_rows_and_only_explicit_save_persists);
   RUN_TEST(upper_brightness_changes_in_five_percent_steps_without_losing_saved_levels);
   RUN_TEST(routed_display_save_returns_to_configure_once);
   RUN_TEST(routed_display_revocation_returns_to_its_visible_origin);
