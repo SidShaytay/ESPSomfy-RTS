@@ -19,6 +19,7 @@ import os
 from pathlib import Path
 import select
 import signal
+import socket
 import sys
 import termios
 import threading
@@ -35,6 +36,25 @@ class RestartTracker:
                    and not (self.previous > 0xf0000000 and uptime < 0x10000000))
         self.previous = uptime
         return restart
+
+
+class StaleTelemetryError(ConnectionError):
+    pass
+
+
+class TelemetryWatchdog:
+    """Expect periodic memory/uptime, even if the TCP socket stays open."""
+    def __init__(self, now, timeout=95):
+        self.last_memory = now
+        self.timeout = timeout
+
+    def observe(self, data, now):
+        if type(data.get('uptime')) is int:
+            self.last_memory = now
+
+    def check(self, now):
+        if now - self.last_memory >= self.timeout:
+            raise StaleTelemetryError('No memory/uptime telemetry for 95 seconds')
 
 
 def safe_status(data):
@@ -121,12 +141,15 @@ def telemetry_worker(host, logger, stop):
             schema = Schema()
             _, frames, _ = run_sync(client, schema, timeout=15)
             logger.info('Protocol connected')
+            watchdog = TelemetryWatchdog(time.monotonic())
             client.raw.clear()
             for frame in frames:
                 status = schema.expand(frame.get('d', {})).get('status', {})
                 if status:
+                    watchdog.observe(status, time.monotonic())
                     record_status(status, tracker, logger)
             while not stop.is_set():
+                watchdog.check(time.monotonic())
                 try:
                     frame = client.recv(timeout=2)
                 except TimeoutError:
@@ -135,11 +158,20 @@ def telemetry_worker(host, logger, stop):
                     continue
                 client.raw.clear()
                 if schema.types.get(frame.get('t')) in ('memory', 'wifi', 'ethernet'):
-                    record_status(schema.expand(frame.get('d', {})), tracker, logger)
+                    data = schema.expand(frame.get('d', {}))
+                    watchdog.observe(data, time.monotonic())
+                    record_status(data, tracker, logger)
+        except StaleTelemetryError:
+            logger.info('Protocol stale: no memory/uptime telemetry for 95s; reconnecting')
         except Exception as exc:
             logger.info('Protocol unavailable: %s', type(exc).__name__)
         finally:
             if client:
+                # Wake a reader blocked in recv before closing a stale socket.
+                try:
+                    client.sock.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
                 client.close()
         stop.wait(10)
 

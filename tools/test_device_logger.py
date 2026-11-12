@@ -4,8 +4,11 @@ import pty
 import threading
 import time
 import unittest
+import sys
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 from pathlib import Path
-from device_logger import RestartTracker, safe_status, make_logger, usb_worker
+from device_logger import RestartTracker, safe_status, make_logger, usb_worker, TelemetryWatchdog, StaleTelemetryError, telemetry_worker
 
 
 class DeviceLogging(unittest.TestCase):
@@ -58,3 +61,46 @@ class DeviceLogging(unittest.TestCase):
             stop.set()
             os.close(master)
             os.close(slave)
+
+    def test_silent_open_connection_expires_after_three_missed_updates(self):
+        watchdog = TelemetryWatchdog(now=0)
+        watchdog.check(now=94)
+        with self.assertRaises(StaleTelemetryError):
+            watchdog.check(now=95)
+
+    def test_wifi_events_do_not_hide_missing_memory_telemetry(self):
+        watchdog = TelemetryWatchdog(now=0)
+        watchdog.observe({'strength': -60}, now=90)
+        with self.assertRaises(StaleTelemetryError):
+            watchdog.check(now=95)
+
+    def test_memory_telemetry_extends_freshness_window(self):
+        watchdog = TelemetryWatchdog(now=0)
+        watchdog.observe({'uptime': 123000, 'freeHeap': 153000}, now=90)
+        watchdog.check(now=95)
+        with self.assertRaises(StaleTelemetryError):
+            watchdog.check(now=185)
+
+    def test_worker_reconnects_silent_socket_and_logs_reason(self):
+        stopped = False
+        connections = []
+        def connect(*args, **kwargs):
+            nonlocal stopped
+            client = SimpleNamespace(raw=[], sock=Mock(), close=Mock())
+            connections.append(client)
+            if len(connections) == 2:
+                stopped = True
+            return client
+        stop = SimpleNamespace(is_set=lambda: stopped, wait=lambda _: None)
+        protocol = SimpleNamespace(ProtoClient=connect, Schema=Mock(),
+                                   run_sync=lambda *a, **k: (None, [], []))
+        with tempfile.TemporaryDirectory() as tmp:
+            logger = make_logger(Path(tmp), 'reconnect-test')
+            with patch.dict(sys.modules, {'proto_client': protocol}), \
+                 patch('device_logger.time.monotonic', side_effect=[0, 96, 192]):
+                telemetry_worker('example.invalid', logger, stop)
+            self.assertEqual(len(connections), 2)
+            self.assertIn('Protocol stale:',
+                          (Path(tmp) / 'reconnect-test.log').read_text())
+            connections[0].sock.shutdown.assert_called_once()
+            connections[0].close.assert_called_once()
