@@ -339,11 +339,11 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
     text(12, 28, "Display settings", true, white);
     const char *labels[] = {"Brightness", "Dim after", "Sleep after"};
     for(int i = 0; i < 3; i++) {
-      const int y = 40 + i * 27;
+      const int y = 42 + i * 34;
       const bool active = v.setting == i;
-      fillRoundRect(10, y, 300, 25, 5, active ? selected : bg);
-      drawRoundRect(10, y, 300, 25, 5, active ? teal : line);
-      text(20, y + 18, labels[i], false, white, 160);
+      fillRoundRect(10, y, 300, 30, 5, active ? selected : bg);
+      drawRoundRect(10, y, 300, 30, 5, active ? teal : line);
+      text(20, y + 21, labels[i], false, white, 160);
       if(i == 0)
         snprintf(label, sizeof(label), "%u%%", unsigned((v.level * 100 + 127) / 255));
       else {
@@ -353,15 +353,9 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
         else
           snprintf(label, sizeof(label), "%us", unsigned(seconds));
       }
-      text(216, y + 18, label, false, active && v.displayEditing ? teal : muted, 86);
+      text(216, y + 21, label, false, active && v.displayEditing ? teal : muted, 86);
     }
-    for(int i=0;i<2;++i) {
-      const int x=10+i*154;
-      fillRoundRect(x,123,146,25,5,v.setting==i+3?selected:bg);
-      drawRoundRect(x,123,146,25,5,v.setting==i+3?teal:line);
-      text(x+12,141,i==0?"Save":"Cancel",false,white,120);
-    }
-    text(12,164,v.displayEditing?"Turn: value  Press: done":v.setting<3?"Turn: select  Press: edit":"Turn: select  Press: choose",false,muted);
+    text(12,164,v.displayEditing?"Turn: value  Press: save":"Turn: select  Press: edit",false,muted);
   } else if(v.screen==Screen::actions || v.screen==Screen::repeatActions) {
     snprintf(label,sizeof(label),"#%s%u %s",v.entity.kind==EntityKind::group?"G":"",unsigned(v.entity.id),m.target.name);
     text(12,28,label,true,white,230);

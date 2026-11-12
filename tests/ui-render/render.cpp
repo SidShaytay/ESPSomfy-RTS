@@ -98,7 +98,7 @@ int main(int argc,char **argv) {
   v.notice=Notice::stopNotQueued;canvas.paint(m,v,s);save(argv[1],"stop-not-queued",buffer);v.notice=Notice::none;
   v=View{};v.screen=Screen::brightness;canvas.paint(m,v,s);save(argv[1],"display-select",buffer);
   const auto displaySelection=buffer;v.displayEditing=true;canvas.paint(m,v,s);save(argv[1],"display-edit",buffer);assert(buffer!=displaySelection);
-  v.displayEditing=false;v.setting=3;canvas.paint(m,v,s);save(argv[1],"display-save",buffer);assert(buffer!=displaySelection);
+  v.displayEditing=false;v.dimSeconds=15;v.setting=1;v.notice=Notice::saved;canvas.paint(m,v,s);save(argv[1],"display-confirmed",buffer);assert(buffer!=displaySelection);v.notice=Notice::none;
   v.dimSeconds=v.offSeconds=0;v.setting=2;canvas.paint(m,v,s);save(argv[1],"no-timeouts",buffer);
   v.screen=Screen::unlock;v.credentialMaximum=4;v.credentialLength=4;v.credentialChoice=CredentialEditor::doneChoice;
   canvas.paint(m,v,s);save(argv[1],"unlock-pin",buffer);original=buffer;

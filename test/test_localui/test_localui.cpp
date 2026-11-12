@@ -156,50 +156,55 @@ static void wake_holds_and_mixed_gestures_do_not_emit() {
   held.devices(); held.tick(-1); held.tick(0,true);held.tick(1,true);held.tick();held.tick();
   TEST_ASSERT_FALSE(held.c.take(out));
 }
-static void display_wheel_selects_rows_and_only_explicit_save_persists() {
+static void display_confirm_saves_each_value_without_leaving_the_screen() {
   Drive d;d.home();for(unsigned i=0;i<4;i++)d.tick(1);d.click();
-  TEST_ASSERT_EQUAL(Screen::brightness,d.c.view().screen);
-  d.tick(1);
-  TEST_ASSERT_EQUAL(1,d.c.view().setting);
+  d.tick(1);TEST_ASSERT_EQUAL(1,d.c.view().setting);
   TEST_ASSERT_EQUAL(32,d.c.preference());
-  TEST_ASSERT_EQUAL(10,d.c.preferences().dimSeconds);
-  d.click();d.tick(1); // Edit Dim after.
-  TEST_ASSERT_EQUAL(1,d.c.view().setting);
-  TEST_ASSERT_EQUAL(15,d.c.preferences().dimSeconds);
-  d.click();d.tick(1); // Return to selection, then select Sleep after.
-  TEST_ASSERT_EQUAL(2,d.c.view().setting);
-  TEST_ASSERT_EQUAL(20,d.c.preferences().offSeconds);
-  d.click();d.tick(-1);d.click();
-  TEST_ASSERT_EQUAL(15,d.c.preferences().offSeconds);
   DisplayPreferences saved;TEST_ASSERT_FALSE(d.c.takePreferences(saved));
-  d.tick(1); // Save row.
-  d.click(false);TEST_ASSERT_EQUAL(Screen::brightness,d.c.view().screen);
+  d.click();d.tick(1);TEST_ASSERT_EQUAL(15,d.c.preferences().dimSeconds);
+  TEST_ASSERT_FALSE(d.c.takePreferences(saved));
+  d.click(false);TEST_ASSERT_TRUE(d.c.view().displayEditing);
   TEST_ASSERT_FALSE(d.c.takePreferences(saved));
   d.click();TEST_ASSERT_TRUE(d.c.takePreferences(saved));
+  TEST_ASSERT_EQUAL(15,saved.dimSeconds);TEST_ASSERT_EQUAL(20,saved.offSeconds);
+  TEST_ASSERT_EQUAL(Screen::brightness,d.c.view().screen);
+  TEST_ASSERT_FALSE(d.c.view().displayEditing);TEST_ASSERT_EQUAL(1,d.c.view().setting);
+  d.c.brightnessResult(d.now,true);
+  d.tick(1);d.click();d.tick(-1);d.click();TEST_ASSERT_TRUE(d.c.takePreferences(saved));
   TEST_ASSERT_EQUAL(15,saved.dimSeconds);TEST_ASSERT_EQUAL(15,saved.offSeconds);
-  TEST_ASSERT_FALSE(d.c.takePreferences(saved));
+  d.c.brightnessResult(d.now,true);
+  d.tick(1);TEST_ASSERT_EQUAL(2,d.c.view().setting); // No Save or Cancel rows.
+  d.back();TEST_ASSERT_EQUAL(15,d.c.preferences().dimSeconds);TEST_ASSERT_EQUAL(15,d.c.preferences().offSeconds);
+  d.click();TEST_ASSERT_EQUAL(0,d.c.view().setting);TEST_ASSERT_FALSE(d.c.view().displayEditing);
 }
-static void display_cancel_timeout_and_reentry_discard_edits() {
+static void display_back_expiry_and_reentry_keep_only_confirmed_values() {
   for(unsigned reason=0;reason<3;++reason) {
     Drive d;d.home();for(unsigned i=0;i<4;i++)d.tick(1);d.click();
-    d.click(false);d.tick(1); // An unseen press must not enter editing.
-    TEST_ASSERT_EQUAL(32,d.c.preference());TEST_ASSERT_EQUAL(1,d.c.view().setting);
-    d.tick(-1);d.click();d.tick(1);TEST_ASSERT_EQUAL(38,d.c.preference());
-    if(reason==0) {d.click();for(unsigned i=0;i<4;i++)d.tick(1);d.tick(1);TEST_ASSERT_EQUAL(4,d.c.view().setting);d.click();}
-    else if(reason==1)d.back();
-    else {d.f.base.anyMoving=false;d.tick(0,false,true,false,21000);}
-    DisplayPreferences saved;TEST_ASSERT_FALSE(d.c.takePreferences(saved));TEST_ASSERT_EQUAL(32,d.c.preference());
-    if(reason<2) {d.click();d.tick(1);TEST_ASSERT_EQUAL(1,d.c.view().setting);TEST_ASSERT_EQUAL(32,d.c.preference());}
+    d.click();d.tick(1);d.click();
+    DisplayPreferences saved;TEST_ASSERT_TRUE(d.c.takePreferences(saved));d.c.brightnessResult(d.now,true);
+    d.click();d.tick(1);TEST_ASSERT_EQUAL(51,d.c.preference());
+    if(reason==0)d.back();
+    else if(reason==1){d.f.base.anyMoving=false;d.tick(0,false,true,false,21000);}
+    else {d.f.base.authorized=false;d.tick();}
+    TEST_ASSERT_FALSE(d.c.takePreferences(saved));TEST_ASSERT_EQUAL(38,d.c.preference());
+    if(reason==0){d.click();TEST_ASSERT_FALSE(d.c.view().displayEditing);TEST_ASSERT_EQUAL(0,d.c.view().setting);}
   }
 }
-static void brightness_back_cancels_and_explicit_save_reports_failure() {
+static void brightness_back_cancels_and_confirm_reports_failure() {
   Drive d; d.home(); for(unsigned i=0;i<4;i++) d.tick(1); d.click();
-  TEST_ASSERT_EQUAL(int(Screen::brightness),int(d.c.view().screen));
-  d.click();d.tick(1); TEST_ASSERT_EQUAL(38,d.c.preference()); d.back();
-  DisplayPreferences saved; TEST_ASSERT_FALSE(d.c.takePreferences(saved)); TEST_ASSERT_EQUAL(32,d.c.preference());
-  d.click();d.click();d.tick(1);d.click();for(unsigned i=0;i<3;i++)d.tick(1);d.click();
-  TEST_ASSERT_TRUE(d.c.takePreferences(saved)); TEST_ASSERT_EQUAL(38,saved.brightness);
-  d.c.brightnessResult(d.now,false); TEST_ASSERT_EQUAL(int(Notice::saveFailed),int(d.c.view().notice));
+  d.click();d.tick(1);TEST_ASSERT_EQUAL(38,d.c.preference());d.back();
+  DisplayPreferences saved;TEST_ASSERT_FALSE(d.c.takePreferences(saved));TEST_ASSERT_EQUAL(32,d.c.preference());
+  d.click();d.click();d.tick(1);d.click();TEST_ASSERT_TRUE(d.c.takePreferences(saved));
+  d.c.brightnessResult(d.now,false);TEST_ASSERT_EQUAL(Notice::saveFailed,d.c.view().notice);
+  TEST_ASSERT_EQUAL(32,d.c.preference());
+  d.click();d.tick(1);d.click();TEST_ASSERT_TRUE(d.c.takePreferences(saved));d.c.brightnessResult(d.now,true);
+  d.back();TEST_ASSERT_EQUAL(38,d.c.preference());
+}
+static void display_unchanged_and_unseen_confirmation_never_write() {
+  Drive d;d.home();for(unsigned i=0;i<4;i++)d.tick(1);d.click();
+  d.click(false);TEST_ASSERT_FALSE(d.c.view().displayEditing);
+  d.click();d.click();DisplayPreferences saved;TEST_ASSERT_FALSE(d.c.takePreferences(saved));
+  d.tick(-1);TEST_ASSERT_EQUAL(0,d.c.view().setting);
 }
 static void privileged_brightness_draft_reverts_on_expiry_or_configuration_change() {
   for(unsigned reason=0;reason<2;reason++) {
@@ -359,10 +364,10 @@ static void graphics_discard_clears_settings_events_and_preserves_live_preferenc
   const auto preserved=events.c.preferences();TEST_ASSERT_EQUAL(128,preserved.brightness);TEST_ASSERT_EQUAL(30,preserved.dimSeconds);TEST_ASSERT_EQUAL(60,preserved.offSeconds);
   for(unsigned phase=0;phase<4;phase++) {
     Drive d;d.home();for(unsigned i=0;i<4;i++)d.tick(1);d.click();d.click();d.tick(1); //32->38 live preview
-    if(phase) {d.click();for(unsigned i=0;i<3;i++)d.tick(1);d.click();} // explicit Save produced, but not yet consumed
+    if(phase) d.click(); // Confirmation produced, but not yet consumed
     if(phase>=2) {DisplayPreferences output;TEST_ASSERT_TRUE(d.c.takePreferences(output));d.c.brightnessResult(d.now,phase==2);}
     assertTransientDiscarded(d);
-    TEST_ASSERT_EQUAL(phase<2?32:38,d.c.preference()); // consumed failed Save also keeps its already applied live value
+    TEST_ASSERT_EQUAL(phase==2?38:32,d.c.preference()); // Only a successful save changes the confirmed baseline.
   }
 }
 static void graphics_discard_restarts_debounce_and_suppresses_held_recovery_input() {
@@ -540,12 +545,14 @@ static void routed_display_revocation_returns_to_its_visible_origin(){
   d.click();TEST_ASSERT_EQUAL(cause&2?Screen::unlock:Screen::brightness,d.c.view().screen);
  }
 }
-static void routed_display_save_returns_to_configure_once(){
+static void routed_display_confirm_stays_until_back(){
  Drive d;d.f.base.quickReady=true;d.f.base.quickRevision=3;d.f.base.anyMoving=false;d.tick();
  for(unsigned i=0;i<7;i++)d.tick(1);d.click();d.click();for(unsigned i=0;i<5;i++)d.tick(1);d.click();
- TEST_ASSERT_EQUAL(Screen::brightness,d.c.view().screen);for(unsigned i=0;i<3;i++)d.tick(1);d.click();
- TEST_ASSERT_EQUAL(Screen::configureMenu,d.c.view().screen);TEST_ASSERT_EQUAL(5,d.c.view().selected);
- DisplayPreferences prefs;Command command;TEST_ASSERT_TRUE(d.c.takePreferences(prefs));TEST_ASSERT_FALSE(d.c.takePreferences(prefs));TEST_ASSERT_FALSE(d.c.take(command));
+ TEST_ASSERT_EQUAL(Screen::brightness,d.c.view().screen);d.click();d.tick(1);d.click();
+ TEST_ASSERT_EQUAL(Screen::brightness,d.c.view().screen);
+ DisplayPreferences prefs;Command command;TEST_ASSERT_TRUE(d.c.takePreferences(prefs));d.c.brightnessResult(d.now,true);
+ TEST_ASSERT_FALSE(d.c.takePreferences(prefs));TEST_ASSERT_FALSE(d.c.take(command));d.back();
+ TEST_ASSERT_EQUAL(Screen::configureMenu,d.c.view().screen);TEST_ASSERT_EQUAL(5,d.c.view().selected);TEST_ASSERT_EQUAL(38,d.c.preference());
 }
 static void upper_brightness_changes_in_five_percent_steps_without_losing_saved_levels() {
   Drive d; d.c.setPreferences({128,0,0});d.home();for(unsigned i=0;i<4;i++)d.tick(1);d.click();
@@ -583,10 +590,11 @@ int main() {
   UNITY_BEGIN();
   RUN_TEST(unseen_unlock_key_never_appends_until_presented);
   RUN_TEST(unseen_unlock_done_never_submits_until_presented);
-  RUN_TEST(display_cancel_timeout_and_reentry_discard_edits);
-  RUN_TEST(display_wheel_selects_rows_and_only_explicit_save_persists);
+  RUN_TEST(display_back_expiry_and_reentry_keep_only_confirmed_values);
+  RUN_TEST(display_unchanged_and_unseen_confirmation_never_write);
+  RUN_TEST(display_confirm_saves_each_value_without_leaving_the_screen);
   RUN_TEST(upper_brightness_changes_in_five_percent_steps_without_losing_saved_levels);
-  RUN_TEST(routed_display_save_returns_to_configure_once);
+  RUN_TEST(routed_display_confirm_stays_until_back);
   RUN_TEST(routed_display_revocation_returns_to_its_visible_origin);
   RUN_TEST(approved_controller_navigation_preserves_explicit_origins);
   RUN_TEST(quick_revocation_consumes_only_an_existing_press);
@@ -605,7 +613,7 @@ int main() {
   RUN_TEST(locked_stop_lease_never_authorizes_another_action);
   RUN_TEST(secrets_wipe_on_cancel_configuration_change_sleep_and_timeout);
   RUN_TEST(wake_holds_and_mixed_gestures_do_not_emit);
-  RUN_TEST(brightness_back_cancels_and_explicit_save_reports_failure);
+  RUN_TEST(brightness_back_cancels_and_confirm_reports_failure);
   RUN_TEST(privileged_brightness_draft_reverts_on_expiry_or_configuration_change);
   RUN_TEST(settings_receives_logical_events_and_closes_explicitly);
   RUN_TEST(encoder_detents_bounce_and_memory_failures_remain_bounded);

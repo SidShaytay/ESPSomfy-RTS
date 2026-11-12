@@ -22,8 +22,7 @@ void Controller::setPreferences(const DisplayPreferences &p) {
   }
 }
 void Controller::discardTransient() {
-  // Save consumption is the existing synchronous live-application boundary;
-  // a reported persistence failure still leaves those live values applied.
+  // Discard unconfirmed display edits while retaining the last saved values.
   const auto keep=state.screen==Screen::brightness || savePending?brightnessBefore:preferences();
   editor.cancel();valueEditor.cancel();
   state=View{};pending=repeatWitness=Command{};formInput={};
@@ -251,9 +250,12 @@ void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
     break;
   case Screen::brightness:
     if(!visible) state.notice=Notice::wait;
-    else if(state.setting<3) state.displayEditing=!state.displayEditing;
-    else if(state.setting==3) {savePending=true;if(state.routed)closeForm();else {state.screen=Screen::home;state.selected=4;}}
-    else goBack();
+    else if(!state.displayEditing) state.displayEditing=true;
+    else {
+      state.displayEditing=false;
+      const auto value=preferences();
+      savePending=value.brightness!=brightnessBefore.brightness || value.dimSeconds!=brightnessBefore.dimSeconds || value.offSeconds!=brightnessBefore.offSeconds;
+    }
     break;
   case Screen::control:
     if(state.action==Action::count) {
@@ -605,7 +607,7 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
     else if(state.screen == Screen::brightness) {
       if(!state.displayEditing) {
         const int next=int(state.setting)+(turn>0?1:-1);
-        state.setting=next<0?0:next>4?4:next;
+        state.setting=next<0?0:next>2?2:next;
       } else if(state.setting == 0) {
         if(turn>0) {
           for(auto level:levels) if(level>state.level) {state.level=level;break;}
@@ -642,6 +644,8 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
   }
 }
 void Controller::brightnessResult(uint32_t now, bool saved) {
+  if(saved) brightnessBefore=preferences();
+  else setPreferences(brightnessBefore);
   state.notice = saved ? Notice::saved : Notice::saveFailed;
   noticeSince = now;
 }

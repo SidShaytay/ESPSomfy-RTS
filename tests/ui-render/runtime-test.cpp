@@ -1739,7 +1739,10 @@ int main(int argc,char **argv){
   assert(quickUi.preferences().brightness==displayBefore.brightness && quickUi.preferences().dimSeconds==displayBefore.dimSeconds);
   click();idle();assert(RuntimeTestAccess::view(quickUi).displayEditing); // Must repaint and present editing mode.
   click();idle();assert(!RuntimeTestAccess::view(quickUi).displayEditing);
-  for(unsigned i=0;i<2;++i){rotate(1);idle();}click();idle(); // Explicit Display Save, unchanged values.
+  click();idle();rotate(1);idle();click();idle(); // Confirm Dim after and persist immediately.
+  assert(lastQuery.screen==Screen::brightness && !RuntimeTestAccess::view(quickUi).displayEditing);
+  assert(quickUi.preferences().dimSeconds==15 && RuntimeTestAccess::view(quickUi).notice==Notice::saved);
+  back();idle();assert(quickUi.preferences().dimSeconds==15);
   assert(lastQuery.screen==Screen::configureMenu && RuntimeTestAccess::view(quickUi).selected==5);
   for(unsigned cause=0;cause<2;++cause){
     selectMenu(5);click();idle();assert(lastQuery.screen==Screen::brightness);

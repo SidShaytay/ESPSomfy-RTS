@@ -1,17 +1,17 @@
-# Issue 36 — complete
+# Issue 36 — save each display value on press
 
-Objective: make System → Configure → Display follow the local UI's select-then-edit interaction.
+Objective: remove Display Save/Cancel controls. Turn selects a row, press enters editing, turn changes a draft and the next center press saves that value and returns to row selection.
 
-Acceptance: wheel turns select rows without changing values; pressing a value row enters editing and pressing again returns to selection; only explicit Save persists the draft; Cancel/Back restore original preferences; authorization, inactivity, and completed-frame guards remain intact. The screen must distinguish selection from editing.
+Acceptance: three value rows only; confirmation persists immediately without leaving Display; confirmed values survive Back, expiry and reboot; unconfirmed edits revert on Back/expiry; storage failures are shown; completed-frame and authorization guards remain intact.
 
-Scope: display controller, renderer, presentation identity, regression tests and user instructions. No device access, flashing, RF or motor tests.
+Scope: display controller/renderer, regression tests, guide and screenshot; verified same-layout firmware-only update with fresh full-flash recovery set, then integration into main. Sid explicitly authorized flashing and its necessary access/backup/reboot on 2026-11-11. No RF/motor tests or HA changes are authorized.
 
-Completed milestones: reproduced the original failure with a native test; implemented select/edit/Save/Cancel; verified the rendered screen, real runtime input flow and full-feature firmware package.
+Workspace: `issue-36-display`, branch `codex/issue-36-save-on-press`, based on main `19b4dcb`. Use only git-agent/gh-agent as r-sidshaytay. Clean up this worktree after successful deployment and merge, retaining private recovery artifacts.
 
-Delivery: reviewed fix integrated into main. Display selection, editing and explicit Save/Cancel are complete; no further offline requirements remain.
+Completed milestone: failing confirmation regression reproduced the missing save; correction passes 39 controller tests, full native suite (1,321 passed, one optional private-backup skip), production preview/runtime/capture/adapter/queue harnesses. Reversing the successful-save baseline condition caused five regression failures. Updated #36 requirements and #33 manual checklist; both remain open.
 
-Validation: 1,320 native tests passed (one optional private-backup test skipped), including 38 focused controller tests; production renderer/runtime/capture/adapter/queue/update harnesses, 122 JavaScript tests, release-script tests and canonical LILYGO firmware build/package validation passed. An isolated mutation reversing the selection/edit condition caused six controller tests to fail. Source review covered correctness, readability, architecture, authorization/presentation guards and bounded rendering; no blocking findings.
+Next milestone: finish fresh raw backup verification, restore the current confirmed application, and build the reviewed clean-source candidate before a single firmware-only upload.
 
-Integration checks: merged main through `2136bf2` without conflicts, reviewed the resulting display/runtime diff, and reran the complete preview/runtime harness, audit-mode UI harness and canonical firmware build/package validation successfully. Native-test inputs were unchanged by that main update.
+Review: controller state transitions, persisted-baseline handling, failure/cancellation, unchanged-value write suppression, authorization and completed-frame checks reviewed without blocking findings. Normal and audit-mode UI harnesses, 122 JS tests and release-script checks passed.
 
-Hardware validation: not performed; no device access or flashing was requested.
+State: implementation complete; clean firmware build and deployment pending. Full backup read is in progress; no firmware upload has occurred. Private recovery pointer: `~/.local/state/espsomfy-lilygo/ISSUE36_CONFIRM_ACTIVE`. Historical Save/Cancel behavior is superseded by this request.
