@@ -9,7 +9,7 @@ python3 - "$repo" "$scratch/production-group-domain.inc" <<'PY'
 from pathlib import Path
 import sys
 root=Path(sys.argv[1]);out=[]
-for path,names in [('SomfyRemote.cpp',['SomfyRemote::setRemoteAddress','SomfyRemote::getRemoteAddress','SomfyRemote::p_lastRollingCode','SomfyLinkedRemote::SomfyLinkedRemote']),('SomfyGroup.cpp',['SomfyGroup::sendCommand','SomfyGroup::p_direction','SomfyGroup::updateFlags']),('SomfyShade.cpp',['SomfyShade::onChanged','SomfyShade::getFlags','SomfyShade::p_lastRollingCode','SomfyShade::processInternalCommand','SomfyShade::checkMovement']),('outputs/SomfyEvents.cpp',['SomfyGroup::emitState'])]:
+for path,names in [('SomfyRemote.cpp',['SomfyRemote::setRemoteAddress','SomfyRemote::getRemoteAddress','SomfyRemote::p_lastRollingCode','SomfyLinkedRemote::SomfyLinkedRemote']),('SomfyGroup.cpp',['SomfyGroup::sendCommand','SomfyGroup::sendCommandReceipt','SomfyGroup::p_direction','SomfyGroup::updateFlags']),('SomfyShade.cpp',['SomfyShade::onChanged','SomfyShade::getFlags','SomfyShade::p_lastRollingCode','SomfyShade::processInternalCommand','SomfyShade::checkMovement']),('outputs/SomfyEvents.cpp',['SomfyGroup::emitState'])]:
     text=(root/'src'/path).read_text()
     for name in names:
         search=0

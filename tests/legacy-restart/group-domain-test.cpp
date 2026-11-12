@@ -76,6 +76,10 @@ bool SomfyRemote::sendCommand(somfy_commands command, uint8_t, uint8_t) {
   lastFrame.valid = true;
   return true;
 }
+send_result_t SomfyRemote::sendCommandAfter(somfy_commands command, uint8_t repeat,
+                                              uint8_t step, uint16_t, bool, bool) {
+  return {SomfyRemote::sendCommand(command, repeat, step), radioCalls};
+}
 bool SomfyRemote::isLastCommand(somfy_commands command) {
   return lastFrame.cmd == command;
 }
