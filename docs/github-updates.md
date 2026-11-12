@@ -4,20 +4,18 @@ This fork adds device-side GitHub updates to explicit release profiles with enou
 
 ## Choose the exact board profile
 
-The single profile contract is [`update-profiles.json`](../update-profiles.json). It enables four distinct Plus variants (headless, status display, interactive UI and command-locked UI preview), standard T-Embed CC1101, PSRAM-equipped S3 release, official C5 N8R8 release, and the explicit `esp32p4-psram`/`esp32p4es-psram` targets. Every profile requires at least 8 MiB working PSRAM; actual flash capacity, partition addresses, compiled board identity, web assets, bootloader digest and image size are checked separately. [The complete memory table](board-memory.md) distinguishes these targets from older no-PSRAM C5, generic no-PSRAM S3, and single-slot debug builds.
+The single profile contract is [`update-profiles.json`](../update-profiles.json). It enables the canonical full-feature Plus and standard T-Embed CC1101 builds, PSRAM-equipped S3 release, official C5 N8R8 release, and the explicit `esp32p4-psram`/`esp32p4es-psram` targets. Every profile requires at least 8 MiB working PSRAM; actual flash capacity, partition addresses, compiled board identity, web assets, bootloader digest and image size are checked separately. [The complete memory table](board-memory.md) distinguishes these targets from older no-PSRAM C5, generic no-PSRAM S3, and single-slot debug builds.
 
 A profile's presence does not establish hardware acceptance. Standard LILYGO and the additional memory variants have not been tested on hardware by this task. Existing `esp32p4`/`esp32p4es` profiles retain their smaller slots and manual update behavior: a TLS-enabled P4 image exceeded their 1.5 MiB slots. New explicit release profiles provide enough space without silently changing an existing target: `esp32p4-psram` uses `default_8MB` on 16 MiB flash; `esp32p4es-psram` uses a dedicated 4 MiB table with two `0x1C0000`-byte application slots and 384 KiB shared filesystem. Each final image must still pass its actual slot/headroom check. Unconfigured memory variants require a reviewed exact profile; a larger PSRAM chip never selects another board's artifact.
 
-The Plus variants preserve their capabilities through separate exact identities:
+Both LILYGO targets include the display, local navigation and local shutter commands:
 
-| Environment suffix | LCD | Local navigation | Local shutter commands |
-| --- | --- | --- | --- |
-| `lilygo-t-embed-cc1101-plus` | Headless | None | Excluded |
-| `-display` | Status display | Wake only | Excluded |
-| `-ui` | Full local UI | Enabled | Compiled in |
-| `-ui-preview` | Full local UI | Enabled | Excluded |
+| Physical board | Canonical environment |
+| --- | --- |
+| T-Embed CC1101 Plus | `lilygo-t-embed-cc1101-plus` |
+| Standard T-Embed CC1101 | `lilygo-t-embed-cc1101` |
 
-The three suffixes append to `lilygo-t-embed-cc1101-plus`. Each gets its own manifest and firmware filename; a headless or preview update cannot silently become a command-enabled UI build. Package validation checks required and forbidden feature macros in both resolved build flags and compiler evidence, plus the pinned display-library dependencies. Registering these profiles preserves the merged LCD/UI functionality and does not constitute combined updater hardware acceptance or permission to issue physical commands.
+Package validation requires all three feature macros (`ESPSOMFY_STATUS_DISPLAY`, `ESPSOMFY_LOCAL_UI`, `ESPSOMFY_LOCAL_COMMANDS`) and the pinned display dependencies. Headless, display-only, `-ui` and `-ui-preview` environments are retired; old artifact names in dated validation records remain historical evidence. Standard and Plus still have separate exact-board asset identities. The current local UI covers shade IDs 1 and 2 and group ID 1, UP/STOP/DOWN, diagnostics and display settings; it does not duplicate the full web interface. Compiled commands do not authorize physical testing.
 
 ## Prepare reviewable release assets offline
 

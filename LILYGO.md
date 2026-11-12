@@ -1,8 +1,8 @@
-# LILYGO T-Embed CC1101 Plus
+# LILYGO T-Embed CC1101 and Plus
 
-For backup, firmware-only A/B installation, verification and recovery, follow [the standard flashing procedure](docs/flashing.md). Choose the variant that preserves the board's current LCD and control features before building.
+For backup, firmware-only A/B installation, verification and recovery, follow [the standard flashing procedure](docs/flashing.md). Choose the exact standard or Plus board profile; both include the display, local UI and local shutter commands.
 
-This branch forward-ports the opt-in headless Plus profile onto cjkas v4.0.2, pinned at `07bffdec6b540cc99f31d02d7e6de6d3d1e7f8f3`. The standard-layout build at revision `6842f0a22a334c849ab1c5ed11e6c474c6666aed` was installed on the original controller on November 6, 2026. Both runtime boots passed read-only checks, with credentials, identities, calibration and counters preserved. The cjkas versus xkain decision remains open; see the [installed-layout verification](docs/lilygo-standard-layout.md#installed-layout-verification). See the [baseline decision](docs/adr/0008-lilygo-maintained-baseline.md) and [historical bring-up and recovery evidence](docs/lilygo-v247.md).
+The maintained baseline is cjkas v4.0.2, pinned at `07bffdec6b540cc99f31d02d7e6de6d3d1e7f8f3`. Historical deployment: the headless standard-layout build at revision `6842f0a22a334c849ab1c5ed11e6c474c6666aed` was installed on the original controller on November 6, 2026. Both runtime boots passed read-only checks, with credentials, identities, calibration and counters preserved. The cjkas versus xkain decision remains open; see the [installed-layout verification](docs/lilygo-standard-layout.md#installed-layout-verification). See the [baseline decision](docs/adr/0008-lilygo-maintained-baseline.md) and [historical bring-up and recovery evidence](docs/lilygo-v247.md).
 
 ## Build without connecting a device
 
@@ -10,12 +10,14 @@ Requires Linux, Git, `uv`, and network access for pinned tool downloads. From th
 
 ```bash
 bash tools/setup-lilygo.sh
-bash tools/build-lilygo.sh
+bash tools/build-update.sh lilygo-t-embed-cc1101-plus
+# For the standard board instead:
+bash tools/build-update.sh lilygo-t-embed-cc1101
 ```
 
 The setup/build scripts never open a serial port or flash a board. Python build tools live in `${ESPSOMFY_TOOL_CACHE:-$HOME/.cache/espsomfy-lilygo}`; pioarduino keeps its downloaded platform/compiler packages in `~/.platformio`. The pinned tag still contains application version `4.0.1`, which its build script uses for `FW_VERSION`; the manifest records both the actual compiler metadata and the pinned source revision. Verified-update builds now record a separate fork release tag, source revision and exact board identity; see [verified GitHub updates](docs/github-updates.md). The pinned pioarduino Core 6.2.0 uses platform 55.03.312 (Arduino 3.3.12), with the exact library versions in `platformio.ini`. The vendored CC1101 driver comes from the pinned baseline. This replaces the old Arduino CLI build; historical tool versions and generated v2.4.7 binaries are not inputs to this build.
 
-The release environment `lilygo-t-embed-cc1101-plus` selects `ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS`, ESP32-S3 N16R8, QIO flash at 80 MHz, 16 MB physical flash, 8 MB OPI PSRAM and hardware USB CDC. The ROM image header uses DIO while the SDK enables configured QIO after boot; the manifest distinguishes these. Generic environments keep upstream settings. Artifacts and a validated board-specific manifest are produced locally under `build/lilygo/`; see the build script for exact output names. Hashes identify the artifacts and source inputs, but are not signatures or authorization to install them.
+The release environment `lilygo-t-embed-cc1101-plus` selects `ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS`, ESP32-S3 N16R8, QIO flash at 80 MHz, 16 MB physical flash, 8 MB OPI PSRAM and hardware USB CDC. The ROM image header uses DIO while the SDK enables configured QIO after boot; the manifest distinguishes these. The standard board uses the separate `lilygo-t-embed-cc1101` identity. Both canonical environments compile `ESPSOMFY_STATUS_DISPLAY`, `ESPSOMFY_LOCAL_UI` and `ESPSOMFY_LOCAL_COMMANDS`, with pinned Adafruit GFX and BusIO dependencies. Generic environments keep upstream settings. Artifacts and validated board-specific evidence are produced locally under `build/<environment>/`; see the build script for exact output names. Hashes identify the artifacts and source inputs, but are not signatures or authorization to install them.
 
 ## Partitions and migration limits
 
@@ -47,7 +49,7 @@ The historical v2.4.7 table used `0x140000` app slots and LittleFS at `0x290000`
 
 Deselect shared-SPI peripherals before enabling power, select the 433 MHz filter and allow the rail to settle. Before CC1101 initialization, release SPI ownership, perform the bounded MISO-ready check and initialize SPI on the mapped pins. Retain the vendored driver’s Arduino 3 SPI handling, and cjkas’s radio lock and scheduling. Invalid frequency or failed initialization leaves the integrated radio unavailable to software: RX interrupts stay detached and new TX work is refused. A failed reconfiguration can leave the physical chip in its previous RX state; this does not prove hardware idle. The synthesizer default is 433.42 MHz; the selected filter accepts 387–464 MHz.
 
-Radio pin settings are fixed against saved, imported and UI values. Board control pins, USB 19/20 and flash/OPI PSRAM 26–37 are reserved against relay assignments even when the radio is disabled. In the headless profile, display, SD and nRF24 drivers are not started; the dark display is expected. UART0 shares pins with nRF24, so diagnostics use USB CDC.
+Radio pin settings are fixed against saved, imported and UI values. Board control pins, USB 19/20 and flash/OPI PSRAM 26–37 are reserved against relay assignments even when the radio is disabled. The LCD and encoder UI start in both canonical profiles; SD and nRF24 drivers remain unused. The backlight starts off during safe pin initialization, then follows the saved display settings. UART0 shares pins with nRF24, so diagnostics use USB CDC.
 
 ## State and Home Assistant compatibility
 
@@ -74,8 +76,8 @@ Compile, GPIO harness and fake-device protocol results do not prove RF transmiss
 
 See [the supported profiles and memory table](docs/board-memory.md), [offline preparation and service-window plan](docs/github-updates.md), and [ADR validation evidence](docs/github-update-validation.md). The implementation does not establish hardware acceptance or authorize provisioning.
 
-## Choose the LCD variant
+## Use the display and local controls
 
-For the opt-in status screen, build `lilygo-t-embed-cc1101-plus-display`; the existing Plus environment stays headless. See the [display guide](docs/lilygo-status-display.md) for behavior, wiring and build instructions, and the [hardware validation record](docs/lilygo-status-validation.md).
+The canonical `lilygo-t-embed-cc1101-plus` and `lilygo-t-embed-cc1101` builds include the PSRAM-backed UI, saved display settings and read-only framebuffer screenshots. There are no separate headless, display-only, UI or command-locked preview build environments. See the [local UI guide](docs/lilygo-local-ui.md), [status/fallback renderer](docs/lilygo-status-display.md), and [historical display validation](docs/lilygo-status-validation.md).
 
-For the interactive PSRAM-backed UI, saved display settings and read-only framebuffer screenshots, use `lilygo-t-embed-cc1101-plus-ui`; see the [local UI guide](docs/lilygo-local-ui.md). The separate `lilygo-t-embed-cc1101-plus-ui-preview` environment keeps local shutter commands locked. Preserve the intended variant during updates using [the standard flashing procedure](docs/flashing.md).
+Local controls currently expose shade IDs 1 and 2 and group ID 1, with UP/STOP/DOWN, estimated positions, diagnostics and display settings. They do not provide full web-interface feature parity. Compiled local commands still require valid model identities and an available radio; building them does not authorize live movement tests.

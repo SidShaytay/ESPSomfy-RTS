@@ -14,14 +14,12 @@ Record the physical board, source revision and firmware hash, build environment,
 
 Use the latest `main` as the completed integration baseline. New features start there and join `main` after review and tests, so subsequent firmware includes previous features. Do not assemble a deployment from unfinished parallel branches. Check that the selected image preserves the installed features:
 
-| Existing LILYGO setup | PlatformIO environment |
+| Physical LILYGO board | PlatformIO environment |
 | --- | --- |
-| Interactive LCD and manual controls | `lilygo-t-embed-cc1101-plus-ui` |
-| LCD UI with commands deliberately locked | `lilygo-t-embed-cc1101-plus-ui-preview` |
-| Simple read-only status screen | `lilygo-t-embed-cc1101-plus-display` |
-| Headless controller | `lilygo-t-embed-cc1101-plus` |
+| T-Embed CC1101 Plus | `lilygo-t-embed-cc1101-plus` |
+| Standard T-Embed CC1101 | `lilygo-t-embed-cc1101` |
 
-For other supported boards, use their exact environment from `platformio.ini`. Do not flash a headless build over an LCD installation accidentally.
+Both canonical builds include the display, local UI and local shutter commands. Headless, display-only, `-ui` and `-ui-preview` environments are retired. Historical validation records retain those older names; they are not current build instructions. For other supported boards, use their exact environment from `platformio.ini`. Local controls currently cover shade IDs 1 and 2 and group ID 1, rather than every feature of the web interface.
 
 Identify HA/HomeKit/MQTT automation writers and arrange a quiet period so state and counters cannot advance unnoticed during capture. Record any automation changes for restoration. Do not run a second controller with the same radio identities.
 
@@ -88,18 +86,18 @@ An exception is allowed **only when Sid explicitly authorizes firmware-only A/B 
 
 ## 3. Build and check the exact candidate
 
-Use the pinned pioarduino Core 6.2.0 toolchain installed by `bash tools/setup-lilygo.sh`. From the chosen clean source worktree, this example builds the interactive LCD variant without accessing a device:
+Use the pinned pioarduino Core 6.2.0 toolchain installed by `bash tools/setup-lilygo.sh`. From the chosen clean source worktree, this example builds the canonical full-feature Plus target without accessing a device:
 
 ```bash
 set -euo pipefail
 pio_tool="${ESPSOMFY_TOOL_CACHE:-$HOME/.cache/espsomfy-lilygo}/pio-python/bin/pio"
-build_environment=lilygo-t-embed-cc1101-plus-ui
+build_environment=lilygo-t-embed-cc1101-plus
 "$pio_tool" run -e "$build_environment" -j 4
 artifact_dir="$PWD/.pio/build/$build_environment"
 sha256sum "$artifact_dir/firmware.bin" "$artifact_dir/firmware.elf" "$artifact_dir/partitions.bin"
 ```
 
-If `PLATFORMIO_BUILD_DIR` is set, use that actual output directory instead. Record the clean Git revision, environment, relevant compiler defines, tool/dependency versions, firmware size and hashes. Keep the ELF for decoding a later crash. Run the relevant native, protocol, board/SPI and display/adapter checks before installation; [AGENTS.md](../AGENTS.md) and the [UI guide](lilygo-local-ui.md) list them. The headless `tools/build-lilygo.sh` packager must not label an LCD UI image.
+If `PLATFORMIO_BUILD_DIR` is set, use that actual output directory instead. Record the clean Git revision, environment, relevant compiler defines, tool/dependency versions, firmware size and hashes. Keep the ELF for decoding a later crash. Run the relevant native, protocol, board/SPI and display/adapter checks before installation; [AGENTS.md](../AGENTS.md) and the [UI guide](lilygo-local-ui.md) list them. Use `bash tools/build-update.sh "$build_environment"` when preparing the exact-board package and verified-update evidence.
 
 Compare the candidate's decoded partition table with the board's verified table. Account for erased sector padding when comparing generated `partitions.bin` with a flash sector. Confirm the inactive app differs from the running app and the image fits it. An A/B upload cannot migrate partitions or create a second slot.
 
@@ -121,7 +119,7 @@ Identify the new boot by its exact firmware image/ELF identity, app slot and res
 
 For verified GitHub-update profiles, a pending image must pass 60 continuous seconds of the [stronger boot-health checks](github-updates.md#preserve-controller-state-and-recovery), including matching web assets and bootloader, expected radio availability, responsive loop servicing and internal-memory headroom. Legacy profiles confirm once uptime is at least 60,000 ms with the network connected. Neither policy proves physical RF or motor behavior. Verify the confirmation result and stable uptime, then observe longer for unexpected restarts, watchdogs or memory loss.
 
-Compare saved and current configuration, identities, membership, calibration and counters. Investigate differences; do not overwrite newer counters to force equality. Verify protocol synchronization and the expected schema capability, radio initialization/register/RX status, Wi-Fi/listener availability, and read-only HA entity availability. For LCD builds also check command-lock status and framebuffer/fallback health. These checks establish software state, not physical motor movement or RF reliability.
+Compare saved and current configuration, identities, membership, calibration and counters. Investigate differences; do not overwrite newer counters to force equality. Verify protocol synchronization and the expected schema capability, radio initialization/register/RX status, Wi-Fi/listener availability, and read-only HA entity availability. For either LILYGO build, also check framebuffer/fallback health and that `X-LCD-Commands` reports the compiled command capability; an unavailable or deliberately disabled radio must still refuse commands. These checks establish software state, not physical motor movement or RF reliability.
 
 Firmware and HA must both support an added operation before HA can use it. If an update requires a matching integration change, use the separately authorized HA update/restart procedure, retain its rollback files, and verify the operation in the advertised schema. Do not issue HA services or use Apple Home as a connectivity probe.
 

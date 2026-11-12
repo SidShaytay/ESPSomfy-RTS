@@ -1,10 +1,10 @@
 # Local shutter UI
 
-Use [the standard flashing procedure](flashing.md) for backup and firmware-only A/B updates. Select the UI environment that preserves the intended command-lock setting; the headless packager does not package this UI.
+Use [the standard flashing procedure](flashing.md) for backup and firmware-only A/B updates. Use `lilygo-t-embed-cc1101-plus` for the Plus or `lilygo-t-embed-cc1101` for the standard board. Both are full-feature builds with the display, local UI and local commands; separate headless/display-only/UI-preview environments are retired.
 
-The optional 320×170 UI adds status, room selection, controls, details and saved display settings to the LILYGO Plus display. It follows the approved dark/teal mockup using the real Adafruit fonts and vector drawing; the generated previews use the same renderer as the board.
+The 320×170 UI provides status, target selection, controls, details and saved display settings on both canonical LILYGO builds. It follows the approved dark/teal mockup using the real Adafruit fonts and vector drawing; the generated previews use the same renderer as the board.
 
-**Physical shutter controls are enabled in the installed firmware.** Sid authorized manual operation and firmware installation; the assistant has sent no shutter commands. No upstream publication is included.
+Local shutter commands are compiled into both canonical builds. They currently cover shade IDs 1 and 2 and group ID 1 (the group must contain those two shades and no others); this is not full web-interface parity. Building or installing command-capable firmware does not authorize live movement tests, and a disabled/unavailable radio must refuse commands. Dated installation and authorization evidence is preserved below.
 
 ## Use the encoder
 
@@ -16,11 +16,11 @@ The optional 320×170 UI adds status, room selection, controls, details and save
 - Positions are estimates. Both rooms shows the current names and separate estimates for its members; group selection has an amber double-shutter icon.
 - In Display settings, turn to adjust the highlighted value. Press advances through Brightness, Dim after and Sleep after; pressing on the last row saves and returns. Back or hold also saves and returns. Changes are saved together when leaving, rather than writing flash on every turn. A failure to save is shown explicitly.
 - Brightness levels are 2, 4, 8, 16, 32, 64, 128 and 255 out of 255 (default 32). Dim/sleep choices are disabled, 5, 10, 15, 20, 30, 60, 120 and 300 seconds. **No dim** disables dimming; **No sleep** keeps the display on. Defaults are dim after 10 seconds and sleep after 20 seconds, measured independently from the last activity.
-- While any configured shade is estimated moving, the UI stays awake so STOP remains reachable. Wake/rotation/holding/Back alone never creates a shutter request. With No sleep selected, idle navigation returns to Status after 30 seconds while leaving the display on.
+- While either supported individual shade is estimated moving, the UI stays awake so STOP remains reachable. Wake/rotation/holding/Back alone never creates a shutter request. With No sleep selected, idle navigation returns to Status after 30 seconds while leaving the display on.
 
 The [manufacturer schematic](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/hardware/T-Embed-CC1101%20V1.0%2024-07-29.pdf) and [component/pin list](https://github.com/Xinyuan-LilyGO/T-Embed-CC1101/blob/master/README.md) do not document an ambient-light sensor. Brightness is manual. The encoder uses INA 4, INB 5 and KEY 0; Back uses GPIO6. The decoder follows the manufacturer's TWO03 mode, recognizing detents at both 00 and 11 and rejecting invalid Gray-code transitions/bounce. Sid confirmed the display, wheel and separate Back button work on the installed update.
 
-The Wi-Fi glyph indicates connection, not measured signal strength. The installed build reads battery percentage and voltage from the BQ27220 fuel gauge. Status shows percentage; Details shows percentage and voltage. Startup, no battery, invalid values and failed reads are labeled explicitly. USB/charging detection remains outside this change. Live checks returned 100% and 4,146 mV; these are gauge-reported values, not an independent capacity measurement.
+The Wi-Fi glyph indicates connection, not measured signal strength. The UI reads battery percentage and voltage from the BQ27220 fuel gauge. Status shows percentage; Details shows percentage and voltage. Startup, no battery, invalid values and failed reads are labeled explicitly. USB/charging detection remains outside this change. Historical live gauge readings are recorded below; gauge values are not an independent capacity measurement.
 
 ## Memory and rendering
 
@@ -40,12 +40,12 @@ Rendering happens only when visible state changes. Frame contents live in PSRAM;
 
 Commands require the currently selected page/target/action to have been presented. Position/uptime repainting does not disable an already presented STOP selection. Fresh model validation checks the exact existing RF identity and group member identities before dispatch; there are no new rolling-code identities. GPIO4/5/6 are reserved against relay output assignments in every Plus build.
 
-The enabled build reuses `ShadeRequests` on the model-owning loop. Group UP/DOWN use the existing group identity. Group STOP addresses only members estimated moving, rechecking each immediately before submission, to avoid broadcasting MY to idle members. RTS has no motor position acknowledgement: estimates can be wrong, and a shared STOP/MY radio command cannot provide an absolute physical no-favourite guarantee. Actual RF/STOP semantics require separate approved testing. The canonical `lilygo-t-embed-cc1101-plus-ui` environment defines `ESPSOMFY_LOCAL_COMMANDS`. Use the separate `lilygo-t-embed-cc1101-plus-ui-preview` environment when a command-locked build is wanted.
+The enabled build reuses `ShadeRequests` on the model-owning loop. Group UP/DOWN use the existing group identity. Group STOP addresses only members estimated moving, rechecking each immediately before submission, to avoid broadcasting MY to idle members. RTS has no motor position acknowledgement: estimates can be wrong, and a shared STOP/MY radio command cannot provide an absolute physical no-favourite guarantee. Actual RF/STOP semantics require separate approved testing. Both canonical LILYGO environments define `ESPSOMFY_LOCAL_COMMANDS`; there is no separate command-locked preview build. Offline preview tests still use a recording or locked command boundary and do not access hardware.
 
 ## Build and inspect offline
 
 ```bash
-~/.cache/espsomfy-lilygo/pio-python/bin/pio run -e lilygo-t-embed-cc1101-plus-ui
+~/.cache/espsomfy-lilygo/pio-python/bin/pio run -e lilygo-t-embed-cc1101-plus
 ~/.cache/espsomfy-lilygo/pio-python/bin/pio test -e native
 bash tools/preview-local-ui.sh
 bash tools/test-status-panel.sh
@@ -53,13 +53,13 @@ bash tools/test-board-profile.sh
 python3 -m unittest discover -s tools -p test_lcd_image.py
 ```
 
-The preview tool compiles the production renderer with the actual pinned GFX library/fonts, produces PNGs at exactly 320×170 in `build/ui-preview/`, and runs runtime/capture harnesses. Set `GFX_DIR` if library dependencies are outside the default `.pio/libdeps/lilygo-t-embed-cc1101-plus-ui/Adafruit GFX Library` directory. Only Arduino/network/heap boundaries are stubbed; the rendering, navigation, frame-copy and capture logic are production code.
+The preview tool compiles the production renderer with the actual pinned GFX library/fonts, produces PNGs at exactly 320×170 in `build/ui-preview/`, and runs runtime/capture harnesses. Set `GFX_DIR` if library dependencies are outside the default `.pio/libdeps/lilygo-t-embed-cc1101-plus/Adafruit GFX Library` directory. Only Arduino/network/heap boundaries are stubbed; the rendering, navigation, frame-copy and capture logic are production code.
 
-On this workstation, native checks use the existing `rocm-7.2.3` container. Host firmware builds set `PLATFORMIO_BUILD_DIR=build/pio` and `PLATFORMIO_LIBDEPS_DIR=build/libdeps` to keep their artifacts separate from container-created native folders. Do not use the headless artifact packager to label this UI firmware. Headless and the original simple-status environments remain available.
+On this workstation, native checks use the existing `rocm-7.2.3` container. Host firmware builds set `PLATFORMIO_BUILD_DIR=build/pio` and `PLATFORMIO_LIBDEPS_DIR=build/libdeps` to keep their artifacts separate from container-created native folders. Package the exact canonical board with `bash tools/build-update.sh <environment>`; retired headless/display-only/preview names are not valid current targets.
 
 ## Capture the hardware framebuffer
 
-After installing the UI build, the read-only endpoint is `GET /lcd/screenshot`. The existing HTTP authentication middleware applies: supply the existing `apikey` header when security is enabled. No token is put in the URL. The route is absent in headless/simple-status builds.
+After installing the UI build, the read-only endpoint is `GET /lcd/screenshot`. The existing HTTP authentication middleware applies: supply the existing `apikey` header when security is enabled. No token is put in the URL. The route is compiled into both canonical LILYGO builds.
 
 ```bash
 python3 tools/capture-local-ui.py --host <controller-address>
@@ -74,6 +74,8 @@ The board waits for a fully transferred frame, copies it on the main loop into a
 `X-LCD-Frame`, `X-LCD-Backlight` and `X-LCD-Commands` identify the frame, PWM value and local command lock. PWM0 means the physical backlight is off even though a screenshot still shows the panel's stored pixels. A capture is evidence of pixels sent, not a camera observation of physical brightness, orientation, wiring or panel faults. Simple fallback mode has no full RGB framebuffer and returns 503; use a photo for that case.
 
 See the installation evidence below for live memory/timing and regression results. Sid confirmed the display, wheel and Back button work. Saved display-setting persistence remains a manual acceptance check.
+
+Historical records below describe the exact builds and permissions at their stated dates. Their retired environment names, source revisions and artifact hashes are retained unchanged; they do not establish current deployment state or authorize another live operation.
 
 ## Offline verification — November 6, 2026
 

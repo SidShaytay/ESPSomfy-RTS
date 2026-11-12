@@ -4,7 +4,7 @@
 
 This branch uses pinned cjkas v4.0.2 as its baseline. Firmware lives in `src/`, the vendored CC1101 driver in `lib/`, web sources in `data-src/`, and PlatformIO environments in `platformio.ini`. Preserve the newer driver, scheduler and radio locking when changing the opt-in Plus profile. See `LILYGO.md` and `docs/adr/0008-lilygo-maintained-baseline.md` for the migration decision.
 
-Firmware builds need pioarduino Core 6.2.0; stock PlatformIO refuses the pinned platform. `bash tools/setup-lilygo.sh` installs user-owned tools. `bash tools/build-lilygo.sh` packages the headless Plus build; it does not package the LCD UI. Build the required environment from `platformio.ini`, preserving the installed display and control features. Generic environments are built with `pio run -e <environment>`. Do not commit generated binaries or private backup/configuration data.
+Firmware builds need pioarduino Core 6.2.0; stock PlatformIO refuses the pinned platform. `bash tools/setup-lilygo.sh` installs user-owned tools. The only supported LILYGO environments are `lilygo-t-embed-cc1101-plus` and `lilygo-t-embed-cc1101`; both include the display, local UI and local shutter commands. Build/package the exact board with `bash tools/build-update.sh <environment>`. Do not restore headless, display-only, `-ui` or `-ui-preview` build variants. The implemented local controls cover shade IDs 1 and 2 and group ID 1; they do not provide the web interface's full feature set. Generic environments are built with `pio run -e <environment>`. Do not commit generated binaries or private backup/configuration data.
 
 ## Backups and flashing
 
