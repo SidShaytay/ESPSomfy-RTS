@@ -1,6 +1,7 @@
 name: ESPSomfy-RTS Build
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -12,6 +13,17 @@ permissions:
   contents: read
 
 jobs:
+  workflows:
+    name: Validate workflows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate GitHub Actions expressions and workflow structure
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -shellcheck= -pyflakes=
+
   test:
     name: Unit tests
     runs-on: ubuntu-latest
@@ -104,7 +116,7 @@ jobs:
   # whether Pages is enabled; forks without Pages still retain coverage artifacts.
   coverage-pages:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.repository.has_pages == true
-    needs: [test, webui]
+    needs: [workflows, test, webui]
     name: Publish coverage
     runs-on: ubuntu-latest
     permissions:
@@ -155,7 +167,7 @@ jobs:
 
   build:
     # Don't build or publish firmware that fails its tests.
-    needs: [test, webui]
+    needs: [workflows, test, webui]
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
 

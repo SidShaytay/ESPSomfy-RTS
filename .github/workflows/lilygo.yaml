@@ -13,9 +13,9 @@ jobs:
   lilygo:
     name: Shared CC1101 and Plus
     runs-on: ubuntu-latest
-    env:
-      ESPSOMFY_TOOL_CACHE: ${{ runner.temp }}/espsomfy-lilygo
     steps:
+      - name: Set build cache path
+        run: echo "ESPSOMFY_TOOL_CACHE=$RUNNER_TEMP/espsomfy-lilygo" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
