@@ -4,7 +4,7 @@ Objective: reliable native group percentage movement through current firmware an
 
 Firmware source: `47bb37e68219615a2bf1488d129aca3d4374319a`, based on completed main `a944911`. The scheduler, timing, protocol and production integration commits are merged and pushed to main. The installed UI version remains `4.1.4`; the exact source/ELF identifies this build. HA main: `b396171`; all 21 installed integration file hashes already match, so no replacement or restart was needed.
 
-Authorization: Sid approved attached-board access, backup, flashing/reboot and RF commands for two hours, through November 12, 2026 at 20:40 PST. He separately approved HA deployment/restart if needed. No pairing, calibration or motor-limit changes occurred. Do not extend the RF window without a new instruction.
+Authorization: Sid approved attached-board access, backup, flashing/reboot and RF commands for two hours, through November 12, 2026 at 20:40 PST. He separately approved HA deployment/restart if needed. No pairing, calibration or motor-limit changes occurred. After the failed positioning report, Sid explicitly selected "Continue offline only." No further controller, HA, serial, flashing, RF or calibration operations are authorized until he changes that instruction.
 
 Completed acceptance:
 - `groupTarget` 57 preserves operations 55/56, validates explicit targets and prevents replay. HA detects capability by name, keeps legacy fallback and does not retry ambiguous commands.
@@ -20,6 +20,8 @@ Physical evidence from Sid: both were fully open before Down, both began moving 
 
 Offline diagnosis: saved downTime is 19,300 ms for bathroom and 22,100 ms for bedroom, giving nominal halfway Stops at 9,650/11,050 ms. The watched trace reports stopped states around 10.16/11.52 s from client setup, consistent with those configured deadlines and request/start overhead; it does not show a multi-second queue delay explaining the physical errors. Neither starting-state error nor user Stop explains the result. Root cause remains unproven; do not change calibration from visual percentage guesses.
 
-Next: obtain a new RF window (previous authorization expired at 20:40 PST), then measure actual downward full travel, distinguishing bottom coverage from motor stop, and verify individual Stop behavior while Sid watches. Compare those observations with configured times before choosing a code or calibration repair. No further RF, flashing or calibration changes were made after this report.
+Offline audit: the watched trace contains two member Down notifications from one shared group start, then exactly one ordinary My for bathroom and one for bedroom. Both use 56-bit frames and one repeat; no duplicate or unexpected movement command appears. Group and individual percentage movement use the same linear travel-time calculation. These facts do not establish that calibrated full travel matches the physical shutters. A clarification about any full-close/reopen movement is pending.
+
+Next: continue offline analysis from the saved evidence; do not change travel times from approximate percentages. A future separately authorized watched test should measure actual downward full travel, distinguish bottom coverage from final motor stop, and check individual Stops before selecting a code or calibration repair. No live operations occurred after the failure report.
 
 Private evidence: `~/.local/state/espsomfy-lilygo/ISSUE23_RELIABLE_ACTIVE` and `~/.local/state/espsomfy-ha-homekit/ISSUE23_RELIABLE_ACTIVE`. The pre-RF backup is now historical after counters advanced; take fresh counter captures before any further write/recovery. Merged task worktrees are cleaned up; continue from main.
