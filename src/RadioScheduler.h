@@ -57,6 +57,11 @@ class RadioScheduler {
     // motor STOP is sent. Returns false for zero, unknown or ended tickets.
     // Repeated cancellation of a still-taken ticket is harmless and true.
     bool cancel(uint32_t ticket, uint32_t now);
+    // Cancel only if the job has not started. False includes ended jobs whose
+    // outcomes have not yet reached the model; never cut an on-air press.
+    bool cancelUnstarted(uint32_t ticket, uint32_t now);
+    // Cancel waiting identity jobs, preserving the on-air press and replacement.
+    void cancelRemote(uint32_t remoteAddress, uint32_t now, uint32_t exceptTicket = 0);
     // Drops every waiting job and cuts short the one on air.
     void flush(uint32_t now);
     // Refuses new jobs until every reason (TX_SUSPEND_*) is resumed.  Flushes.
@@ -78,6 +83,7 @@ class RadioScheduler {
     uint32_t taken = 0;
     somfy_tx_job_t takenJob;
     bool takenFlushed = false;
+    bool takenStarted = false;
     // When a job last went off air, for the delay of the job after it.
     uint32_t lastEnded = 0;
     bool endedOnce = false;

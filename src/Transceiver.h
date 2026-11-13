@@ -125,6 +125,8 @@ class Transceiver {
     // Cancels only an owned ticket, without sending STOP or waiting for the
     // radio lock. A frame already committed to air finishes normally.
     bool cancelTx(uint32_t ticket);
+    bool cancelUnstartedTx(uint32_t ticket);
+    void cancelQueuedForRemote(uint32_t remoteAddress, uint32_t exceptTicket = 0);
     void suspendTx(uint8_t reason);
     void resumeTx(uint8_t reason);
     bool txSuspended();

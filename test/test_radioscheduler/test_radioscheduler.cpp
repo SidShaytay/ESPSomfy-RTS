@@ -625,10 +625,53 @@ static void test_cancel_at_outcome_capacity_loses_no_job_results() {
   TEST_ASSERT_TRUE(s.hasRoom());
 }
 
+static void test_unstarted_cancel_is_atomic_against_radio_start() {
+  RadioScheduler s;
+  auto queued = submit(s, REMOTE_A);
+  TEST_ASSERT_TRUE(s.cancelUnstarted(queued, 1));
+  assertEvent(s, tx_event_t::dropped, queued);
+  auto taken = submit(s, REMOTE_A);
+  somfy_tx_job_t job; uint32_t wait = 0;
+  TEST_ASSERT_TRUE(s.next(2, job, wait));
+  TEST_ASSERT_TRUE(s.cancelUnstarted(taken, 3));
+  TEST_ASSERT_FALSE(s.start(taken, 4));
+  assertEvent(s, tx_event_t::dropped, taken);
+  auto started = submit(s, REMOTE_A);
+  TEST_ASSERT_TRUE(s.next(5, job, wait));
+  TEST_ASSERT_TRUE(s.start(started, 6));
+  // The model has not collected its started event yet.
+  TEST_ASSERT_FALSE(s.cancelUnstarted(started, 7));
+  TEST_ASSERT_TRUE(s.keepSending(started));
+  s.ended(started, true, 8);
+  TEST_ASSERT_FALSE(s.cancelUnstarted(started, 9));
+  assertEvent(s, tx_event_t::started, started);
+  assertEvent(s, tx_event_t::finished, started);
+  assertNoEvents(s);
+}
+static void test_remote_cancel_preserves_on_air_press_and_accepted_replacement() {
+  RadioScheduler s;
+  auto started = submit(s, REMOTE_A);
+  somfy_tx_job_t job; uint32_t wait = 0;
+  TEST_ASSERT_TRUE(s.next(0, job, wait)); TEST_ASSERT_TRUE(s.start(started, 1));
+  auto stale = submit(s, REMOTE_A);
+  auto replacement = submit(s, REMOTE_A);
+  auto other = submit(s, REMOTE_B);
+  s.cancelRemote(REMOTE_A, 2, replacement);
+  TEST_ASSERT_TRUE(s.keepSending(started));
+  s.ended(started, true, 3);
+  assertEvent(s, tx_event_t::started, started);
+  assertEvent(s, tx_event_t::dropped, stale);
+  assertEvent(s, tx_event_t::finished, started);
+  TEST_ASSERT_EQUAL(replacement, runNext(s, 4));
+  TEST_ASSERT_EQUAL(other, runNext(s, 5));
+}
+
 int main(int argc, char **argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
+  RUN_TEST(test_unstarted_cancel_is_atomic_against_radio_start);
+  RUN_TEST(test_remote_cancel_preserves_on_air_press_and_accepted_replacement);
   RUN_TEST(test_cancel_unknown_and_repeated_tickets_preserves_outcomes);
   RUN_TEST(test_cancel_taken_twice_then_flush_reports_one_drop);
   RUN_TEST(test_cancel_after_final_frame_preserves_finished_outcome);
