@@ -165,7 +165,46 @@ static void tickUntil(uint32_t absolute) {
 int main(int argc,char **argv) {
   assert(argc==2);const std::string mode=argv[1];
   auto &group=setup(mode=="mixed"?20:0,mode=="mixed"?80:0);
-  if(mode=="calibrated-deadlines") {
+  if(mode=="calibrated-raw-group-reversal") {
+    savedCalibrations();
+    const auto startedAt=nowMs;
+    const auto down=group.sendCommandReceipt(somfy_commands::Down,7,0);
+    assert(down.sent && down.ticket!=0);
+    assert(accepted.size()==1 && accepted[0].ticket==down.ticket && accepted[0].repeats==7);
+    assert(press());
+    assert(aired.size()==1 && aired[0].ticket==down.ticket && aired[0].repeats==7);
+    tickUntil(startedAt+2500);
+    assert(std::fabs(somfy.shades[0].state().currentPos-25)<0.05f);
+    const float before=somfy.shades[0].state().currentPos;
+    const auto up=group.sendCommandReceipt(somfy_commands::Up,5,0);
+    assert(up.sent);
+    // The replacement is only admitted; no Up or Stop has gone on air.
+    // Existing Down travel must continue while its Stop waits in the queue.
+    tick(200);
+    assert(aired.size()==1);
+    assert(somfy.shades[0].state().currentPos>=before);
+    assert(somfy.shades[0].state().direction>0);
+    // Drain the accepted Stop/reversal sequence, observing the actual shared
+    // Up start. Both members owe reversal take-up, not a fresh endpoint phase.
+    bool reversed=false;
+    for(unsigned attempt=0;attempt<8 && !reversed;++attempt) {
+      somfy_tx_job_t job;uint32_t wait;
+      assert(radio.next(nowMs,job,wait));assert(radio.start(job.ticket,nowMs));aired.push_back(job);events();
+      if(job.frame.remoteAddress==900 && job.frame.cmd==somfy_commands::Up) {
+        const float fast=somfy.shades[0].state().currentPos,slow=somfy.shades[1].state().currentPos;
+        tick(150);
+        assert(std::fabs(somfy.shades[0].state().currentPos-fast)<0.05f);
+        assert(std::fabs(somfy.shades[1].state().currentPos-slow)<0.05f);
+        nowMs+=124;reversed=true;
+      } else nowMs+=274;
+      radio.ended(job.ticket,true,nowMs);events();tick();nowMs+=100;
+    }
+    assert(reversed);finishTravel(25000);
+    assert(airedCommands(900,somfy_commands::Up)==1);
+    assert(airedCommands(100,somfy_commands::Up)==0 && airedCommands(101,somfy_commands::Up)==0);
+    assert(somfy.shades[0].state().currentPos==0 && somfy.shades[1].state().currentPos==0);
+    assert(somfy.shades[0].state().myPos==70 && somfy.shades[1].state().myPos==70);
+  } else if(mode=="calibrated-deadlines") {
     savedCalibrations();
     const auto start=nowMs;
     assert(target(group,50));assert(accepted.size()==1);assert(press());
