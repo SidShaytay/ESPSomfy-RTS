@@ -24,6 +24,6 @@ Path(sys.argv[2]).write_text('\n'.join(out)+'\n')
 PY
 "${CXX:-c++}" -std=c++17 -O2 -pthread -ffunction-sections -fdata-sections -Wl,--gc-sections \
  -I"$scratch" -I"$json" -I"$repo/test/stubs" -I"$repo/src" \
- "$repo/tests/legacy-restart/group-domain-test.cpp" "$repo/src/ShadeBehaviour.cpp" "$repo/src/ShadeMotion.cpp" "$repo/src/ShadeSensors.cpp" "$repo/src/SomfyFrame.cpp" "$repo/src/GitUpdate.cpp" "$repo/src/SettingsDurability.cpp" "$repo/src/RestartCoordinator.cpp" "$repo/src/RestartPolicy.cpp" "$repo/src/SettingsValues.cpp" \
+ "$repo/tests/legacy-restart/group-domain-test.cpp" "$repo/src/ShadeBehaviour.cpp" "$repo/src/ShadeGroupMotion.cpp" "$repo/src/ShadeMotion.cpp" "$repo/src/ShadeSensors.cpp" "$repo/src/SomfyFrame.cpp" "$repo/src/GitUpdate.cpp" "$repo/src/SettingsDurability.cpp" "$repo/src/RestartCoordinator.cpp" "$repo/src/RestartPolicy.cpp" "$repo/src/SettingsValues.cpp" \
  -o "$scratch/group"
 for case in favorite up down moving empty dangling unknownUp unknownDown unknownMy unknownToggle unknownStepUp unknownStepDown unknownFavorite;do "$scratch/group" "$case";done

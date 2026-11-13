@@ -23,5 +23,5 @@ PY
 "${CXX:-c++}" -std=c++17 -O2 -ffunction-sections -fdata-sections -Wl,--gc-sections \
   -I"$scratch" -I"$json" -I"$repo/test/stubs" -I"$repo/src" \
   "$repo/tests/model-allocation/allocation-test.cpp" "$repo/src/ModelEditor.cpp" \
-  "$repo/src/ShadeBehaviour.cpp" "$repo/src/ShadeSensors.cpp" -o "$scratch/allocation"
+  "$repo/src/ShadeBehaviour.cpp" "$repo/src/ShadeGroupMotion.cpp" "$repo/src/ShadeSensors.cpp" -o "$scratch/allocation"
 "$scratch/allocation"

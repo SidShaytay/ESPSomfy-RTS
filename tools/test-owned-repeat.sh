@@ -39,6 +39,6 @@ PY
 "${CXX:-c++}" -std=c++17 -O2 -ffunction-sections -fdata-sections -Wl,--gc-sections \
  -include "$scratch/Model.h" -I"$scratch" -I"$repo/tests/gpio-command" -I"$repo/test/stubs" -I"$repo/src" \
  "$scratch/hardware.cpp" "$repo/tests/owned-repeat/test.cpp" \
- "$repo/src/SomfyRemote.cpp" "$repo/src/ShadeCommands.cpp" "$repo/src/ShadeGpioCommands.cpp" "$repo/src/SomfyFrame.cpp" "$repo/src/ShadeGpio.cpp" "$repo/src/LivePinClaims.cpp" "$repo/src/GpioPinClaims.cpp" "$repo/src/ShadeTransport.cpp" "$repo/src/ShadeBehaviour.cpp" "$repo/src/ShadeMotion.cpp" "$repo/src/ShadeSensors.cpp" "$repo/src/ShadeRequests.cpp" \
+ "$repo/src/SomfyRemote.cpp" "$repo/src/ShadeCommands.cpp" "$repo/src/ShadeGpioCommands.cpp" "$repo/src/SomfyFrame.cpp" "$repo/src/ShadeGpio.cpp" "$repo/src/LivePinClaims.cpp" "$repo/src/GpioPinClaims.cpp" "$repo/src/ShadeTransport.cpp" "$repo/src/ShadeBehaviour.cpp" "$repo/src/ShadeGroupMotion.cpp" "$repo/src/ShadeMotion.cpp" "$repo/src/ShadeSensors.cpp" "$repo/src/ShadeRequests.cpp" \
  -o "$scratch/owned-repeat"
 "$scratch/owned-repeat"

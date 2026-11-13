@@ -43,7 +43,7 @@ PY
 "${CXX:-c++}" -std=c++17 -O2 -pthread -ffunction-sections -fdata-sections -Wl,--gc-sections \
   -I"$scratch" -I"$json" -I"$repo/test/stubs" -I"$repo/tests/ui-adapter" -I"$repo/src" \
   "$repo/tests/explicit-counter/counter-test.cpp" "$repo/src/CounterEdit.cpp" "$repo/src/GitUpdate.cpp" \
-  "$repo/src/RadioScheduler.cpp" "$repo/src/ShadeBehaviour.cpp" "$repo/src/ShadeSensors.cpp" "$repo/src/ShadeMotion.cpp" "$repo/src/TxBuffer.cpp" "$repo/src/SomfyFrame.cpp" "$repo/src/CounterResults.cpp" "$repo/src/ModelEditor.cpp" "$repo/src/ModelPersistence.cpp" \
+  "$repo/src/RadioScheduler.cpp" "$repo/src/ShadeBehaviour.cpp" "$repo/src/ShadeGroupMotion.cpp" "$repo/src/ShadeSensors.cpp" "$repo/src/ShadeMotion.cpp" "$repo/src/TxBuffer.cpp" "$repo/src/SomfyFrame.cpp" "$repo/src/CounterResults.cpp" "$repo/src/ModelEditor.cpp" "$repo/src/ModelPersistence.cpp" \
   -o "$scratch/counter"
 cases=(primaryCompletion reviewedPrimary badLoad core completedGroup unknownGroup pending pendingRecovery commandGuard sink aliasRisk learnBound browserCommit globalIdle sharedLink)
 if (($#));then cases=("$@");fi
