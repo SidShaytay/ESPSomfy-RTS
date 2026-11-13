@@ -143,10 +143,121 @@ static size_t airedCommands(uint32_t address,somfy_commands command) {
 static void finishTravel(uint32_t ms) {
   for(uint32_t elapsed=0;elapsed<ms;elapsed+=10) {tick(10);press();}
 }
+static void savedCalibrations() {
+  auto &fast=somfy.shades[0];
+  fast.upTime=fast.downTime=10000;
+  fast.calibration.kind=LiftKind::segmented;
+  fast.calibration.up=fast.calibration.down={1000,3000,1000,200};
+  auto &slow=somfy.shades[1];
+  slow.upTime=slow.downTime=20000;
+  slow.calibration.kind=LiftKind::segmented;
+  slow.calibration.up=slow.calibration.down={2000,6000,2000,500};
+}
+static size_t acceptedCommands(uint32_t address,somfy_commands command) {
+  size_t count=0;
+  for(const auto &job:accepted)if(job.frame.remoteAddress==address && job.frame.cmd==command)++count;
+  return count;
+}
+static void tickUntil(uint32_t absolute) {
+  assert(absolute>=nowMs);
+  while(nowMs<absolute)tick(std::min(10u,absolute-nowMs));
+}
 int main(int argc,char **argv) {
   assert(argc==2);const std::string mode=argv[1];
   auto &group=setup(mode=="mixed"?20:0,mode=="mixed"?80:0);
-  if(mode=="shared") {
+  if(mode=="calibrated-deadlines") {
+    savedCalibrations();
+    const auto start=nowMs;
+    assert(target(group,50));assert(accepted.size()==1);assert(press());
+    assert(airedCommands(900,somfy_commands::Down)==1);
+    tickUntil(start+3990);
+    assert(accepted.size()==1);
+    tickUntil(start+4000);
+    assert(acceptedCommands(100,somfy_commands::My)==1);
+    assert(acceptedCommands(101,somfy_commands::My)==0);
+    assert(press());
+    tickUntil(start+7990);
+    assert(acceptedCommands(101,somfy_commands::My)==0);
+    tickUntil(start+8000);
+    assert(acceptedCommands(101,somfy_commands::My)==1);assert(press());
+    assert(airedCommands(100,somfy_commands::My)==1 && airedCommands(101,somfy_commands::My)==1);
+    assert(airedCommands(100,somfy_commands::Down)==0 && airedCommands(101,somfy_commands::Down)==0);
+    assert(airedCommands(900,somfy_commands::Down)==1);
+  } else if(mode=="calibrated-endpoint-one-settling" || mode=="calibrated-endpoint-both-settling") {
+    savedCalibrations();
+    const bool both=mode=="calibrated-endpoint-both-settling";
+    if(both) {
+      auto &slow=somfy.shades[1];slow.upTime=slow.downTime=10000;
+      slow.calibration.up=slow.calibration.down={1500,2500,2000,300};
+    }
+    const auto start=nowMs;
+    assert(target(group,100));assert(press());
+    tickUntil(start+(both?9500:18500));
+    // Visible lift completion does not finish the motor's settling phase.
+    assert(somfy.shades[0].state().currentPos==100 && somfy.shades[1].state().currentPos==100);
+    assert(somfy.shades[0].idleForAdministration()==!both);
+    assert(!somfy.shades[1].idleForAdministration());
+    const auto before=accepted.size();
+    assert(target(group,100));assert(accepted.size()==before);
+    assert(target(group,100));assert(accepted.size()==before);
+    assert(airedCommands(900,somfy_commands::Down)==1);
+    assert(acceptedCommands(100,somfy_commands::My)==0 && acceptedCommands(101,somfy_commands::My)==0);
+    tickUntil(start+(both?10000:20000));
+    assert(somfy.shades[0].idleForAdministration() && somfy.shades[1].idleForAdministration());
+    // Once both timed runs have completed, an endpoint refresh remains a
+    // legitimate native group press; RTS has no physical position feedback.
+    assert(target(group,100));assert(accepted.size()==before+1);assert(press());
+    assert(airedCommands(900,somfy_commands::Down)==2);
+  } else if(mode=="calibrated-refused-start") {
+    savedCalibrations();refuse=true;
+    const auto groupCode=group.lastRollingCode;
+    assert(!target(group,50));assert(accepted.empty());
+    tick(25000);
+    assert(group.lastRollingCode==groupCode && aired.empty());
+    for(unsigned i=0;i<2;++i) {
+      assert(somfy.shades[i].state().currentPos==0 && somfy.shades[i].state().target==0);
+      assert(somfy.shades[i].state().myPos==70 && somfy.shades[i].isIdle());
+    }
+  } else if(mode=="calibrated-refused-retarget") {
+    savedCalibrations();
+    assert(target(group,50));assert(press());tick(2000);
+    const auto before=accepted.size();
+    refuse=true;assert(!target(group,0));assert(accepted.size()==before);
+    assert(somfy.shades[0].state().target==50 && somfy.shades[1].state().target==50);
+    refuse=false;finishTravel(25000);
+    assert(airedCommands(900,somfy_commands::Down)==1 && airedCommands(900,somfy_commands::Up)==0);
+    assert(airedCommands(100,somfy_commands::My)==1 && airedCommands(101,somfy_commands::My)==1);
+    assert(somfy.shades[0].state().myPos==70 && somfy.shades[1].state().myPos==70);
+  } else if(mode=="calibrated-dropped-start") {
+    savedCalibrations();assert(target(group,50));radio.flush(nowMs);events();
+    finishTravel(25000);assert(aired.empty());
+    for(unsigned i=0;i<2;++i) {
+      assert(somfy.shades[i].state().currentPos==0 && somfy.shades[i].state().myPos==70);
+      assert(somfy.shades[i].isIdle());
+    }
+  } else if(mode=="calibrated-aborted-start") {
+    savedCalibrations();assert(target(group,50));
+    somfy_tx_job_t job;uint32_t wait;
+    assert(radio.next(nowMs,job,wait));assert(radio.start(job.ticket,nowMs));aired.push_back(job);events();
+    // A partial press during mechanical take-up may leave the motor idle.
+    // Never follow an ambiguous start with My, which could recall a favourite.
+    nowMs+=100;radio.ended(job.ticket,false,nowMs);events();finishTravel(25000);
+    assert(aired.size()==1);
+    assert(airedCommands(100,somfy_commands::My)==0 && airedCommands(101,somfy_commands::My)==0);
+    assert(somfy.shades[0].state().myPos==70 && somfy.shades[1].state().myPos==70);
+  } else if(mode=="calibrated-aborted-stop") {
+    savedCalibrations();assert(target(group,100));assert(press());tick(3000);
+    assert(target(group,0));
+    somfy_tx_job_t stop;uint32_t wait;
+    assert(radio.next(nowMs,stop,wait));assert(stop.frame.cmd==somfy_commands::My);
+    assert(radio.start(stop.ticket,nowMs));aired.push_back(stop);events();
+    nowMs+=100;radio.ended(stop.ticket,false,nowMs);events();nowMs+=100;
+    finishTravel(25000);
+    assert(airedCommands(900,somfy_commands::Up)==0);
+    assert(airedCommands(100,somfy_commands::Up)==0 && airedCommands(101,somfy_commands::Up)==0);
+    assert(airedCommands(100,somfy_commands::My)==1 && airedCommands(101,somfy_commands::My)==1);
+    assert(somfy.shades[0].state().myPos==70 && somfy.shades[1].state().myPos==70);
+  } else if(mode=="shared") {
     assert(target(group,100));assert(accepted.size()==1);assert(press());
     assert(aired[0].frame.remoteAddress==900 && aired[0].frame.cmd==somfy_commands::Down);
     assert(somfy.shades[0].state().currentPos>0 && somfy.shades[1].state().currentPos>0);
