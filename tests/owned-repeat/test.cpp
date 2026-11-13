@@ -6,7 +6,16 @@
 static const char *TAG="owned repeat test";
 #define SOMFY_MAX_GROUPED_SHADES 32
 struct SomfyShadeOps {uint32_t sendOwnedRepeat(const shade_request_t &);};
+bool stopTargetMembers(SomfyGroup &){assert(false);return false;}
 #include "production-owned.inc"
+static void completeGroupPress(uint32_t ticket) {
+ // The fake transport records a whole synchronous press. Adopt its outcomes
+ // before issuing a separate intent, as loop() does on the physical controller.
+ for(auto &shade:somfy.shades) {
+  shade.behaviour.onTxEvent({tx_event_t::started,somfy.group.lastFrame.cmd,somfy.group.getRemoteAddress(),ticket,0});
+  shade.behaviour.onTxEvent({tx_event_t::finished,somfy.group.lastFrame.cmd,somfy.group.getRemoteAddress(),ticket,0});
+ }
+}
 int main() {
  FakeNvs::reset();SomfyShadeOps ops;
  auto &shade=somfy.shades[0];shade.proto=radio_proto::RTS;shade.bitLength=80;
@@ -21,8 +30,9 @@ int main() {
  assert(ops.sendOwnedRepeat(req)==203 && shade.lastFrame.stepSize==3);
  req.stepSize=4;assert(ops.sendOwnedRepeat(req)==204 && shade.lastFrame.stepSize==4 && shade.lastRollingCode==3);
  req.type=shade_request_type_t::group_repeat;req.command=somfy_commands::Down;req.stepSize=0;
- auto &group=somfy.group;group.proto=radio_proto::RTS;group.bitLength=80;group.setRemoteAddress(456);group.linkedShades[0]=1;
+ auto &group=somfy.group;group.proto=radio_proto::RTS;group.bitLength=80;group.flipCommands=true;group.setRemoteAddress(456);group.linkedShades[0]=1;
  assert(ops.sendOwnedRepeat(req)==205 && group.direction==1 && group.events==1 && shade.state().target==100);
+ completeGroupPress(205);
  writes=storageWrites;assert(ops.sendOwnedRepeat(req)==206 && storageWrites==writes && group.events==1);
  const auto saved=group.lastRollingCode;somfy.transceiver.reject=true;req.command=somfy_commands::Up;
  assert(!ops.sendOwnedRepeat(req) && group.lastRollingCode==saved && group.direction==1 && group.events==1);
@@ -66,10 +76,10 @@ int main() {
  before=shade.lastRollingCode;assert(ops.sendOwnedRepeat(req));
  assert(shade.lastRollingCode==uint16_t(before+1));
  req.type=shade_request_type_t::group_command;req.command=somfy_commands::Down;
- before=group.lastRollingCode;assert(ops.sendOwnedRepeat(req));
- assert(group.lastRollingCode==uint16_t(before+1));
- before=group.lastRollingCode;assert(ops.sendOwnedRepeat(req));
- assert(group.lastRollingCode==uint16_t(before+1));
+ before=group.lastRollingCode;ticket=ops.sendOwnedRepeat(req);assert(ticket);
+ assert(group.lastRollingCode==uint16_t(before+1));completeGroupPress(ticket);
+ before=group.lastRollingCode;ticket=ops.sendOwnedRepeat(req);assert(ticket);
+ assert(group.lastRollingCode==uint16_t(before+1));completeGroupPress(ticket);
  req.type=shade_request_type_t::shade_repeat;req.command=somfy_commands::Up;
  shade.lastFrame.valid=false;assert(ops.sendOwnedRepeat(req));
  // Zero configured bits can still repeat when its effective default matches.

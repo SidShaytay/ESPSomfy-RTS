@@ -15,6 +15,8 @@ s=(root/'tests/gpio-command/Model.h').read_text()
 
 s=s.replace('struct SomfyShadeController {','''struct SomfyGroup:SomfyRemote {
  uint8_t linkedShades[32]={};int8_t direction=0;unsigned events=0;
+ bool targetActive=false,replanPending=false;
+ void cancelReplan(){replanPending=false;}void updateTargetDirection(){}
  uint8_t getGroupId(){return 1;}int8_t p_direction(int8_t dir){auto old=direction;direction=dir;return old;}
  void updateFlags(){}void emitState(){++events;}
  send_result_t sendCommandReceipt(somfy_commands,uint8_t,uint8_t);

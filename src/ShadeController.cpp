@@ -133,9 +133,25 @@ void SomfyShadeController::markTxPending(uint32_t remoteAddress, uint32_t ticket
     }
   }
 }
+void SomfyShadeController::cancelGroupStartsForShade(uint8_t shadeId, uint32_t exceptTicket) {
+  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
+    SomfyGroup &group = this->groups[i];
+    if(group.getGroupId() != 255 && group.hasShadeId(shadeId))
+      this->transceiver.cancelQueuedForRemote(group.getRemoteAddress(), exceptTicket);
+  }
+}
+
+void SomfyShadeController::cancelGroupReplansForShade(uint8_t shadeId) {
+  for(uint8_t i = 0; i < SOMFY_MAX_GROUPS; i++) {
+    SomfyGroup &group = this->groups[i];
+    if(group.getGroupId() != 255 && group.hasShadeId(shadeId)) group.cancelReplan();
+  }
+}
+
 void SomfyShadeController::processTxEvent(const somfy_tx_event_t &evt) {
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++)
     if(this->shades[i].getShadeId() != 255) this->shades[i].processTxEvent(evt);
+  for(auto &group : groups) if(group.getGroupId() != 255) group.serviceTarget();
 }
 void SomfyShadeController::processWaitingFrame() {
   if(!modelLoad.usable())return;
@@ -249,6 +265,7 @@ void SomfyShadeController::loop() {
       this->shades[i].setGPIOs();
     }
   }
+  for(auto &group : groups) if(group.getGroupId() != 255) { group.serviceTarget(); group.updateTargetDirection(); }
   // Only commit the file once per second.
   if(this->isDirty && millis() - this->lastCommit > 1000) {
     protoSocket.modelPersistence({this->commit()});

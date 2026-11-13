@@ -17,6 +17,9 @@ struct Transceiver {
     radio_proto proto = radio_proto::RTS;
   } config;
   bool sealed = false;
+  // This fixture's physical transport completes synchronously; there are no
+  // queued jobs to cancel. Completion events are delivered after adoption.
+  void cancelQueuedForRemote(uint32_t, uint32_t = 0) {}
   bool counterEditUncertain() const { return false; }
   bool restartQuiescent() const { return true; }
   bool installPauseHeld(const RadioInstallToken &) const { return false; }
@@ -31,6 +34,7 @@ struct Transceiver {
 #include "LoopQueue.h"
 #include "SettingsDurability.h"
 #include "Somfy.h"
+#include "GroupMotion.h"
 #include "QualifiedSettings.h"
 #include "Utils.h"
 #include "esp_timer.h"
@@ -53,6 +57,13 @@ SomfyShade *SomfyShadeController::getShadeById(uint8_t id) {
     if (id && id != 255 && s.getShadeId() == id)
       return &s;
   return nullptr;
+}
+void SomfyShadeController::cancelGroupStartsForShade(uint8_t,uint32_t) {
+  // Each scenario sends one command, so no earlier group start exists.
+}
+bool stopTargetMembers(SomfyGroup &) {
+  // These cases never issue Stop over unresolved movement.
+  assert(false);return false;
 }
 ModelCommitResult SomfyShadeController::commit() {
   ++commits;somfy.isDirty=false;
@@ -113,6 +124,14 @@ void SomfyShade::emitCommand(somfy_commands, const char *, uint32_t) {}
 #include "../../src/SafeRestart.cpp"
 #include "production-group-domain.inc"
 #undef millis
+static void completeGroupPress(SomfyGroup &group) {
+  // The fake transport above accepts the complete physical press immediately.
+  // Deliver its actual ticket outcomes after group/member state has adopted it.
+  for(auto &shade:somfy.shades) if(shade.getShadeId()!=255) {
+    shade.processTxEvent({tx_event_t::started,group.lastFrame.cmd,group.getRemoteAddress(),radioCalls,nowMs});
+    shade.processTxEvent({tx_event_t::finished,group.lastFrame.cmd,group.getRemoteAddress(),radioCalls,nowMs});
+  }
+}
 int main(int argc, char **argv) {
   qualifySettings(settings);
   assert(argc == 2);
@@ -130,6 +149,7 @@ int main(int argc, char **argv) {
     group.bitLength=shade.bitLength=80;group.linkedShades[31]=7;
     shade.restore(0,0,50,-1);
     assert(group.sendCommand(somfy_commands::Favorite,3));
+    completeGroupPress(group);
     assert(radioCalls==1 && nvsCalls==1 && group.lastFrame.cmd==somfy_commands::Favorite);
     assert(shade.state().target==50 && !shade.idleForAdministration());
     assert(requestRestart(1).reason==RestartReason::activeMovement);
@@ -166,8 +186,10 @@ int main(int argc, char **argv) {
     group.linkedShades[31] = 88;
   }
   assert(shade.idleForAdministration());
-  if (!empty)
+  if (!empty) {
     assert(group.sendCommand(command, 1));
+    completeGroupPress(group);
+  }
   if (!unknown && !empty) {
     assert(!shade.idleForAdministration());
     assert(requestRestart(1).reason ==

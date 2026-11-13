@@ -7,5 +7,10 @@ send_result_t SomfyShade::send(somfy_commands cmd, uint8_t repeat, uint8_t stepS
   if(this->proto == radio_proto::GP_Remote && cmd == somfy_commands::My &&
       (isToggleShade(this->shadeType) || this->shadeType == shade_types::drycontact))
     cmd = somfy_commands::Toggle;
-  return SomfyRemote::sendCommandAfter(cmd, repeat, stepSize, delayMs, priority, true);
+  const auto result = SomfyRemote::sendCommandAfter(cmd, repeat, stepSize, delayMs, priority, true);
+  if(result.sent && this->prepareOnSend) {
+    this->prepareOnSend = false;
+    this->prepareCommand(result.ticket);
+  }
+  return result;
 }

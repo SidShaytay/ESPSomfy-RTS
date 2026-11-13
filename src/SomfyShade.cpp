@@ -1,6 +1,7 @@
 #include <Preferences.h>
 #include "esp_log.h"
 #include "Somfy.h"
+#include "GroupMotion.h"
 
 static const char *TAG = "Somfy";
 
@@ -82,6 +83,7 @@ void SomfyShade::processFrame(somfy_frame_t &frame, bool internal) {
   SomfyRemote *remote = this->findRemote(frame.remoteAddress);
   if(!remote) return;
   if(remote != this && frame.cmd != somfy_commands::Sensor) remote->setRollingCode(frame.rollingCode);
+  if(!internal && commandSupersedesPositioning(frame.cmd)) { this->userOverride(); this->prepareCommand(); }
   this->behaviour.onFrame(frame, internal, millis());
 }
 void SomfyShade::processWaitingFrame() { this->behaviour.onWaitingFrame(millis()); }

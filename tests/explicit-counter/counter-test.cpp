@@ -38,8 +38,10 @@ struct Transceiver {
   uint32_t blockedCounterAddress();
   uint32_t submitTx(somfy_tx_job_t &,bool=false,uint16_t=0);
   void serviceRepeater();bool txSuspended();bool available(){return true;}
+  void cancelQueuedForRemote(uint32_t,uint32_t=0);
 };
 #include "Somfy.h"
+#include "GroupMotion.h"
 // The extracted unlink helper only constructs this storage boundary; it writes no NVS.
 class Preferences {};
 static somfy_tx_queue_t tx_queue;
@@ -72,6 +74,9 @@ SomfyShadeController::SomfyShadeController() : startingAddress(100) {modelLoad.b
 SomfyShadeController somfy;
 // This counter harness has no filesystem-install operation.
 bool radioInstallPaused(){return false;}
+// This counter harness never opens a frequency scan; queue admission remains
+// production and the scan-specific owner tests cover the active case.
+bool frequencyScanActive(){return false;}
 // Preparation/physical filesystem transitions have their own real-owner harness.
 void runApplicationPreparation(const GitUpdateOwnerToken &){assert(false);}
 static bool pendingRestart=false;
@@ -110,6 +115,12 @@ bool SomfyRemote::sendCommand(somfy_commands cmd,uint8_t,uint8_t){
   if(allowSetupSend){++setupFrames;lastFrame.valid=true;lastFrame.cmd=cmd;lastFrame.remoteAddress=getRemoteAddress();lastFrame.rollingCode=100;if(setupEcho)somfy.processFrame(lastFrame,true);return true;}
   ++forbidden;return false;
 }
+// Group setup presses use the same synchronous fake physical endpoint as
+// before receipt bookkeeping existed. Counter/TX admission remain production.
+send_result_t SomfyRemote::sendCommandAfter(somfy_commands command,uint8_t repeat,uint8_t step,uint16_t,bool,bool) {
+  return {SomfyRemote::sendCommand(command,repeat,step),0};
+}
+bool stopTargetMembers(SomfyGroup &){++forbidden;return false;}
 void SomfyRemote::triggerGPIOs(somfy_frame_t &){++forbidden;}
 bool SomfyShade::sendCommand(somfy_commands){++forbidden;return false;}
 bool SomfyShade::sendCommand(somfy_commands,uint8_t,uint8_t){++forbidden;return false;}

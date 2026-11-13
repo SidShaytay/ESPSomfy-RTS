@@ -99,6 +99,7 @@ class ShadeBehaviour {
     uint32_t queuedStopTicket() const { return tx.stopTicket; }
     void cancelGroupStop(float target, uint32_t now);
     bool startQueuedOnly() const { return this->tx.hold.held() && !this->tx.stopTicket && !this->groupStartTicket; }
+    bool hasPendingProgramming() const { return tx.myTicket != 0; }
     bool hasStopPending() const { return this->tx.stopTicket != 0; }
     // A group start or stop this shade took part in did not fully go on air.
     // Cleared when a group plan begins anew.

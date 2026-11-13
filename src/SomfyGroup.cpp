@@ -2,13 +2,20 @@
 #include "Somfy.h"
 #include "ModelEditor.h"
 #include "CounterCommandGuard.h"
+#include "GroupMotion.h"
+#include "BitLength.h"
+
 
 static const char *TAG = "Somfy";
 
 extern SomfyShadeController somfy;
+bool stopTargetMembers(SomfyGroup &group);
 
 void SomfyGroup::clear() {
   ++configurationRevision;
+  this->targetActive = false;
+  this->replanPending = false;
+
   this->setGroupId(255);
   this->setRemoteAddress(0);
   this->repeats = 0;
@@ -57,10 +64,45 @@ send_result_t SomfyGroup::sendCommandReceipt(somfy_commands cmd, uint8_t repeat,
   ESP_LOGI(TAG, "[Group %u] sendCommand cmd=%s repeat=%u", this->getGroupId(), translateSomfyCommand(cmd).c_str(), repeat);
   // This sendCommand function will always be called externally. sendCommand at the remote level
   // is expected to be called internally when the motor needs commanded.
+  const bool stop = cmd == somfy_commands::My || cmd == somfy_commands::Stop;
+  bool programming = false;
+  bool unfinished = false; // a member start is queued or not yet fully on air
+  for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES && this->linkedShades[i]; i++) {
+    SomfyShade *shade = somfy.getShadeById(this->linkedShades[i]);
+    if(shade && shade->hasPendingProgramming()) programming = true;
+    if(shade && (shade->hasPendingGroupStart() || shade->startQueuedOnly())) unfinished = true;
+  }
+  if(programming && !stop && commandSupersedesPositioning(cmd)) return {};
+  if(stop) this->cancelReplan();
   if(this->bitLength == 0) this->bitLength = somfy.transceiver.config.type;
-  // Leave the group and its shades alone if the radio didn't take the command.
-  const auto result=SomfyRemote::sendCommandAfter(cmd, repeat, stepSize, 0);
+  if(stop && (this->targetActive || unfinished || programming)) {
+    // A shared My would recall the favorite on a member which has already
+    // stopped or never started. Drop a shared start still queued, cancel
+    // queued member starts, and stop only members actually moving, after an
+    // unfinished start's outcome is known.
+    somfy.transceiver.cancelQueuedForRemote(this->getRemoteAddress());
+    const bool accepted = stopTargetMembers(*this);
+    this->updateTargetDirection();
+    return {accepted,0};
+  }
+  // Up/Down replace an unfinished start; other commands wait for its outcome.
+  if(unfinished && commandSupersedesPositioning(cmd) && cmd != somfy_commands::Up && cmd != somfy_commands::Down) return {};
+  const send_result_t result = this->sendCommandAfter(cmd, repeat, stepSize, 0);
   if(!result.sent) return {};
+  if(commandSupersedesPositioning(cmd)) {
+    this->cancelReplan();
+    somfy.transceiver.cancelQueuedForRemote(this->getRemoteAddress(), result.ticket);
+    for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES && this->linkedShades[i]; i++) {
+      SomfyShade *shade = somfy.getShadeById(this->linkedShades[i]);
+      if(shade) {
+        somfy.cancelGroupStartsForShade(shade->getShadeId(), result.ticket);
+        somfy.transceiver.cancelQueuedForRemote(shade->getRemoteAddress());
+        shade->cancelPositioning();
+      }
+    }
+    this->targetActive = false;
+  }
+
 
   switch(cmd) {
     case somfy_commands::My:
@@ -81,7 +123,13 @@ send_result_t SomfyGroup::sendCommandReceipt(somfy_commands cmd, uint8_t repeat,
       SomfyShade *shade = somfy.getShadeById(this->linkedShades[i]);
       if(shade) {
         ESP_LOGI(TAG, "[Group %u] processInternalCommand on shade %u cmd=%s", this->getGroupId(), shade->getShadeId(), translateSomfyCommand(cmd).c_str());
-        shade->processInternalCommand(cmd, repeat, stepSize);
+        shade->processInternalCommand(shade->transformCommand(this->transformCommand(cmd)), repeat, stepSize);
+        if(result.ticket && startsMovement(this->transformCommand(cmd))) {
+          shade->markTxPending(result.ticket);
+          if((cmd == somfy_commands::Up || cmd == somfy_commands::Down) && shade->supportsGroupTarget())
+            shade->observeGroupStart(result.ticket);
+        }
+
         shade->emitCommand(cmd, "group", this->getRemoteAddress());
       }
     }

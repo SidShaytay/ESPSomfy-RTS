@@ -20,7 +20,13 @@ void ShadeBehaviour::cancelPositioning() {
     if(this->s.tiltDirection) this->p_tiltTarget(limitTarget(this->s.tiltDirection));
   }
   this->settingPos = this->settingTiltPos = this->settingMyPos = false;
+  // Programming has its own accepted ticket and rollback snapshot. Dropping
+  // a queued movement must not erase the eventual programming outcome.
+  const auto pendingMy = this->tx;
   this->tx = ShadeTxState{};
+  this->tx.myTicket = pendingMy.myTicket;
+  this->tx.myOldPos = pendingMy.myOldPos;
+  this->tx.myOldTiltPos = pendingMy.myOldTiltPos;
   this->groupStartTicket = 0;
   this->resetGroupFlags();
 }

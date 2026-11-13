@@ -23,6 +23,8 @@ struct SomfyRemote {
   send_result_t sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority, bool hearsItself);
 };
 struct SomfyShade : SomfyRemote, ShadeSettings {
+  bool prepareOnSend = false;
+  void prepareCommand(uint32_t) { assert(false); } // No positioning override in this pin-policy fixture.
   uint8_t id=255;
   uint8_t getShadeId(){return id;}
   int8_t validateGPIOs(radio_proto,uint8_t,uint8_t,uint8_t);

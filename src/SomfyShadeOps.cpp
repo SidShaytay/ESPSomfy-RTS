@@ -75,6 +75,8 @@ shade_request_result_t SomfyShadeOps::setRollingCode(uint8_t shadeId, uint16_t c
   return counterRequestResult(applyPrimaryCounterCorrection(shadeId,code));
 }
 
+bool SomfyShadeOps::moveGroupToTarget(uint8_t groupId, float target) { return somfy.getGroupById(groupId)->moveToTarget(target); }
+
 bool SomfyShadeOps::sendGroupCommand(uint8_t groupId, somfy_commands cmd, uint8_t repeat, uint8_t stepSize) {
   return somfy.getGroupById(groupId)->sendCommand(cmd, repeat, stepSize);
 }
