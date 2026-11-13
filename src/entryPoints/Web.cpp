@@ -279,6 +279,10 @@ void Web::handleShadeCommand(AsyncWebServerRequest *request, JsonVariant &json) 
 }
 void Web::handleGroupCommand(AsyncWebServerRequest *request, JsonVariant &json) {
   if(request->method() == HTTP_OPTIONS) { request->send(200); return; }
+  if(asyncHasParam(request, "target") || !json.as<JsonObjectConst>()["target"].isUnbound()) {
+    request->send(400, _encoding_json, F("{\"status\":\"ERROR\",\"desc\":\"Use protocol groupTarget for a target.\"}"));
+    return;
+  }
   shade_request_t req;
   req.type = shade_request_type_t::group_command;
   if(asyncHasParam(request, "groupId")) {

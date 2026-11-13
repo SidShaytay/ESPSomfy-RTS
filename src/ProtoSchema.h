@@ -66,6 +66,7 @@
   TYPE(reboot, 54, 'c', 'd') \
   TYPE(commitModel, 55, 'c', 'd') \
   TYPE(getFrequencyScanResult, 56, 'c', 'd') \
+  TYPE(groupTarget, 57, 'c', 'q') \
   TYPE(shadeState, 128, 'd', '-') \
   TYPE(shade, 129, 'd', '-') \
   TYPE(shadeRemoved, 130, 'd', '-') \

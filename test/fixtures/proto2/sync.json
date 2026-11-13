@@ -189,6 +189,18 @@
      "reboot"
     ],
     [
+     55,
+     "commitModel"
+    ],
+    [
+     56,
+     "getFrequencyScanResult"
+    ],
+    [
+     57,
+     "groupTarget"
+    ],
+    [
      128,
      "shadeState"
     ],
@@ -267,6 +279,10 @@
     [
      147,
      "wifiNetworks"
+    ],
+    [
+     148,
+     "modelPersistence"
     ]
    ],
    "F": [
@@ -347,6 +363,24 @@
      "ok",
      "b",
      0
+    ],
+    [
+     "ap",
+     "applied",
+     "b",
+     0
+    ],
+    [
+     "du",
+     "durable",
+     "b",
+     0
+    ],
+    [
+     "ds",
+     "modelSaveState",
+     "i",
+     -1
     ],
     [
      "e",
@@ -703,6 +737,12 @@
      0
     ],
     [
+     "os",
+     "hasOtaSlot",
+     "b",
+     1
+    ],
+    [
      "ct",
      "connType",
      "s",
@@ -835,6 +875,12 @@
      0
     ],
     [
+     "zs",
+     "scanToken",
+     "s",
+     0
+    ],
+    [
      "tf",
      "testFreq",
      "n",
@@ -935,7 +981,15 @@
      "phyType",
      "i",
      0
-    ],
+    ]
+   ]
+  }
+ },
+ {
+  "v": 2,
+  "t": 4,
+  "d": {
+   "F": [
     [
      "ck",
      "CLKMode",
@@ -995,15 +1049,7 @@
      "dns1",
      "s",
      0
-    ]
-   ]
-  }
- },
- {
-  "v": 2,
-  "t": 4,
-  "d": {
-   "F": [
+    ],
     [
      "d2",
      "dns2",
@@ -1201,6 +1247,14 @@
      "frequencyScan"
     ]
    ],
+   "h": {},
+   "Z": {}
+  }
+ },
+ {
+  "v": 2,
+  "t": 4,
+  "d": {
    "h": {
     "xr": 16,
     "xs": 32,

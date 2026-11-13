@@ -12,6 +12,7 @@ bool shadeRequestUsesRadio(shade_request_type_t type) {
 }
 bool shadeRequestIsForGroup(shade_request_type_t type) {
   switch(type) {
+    case shade_request_type_t::group_target:
     case shade_request_type_t::group_command:
     case shade_request_type_t::group_repeat:
     case shade_request_type_t::group_sensor:
@@ -45,6 +46,8 @@ shade_request_result_t ShadeRequests::run(const shade_request_t &req) {
     case shade_request_type_t::shade_command:
       if(inRange(req.target)) return sent(this->ops.moveToTarget(req.id, storedPosition(req.target, flip)));
       return sent(this->ops.sendCommand(req.id, req.command, repeatsOr(req.repeat, shade.repeats), req.stepSize));
+    case shade_request_type_t::group_target:
+      return inRange(req.target) ? sent(this->ops.moveGroupToTarget(req.id, req.target)) : shade_request_result_t::radio_refused;
     case shade_request_type_t::group_command:
       return sent(this->ops.sendGroupCommand(req.id, req.command, repeatsOr(req.repeat, groupRepeats), req.stepSize));
     case shade_request_type_t::tilt_command:

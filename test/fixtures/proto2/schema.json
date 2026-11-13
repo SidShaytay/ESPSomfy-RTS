@@ -1,5 +1,5 @@
 {
- "hash": "16fdffc7",
+ "hash": "cd92f794",
  "types": {
   "1": "hello",
   "2": "reply",
@@ -66,7 +66,11 @@
   "144": "frequencyScan",
   "145": "repeaters",
   "146": "settingsChanged",
-  "147": "wifiNetworks"
+  "147": "wifiNetworks",
+  "55": "commitModel",
+  "56": "getFrequencyScanResult",
+  "57": "groupTarget",
+  "148": "modelPersistence"
  },
  "fields": {
   "D": {
@@ -803,6 +807,31 @@
    "name": "stepSize",
    "kind": "i",
    "default": 100
+  },
+  "ap": {
+   "name": "applied",
+   "kind": "b",
+   "default": 0
+  },
+  "du": {
+   "name": "durable",
+   "kind": "b",
+   "default": 0
+  },
+  "ds": {
+   "name": "modelSaveState",
+   "kind": "i",
+   "default": -1
+  },
+  "os": {
+   "name": "hasOtaSlot",
+   "kind": "b",
+   "default": 1
+  },
+  "zs": {
+   "name": "scanToken",
+   "kind": "s",
+   "default": 0
   }
  },
  "errors": {

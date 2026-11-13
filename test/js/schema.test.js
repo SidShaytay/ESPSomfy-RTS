@@ -54,3 +54,12 @@ test('a cached schema comes back whole, with its hash', () => {
     assert.equal(ProtoSchema.load(null), null);
     assert.equal(ProtoSchema.load({ hash: 'x', rows: {} }), null);
 });
+
+test('native group targets preserve current operations and pack an explicit absolute target', () => {
+    const s = recordedSchema();
+    assert.equal(s.typeNumbers.commitModel, 55);
+    assert.equal(s.typeNumbers.getFrequencyScanResult, 56);
+    assert.equal(s.typeNumbers.groupTarget, 57);
+    assert.deepEqual(s.pack({ groupId: 1, target: 0 }), { g: 1, t: 0 });
+    assert.deepEqual(s.pack({ groupId: 1, target: 100 }), { g: 1, t: 100 });
+});

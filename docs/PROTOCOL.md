@@ -40,7 +40,7 @@ The keys of `hello` (`fw`, `sh`) and of the schema itself (`T`, `F`, `E`, `Q`) n
 | Range | Sender | Types |
 |---|---|---|
 | 1–15 | control | `hello` 1, `reply` 2, `next` 3, `sync` 4, `syncEnd` 5, `subscribe` 6, `unsubscribe` 7 |
-| 16–127 | client ops | commands: `shadeCommand` 16, `groupCommand` 17, `tiltCommand` 18, `repeatCommand` 19, `setPositions` 20, `setSensor` 21, `setMyPosition` 22, `unpairShade` 23, `setRollingCode` 24, `sendRemoteCommand` 25; edits: 26–44 (`addRoom` … `groupSortOrder`); reads: `getNextRoom` 45, `getNextShade` 46, `getNextGroup` 47, `groupOptions` 48; settings and the device: `getSettings` 49, `saveSettings` 50, `scanWifi` 51, `beginFrequencyScan` 52, `endFrequencyScan` 53, `reboot` 54, `commitModel` 55 |
+| 16–127 | client ops | commands: `shadeCommand` 16, `groupCommand` 17, `tiltCommand` 18, `repeatCommand` 19, `setPositions` 20, `setSensor` 21, `setMyPosition` 22, `unpairShade` 23, `setRollingCode` 24, `sendRemoteCommand` 25; edits: 26–44 (`addRoom` … `groupSortOrder`); reads: `getNextRoom` 45, `getNextShade` 46, `getNextGroup` 47, `groupOptions` 48; settings and the device: `getSettings` 49, `saveSettings` 50, `scanWifi` 51, `beginFrequencyScan` 52, `endFrequencyScan` 53, `reboot` 54, `commitModel` 55, `getFrequencyScanResult` 56, `groupTarget` 57 |
 | 128–255 | device events | `shadeState`, `shade`, `shadeRemoved`, `group`, `groupState`, `groupRemoved`, `room`, `roomRemoved`, `roomOrder`, `shadeOrder`, `groupOrder`, `shadeCommanded`, `memory`, `wifi`, `ethernet`, `frame`, `frequencyScan`, `repeaters`, `settingsChanged`, `wifiNetworks`, `modelPersistence` |
 
 A number is never reused. A retired type stays reserved.
@@ -87,6 +87,7 @@ Every op carries an `id` and gets one reply. The ops do what the HTTP routes of 
 | `shadeCommand` | `shadeId`; `command` or `target`; optional `repeat`, `stepSize` | sends the command, or moves the shade to the position 0–100 |
 | `tiltCommand` | `shadeId`; `command` or `target` | the same for the tilt |
 | `groupCommand` | `groupId`, `command`; optional `repeat`, `stepSize` | sends the command as the group |
+| `groupTarget` | `groupId`, `target` (integer 0–100), no other payload fields | requests an absolute group lift target |
 | `repeatCommand` | `shadeId` or `groupId`, `command`; optional `repeat`, `stepSize` | repeats the last frame when it was this command, or sends it |
 | `setPositions` | `shadeId`; `position`, `tiltPosition` or both | sets where the shade is thought to be; nothing goes on air |
 | `setSensor` | `shadeId` or `groupId`; `sunny`, `windy` or both; optional `repeat` | sends a sensor frame |
@@ -105,6 +106,18 @@ Every op carries an `id` and gets one reply. The ops do what the HTTP routes of 
 - A field of the wrong kind, a value out of range, or both of two alternatives, is a bad request, and `desc` names the field.
 - The reply comes once the command has gone to the radio, or was refused: not found (no shade or group with that id), radio unavailable (the radio is paused, as during a frequency scan, or didn't take it), busy (the device's command queue is full, or `setMyPosition` on a shade that is moving) or bad request (`setPositions` with only a tilt, for a shade without one). It carries no state: the shade's `shadeState` events follow as it moves.
 - `sendRemoteCommand` is answered as soon as the radio has taken the frame, not after the ops queued before it, and with radio unavailable when the radio is full rather than waiting for room.
+
+### Group percentage targets
+
+Discover `groupTarget` by name in the advertised schema. Its current number is 57; 55 remains `commitModel` and 56 remains `getFrequencyScanResult`. A client sends `{ "v": 2, "t": 57, "id": 1, "d": { "g": 1, "t": 50 } }` to request a 50% closed group position. Home Assistant's open percentage is converted once as `100 - position`. Member `flipPosition` is a display preference and does not change this logical group target; awnings invert the stored lift target and `flipCommands` controls the wire direction.
+
+The operation requires known, packed members with supported lift-only motor modes and nonzero travel times. Unsupported/missing members refuse the request before movement. Compatible idle members share one native group directional press, then use their own travel times for individual timed Stops. Members already moving toward the target keep their original clocks. Mixed directions use individual plans. A reversal stops the movers, waits for their Stop outcomes, then replans a shared start where possible.
+
+An admitted start is allowed to finish before a replacement target is planned; only the latest target is retained. A queued Stop can be cancelled atomically when a new target lies ahead. A Stop already on air finishes before any restart. An ordinary member start with an outcome still pending is retained rather than assumed idle. Stop cancels a start that has not begun; a start already on air is stopped only after its outcome is known. My is never sent merely because an unstarted motor has a queued target. Dropped or partial group presses cancel deferred restarts. Refused override commands retain accepted plans.
+
+Intermediate targets within 1% count as reached. Endpoints are explicit remote presses even when an idle estimate already says 0 or 100; repeated targets during movement in the same direction add no RF. Group Stop sends My only to members with movement to stop, avoiding favourite recall on idle members. Close individual Stop deadlines still serialize on the single radio; reported positions are estimates, with no motor acknowledgement.
+
+Request IDs increase on each connection. Repeating the same ID/group/target while pending does not enqueue another move; completed requests replay their reply. Reusing an ID with different arguments or after cache eviction is refused. New connections start a new ID sequence. A successful reply means the request was admitted, not that a motor received RF or reached its target. Clients must surface refusals and must not retry ambiguous requests through another control path. `groupCommand` and the HTTP group command route reject a `target` field; older firmware retains ordinary group commands and client-side percentage fallback.
 
 ## Edits
 

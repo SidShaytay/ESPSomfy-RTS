@@ -96,7 +96,20 @@ static void test_group_command_needs_a_command() {
   TEST_ASSERT_EQUAL_UINT8(1, req.id);
   TEST_ASSERT_EQUAL(somfy_commands::My, req.command);
   TEST_ASSERT_EQUAL_INT8(4, req.repeat);
-  TEST_ASSERT_EQUAL_STRING("command is missing", parse(proto_type_t::groupCommand, R"({"g":1,"t":10})"));
+  TEST_ASSERT_EQUAL_STRING("Use groupTarget for a target", parse(proto_type_t::groupCommand, R"({"g":1,"t":10})"));
+}
+static void test_group_target_is_explicit_and_preserves_existing_ids() {
+  TEST_ASSERT_EQUAL(55, static_cast<uint8_t>(proto_type_t::commitModel));
+  TEST_ASSERT_EQUAL(56, static_cast<uint8_t>(proto_type_t::getFrequencyScanResult));
+  TEST_ASSERT_EQUAL(57, static_cast<uint8_t>(proto_type_t::groupTarget));
+  TEST_ASSERT_GOOD(parse(proto_type_t::groupTarget, R"({"g":1,"t":0})"));
+  TEST_ASSERT_EQUAL(shade_request_type_t::group_target, req.type);
+  TEST_ASSERT_EQUAL(0, req.target);
+  TEST_ASSERT_GOOD(parse(proto_type_t::groupTarget, R"({"g":1,"t":100})"));
+  TEST_ASSERT_NOT_NULL(parse(proto_type_t::groupTarget, R"({"g":1})"));
+  TEST_ASSERT_NOT_NULL(parse(proto_type_t::groupTarget, R"({"g":1,"t":101})"));
+  TEST_ASSERT_NOT_NULL(parse(proto_type_t::groupTarget, R"({"g":1,"t":50,"cm":"Down"})"));
+  TEST_ASSERT_NOT_NULL(parse(proto_type_t::groupTarget, R"({"g":1,"t":50,"re":1})"));
 }
 static void test_repeat_takes_a_shade_or_a_group() {
   TEST_ASSERT_GOOD(parse(proto_type_t::repeatCommand, R"({"s":5,"cm":"Prog"})"));
@@ -288,6 +301,7 @@ int main(int argc, char **argv) {
   RUN_TEST(test_a_left_out_payload_is_missing_everything);
   RUN_TEST(test_tilt_command);
   RUN_TEST(test_group_command_needs_a_command);
+  RUN_TEST(test_group_target_is_explicit_and_preserves_existing_ids);
   RUN_TEST(test_repeat_takes_a_shade_or_a_group);
   RUN_TEST(test_command_names_read_back_as_shade_commanded_reports_them);
   RUN_TEST(test_set_positions_leaves_out_what_was_not_given);
