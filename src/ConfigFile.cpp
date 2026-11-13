@@ -131,6 +131,7 @@ static shade_record_t shadeRecord(SomfyShade *shade) {
   rec.bitLength = shade->bitLength;
   rec.upTime = shade->upTime;
   rec.downTime = shade->downTime;
+  rec.calibration = shade->calibration;
   rec.tiltTime = shade->tiltTime;
   rec.stepSize = shade->stepSize;
   for(uint8_t j = 0; j < SOMFY_MAX_LINKED_REMOTES; j++) rec.linkedRemotes[j] = shade->linkedRemotes[j].getRemoteAddress();
@@ -286,7 +287,7 @@ bool ShadeConfigFile::validateRestoreRecords(const restore_options_t &opts){
   if(opts.shades){
     const unsigned shadeFields=12+(v<5?5:SOMFY_MAX_LINKED_REMOTES)+(v<4?1:2)+
         (v>6?1:0)+(v>1?1:0)+(v>5?1:0)+(v>7?1:0)+(v>=9?1:0)+(v>=10?1:0)+
-        (v>=12?1:0)+(v>=13?1:0)+(v>14?2:0)+(v>15?1:0)+(v>16?1:0)+(v>=19?1:0);
+        (v>=12?1:0)+(v>=13?1:0)+(v>14?2:0)+(v>15?1:0)+(v>16?1:0)+(v>=19?1:0)+(v==24 && header.shadeRecordSize==SHADE_REC_SIZE?9:0);
     const unsigned groupFields=6+SOMFY_MAX_GROUPED_SHADES+(v>=23?1:0)+
         (v>=12?1:0)+(v>=13?1:0)+(v>=18?1:0)+(v>=19?1:0);
     for(unsigned i=0;valid&&i<header.roomRecords;++i)valid=checked(3,[&]{
@@ -385,6 +386,7 @@ void ShadeConfigFile::readShade(SomfyShade *shade) {
   shade->bitLength = rec.bitLength;
   shade->upTime = rec.upTime;
   shade->downTime = rec.downTime;
+  shade->calibration = rec.calibration;
   shade->tiltTime = rec.tiltTime;
   shade->stepSize = rec.stepSize;
   for(uint8_t j = 0; j < SOMFY_MAX_LINKED_REMOTES; j++) {

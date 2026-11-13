@@ -85,6 +85,9 @@ const edit_form_t *editForm(model_edit_type_t type) {
   }
 }
 static bool takes(model_edit_type_t type, proto_field_t f) {
+  // Guided calibration saves typed fields without adding raw phase controls
+  // to the ordinary entity editor.
+  if(type == model_edit_type_t::save_shade && isLiftCalibrationField(f)) return true;
   if(const auto *form = editForm(type)) {
     if(form->identity != proto_field_t::count && f == form->identity) return true;
     for(uint8_t i=0;i<form->count;i++) if(f == form->fields[i]) return true;

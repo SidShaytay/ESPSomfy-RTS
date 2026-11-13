@@ -29,6 +29,7 @@ class TextReader : public ConfigReader {
 static config_header_t header(uint8_t version = SHADE_HDR_VER) {
   config_header_t h;
   h.version = version;
+  h.shadeRecordSize = SHADE_REC_SIZE;
   return h;
 }
 static shade_record_t aShade() {
@@ -831,8 +832,79 @@ static void test_a_real_backup_reads_to_its_end() {
   TEST_ASSERT_EQUAL(ss.str().size(), r.position());
 }
 
+static void test_calibration_tail_roundtrip_and_legacy_restore_clears_profile() {
+  auto shade = aShade();
+  shade.calibration.kind = LiftKind::segmented;
+  shade.calibration.up = {1000, 8000, 2000, 500};
+  shade.calibration.down = {2000, 7000, 1000, 600};
+  TextWriter writer;
+  TEST_ASSERT_TRUE(writeShadeRecord(writer, shade));
+  TEST_ASSERT_EQUAL(368, writer.text.size());
+  shade_record_t got;
+  TextReader reader(writer.text);
+  TEST_ASSERT_TRUE(readShadeRecord(reader, header(), got));
+  TEST_ASSERT_TRUE(sameLiftCalibration(shade.calibration, got.calibration));
+  // A legacy record keeps its entire original prefix and ends after roomId.
+  std::string old = writer.text.substr(0, 276);
+  old.back() = '\n';
+  auto oldHeader = header(); oldHeader.shadeRecordSize = 276;
+  TextReader oldReader(old + writer.text);
+  TEST_ASSERT_TRUE(readShadeRecord(oldReader, oldHeader, got));
+  TEST_ASSERT_EQUAL_UINT8(0, uint8_t(got.calibration.kind));
+  TEST_ASSERT_EQUAL_UINT32(0, got.calibration.up.takeupMs);
+  TEST_ASSERT_EQUAL_UINT32(276, oldReader.position());
+  TEST_ASSERT_TRUE(readShadeRecord(oldReader, header(), got));
+  TEST_ASSERT_TRUE(sameLiftCalibration(shade.calibration, got.calibration));
+}
+static void test_calibration_tail_is_strict_on_boot_and_checked_restore() {
+  auto shade = aShade();
+  shade.calibration.kind = LiftKind::segmented;
+  shade.calibration.up = {1000, 8000, 2000, 500};
+  shade.calibration.down = {2000, 7000, 1000, 600};
+  TextWriter writer; TEST_ASSERT_TRUE(writeShadeRecord(writer, shade));
+  for(bool checked : {false, true}) {
+    for(const char *kind : {"257", " -1", "  3", " 1x"}) {
+      auto malformed = writer.text; malformed.replace(276, 3, kind);
+      TextReader reader(malformed); shade_record_t got;
+      if(checked) reader.beginCheckedValues();
+      TEST_ASSERT_FALSE(readShadeRecord(reader, header(), got));
+    }
+    for(size_t size : {size_t(277), size_t(300), size_t(367)}) {
+      auto malformed = writer.text.substr(0,size); malformed.back() = '\n';
+      TextReader reader(malformed); shade_record_t got;
+      if(checked) reader.beginCheckedValues();
+      TEST_ASSERT_FALSE(readShadeRecord(reader, header(), got));
+    }
+  }
+  auto invalid = shade; invalid.calibration.up.takeupMs = invalid.upTime;
+  TextWriter rejected; TEST_ASSERT_FALSE(writeShadeRecord(rejected, invalid));
+  TEST_ASSERT_EQUAL(0, rejected.text.size());
+}
+
+static void test_strict_calibration_values_preserve_enclosing_check_state() {
+  TextReader valid(" 12, 34\n");
+  valid.beginCheckedValues();
+  TEST_ASSERT_EQUAL_UINT8(12, valid.readUInt8());
+  uint32_t value = 7;
+  TEST_ASSERT_TRUE(valid.readStrictUInt32(value));
+  TEST_ASSERT_EQUAL_UINT32(34, value);
+  auto state = valid.endCheckedValues();
+  TEST_ASSERT_TRUE(state.valid); TEST_ASSERT_EQUAL_UINT16(2, state.fields);
+  TextReader invalid("bad, 34\n");
+  invalid.beginCheckedValues(); invalid.readUInt8();
+  TEST_ASSERT_TRUE(invalid.readStrictUInt32(value));
+  state = invalid.endCheckedValues();
+  TEST_ASSERT_FALSE(state.valid); TEST_ASSERT_EQUAL_UINT16(2, state.fields);
+  TextReader overflow("4294967296\n"); value = 7;
+  TEST_ASSERT_FALSE(overflow.readStrictUInt32(value));
+  TEST_ASSERT_EQUAL_UINT32(7, value);
+}
+
 int main(int argc, char **argv) {
   UNITY_BEGIN();
+  RUN_TEST(test_strict_calibration_values_preserve_enclosing_check_state);
+  RUN_TEST(test_calibration_tail_roundtrip_and_legacy_restore_clears_profile);
+  RUN_TEST(test_calibration_tail_is_strict_on_boot_and_checked_restore);
   RUN_TEST(test_import_rejects_unsupported_shade_and_group_lengths);
   RUN_TEST(test_each_record_is_the_size_the_header_declares);
   RUN_TEST(test_a_counter_measures_what_a_writer_writes);

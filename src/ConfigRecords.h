@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include "ConfigHeader.h"
 #include "ShadeTypes.h"
+#include "LiftCalibration.h"
 #include "SomfyFrame.h"
 
 // The records of shades.cfg and of a backup, and how they are written and
@@ -19,7 +20,8 @@
 
 #define SHADE_HDR_VER 24
 #define SHADE_HDR_SIZE 76
-#define SHADE_REC_SIZE 276
+#define SHADE_LEGACY_REC_SIZE 276
+#define SHADE_REC_SIZE 368
 #define GROUP_REC_SIZE 200
 #define ROOM_REC_SIZE 29
 #define REPEATER_REC_SIZE 77
@@ -73,6 +75,8 @@ class ConfigReader {
     uint8_t readUInt8(const uint8_t defVal = 0);
     uint16_t readUInt16(const uint16_t defVal = 0);
     uint32_t readUInt32(const uint32_t defVal = 0);
+    // Strict additive fields even during a historical, permissive boot load.
+    bool readStrictUInt32(uint32_t &, uint32_t maximum = UINT32_MAX);
     bool readBool(const bool defVal = false);
     float readFloat(const float defVal = 0.00);
 };
@@ -113,6 +117,7 @@ struct shade_record_t {
   uint8_t bitLength = 56;
   uint32_t upTime = 10000;
   uint32_t downTime = 10000;
+  LiftCalibration calibration;
   uint32_t tiltTime = 7000;
   uint16_t stepSize = 100;
   uint32_t linkedRemotes[SOMFY_MAX_LINKED_REMOTES] = {};

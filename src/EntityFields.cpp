@@ -1,4 +1,5 @@
 #include "EntityFields.h"
+#include "LiftCalibration.h"
 #include "ProtoEdits.h"
 #include "ShadeGpioPolicy.h"
 #include <string.h>
@@ -23,12 +24,28 @@ constexpr entity_choice_t shades[] = {{0, "Roller shade"},
                                       {14, "Gate 1-button left"},
                                       {15, "Gate 1-button center"},
                                       {16, "Gate 1-button right"}};
+constexpr entity_choice_t calibrationKinds[] = {{0,"Legacy timing"},{1,"Direct travel"},{2,"Segmented / slack"}};
 constexpr entity_choice_t tilts[] = {{0, "None"},
                                      {1, "Separate motor"},
                                      {2, "Integrated"},
                                      {3, "Tilt only"},
                                      {4, "Euro mode"}};
 } // namespace
+bool isLiftCalibrationField(proto_field_t field) {
+  switch(field) {
+    case proto_field_t::calibrationKind:
+    case proto_field_t::upTakeupMs:
+    case proto_field_t::upMidpointMs:
+    case proto_field_t::upSettlingMs:
+    case proto_field_t::upReversalMs:
+    case proto_field_t::downTakeupMs:
+    case proto_field_t::downMidpointMs:
+    case proto_field_t::downSettlingMs:
+    case proto_field_t::downReversalMs:
+      return true;
+    default: return false;
+  }
+}
 const entity_field_t *entityField(model_edit_type_t type, proto_field_t field) {
   if(type==model_edit_type_t::link_to_group || type==model_edit_type_t::unlink_from_group) {
     static const entity_field_t groupId{proto_field_t::groupId,1,SOMFY_MAX_GROUPS};
@@ -41,7 +58,7 @@ const entity_field_t *entityField(model_edit_type_t type, proto_field_t field) {
   const auto *form = editForm(type);
   if (!form)
     return nullptr;
-  bool allowed = false;
+  bool allowed = type == model_edit_type_t::save_shade && isLiftCalibrationField(field);
   for (uint8_t i = 0; i < form->count; i++)
     allowed |= form->fields[i] == field;
   if (!allowed)
@@ -57,6 +74,15 @@ const entity_field_t *entityField(model_edit_type_t type, proto_field_t field) {
       {proto_field_t::proto, 0, 9, protocols, 5},
       {proto_field_t::upTime, 0, UINT32_MAX},
       {proto_field_t::downTime, 0, UINT32_MAX},
+      {proto_field_t::calibrationKind, 0, 2, calibrationKinds, 3},
+      {proto_field_t::upTakeupMs, 0, liftCalibrationMaxMs},
+      {proto_field_t::upMidpointMs, 0, liftCalibrationMaxMs},
+      {proto_field_t::upSettlingMs, 0, liftCalibrationMaxMs},
+      {proto_field_t::upReversalMs, 0, liftCalibrationMaxMs},
+      {proto_field_t::downTakeupMs, 0, liftCalibrationMaxMs},
+      {proto_field_t::downMidpointMs, 0, liftCalibrationMaxMs},
+      {proto_field_t::downSettlingMs, 0, liftCalibrationMaxMs},
+      {proto_field_t::downReversalMs, 0, liftCalibrationMaxMs},
       {proto_field_t::tiltTime, 0, UINT32_MAX},
       {proto_field_t::stepSize, 0, UINT16_MAX},
       {proto_field_t::flipCommands, 0, 1},
@@ -101,6 +127,24 @@ const char *entityFieldLabel(proto_field_t field) {
     return "Up time (ms)";
   case proto_field_t::downTime:
     return "Down time (ms)";
+  case proto_field_t::calibrationKind:
+    return "Calibration type";
+  case proto_field_t::upTakeupMs:
+    return "Up takeup (ms)";
+  case proto_field_t::upMidpointMs:
+    return "Up midpoint (ms)";
+  case proto_field_t::upSettlingMs:
+    return "Up settling (ms)";
+  case proto_field_t::upReversalMs:
+    return "Up reversal (ms)";
+  case proto_field_t::downTakeupMs:
+    return "Down takeup (ms)";
+  case proto_field_t::downMidpointMs:
+    return "Down midpoint (ms)";
+  case proto_field_t::downSettlingMs:
+    return "Down settling (ms)";
+  case proto_field_t::downReversalMs:
+    return "Down reversal (ms)";
   case proto_field_t::tiltTime:
     return "Tilt time (ms)";
   case proto_field_t::stepSize:

@@ -2,6 +2,7 @@
 #define SHADE_SETTINGS_H
 #include <Arduino.h>
 #include "ShadeTypes.h"
+#include "LiftCalibration.h"
 
 // The settings a shade's behaviour reads and never changes.  The user sets
 // them through JSON, the config file and ModelEditor.  Kept free of the shade
@@ -19,6 +20,7 @@ struct ShadeSettings {
   tilt_types tiltType = tilt_types::none;
   uint32_t upTime = 10000;
   uint32_t downTime = 10000;
+  LiftCalibration calibration;
   uint32_t tiltTime = 7000;
   uint16_t stepSize = 100;
   bool flipPosition = false;

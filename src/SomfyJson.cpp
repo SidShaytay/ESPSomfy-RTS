@@ -5,6 +5,7 @@
 #include <atomic>
 #include "ModelEditor.h"
 #include "EntityFields.h"
+#include "LiftCalibrationJson.h"
 #include "GroupMembership.h"
 #include "SomfyEditor.h"
 #include "BitLength.h"
@@ -19,8 +20,14 @@ extern ConfigSettings settings;
 extern LoopQueue loopQueue;
 
 int8_t SomfyShade::fromJSON(JsonObject &obj) {
+  LiftCalibration projected;
+  if(!projectLiftCalibration(obj, *this, projected)) return -15;
+  if((projected.kind != LiftKind::legacy || this->calibration.kind != LiftKind::legacy) &&
+      (!sameLiftCalibration(projected, this->calibration) || !obj["upTime"].isNull() ||
+       !obj["downTime"].isNull()) && !this->idleForAdministration()) return -15;
   int8_t err = this->validateJSON(obj);
   if(err == 0) {
+    this->calibration = projected;
     if(!obj["name"].isNull()) strlcpy(this->name, obj["name"], sizeof(this->name));
     if(!obj["roomId"].isNull()) this->roomId = obj["roomId"];
     if(!obj["upTime"].isNull()) this->upTime = obj["upTime"];
@@ -281,7 +288,7 @@ edit_result_t mutateModelEdit(model_edit_t &edit) {
       SomfyShade *shade = somfy.getShadeById(obj["shadeId"]);
       if(!shade) return edit_result_t::missing("Shade Id not found.");
       const int8_t err = shade->fromJSON(obj);
-      if(err != 0) return edit_result_t::error("Data Error.", err);
+      if(err != 0) return edit_result_t::error(err == -15 ? "Invalid calibration or shutter is busy." : "Data Error.", err);
       const auto persisted=shade->save();
       shade->emitState();
       return done(shade->getShadeId(),persisted);

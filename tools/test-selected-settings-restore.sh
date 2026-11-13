@@ -17,7 +17,7 @@ for variant in wifi ethernet;do
  "${CXX:-c++}" -std=c++17 -O2 -ffunction-sections -fdata-sections -Wl,--gc-sections "${flags[@]}" -I"$scratch" -I"$repo/test/stubs" -I"$repo/src" -I"$json" -I"$unity" \
  "$repo/tests/selected-settings/test.cpp" "$repo/src/SelectedSettingsRestore.cpp" "$repo/src/PinOwnershipContext.cpp" "$repo/src/LivePinClaims.cpp" "$repo/src/GpioPinClaims.cpp" "$repo/src/SettingsTypedValidation.cpp" \
  "$repo/src/SettingsPersistence.cpp" "$repo/src/SettingsValues.cpp" "$repo/src/SettingsLoad.cpp" "$repo/src/SettingsDurability.cpp" \
- "$repo/src/ConfigRecords.cpp" "$repo/src/Utils.cpp" "$repo/src/ModelEditor.cpp" \
+ "$repo/src/ConfigRecords.cpp" "$repo/src/LiftCalibration.cpp" "$repo/src/ShadeMotion.cpp" "$repo/src/Utils.cpp" "$repo/src/ModelEditor.cpp" \
  "$repo/src/ProtoSettings.cpp" "$repo/src/ProtoParse.cpp" "$repo/src/ProtoSchema.cpp" "$unity/unity.c" -o "$scratch/test"
  "$scratch/test"
 done

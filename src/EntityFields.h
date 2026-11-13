@@ -7,7 +7,7 @@ struct entity_choice_t {
   const char *label;
 };
 // Per-operation constraints describe the destination and supported enums. The
-// authoritative allowlist remains editForm; metadata never holds stored values.
+// allowlists are editForm and the separate guided calibration fields.
 struct entity_field_t {
   proto_field_t field;
   int64_t lo, hi;
@@ -22,3 +22,5 @@ bool validEntityValue(const entity_field_t &, JsonVariantConst value);
 // Applicability follows the shared physical setup/release mask, not a
 // category-specific logical command mapping.
 bool entityFieldActive(const entity_field_t &, radio_proto protocol);
+
+bool isLiftCalibrationField(proto_field_t);

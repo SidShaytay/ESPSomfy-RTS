@@ -147,6 +147,19 @@ uint32_t ConfigReader::readUInt32(const uint32_t defVal) {
   }
   return defVal;
 }
+bool ConfigReader::readStrictUInt32(uint32_t &out, uint32_t maximum) {
+  const bool enclosing = _checkedValues, priorError = _checkedError;
+  const auto fields = _checkedFields;
+  _checkedValues = true;
+  _checkedError = false;
+  char text[32]; int64_t value = 0;
+  const bool valid = readString(text, sizeof(text)) && !_checkedError &&
+    _checkedFields == fields + 1 && checkedInteger(text, 0, maximum, value);
+  _checkedError = priorError || !valid;
+  _checkedValues = enclosing;
+  if(valid) out = static_cast<uint32_t>(value);
+  return valid;
+}
 float ConfigReader::readFloat(const float defVal) {
   char buff[32];
   const size_t capacity=_checkedValues?sizeof(buff):25;
@@ -294,6 +307,8 @@ bool readRoomRecord(ConfigReader &r, room_record_t &rec) {
 }
 
 bool writeShadeRecord(ConfigWriter &w, const shade_record_t &rec) {
+  const LiftCalibration calibration = rec.shadeId == 255 ? LiftCalibration{} : rec.calibration;
+  if(!validLiftCalibration(calibration, rec.upTime, rec.downTime)) return false;
   w.writeUInt8(rec.shadeId);
   w.writeBool(rec.paired);
   w.writeUInt8(static_cast<uint8_t>(rec.shadeType));
@@ -331,10 +346,25 @@ bool writeShadeRecord(ConfigWriter &w, const shade_record_t &rec) {
   w.writeUInt8(rec.gpioDown);
   w.writeUInt8(rec.gpioMy);
   w.writeUInt8(rec.gpioFlags);
-  return w.writeUInt8(rec.roomId, CFG_REC_END);
+  w.writeUInt8(rec.roomId);
+  w.writeUInt8(static_cast<uint8_t>(calibration.kind));
+  w.writeUInt32(calibration.up.takeupMs);
+  w.writeUInt32(calibration.up.midpointMs);
+  w.writeUInt32(calibration.up.settlingMs);
+  w.writeUInt32(calibration.up.reversalMs);
+  w.writeUInt32(calibration.down.takeupMs);
+  w.writeUInt32(calibration.down.midpointMs);
+  w.writeUInt32(calibration.down.settlingMs);
+  return w.writeUInt32(calibration.down.reversalMs, CFG_REC_END);
 }
 bool readShadeRecord(ConfigReader &r, const config_header_t &header, shade_record_t &rec) {
   const uint8_t ver = header.version;
+  const auto start = r.position();
+  // Keep the v24 prefix readable by the inactive rollback firmware. Its next
+  // save drops this optional tail and safely returns to legacy positioning.
+  if(ver == 24 && header.shadeRecordSize > SHADE_LEGACY_REC_SIZE &&
+      header.shadeRecordSize != SHADE_REC_SIZE) return false;
+  rec.calibration = {};
   r.beginRecord();
   rec.shadeId = r.readUInt8(255);
   rec.paired = r.readBool(false);
@@ -390,6 +420,18 @@ bool readShadeRecord(ConfigReader &r, const config_header_t &header, shade_recor
     rec.myPos = 100.0f;
   }
   if(ver >= 19) rec.roomId = r.readUInt8(0);
+  if(ver == 24 && header.shadeRecordSize == SHADE_REC_SIZE) {
+    uint32_t kind = 0;
+    auto &c = rec.calibration;
+    if(!r.readStrictUInt32(kind, 2) ||
+       !r.readStrictUInt32(c.up.takeupMs) || !r.readStrictUInt32(c.up.midpointMs) ||
+       !r.readStrictUInt32(c.up.settlingMs) || !r.readStrictUInt32(c.up.reversalMs) ||
+       !r.readStrictUInt32(c.down.takeupMs) || !r.readStrictUInt32(c.down.midpointMs) ||
+       !r.readStrictUInt32(c.down.settlingMs) || !r.readStrictUInt32(c.down.reversalMs)) return false;
+    c.kind = static_cast<LiftKind>(kind);
+    if(!r.atRecordEnd() || r.position() - start != SHADE_REC_SIZE ||
+       !validLiftCalibration(c, rec.upTime, rec.downTime)) return false;
+  }
   r.endRecord();
   return rec.shadeId == 255 || supportedBitLength(rec.bitLength);
 }

@@ -34,6 +34,7 @@ void SomfyShade::clear() {
   this->name[0] = 0x00;
   this->upTime = 10000;
   this->downTime = 10000;
+  this->calibration = {};
   this->tiltTime = 7000;
   this->stepSize = 100;
   this->repeats = 1;

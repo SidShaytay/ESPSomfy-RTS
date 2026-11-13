@@ -20,6 +20,7 @@ void snapshotShade(SomfyShade &shade, shade_snapshot_t &out) {
   out.remoteAddress = shade.getRemoteAddress();
   out.upTime = shade.upTime;
   out.downTime = shade.downTime;
+  out.calibration = shade.calibration;
   out.tiltTime = shade.tiltTime;
   out.stepSize = shade.stepSize;
   out.paired = shade.paired;

@@ -32,6 +32,16 @@ void protoShade(ProtoWriter &w, const shade_snapshot_t &shade) {
   w.add(proto_field_t::remoteAddress, shade.remoteAddress);
   w.add(proto_field_t::upTime, shade.upTime);
   w.add(proto_field_t::downTime, shade.downTime);
+  w.add(proto_field_t::calibrationKind, static_cast<uint8_t>(shade.calibration.kind));
+  w.add(proto_field_t::upTakeupMs, shade.calibration.up.takeupMs);
+  w.add(proto_field_t::upMidpointMs, shade.calibration.up.midpointMs);
+  w.add(proto_field_t::upSettlingMs, shade.calibration.up.settlingMs);
+  w.add(proto_field_t::upReversalMs, shade.calibration.up.reversalMs);
+  w.add(proto_field_t::downTakeupMs, shade.calibration.down.takeupMs);
+  w.add(proto_field_t::downMidpointMs, shade.calibration.down.midpointMs);
+  w.add(proto_field_t::downSettlingMs, shade.calibration.down.settlingMs);
+  w.add(proto_field_t::downReversalMs, shade.calibration.down.reversalMs);
+
   w.add(proto_field_t::tiltTime, shade.tiltTime);
   w.add(proto_field_t::stepSize, shade.stepSize);
   w.add(proto_field_t::paired, shade.paired);

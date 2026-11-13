@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "ShadeTypes.h"
+#include "LiftCalibration.h"
 #include "JsonFormatter.h"
 
 // A copy of one room, shade or group, taken on loop() or for a command reply,
@@ -29,6 +30,7 @@ struct shade_snapshot_t {
   uint32_t remoteAddress;
   uint32_t upTime;
   uint32_t downTime;
+  LiftCalibration calibration;
   uint32_t tiltTime;
   uint16_t stepSize;
   bool paired;

@@ -1,5 +1,6 @@
 #ifdef ESPSOMFY_LOCAL_UI
 #include "LocalEntityRuntime.h"
+#include "LiftCalibrationJson.h"
 #include "LocalOperationAdmission.h"
 #include "LocalTargetRead.h"
 #include "LocalUiAuthorizationAdapter.h"
@@ -230,6 +231,9 @@ class RuntimeBackend final : public Backend {
       if (category != shade_types::blind && tilt != tilt_types::none)
         return invalid(proto_field_t::tiltType,
                        "Set tilt to None for a device without blind tilt");
+      LiftCalibration projected;
+      if(!projectLiftCalibration(doc.as<JsonObjectConst>(), *shade, projected))
+        return invalid(proto_field_t::calibrationKind, "Review travel times and calibration phases");
       const uint8_t up = doc["gpioUp"] | shade->gpioUp;
       const uint8_t down = doc["gpioDown"] | shade->gpioDown;
       const uint8_t my = doc["gpioMy"] | shade->gpioMy;
@@ -434,6 +438,33 @@ public:
       break;
     case proto_field_t::tiltType:
       out.integer = static_cast<uint8_t>(settings.tiltType);
+      break;
+    case proto_field_t::calibrationKind:
+      out.integer = static_cast<uint8_t>(settings.calibration.kind);
+      break;
+    case proto_field_t::upTakeupMs:
+      out.integer = settings.calibration.up.takeupMs;
+      break;
+    case proto_field_t::upMidpointMs:
+      out.integer = settings.calibration.up.midpointMs;
+      break;
+    case proto_field_t::upSettlingMs:
+      out.integer = settings.calibration.up.settlingMs;
+      break;
+    case proto_field_t::upReversalMs:
+      out.integer = settings.calibration.up.reversalMs;
+      break;
+    case proto_field_t::downTakeupMs:
+      out.integer = settings.calibration.down.takeupMs;
+      break;
+    case proto_field_t::downMidpointMs:
+      out.integer = settings.calibration.down.midpointMs;
+      break;
+    case proto_field_t::downSettlingMs:
+      out.integer = settings.calibration.down.settlingMs;
+      break;
+    case proto_field_t::downReversalMs:
+      out.integer = settings.calibration.down.reversalMs;
       break;
     case proto_field_t::upTime:
       out.integer = settings.upTime;

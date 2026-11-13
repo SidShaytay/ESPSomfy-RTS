@@ -137,6 +137,15 @@
   FIELD(myTiltPos, "M", 'i', -1) \
   FIELD(upTime, "U", 'i', 0) \
   FIELD(downTime, "D", 'i', 0) \
+  FIELD(calibrationKind, "cK", 'i', 0) \
+  FIELD(upTakeupMs, "c1", 'i', 0) \
+  FIELD(upMidpointMs, "c2", 'i', 0) \
+  FIELD(upSettlingMs, "c3", 'i', 0) \
+  FIELD(upReversalMs, "c4", 'i', 0) \
+  FIELD(downTakeupMs, "c5", 'i', 0) \
+  FIELD(downMidpointMs, "c6", 'i', 0) \
+  FIELD(downSettlingMs, "c7", 'i', 0) \
+  FIELD(downReversalMs, "c8", 'i', 0) \
   FIELD(tiltTime, "Y", 'i', 0) \
   FIELD(stepSize, "z", 'i', 100) \
   FIELD(paired, "i", 'b', 0) \
