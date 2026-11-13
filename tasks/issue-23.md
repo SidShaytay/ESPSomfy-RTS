@@ -1,6 +1,6 @@
 # Issue 23: native group percentages
 
-Objective: reliable native group percentage movement through current firmware and Home Assistant/Apple Home. Software integration and authorized deployment/testing are complete. Observed motor acceptance remains open in GitHub issue #23.
+Objective: reliable native group percentage movement through current firmware and Home Assistant/Apple Home. Software integration is deployed, but physical percentage acceptance FAILED. Issue #23 remains open: both start in sync, yet a 50% closed target stopped bathroom around 60% and bedroom around 85%.
 
 Firmware source: `47bb37e68219615a2bf1488d129aca3d4374319a`, based on completed main `a944911`. The scheduler, timing, protocol and production integration commits are merged and pushed to main. The installed UI version remains `4.1.4`; the exact source/ELF identifies this build. HA main: `b396171`; all 21 installed integration file hashes already match, so no replacement or restart was needed.
 
@@ -16,6 +16,10 @@ Deployment: fresh portable/settings capture and full 16 MiB recovery dump verifi
 
 Live checks: direct Open/50%, duplicate replay, quick Stop, reversal, repeated Close, native web Open, HA Close arrow, HA 50% slider and HA endpoint Close all accepted with expected TX-driven estimates. Counters establish one group start and one Stop per member for the HA percentage; a repeated moving endpoint adds no start. Intermediate estimates are within one point (HA can show 51% for requested 50%). The initial matrix ended closed and idle. At 20:38–20:39 PST, after Sid said he was watching, Open → 50% was repeated. Both software estimates finished at 50%, stopped; physical observations are pending. All non-counter entity fields match pre-flash, with no additional reset, panic or radio RX failure.
 
-Remaining: human-observed shutter outcomes and Apple Home percentage confirmation. Sid confirmed he was ready to watch; his report of actual movement has been requested. Keep #23 open; estimates and TX/counter evidence do not prove RF reception or motor positions. Next: Sid confirms both shutters start, reach intermediate/end positions and stop, including Apple Home 50%; investigate any reported failure within current authorization.
+Physical evidence from Sid: both were fully open before Down, both began moving in sync, and both stopped without intervention. Bathroom was about 60% closed and bedroom about 85%, despite both software estimates reporting 50%. Ignore the accidentally selected questionnaire option; the written report is authoritative. Shared start acceptance passes; physical percentage positioning fails. Apple Home acceptance remains open.
+
+Offline diagnosis: saved downTime is 19,300 ms for bathroom and 22,100 ms for bedroom, giving nominal halfway Stops at 9,650/11,050 ms. The watched trace reports stopped states around 10.16/11.52 s from client setup, consistent with those configured deadlines and request/start overhead; it does not show a multi-second queue delay explaining the physical errors. Neither starting-state error nor user Stop explains the result. Root cause remains unproven; do not change calibration from visual percentage guesses.
+
+Next: obtain a new RF window (previous authorization expired at 20:40 PST), then measure actual downward full travel, distinguishing bottom coverage from motor stop, and verify individual Stop behavior while Sid watches. Compare those observations with configured times before choosing a code or calibration repair. No further RF, flashing or calibration changes were made after this report.
 
 Private evidence: `~/.local/state/espsomfy-lilygo/ISSUE23_RELIABLE_ACTIVE` and `~/.local/state/espsomfy-ha-homekit/ISSUE23_RELIABLE_ACTIVE`. The pre-RF backup is now historical after counters advanced; take fresh counter captures before any further write/recovery. Merged task worktrees are cleaned up; continue from main.
