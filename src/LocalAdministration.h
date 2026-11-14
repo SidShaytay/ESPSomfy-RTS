@@ -34,6 +34,7 @@ public:
   Administration(EntityAdmin::Backend &backend,CatalogueSource &source,ArduinoJson::Allocator &allocator,Advanced::Backend &advancedBackend, Calibration::Backend *calibrationBackend=nullptr)
     :backend(backend),catalogue(source),form(backend,allocator),ordering(backend,allocator),advanced(advancedBackend,allocator),calibration(calibrationBackend,source,allocator) {}
   bool open(uint64_t now);
+  bool openCalibration(uint8_t id,uint64_t now);
   void tick(uint64_t now);
   void turn(int direction,uint64_t now);
   void activate(uint64_t now, bool human=true);

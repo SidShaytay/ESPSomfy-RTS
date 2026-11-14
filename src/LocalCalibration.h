@@ -29,7 +29,7 @@ public:
   Form(const Form &) = delete;
   Form &operator=(const Form &) = delete;
   bool available() const { return backend != nullptr; }
-  bool open(uint64_t now);
+  bool open(uint64_t now,uint8_t id=0);
   void tick(uint64_t now);
   void turn(int direction, uint64_t now);
   void activate(uint64_t now, bool human = true);

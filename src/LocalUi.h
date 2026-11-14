@@ -70,6 +70,7 @@ struct View {
   QuickAccess quickDraft;
   bool quickEditing=false, quickPicking=false, quickOrigin=false;
   uint8_t quickSlot=0;
+  uint8_t calibrationTarget=0;
   bool routed=false,systemSettings=false,networkHome=false;
   Screen returnScreen=Screen::home;
   uint8_t returnSelection=0,settingsSection=255,systemSection=0,systemSelection=0;
@@ -160,7 +161,7 @@ public:
     if(state.screen==Screen::system){formInput={};state.settingsSection=state.systemSection==3?1:4;state.systemSettings=state.systemSection==2;state.screen=Screen::settings;}
   }
   void closeForm() {
-    formInput={};
+    formInput={};state.calibrationTarget=0;
     if(state.screen==Screen::settings && state.systemSettings){state.systemSettings=false;state.screen=Screen::system;state.systemSelection=2;return;}
     if(state.routed){state.screen=state.returnScreen;state.selected=state.returnSelection;state.routed=false;}
     else {state.selected=state.screen==Screen::administration?administrationHomeIndex:state.screen==Screen::system?systemHomeIndex:3;state.screen=Screen::home;}

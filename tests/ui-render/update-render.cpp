@@ -1,4 +1,5 @@
 #include "LocalUpdates.h"
+#include "LiftGuideView.h"
 #include "LocalJsonAllocator.h"
 #include "LocalUiRenderer.h"
 #include "../../src/LocalEntityRenderer.cpp"
@@ -55,5 +56,18 @@ int main(int argc,char **argv){
  form.turn(1,4);form.activate(5);form.render(view);assert(view.mode==EntityAdmin::Mode::updateReview&&view.selected==0);save(canvas,pixels,view,argv[1],"review");
  form.turn(1,6);form.activate(7);form.render(view);assert(backend.installs==1);save(canvas,pixels,view,argv[1],"progress");
  backend.value.phase=GitUpdatePhase::error;backend.value.reason=GitUpdateReason::activationFailed;form.render(view);save(canvas,pixels,view,argv[1],"recovery");
+ // Exercise calibration instructions with the same fonts and two-line LCD footer.
+ for(unsigned stage=1;stage<=unsigned(LiftGuideStage::reverseFinish);++stage) {
+   const auto guide=liftGuideView(LiftGuideStage(stage),false,false,false);
+   EntityAdmin::FormView calibration;calibration.mode=EntityAdmin::Mode::stackedRows;
+   snprintf(calibration.title,sizeof(calibration.title),"%s",guide.title);
+   snprintf(calibration.hint,sizeof(calibration.hint),"%s",guide.hint);
+   calibration.total=guide.count;calibration.rowCount=std::min<unsigned>(3,guide.count);
+   for(unsigned i=0;i<calibration.rowCount;++i)snprintf(calibration.rows[i].label,sizeof(calibration.rows[i].label),"%s",guide.choices[i].label);
+   save(canvas,pixels,calibration,argv[1],("calibration-"+std::to_string(stage)).c_str());
+   lines(canvas,calibration.hint,first,second);
+   assert(std::string(first)+(second[0]?" ":"")+second==calibration.hint);
+   for(const char *line:{first,second}){int16_t x,y;uint16_t w,h;canvas.getTextBounds(line,0,0,&x,&y,&w,&h);assert(w<=296);}
+ }
  puts("Actual update Form/GFX: independent compact version rows, long-version clipping, two-line errors, review and progress passed.");
 }

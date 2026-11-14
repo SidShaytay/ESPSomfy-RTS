@@ -2,13 +2,19 @@
 
 Calibrate each shutter while standing where you can see its full travel. The controller estimates position from time; ordinary Somfy RTS motors do not send their actual position back.
 
-In the web interface, edit a saved shutter and select **Guided calibration**. On the LILYGO, open **Administration → More → Calibrate shutter**, then select the shutter. Both interfaces use the same guide and saved profile.
+In the web interface, edit a saved device and select **Guided calibration**. On the LILYGO, open that device's controls, select **More → Guided calibration**, and choose what kind of cover you see. You do not need to know its travel time or whether it has mechanical play. On the LCD, read **Before you start**, then select **Start guided checks**.
 
-1. Choose **Direct travel** for a roller without mechanical play, or **Segmented / slack** when gaps or slack must tighten before visible movement.
-2. Open fully and confirm the physical endpoint. Confirm only after looking at the shutter.
-3. Measure closing and opening separately. Mark the first visible movement, halfway, the end of visible travel and the final stopped endpoint when those steps are shown. Direct travel skips take-up and settling markers.
-4. For segmented shutters, measure reversal play near halfway. The guide stops between directions and asks you to mark the first visible movement after each reversal. Confirming **no reversal play** is an explicit alternative only when that describes the hardware.
-5. Return fully open, confirm the endpoint, review the measurements and save. Discard keeps the previous profile. Discard is not Stop: use **Stop moving shutter** first if movement must stop.
+Choose **Fabric roller blind** for a continuous sheet, **Shutter with linked slats** for strips with gaps, or **Curtain / awning** for those covers. Curtains and awnings receive the additional movement-delay checks. Devices with separate tilt movement, gates, garage doors and switches are not supported by this positioning wizard. The controller checks eligibility before any movement.
+
+1. Select **Open fully**. Wait until the cover is completely open and the motor has stopped, then select **It is fully open**. Curtains should be fully apart and awnings fully retracted. Existing motor limits must already work; this wizard does not set them.
+2. Select **Start closing**. For slatted shutters and curtains/awnings, watch the main moving edge: the bottom edge of a shutter or blind, or the leading side of a curtain. Select **The edge started moving** at its first movement. Motor noise or individual gaps changing before the edge moves are not that observation; the controller records that delay separately.
+3. Select **The edge is halfway** when the edge reaches half the opening **by distance**, not half the travel time or a displayed percentage. The cover keeps moving.
+4. When shown, select **The edge reached the end** when that edge finishes travelling. Gaps between slats may still be changing. Wait until every slat has settled and the motor has stopped, then select **Fully at end; motor stopped** promptly.
+5. Select **Start opening** and follow the same observations in the other direction. Roller blinds skip the extra first-movement and settling markers.
+6. For slatted shutters and curtains/awnings, select **Check direction changes**. The cover moves towards closed; select **Halfway: stop here** at half the opening. Follow **Reverse upward**, then select **The edge started moving** at the first movement in the new direction. The wizard stops it automatically. Repeat for **Reverse downward**, then open fully and confirm again. Measure even an immediate response; you do not need to decide whether there is play.
+7. Select **Save calibration**. The LCD shows this action before the optional timing details. The saved profile is used for this device and every group it belongs to. If you missed an observation, discard the draft and repeat the wizard.
+
+**Stop movement** stops the cover and interrupts the measurement. **Discard draft**, Cancel or Back preserves the previous calibration but does not stop a movement already started. Press Stop first when you need movement to stop.
 
 Timing starts at actual RF transmission, rather than when you click. No pairing or motor-limit programming is performed. One guide owns calibration at a time; unrelated controller commands are refused while it is active. A physical remote can interrupt the guide. Connection loss or cancellation may leave an accepted movement running to its existing motor limit.
 
@@ -16,9 +22,9 @@ Each member uses its own calibration for individual and group percentage moves. 
 
 These examples use synthetic measurements and the production renderer; they are not physical test results.
 
-![Web calibration review using synthetic measurements](images/calibration-web-review.png)
+![Web cover-type choices](images/calibration-web-types.png)
 
-![LILYGO take-up step rendered by the production LCD renderer](images/calibration-lcd-takeup.png)
+![LILYGO halfway observation rendered by the production LCD renderer](images/calibration-lcd-halfway.png)
 
 ## Recover an uncertain position
 

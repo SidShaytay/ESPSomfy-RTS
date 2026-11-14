@@ -237,6 +237,7 @@ static void openMore(Drive &d) {
   d.f.base.target.capabilities=allControlActions & ~controlActionBit(Action::toggle);
   d.devices(); d.tick(1);d.tick(1);d.click();
   TEST_ASSERT_EQUAL(int(Screen::actions),int(d.c.view().screen));
+  if(d.c.view().action==calibrationNavigation)d.tick(1);
 }
 static void openFavourite(Drive &d,Action action=Action::setFavouriteHere) {
   d.f.base.target.favouriteRevision=71;d.f.base.target.favouriteReady=true;d.f.base.target.favouriteClearReady=true;
@@ -301,7 +302,7 @@ static void numeric_control_drafts_discard_on_context_authorization_and_timeout(
   }
 }
 static void toggle_and_capability_menus_have_no_invisible_fallback() {
-  Drive d;d.f.base.target.capabilities=controlActionBit(Action::toggle);d.devices();
+  Drive d;d.f.base.target.descriptor.shadeType=shade_types::garage1;d.f.base.target.capabilities=controlActionBit(Action::toggle);d.devices();
   TEST_ASSERT_EQUAL(int(Action::toggle),int(d.c.view().action));
   d.tick(1);d.click(false);Command out;TEST_ASSERT_FALSE(d.c.take(out));
   d.click();TEST_ASSERT_TRUE(d.c.take(out));TEST_ASSERT_EQUAL(int(Action::toggle),int(out.action));
@@ -586,8 +587,31 @@ static void unseen_unlock_done_never_submits_until_presented() {
   TEST_ASSERT_EQUAL_STRING("1111",credentials.secret);
   Command command;TEST_ASSERT_FALSE(d.c.take(command));
 }
+static void more_menu_contains_calibration_for_supported_devices_only() {
+  TEST_ASSERT_EQUAL_STRING("More",controlLabel(Action::count));
+  ControlDescriptor d;
+  TEST_ASSERT_TRUE(calibrationControl(d));
+  const auto menu=controlMenu(controlCapabilities(d),false,false,calibrationControl(d));
+  TEST_ASSERT_TRUE(menu.index(calibrationNavigation)>=0);
+  TEST_ASSERT_EQUAL_STRING("Guided calibration",controlLabel(calibrationNavigation));
+  d.group=true; TEST_ASSERT_FALSE(calibrationControl(d));
+  d.group=false;d.shadeType=shade_types::drycontact;TEST_ASSERT_FALSE(calibrationControl(d));
+}
+static void device_more_opens_selected_calibration_and_returns_without_rf() {
+  Drive d;openMore(d);d.tick(-1);
+  TEST_ASSERT_EQUAL(calibrationNavigation,d.c.view().action);
+  d.click(false);TEST_ASSERT_EQUAL(Screen::actions,d.c.view().screen);
+  d.click();TEST_ASSERT_EQUAL(Screen::administration,d.c.view().screen);
+  TEST_ASSERT_EQUAL_UINT8(7,d.c.view().calibrationTarget);
+  Command out;TEST_ASSERT_FALSE(d.c.take(out));
+  d.c.closeForm();TEST_ASSERT_EQUAL(Screen::actions,d.c.view().screen);
+  TEST_ASSERT_EQUAL(calibrationNavigation,d.c.view().action);
+  TEST_ASSERT_EQUAL_UINT8(0,d.c.view().calibrationTarget);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(more_menu_contains_calibration_for_supported_devices_only);
+  RUN_TEST(device_more_opens_selected_calibration_and_returns_without_rf);
   RUN_TEST(unseen_unlock_key_never_appends_until_presented);
   RUN_TEST(unseen_unlock_done_never_submits_until_presented);
   RUN_TEST(display_back_expiry_and_reentry_keep_only_confirmed_values);

@@ -3,6 +3,7 @@
 struct LiftGuideChoice { LiftGuideAction action; const char *label; };
 struct LiftGuideView {
   const char *title = "Calibration", *hint = "";
+  const char *instructions = "";
   LiftGuideChoice choices[4]{};
   uint8_t count = 0;
 };

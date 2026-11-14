@@ -1,4 +1,5 @@
 #include "LocalCalibration.h"
+#include "LiftGuideView.h"
 #include "LocalJsonAllocator.h"
 #include <unity.h>
 #include <stdlib.h>
@@ -71,12 +72,14 @@ struct Rig {
     form.turn(1, at + 1); // Skip incompatible id7; select actual id3.
     form.activate(at + 2);
     TEST_ASSERT_EQUAL_UINT(0, backend.begins);
-    TEST_ASSERT_EQUAL_UINT(3, view().total); // Direct, segmented, cancel.
+    TEST_ASSERT_EQUAL_UINT(4, view().total); // Direct, segmented, cancel.
   }
   void beginGuide(bool segmented = false) {
     chooseDevice();
     if(segmented) form.turn(1, 103);
     form.activate(104);
+    TEST_ASSERT_EQUAL_UINT(0,backend.begins);
+    form.activate(105);
     TEST_ASSERT_EQUAL_UINT(1, backend.begins);
     TEST_ASSERT_FALSE(form.closed());
   }
@@ -96,8 +99,8 @@ static void picker_refuses_unsupported_and_begins_only_after_hardware_choice() {
   TEST_ASSERT_FALSE(r.form.closed());
   r.form.turn(1, 102); r.form.activate(103);
   TEST_ASSERT_EQUAL_UINT(0, r.backend.begins);
-  TEST_ASSERT_EQUAL_UINT(3, r.view().total);
-  r.form.turn(1, 104); r.form.activate(105);
+  TEST_ASSERT_EQUAL_UINT(4, r.view().total);
+  r.form.turn(1, 104); r.form.activate(105);r.form.activate(106);
   TEST_ASSERT_EQUAL_UINT(1, r.backend.begins);
   TEST_ASSERT_EQUAL_UINT8(3, r.backend.begunId);
   TEST_ASSERT_EQUAL_UINT8(uint8_t(LiftKind::segmented), uint8_t(r.backend.begunKind));
@@ -161,10 +164,10 @@ static void back_and_discard_cancel_owned_session_once_without_replaying_actions
 static void refused_begin_is_correctable_and_failed_save_offers_no_rf_or_save_retry() {
   Rig r; r.chooseDevice();
   r.backend.allowBegin = false;
-  r.form.activate(104);
+  r.form.activate(103);r.form.activate(104);
   TEST_ASSERT_EQUAL_UINT(1, r.backend.begins);
   TEST_ASSERT_FALSE(r.form.closed());
-  TEST_ASSERT_EQUAL_UINT(3, r.view().total);
+  TEST_ASSERT_EQUAL_UINT(2, r.view().total);
   TEST_ASSERT_TRUE(r.backend.calls.empty());
   r.backend.allowBegin = true;
   r.form.activate(105);
@@ -204,8 +207,38 @@ static void unavailable_backend_and_allocation_failure_never_begin_or_leave_sess
   TEST_ASSERT_TRUE(backend.calls.empty());
   TEST_ASSERT_EQUAL_UINT(0, none.used());
 }
+static void direct_entry_opens_the_named_device_without_a_picker() {
+  Rig r;
+  TEST_ASSERT_TRUE(r.form.open(100,3));
+  TEST_ASSERT_EQUAL_STRING("What kind of cover?",r.view().title);
+  TEST_ASSERT_EQUAL_UINT(0,r.backend.begins);
+  r.form.activate(101);
+  TEST_ASSERT_EQUAL_STRING("Before you start",r.view().title);
+  TEST_ASSERT_EQUAL_UINT(0,r.backend.begins);
+  r.form.activate(102);
+  TEST_ASSERT_EQUAL_UINT8(3,r.backend.begunId);
+  TEST_ASSERT_TRUE(r.backend.calls.empty());
+  Rig unsupported;
+  TEST_ASSERT_FALSE(unsupported.form.open(100,7));
+  TEST_ASSERT_EQUAL_UINT(0,unsupported.backend.begins);
+}
+static void instructions_fit_lcd_and_direction_changes_need_no_technical_choice() {
+  for(unsigned stage=1;stage<=unsigned(LiftGuideStage::reverseFinish);++stage) {
+    const auto view=liftGuideView(LiftGuideStage(stage),false,false,false);
+    TEST_ASSERT_TRUE(strlen(view.title)<32);
+    TEST_ASSERT_TRUE(strlen(view.hint)<64);
+    for(unsigned i=0;i<view.count;++i)TEST_ASSERT_TRUE(strlen(view.choices[i].label)<32);
+  }
+  const auto review=liftGuideView(LiftGuideStage::review,false,false,false);
+  TEST_ASSERT_EQUAL_UINT(2,review.count); // Check direction changes, or discard.
+  TEST_ASSERT_EQUAL_UINT8(uint8_t(LiftGuideAction::measureReversals),uint8_t(review.choices[0].action));
+  TEST_ASSERT_NOT_NULL(strstr(liftGuideView(LiftGuideStage::downHalf).instructions,"by distance"));
+  TEST_ASSERT_NOT_NULL(strstr(liftGuideView(LiftGuideStage::downConfirm).instructions,"motor has stopped"));
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(instructions_fit_lcd_and_direction_changes_need_no_technical_choice);
+  RUN_TEST(direct_entry_opens_the_named_device_without_a_picker);
   RUN_TEST(picker_refuses_unsupported_and_begins_only_after_hardware_choice);
   RUN_TEST(guide_forwards_current_action_once_and_resets_cursor_on_stage_change);
   RUN_TEST(changed_model_or_authorization_before_begin_never_uses_stale_picker);

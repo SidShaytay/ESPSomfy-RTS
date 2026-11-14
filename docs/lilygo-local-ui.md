@@ -11,7 +11,7 @@ not establish what is installed. Dated evidence near the end of this page is
 historical. See the [implementation audit](lcd-capability-audit.md) for coverage
 and physical-verification limits.
 
-For per-shutter travel, slack and reversal measurement, use [guided calibration](shutter-calibration.md). The same profile controls individual and group positions.
+For per-device positioning, open **Device → More → Guided calibration**. The [wizard](shutter-calibration.md) explains the full movements, slack and direction-change checks. The same profile controls individual and group positions.
 
 ## Navigation versions
 
@@ -69,7 +69,7 @@ control page preserves it, keeping its existing STOP access and expiry rules.
 
 | Task | LCD path and guide |
 |---|---|
-| Everyday controls and bounded repeats | Target → controls / Actions / Send with repeats; instructions below |
+| Everyday controls and bounded repeats | Target → controls / More / Send with repeats; instructions below |
 | Position, then set or clear Favourite | Target → Actions → Save current as favourite / Clear saved favourite; [observed-stop stages](lcd-favourite.md) |
 | Rooms, devices, groups and ordering | System → Configure → Rooms, devices & groups; [entity administration](lcd-entity-administration.md), [ordering](lcd-ordering.md) |
 | Status, paired marker, linked remotes, counters | System → Configure → Rooms, devices & groups → Devices/Groups → Advanced; [status/metadata](lcd-advanced-metadata.md), [counter correction](lcd-primary-counter-correction.md) |

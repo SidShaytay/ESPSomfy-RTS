@@ -643,7 +643,8 @@ int main(int argc,char **argv){
   openDevices();click();idle();
   assert(lastQuery.screen==Screen::control && lastQuery.entity.id==7);
   rotate(1);idle();rotate(1);idle();click();idle();
-  assert(lastQuery.screen==Screen::actions);click();idle();
+  assert(lastQuery.screen==Screen::actions);
+  assert(lastQuery.action==calibrationNavigation);rotate(1);idle();click();idle();
   assert(lastQuery.screen==Screen::value);const int expected=lastQuery.draftValue+1;
   rotate(1);idle();assert(lastQuery.draftValue==expected);
   const auto beforeDraft=submitted.size();click();idle();assert(lastQuery.valueChoice==2);

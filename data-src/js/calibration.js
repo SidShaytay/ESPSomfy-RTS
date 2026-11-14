@@ -84,7 +84,7 @@ class LiftCalibrationDialog {
         this.error.className = 'calibration-error';
         const footer = dom.createElement('p');
         footer.className = 'calibration-note';
-        footer.textContent = 'Discarding a draft leaves an accepted endpoint move running to its limit. Use Stop while the shutter is moving.';
+        footer.textContent = 'Need to stop? Press Stop movement first. Cancel or Discard keeps your old calibration but does not stop a movement already started. This wizard does not change motor limits.';
         this.dialog.append(this.heading, this.hint, this.confidence, this.values, this.controls, this.error, footer);
         this.client = new LiftCalibrationClient(proto, {
             onState: () => this.render(), onError: (error) => this.showError(error)
@@ -101,10 +101,11 @@ class LiftCalibrationDialog {
     }
     open(id, name) {
         this.id = id;
-        this.heading.textContent = `Calibrate ${name || 'shutter'}`;
-        this.hint.textContent = 'Stand where you can see the whole shutter. Choose its mechanism. This measures software positioning and does not reprogram motor limits.';
-        this.button('Continuous roller / direct travel', () => this.begin(1));
-        this.button('Segmented shutter / slack', () => this.begin(2));
+        this.heading.textContent = `Calibrate ${name || 'cover'}`;
+        this.hint.textContent = 'What kind of cover is this? Choose the description that matches what you see. We will guide you through each movement and tell you when to press. Stand where you can see the whole cover.';
+        this.button('Roller blind — one continuous sheet of fabric', () => this.begin(1));
+        this.button('Shutter — linked slats with gaps between them', () => this.begin(2));
+        this.button('Curtain or retractable awning', () => this.begin(2));
         this.button('Cancel', () => this.destroy());
         this.dom.body.append(this.dialog);
         this.dialog.showModal();

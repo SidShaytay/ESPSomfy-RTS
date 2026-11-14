@@ -262,7 +262,11 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
     settingsForm.discard();settingsActive=false;presentedSettingsValid=false;
   }
   if(controller.view().screen==Screen::administration) {
-    if(!administrationActive) {administration.open(settingsNow);administrationActive=true;presentedAdministrationValid=false;attempted=false;}
+    if(!administrationActive) {
+      if(controller.view().calibrationTarget)administration.openCalibration(controller.view().calibrationTarget,settingsNow);
+      else administration.open(settingsNow);
+      administrationActive=true;presentedAdministrationValid=false;attempted=false;
+    }
     administration.tick(settingsNow);
     if(controller.takeFormInput(input)) {
       if(administration.closed()) {

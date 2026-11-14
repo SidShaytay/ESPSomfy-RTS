@@ -10,7 +10,7 @@ trap 'rm -rf -- "$scratch"' EXIT
 "${CXX:-c++}" -std=c++17 -O2 -DARDUINO=10800 -DLOCAL_UI_HOST_PREVIEW \
  -DARDUINOJSON_ENABLE_ARDUINO_STRING=0 -DARDUINOJSON_ENABLE_ARDUINO_STREAM=0 -DARDUINOJSON_ENABLE_ARDUINO_PRINT=0 -DARDUINOJSON_ENABLE_PROGMEM=0 \
  -I"$json" -I"$repo/tests/ui-render" -I"$repo/tests/ui-adapter" -I"$repo/test/stubs" -I"$repo/src" -I"$gfx" \
- "$repo/tests/ui-render/update-render.cpp" "$repo/src/LocalUpdates.cpp" "$repo/src/LocalControlPolicy.cpp" "$repo/src/LocalUiRenderer.cpp" "$repo/src/StatusDisplay.cpp" "$gfx/Adafruit_GFX.cpp" -o "$scratch/update-render"
+ "$repo/tests/ui-render/update-render.cpp" "$repo/src/LocalUpdates.cpp" "$repo/src/LiftGuideView.cpp" "$repo/src/LocalControlPolicy.cpp" "$repo/src/LocalUiRenderer.cpp" "$repo/src/StatusDisplay.cpp" "$gfx/Adafruit_GFX.cpp" -o "$scratch/update-render"
 "$scratch/update-render" "$out"
 python3 - "$repo" "$out" <<'PY'
 from pathlib import Path

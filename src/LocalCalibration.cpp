@@ -6,11 +6,13 @@
 namespace LocalUi { namespace Calibration {
 using EntityAdmin::Notice;
 struct Form::Session {
-  enum class Page : uint8_t { picker, kind, guide } page = Page::picker;
+  enum class Page : uint8_t { picker, kind, prepare, guide } page = Page::picker;
   EntityAdmin::Authorization auth;
   uint64_t revision = 0, observedAt = 0, activityAt = 0;
   uint32_t token = 0;
   uint8_t cursor = 0, id = 0;
+  bool targeted = false;
+  LiftKind kind=LiftKind::direct;
   LiftGuideSnapshot state;
 };
 void Form::close(Notice notice, bool cancel) {
@@ -21,7 +23,7 @@ void Form::close(Notice notice, bool cancel) {
   }
   status = notice;
 }
-bool Form::open(uint64_t now) {
+bool Form::open(uint64_t now,uint8_t id) {
   discard();
   if(!backend) { status = Notice::invalid; return false; }
   const auto auth = backend->authorization();
@@ -31,6 +33,8 @@ bool Form::open(uint64_t now) {
   void *storage = allocator.allocate(sizeof(Session));
   if(!storage) { status = Notice::noMemory; return false; }
   session = new(storage) Session{};
+  if(id && !backend->available(id)) {close(Notice::invalid);return false;}
+  if(id) {session->targeted=true;session->id=id;session->page=Session::Page::kind;}
   session->auth = auth; session->revision = revision;
   session->observedAt = session->activityAt = now;
   return true;
@@ -68,7 +72,8 @@ void Form::turn(int direction, uint64_t now) {
     CataloguePage page;
     if(!cataloguePage(catalogue,CatalogueKind::devices,0,allRooms,page)) { close(Notice::changed); return; }
     count = page.total;
-  } else if(s.page == Session::Page::kind) count = 3;
+  } else if(s.page == Session::Page::kind) count = 4;
+  else if(s.page == Session::Page::prepare) count=2;
   else {
     count = liftGuideView(s.state.stage,s.state.applied,s.state.durable,s.state.reversalsKnown).count;
     if(s.state.stage == LiftGuideStage::review) count += 5;
@@ -90,18 +95,22 @@ void Form::activate(uint64_t now, bool human) {
     return;
   }
   if(s.page == Session::Page::kind) {
-    if(s.cursor == 2) { close(Notice::none); return; }
+    if(s.cursor == 3) { close(Notice::none); return; }
+    s.kind=s.cursor?LiftKind::segmented:LiftKind::direct;
+    s.page=Session::Page::prepare;s.cursor=0;return;
+  }
+  if(s.page==Session::Page::prepare) {
+    if(s.cursor) {close(Notice::none);return;}
     uint32_t token = 0;
-    if(!backend->begin(s.id,s.cursor ? LiftKind::segmented : LiftKind::direct,s.auth,token) || !token) {
+    if(!backend->begin(s.id,s.kind,s.auth,token) || !token) {
       status = Notice::busy; return;
     }
     s.token = token; s.page = Session::Page::guide; s.cursor = 0;
     guard(now); return;
   }
   const auto view = liftGuideView(s.state.stage,s.state.applied,s.state.durable,s.state.reversalsKnown);
-  const uint8_t details = s.state.stage == LiftGuideStage::review ? 5 : 0;
-  if(s.cursor < details || s.cursor - details >= view.count) return;
-  const auto action = view.choices[s.cursor - details].action;
+  if(s.cursor >= view.count) return;
+  const auto action = view.choices[s.cursor].action;
   if(!backend->act(s.token,action,s.auth,human)) { status = Notice::invalid; guard(now); return; }
   if(action == LiftGuideAction::cancel) { s.token = 0; close(Notice::none); return; }
   guard(now);
@@ -109,7 +118,7 @@ void Form::activate(uint64_t now, bool human) {
 void Form::back(uint64_t now) {
   if(!guard(now)) return;
   backend->activity();
-  if(session->page == Session::Page::kind) { session->page = Session::Page::picker; session->cursor = 0; return; }
+  if(session->page == Session::Page::kind && !session->targeted) { session->page = Session::Page::picker; session->cursor = 0; return; }
   close(Notice::none);
 }
 void Form::render(EntityAdmin::FormView &out) {
@@ -133,12 +142,26 @@ void Form::render(EntityAdmin::FormView &out) {
     }
     return;
   }
+  if(s.page==Session::Page::prepare) {
+    snprintf(out.title,sizeof(out.title),"Before you start");
+    snprintf(out.hint,sizeof(out.hint),"Stop stops. Back discards, but does not stop movement.");
+    out.total=2;out.rowCount=3;
+    snprintf(out.rows[0].label,sizeof(out.rows[0].label),"Start guided checks");
+    snprintf(out.rows[0].value,sizeof(out.rows[0].value),"Watch bottom edge; curtain: side");
+    snprintf(out.rows[1].label,sizeof(out.rows[1].label),"Cancel");
+    snprintf(out.rows[1].value,sizeof(out.rows[1].value),"Keep current calibration");
+    snprintf(out.rows[2].label,sizeof(out.rows[2].label),"Halfway = half the opening");
+    snprintf(out.rows[2].value,sizeof(out.rows[2].value),"By distance, not by time");
+    out.rows[s.cursor].selected=true;return;
+  }
   if(s.page == Session::Page::kind) {
-    snprintf(out.title,sizeof(out.title),"Choose hardware");
-    snprintf(out.hint,sizeof(out.hint),"Segmented: strips or gaps. Direct: continuous roller.");
-    const char *labels[] = {"Direct travel","Segmented / slack","Cancel"};
-    out.total = out.rowCount = 3;
-    for(unsigned i = 0; i < 3; ++i) { snprintf(out.rows[i].label,sizeof(out.rows[i].label),"%s",labels[i]); out.rows[i].selected = i == s.cursor; }
+    snprintf(out.title,sizeof(out.title),"What kind of cover?");
+    snprintf(out.hint,sizeof(out.hint),"Choose what you see. Next: guided movement checks.");
+    const char *labels[] = {"Fabric roller blind","Shutter with linked slats","Curtain / awning","Cancel"};
+    const char *descriptions[]={"One continuous sheet of fabric","Separate strips with gaps","Fabric opens sideways / retracts","Keep current calibration"};
+    out.total = 4;out.offset=s.cursor/3*3;
+    for(unsigned i = out.offset; i < 4 && out.rowCount<3; ++i) { snprintf(out.rows[out.rowCount].label,sizeof(out.rows[out.rowCount].label),"%s",labels[i]); out.rows[out.rowCount].selected = i == s.cursor;
+      snprintf(out.rows[out.rowCount].value,sizeof(out.rows[out.rowCount].value),"%s",descriptions[i]);++out.rowCount; }
     return;
   }
   const auto view = liftGuideView(s.state.stage,s.state.applied,s.state.durable,s.state.reversalsKnown);
@@ -151,11 +174,12 @@ void Form::render(EntityAdmin::FormView &out) {
   const uint32_t down[] = {s.state.downTime,c.down.takeupMs,c.down.midpointMs,c.down.settlingMs,c.down.reversalMs};
   for(unsigned i = out.offset; i < out.total && out.rowCount < 3; ++i) {
     auto &row = out.rows[out.rowCount++]; row.selected = i == s.cursor;
-    if(i < details) {
-      snprintf(row.label,sizeof(row.label),"%s",labels[i]);
-      if(i == 4 && !s.state.reversalsKnown) snprintf(row.value,sizeof(row.value),"Not measured");
-      else snprintf(row.value,sizeof(row.value),"%lu / %lu ms",static_cast<unsigned long>(up[i]),static_cast<unsigned long>(down[i]));
-    } else snprintf(row.label,sizeof(row.label),"%s",view.choices[i - details].label);
+    if(i >= view.count) {
+      const unsigned detail=i-view.count;
+      snprintf(row.label,sizeof(row.label),"%s",labels[detail]);
+      if(detail == 4 && !s.state.reversalsKnown) snprintf(row.value,sizeof(row.value),"Not measured");
+      else snprintf(row.value,sizeof(row.value),"%lu / %lu ms",static_cast<unsigned long>(up[detail]),static_cast<unsigned long>(down[detail]));
+    } else snprintf(row.label,sizeof(row.label),"%s",view.choices[i].label);
   }
 }
 } }

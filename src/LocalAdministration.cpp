@@ -39,6 +39,11 @@ bool Administration::open(uint64_t now) {
   if(!revision) {close(AdminNotice::changed);return false;}
   active=true;render();return active;
 }
+bool Administration::openCalibration(uint8_t id,uint64_t now) {
+  if(!open(now))return false;
+  if(!calibration.open(now,id)){close(calibration.notice());return false;}
+  page=Page::calibration;returnId=id;render();return true;
+}
 bool Administration::entry(uint8_t ordinal,CatalogueEntry &out) {
   CataloguePage data;
   if(!cataloguePage(catalogue,catalogues[typeCursor],ordinal,allRooms,data) || ordinal>=data.total)
@@ -140,7 +145,9 @@ void Administration::finishAdvanced() {
   if(advanced.closed() && advanced.notice()==AdminNotice::none)resumeAdvanced();else render();
 }
 void Administration::finishCalibration() {
-  if(calibration.closed() && calibration.notice()==AdminNotice::none)resumeAdvanced();else render();
+  if(calibration.closed() && calibration.notice()==AdminNotice::none) {
+    if(returnId)close(AdminNotice::none);else resumeAdvanced();
+  } else render();
 }
 void Administration::tick(uint64_t now) {
   if(!active)return;

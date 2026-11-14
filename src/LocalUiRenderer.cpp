@@ -359,9 +359,9 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
   } else if(v.screen==Screen::actions || v.screen==Screen::repeatActions) {
     snprintf(label,sizeof(label),"#%s%u %s",v.entity.kind==EntityKind::group?"G":"",unsigned(v.entity.id),m.target.name);
     text(12,28,label,true,white,230);
-    snprintf(label,sizeof(label),"%u/%u",unsigned(v.selected+1),unsigned((v.screen==Screen::repeatActions?repeatMenu(m.target.descriptor):controlMenu(m.target.capabilities,false,repeatableControls(m.target.descriptor)!=0)).count));
+    snprintf(label,sizeof(label),"%u/%u",unsigned(v.selected+1),unsigned((v.screen==Screen::repeatActions?repeatMenu(m.target.descriptor):controlMenu(m.target.capabilities,false,repeatableControls(m.target.descriptor)!=0,calibrationControl(m.target.descriptor))).count));
     text(245,27,label,false,muted,60);
-    const auto menu=(v.screen==Screen::repeatActions?repeatMenu(m.target.descriptor):controlMenu(m.target.capabilities,false,repeatableControls(m.target.descriptor)!=0));
+    const auto menu=(v.screen==Screen::repeatActions?repeatMenu(m.target.descriptor):controlMenu(m.target.capabilities,false,repeatableControls(m.target.descriptor)!=0,calibrationControl(m.target.descriptor)));
     const unsigned offset=v.selected/4*4;
     for(unsigned row=0;row<4 && row+offset<menu.count;row++) {
       const unsigned index=offset+row;const bool active=index==v.selected;
@@ -424,7 +424,7 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
     else if(t.position<0) snprintf(label,sizeof(label),"Position estimate unavailable");
     else snprintf(label,sizeof(label),"Estimated position %d%%",t.position);
     text(12,74,label,false,t.valid?muted:amber);
-    const auto menu=controlMenu(t.capabilities,true,repeatableControls(t.descriptor)!=0);
+    const auto menu=controlMenu(t.capabilities,true,repeatableControls(t.descriptor)!=0,calibrationControl(t.descriptor));
     for(unsigned i=0;i<menu.count;i++) {
       const int width=(296-int(menu.count-1)*8)/menu.count,x=12+i*(width+8);
       const auto action=menu.actions[i];const bool active=action==v.action;

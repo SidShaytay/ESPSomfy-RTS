@@ -261,7 +261,7 @@ void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
     if(state.action==Action::count) {
       if(!m.target.exists || m.target.ref!=state.entity || !state.openedToken || m.target.token!=state.openedToken) state.notice=Notice::changed;
       else if(!visible) state.notice=Notice::wait;
-      else { const auto menu=controlMenu(m.target.capabilities,false,repeatableControls(m.target.descriptor)!=0);
+      else { const auto menu=controlMenu(m.target.capabilities,false,repeatableControls(m.target.descriptor)!=0,calibrationControl(m.target.descriptor));
         if(menu.count) {state.screen=Screen::actions;state.selected=0;state.action=menu.actions[0];}
       }
     } else submitControl(now,m,visible,state.action);
@@ -269,12 +269,15 @@ void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
   case Screen::actions:
   case Screen::repeatActions: {
     const bool repeating=state.screen==Screen::repeatActions;
-    const auto menu=repeating?repeatMenu(m.target.descriptor):controlMenu(m.target.capabilities,false,repeatableControls(m.target.descriptor)!=0);
+    const auto menu=repeating?repeatMenu(m.target.descriptor):controlMenu(m.target.capabilities,false,repeatableControls(m.target.descriptor)!=0,calibrationControl(m.target.descriptor));
     if(!m.target.exists || m.target.token!=state.openedToken || m.target.ref!=state.entity) state.notice=Notice::changed;
     else if(!visible) state.notice=Notice::wait;
     else if(state.selected>=menu.count || menu.actions[state.selected]!=state.action) state.notice=Notice::changed;
     else if(!m.authorized) beginUnlock(now,m,Screen::control);
-    else if(state.action==repeatsNavigation) {
+    else if(state.action==calibrationNavigation) {
+      state.routed=true;state.returnScreen=Screen::actions;state.returnSelection=state.selected;
+      state.calibrationTarget=state.entity.id;state.screen=Screen::administration;formInput={};
+    } else if(state.action==repeatsNavigation) {
       const auto repeated=repeatMenu(m.target.descriptor);
       if(repeated.count) {state.screen=Screen::repeatActions;state.selected=0;state.action=repeated.actions[0];}
     } else if(repeating && !controlIsStep(state.action)) {
@@ -397,12 +400,12 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
        m.modelRevision==chosenModelRevision && m.restoreRevision==chosenRestoreRevision)
       state.openedToken=m.target.token;
     else state.notice=Notice::changed;
-    const auto primary=controlMenu(m.target.capabilities,true,repeatableControls(m.target.descriptor)!=0);
+    const auto primary=controlMenu(m.target.capabilities,true,repeatableControls(m.target.descriptor)!=0,calibrationControl(m.target.descriptor));
     if(primary.index(state.action)<0 && primary.count) state.action=primary.actions[0];
     bindTarget=false;
   }
   if(state.screen==Screen::control && m.target.ref==state.entity && m.target.token==state.openedToken) {
-    const auto menu=controlMenu(m.target.capabilities,true,repeatableControls(m.target.descriptor)!=0);
+    const auto menu=controlMenu(m.target.capabilities,true,repeatableControls(m.target.descriptor)!=0,calibrationControl(m.target.descriptor));
     if(menu.index(state.action)<0) state.action=defaultControlAction(m.target.capabilities);
   }
   if(authorizeAfterUnlock && m.authorized) {
@@ -623,7 +626,7 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
         value = delays[index < 0 ? 0 : index > 8 ? 8 : index];
       }
     } else if(state.screen==Screen::control || state.screen==Screen::actions || state.screen==Screen::repeatActions) {
-      const auto menu=state.screen==Screen::repeatActions?repeatMenu(m.target.descriptor):controlMenu(m.target.capabilities,state.screen==Screen::control,repeatableControls(m.target.descriptor)!=0);
+      const auto menu=state.screen==Screen::repeatActions?repeatMenu(m.target.descriptor):controlMenu(m.target.capabilities,state.screen==Screen::control,repeatableControls(m.target.descriptor)!=0,calibrationControl(m.target.descriptor));
       int index=menu.index(state.action);if(index<0) index=0;
       index+=turn>0?1:-1;if(index<0) index=0;if(index>=menu.count) index=menu.count?menu.count-1:0;
       if(menu.count) {state.action=menu.actions[index];if(state.screen==Screen::actions || state.screen==Screen::repeatActions) state.selected=uint8_t(index);}

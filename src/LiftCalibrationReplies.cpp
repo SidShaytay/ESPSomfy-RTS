@@ -28,7 +28,7 @@ void runProtocol(const loop_item_t &item) {
   reply.add(proto_field_t::shadeId,state.id);
   reply.add(proto_field_t::calibrationStage,uint8_t(state.stage));
   reply.add(proto_field_t::calibrationTitle,view.title);
-  reply.add(proto_field_t::calibrationHint,view.hint);
+  reply.add(proto_field_t::calibrationHint,view.instructions[0]?view.instructions:view.hint);
   reply.add(proto_field_t::calibrationOwned,state.owned);
   reply.add(proto_field_t::calibrationReversalsKnown,state.reversalsKnown);
   reply.add(proto_field_t::applied,state.applied);
