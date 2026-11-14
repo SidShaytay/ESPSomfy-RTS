@@ -5,7 +5,7 @@ repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 scratch="$(mktemp -d)"
 trap 'rm -rf -- "$scratch"' EXIT
 compiler="${CXX:-c++}"
-common=(-std=c++11 -Wall -Wextra -Werror -I"$repo/tests/board-profile" -I"$repo/src")
+common=(-std=c++17 -Wall -Wextra -Werror -I"$repo/tests/board-profile" -I"$repo/src")
 sources=("$repo/tests/board-profile/board-profile-test.cpp" "$repo/src/BoardProfile.cpp")
 for board in ESPSOMFY_LILYGO_T_EMBED_CC1101; do
   "$compiler" "${common[@]}" -D"$board" -DCONFIG_IDF_TARGET_ESP32S3 "${sources[@]}" -o "$scratch/board-test"
