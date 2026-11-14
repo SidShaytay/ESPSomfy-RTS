@@ -8,7 +8,7 @@ Authorization: Sid approved board access, flashing and automation, with RF testi
 
 ## Delivered
 
-Firmware 4.2.0 from clean main commit 50e1f23 is installed and confirmed healthy. Later main commits add tests and documentation only. Code and documentation are pushed. GitHub issue 23 was rewritten around the final design, evidence and remaining acceptance. HA remains unchanged at b396171; no matching integration change was needed.
+Firmware 4.2.1 from clean main commit c868bcd is installed and confirmed healthy. This replaces 4.2.0/50e1f23. The updater, About screen and API now share one displayed firmware version. Device controls use More, with Guided calibration as the first item; the LCD includes preparation and plain-language observation steps, and both interfaces choose measurement steps from recognizable cover types. See tasks/calibration-usability.md for this deployment. Code and documentation are pushed. GitHub issue 23 was rewritten around the final design, evidence and remaining acceptance. HA remains unchanged at b396171; no matching integration change was needed.
 
 Both interfaces use the same owned guide and actual RF timestamps. Segmented profiles include take-up, halfway, settling and reversal measurements. Direct travel skips mechanical phases. Saved profiles control individual/group moves. Compatible group members share starts and retain individual Stop deadlines.
 
@@ -17,6 +17,8 @@ Stops during uncertain mechanical phases and incomplete RF create a saved refere
 Release firmware includes motion/RF/calibration category filters, optional USB output, bounded web retrieval and automatic expiry. Trace is off at boot. Raw LCD input injection remains instrumented-only. The release-board routine uses normal APIs and screenshots; its RF mode takes exclusive ownership, checks active travel before Stop, records actual transmissions and checks the stopped model stays stable.
 
 ## Verification
+
+The 4.2.1 usability update passed the full native suite (1,459 passed, one existing skip), then 65 focused navigation/form checks including two additional instruction checks, 131 JS tests, updater worker/ownership regressions and production LCD/runtime/capture checks. A fresh verified full backup preceded its inactive-slot update. Exact boot identity/health, matching live API/web versions and no-RF guide checks passed; all settings, profiles and counters remained unchanged. No RF commands were issued for this update. The following earlier motion evidence is from the November 13 calibration implementation.
 
 - 1,457 native tests passed; one existing skip. JavaScript: 131 passed. Tooling: 113 passed. Version scripts, board profiles, production LCD renderer/runtime/capture, owned-repeat and GPIO harnesses passed.
 - Forty-two group/guide adapter scenarios passed. Independent review and regressions cover received remote Stops, reversal knowledge, zero legacy travel timers, exact Stop outcomes and trace clearing/expiry.
