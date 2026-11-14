@@ -27,6 +27,14 @@ for path,names in [
                 depth+=(text[end]=='{')-(text[end]=='}');end+=1
             out.append(text[start:end]);search=end
 Path(sys.argv[2]).write_text('\n'.join(out)+'\n')
+# Compile the calibration service's actual send adapter against the same
+# production model/transport; only its external ownership lease is fake.
+service=(root/'src/LiftCalibrationService.cpp').read_text()
+a=service.index('  send_result_t send(');brace=service.index('{',a);end=brace+1;depth=1
+while depth:
+    depth+=(service[end]=='{')-(service[end]=='}');end+=1
+Path(sys.argv[2]).with_name('production-guide-send.inc').write_text(service[a:end]+'\n')
+
 PY
 extra_sources=()
 if [[ -f "$repo/src/ShadeGroupMotion.cpp" ]]; then extra_sources+=("$repo/src/ShadeGroupMotion.cpp"); fi
@@ -36,6 +44,6 @@ if [[ -f "$repo/src/ShadeGroupMotion.cpp" ]]; then extra_sources+=("$repo/src/Sh
  "$repo/src/ShadeSensors.cpp" "$repo/src/SomfyFrame.cpp" "$repo/src/RadioScheduler.cpp" "$repo/src/TxBuffer.cpp" "${extra_sources[@]}" \
  -o "$scratch/group-target"
 if (( $# )); then cases=("$@"); else
- cases=(calibration-exclusive-gate calibrated-raw-group-reversal calibrated-deadlines calibrated-endpoint-one-settling calibrated-endpoint-both-settling calibrated-refused-start calibrated-refused-retarget calibrated-dropped-start calibrated-aborted-start calibrated-aborted-stop shared unequal repeated pending-replace queued-stop onair-stop member-onair-stop member-queued idle-stop mixed refused refused-member-override refused-group-override flag-preserves-reversal deadband flipped dropped-start aborted-start sparse-members favorite-program-queued favorite-program-aborted favorite-program-finished stop-program-queued favorite integrated-group short-step step stale-stop reversal)
+ cases=(guide-raw-start-stop guide-raw-stop-takeup calibration-exclusive-gate calibrated-raw-group-reversal calibrated-deadlines calibrated-endpoint-one-settling calibrated-endpoint-both-settling calibrated-refused-start calibrated-refused-retarget calibrated-dropped-start calibrated-aborted-start calibrated-aborted-stop shared unequal repeated pending-replace queued-stop onair-stop member-onair-stop member-queued idle-stop mixed refused refused-member-override refused-group-override flag-preserves-reversal deadband flipped dropped-start aborted-start sparse-members favorite-program-queued favorite-program-aborted favorite-program-finished stop-program-queued favorite integrated-group short-step step stale-stop reversal)
 fi
 for case in "${cases[@]}"; do "$scratch/group-target" "$case"; done
