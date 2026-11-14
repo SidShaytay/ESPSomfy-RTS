@@ -36,8 +36,8 @@ LiftGuideView liftGuideView(LiftGuideStage stage, bool applied, bool durable, bo
       add(A::visibleEnd,"The edge reached the end");measuring=true;break;
     case S::downConfirm:case S::upConfirm:
       view.title=stage==S::downConfirm?"Confirm fully closed":"Confirm fully open";
-      view.hint="Wait: all slats settled AND motor stopped. Then press.";
-      view.instructions="Wait until the cover is completely at the requested end, every slat or gap has finished moving, and the motor has stopped. Then press Fully at the end; motor stopped promptly. Do not press while gaps are still changing or the motor is running. This confirms a real endpoint, not an estimate.";
+      view.hint="Wait for all movement AND motor to stop. Then press.";
+      view.instructions="Wait until the cover is completely at the requested end, all visible movement has finished, and the motor has stopped. If it has slats, wait until every gap stops changing. Then press Fully at the end; motor stopped promptly. Do not press while the motor is running. This confirms a real endpoint, not an estimate.";
       add(A::confirmEndpoint,"Fully at end; motor stopped");measuring=true;break;
     case S::review:
       view.title="Review calibration";view.hint=reversalsKnown?"Save, then check positions while watching.":"Next: check delay when changing direction.";
@@ -55,7 +55,7 @@ LiftGuideView liftGuideView(LiftGuideStage stage, bool applied, bool durable, bo
       view.title="Change direction";view.hint="Press to reverse, then watch for the edge to move.";
       view.instructions="Press the direction button below. Watch the main moving edge closely. On the next screen, press as soon as it starts moving. The wizard will stop it automatically; any delay is recorded, even when it is very small.";
       add(stage==S::reverseReadyUp?A::startReverseUp:A::startReverseDown,
-        stage==S::reverseReadyUp?"Reverse upward":"Reverse downward");break;
+        stage==S::reverseReadyUp?"Reverse towards open":"Reverse towards closed");break;
     case S::reverseStartingUp:case S::reverseStartingDown:
       view.title="Starting direction change";view.hint="Watch the edge. Wait for the next instruction.";measuring=true;break;
     case S::reverseTakeupUp:case S::reverseTakeupDown:
