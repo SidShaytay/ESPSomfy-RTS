@@ -182,9 +182,11 @@ static void tickUntil(uint32_t absolute) {
 int main(int argc,char **argv) {
   assert(argc==2);const std::string mode=argv[1];
   auto &group=setup(mode=="mixed"?20:0,mode=="mixed"?80:0);
-  if(mode=="guide-raw-start-stop" || mode=="guide-raw-stop-takeup") {
+  if(mode=="guide-raw-start-stop" || mode=="guide-raw-stop-takeup" || mode=="guide-zero-timer-stop") {
     const bool takeup=mode=="guide-raw-stop-takeup";
+    const bool zero=mode=="guide-zero-timer-stop";
     if(takeup)savedCalibrations();
+    if(zero)somfy.shades[0].upTime=somfy.shades[0].downTime=0;
     GuideAdapterFixture::Backend backend;
     LiftCalibrationGate::active.store(true);
     LiftCalibrationGate::permitted=+[]{return GuideAdapterFixture::dispatching.load();};
@@ -194,15 +196,16 @@ int main(int argc,char **argv) {
     const auto start=backend.send(1,somfy_commands::Down,false);
     assert(start.sent && start.ticket!=0 && !GuideAdapterFixture::dispatching.load());
     assert(accepted.size()==1 && accepted[0].ticket==start.ticket);assert(press());
-    if(!takeup)tick(2126); // First member is now25% down from actual RF start.
+    if(!takeup && !zero)tick(2126); // First member is now25% down from actual RF start.
     auto &shade=somfy.shades[0];
     const float before=shade.state().currentPos;
-    assert(takeup ? before==0 : before>0);
+    if(!zero)assert(takeup ? before==0 : before>0);
     const auto stop=backend.send(1,somfy_commands::My,true);
     assert(stop.sent && stop.ticket!=0 && stop.ticket!=start.ticket);
     assert(!GuideAdapterFixture::dispatching.load());
     assert(aired.size()==1);tick(100); // STOP is accepted but not on air yet.
-    assert(takeup ? shade.state().currentPos==0 : shade.state().currentPos>before);
+    if(zero)assert(shade.state().currentPos==before);
+    else assert(takeup ? shade.state().currentPos==0 : shade.state().currentPos>before);
     somfy_tx_job_t job;uint32_t wait;
     assert(radio.next(nowMs,job,wait));assert(job.ticket==stop.ticket && job.priority);
     assert(job.frame.cmd==somfy_commands::My);
@@ -213,6 +216,7 @@ int main(int argc,char **argv) {
     assert(std::fabs(shade.state().target-stoppedAt)<0.05f);
     assert(std::fabs(shade.state().currentPos-stoppedAt)<0.05f);
     if(takeup)assert(shade.state().referenceRequired);
+    if(zero)assert(!shade.state().endpointConfirmed);
     tick(5000);
     assert(shade.isIdle() && std::fabs(shade.state().currentPos-stoppedAt)<0.05f);
     assert(airedCommands(100,somfy_commands::Down)==1 && airedCommands(100,somfy_commands::My)==1);
