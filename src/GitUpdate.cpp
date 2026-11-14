@@ -224,8 +224,8 @@ GitUpdateSnapshot GitUpdateClass::snapshot() const {
 #else
   copy.reason=GitUpdateReason::unsupported;
 #endif
-#ifdef ESPSOMFY_RELEASE_TAG
-  snprintf(copy.installed,sizeof(copy.installed),"%s",ESPSOMFY_RELEASE_TAG);
+#ifdef FW_VERSION
+  snprintf(copy.installed,sizeof(copy.installed),"%s",FW_VERSION);
 #endif
   copy.canPrepare=copy.canPrepare && !copy.busy;
   return copy;

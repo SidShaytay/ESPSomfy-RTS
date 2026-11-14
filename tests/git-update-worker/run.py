@@ -9,7 +9,7 @@ include=Path(os.environ.get('ARDUINOJSON_INCLUDE',root/'.pio/libdeps/native/Ardu
 if not (include/'ArduinoJson.h').is_file():
     raise SystemExit('Run native tests first or set ARDUINOJSON_INCLUDE to the pinned cache.')
 compiler=shlex.split(os.environ.get('CXX','g++'))
-common=compiler+['-pthread','-std=c++17','-Wall','-Wextra','-Werror','-I'+str(include),'-I'+str(root/'src'),'-I'+str(root/'tests/update-certificate'),'-I'+str(root/'tests/update-assets'),'-I'+str(root/'test/stubs')]
+common=compiler+['-DFW_VERSION="v4.2.1"','-pthread','-std=c++17','-Wall','-Wextra','-Werror','-I'+str(include),'-I'+str(root/'src'),'-I'+str(root/'tests/update-certificate'),'-I'+str(root/'tests/update-assets'),'-I'+str(root/'test/stubs')]
 with tempfile.TemporaryDirectory(prefix='espsomfy-worker-') as scratch:
     binary=Path(scratch)/'worker'
     shared=common+['-DESPSOMFY_LILYGO_T_EMBED_CC1101','-DGIT_UPDATE_HOST_TEST',str(root/'tests/git-update-worker/worker-test.cpp'),str(root/'src/GitUpdatePolicy.cpp'),str(root/'src/GitUpdateCertificate.cpp'),str(root/'src/GitUpdateImage.cpp'),str(root/'src/UpdateSha256.cpp'),'-Wl,--wrap=time','-l:libcrypto.so.3','-o',str(binary)]

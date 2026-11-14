@@ -41,6 +41,7 @@ static GitUpdateSnapshot run() {
   return gitUpdate.snapshot();
 }
 int main(int argc,char **argv) {
+  CHECK(std::string(gitUpdate.snapshot().installed)==FW_VERSION);
   CHECK(argc==2);const std::string mode=argv[1];fixtures();
   if(mode=="createfail") Fake::createFail=true;
   if(mode=="memorynotready") Fake::memoryReady=false;
