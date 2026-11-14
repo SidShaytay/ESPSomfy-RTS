@@ -1,29 +1,34 @@
-# Issue 23: guided calibration and reliable percentages
+# Issue 23: guided shutter calibration
 
-Objective: guided calibration on the LILYGO LCD and web, including mechanical take-up/settling/reversal where relevant, using each shutter's profile for individual and group positioning.
+Objective: provide guided calibration on the LILYGO LCD and web, accounting for slack and settling where needed, and use each shutter's profile for individual and group positioning.
 
-Acceptance: direct and segmented hardware; human endpoints distinguished from estimates; measured per-direction guide/review/save/discard; persistent compatible records; shared single/group timing; retarget/reversal handling; bounded runtime diagnostics and repeatable release-board checks; review/tests/main integration/deployment; watched positioning verification.
+Acceptance: direct and segmented mechanisms; human endpoint observations separate from estimates; opening/closing/reversal measurements; review, save and discard; compatible persistence; correct retarget/reversal and RF failure handling; bounded runtime diagnostics; repeatable board checks; review, main integration and deployment. Physical accuracy still needs watched calibration.
 
-Authorization: Sid approved attached-board flashing, automation/debugging and RF November13 2026 08:05–20:00 PST (Nov14 04:00 UTC). Away: continue development and deployment to completion. Never invent physical observations. Pairing and motor-limit programming excluded. HA b396171 stays installed; no matching HA change needed.
+Authorization: Sid approved board access, flashing and automation, with RF testing on November 13, 2026 from 08:05 to 20:00 PST (November 14 04:00 UTC). He then asked us to finish development and deployment while away. Never invent observations. Pairing and motor-limit programming are outside scope.
 
-Baseline: main33f44ef; installed47bb37e (UI4.1.4). Watched group starts synchronized;50% request physically about60% bathroom/85% bedroom from fully open; both stopped themselves. Mechanical play reported. Do not derive timing values from rough ratios.
+## Delivered
 
-Milestones completed:
-- Pure calibrated motion/persistence and independent regressions; corec2cbecf reviewed.
-- Shared source/target/lease-owned session with actual TX clocks, human markers, complete-press barriers, cancellation, expiry and durable-save outcome handling.
-- LCD/web guides including segmented reversal measurement, explicit no-play option, review/save/discard, direct travel skipping mechanical phases.
-- Saved reference barrier after uncertain mechanical Stops/partial RF; explicit human confirmation required before percentage moves. Public endpoints withheld until completion; numeric correction cannot impersonate observation.
-- Runtime category-filtered release motion/RF/calibration trace, bounded32records, web/optionalUSB, defaultoff and automatic expiry; documented repeatable board routine and no-movement live checks. Raw LCD injection remains instrumented-only.
-- Independent review found received remote/group Stop barrier gap; fixed with4additional regression cases. Reversal-known guard mutation caught. Diagnostics review no remaining blockers; expiry now latches.
-- Native1456pass1existing skip; JS131pass; tools113pass; version tests; productiongroup39scenarios; productionLCD/runtime/adapter/capture and boardprofile checks pass. Canonicalfirmware compiled before final clean package. Full browser segmented/reversal/save walkthrough passed with synthetic RF and noconsoleerrors; mobilelight/dark screenshots and LCDproductionrenderer previews privately retained.
-- Fresh full16MiB backup verified: layout/tableMD5/bothimagechecksums andSHA/NVSCRCs/model/rooms/effectivecounters. Prior confirmed firmware booted again; passiveUSBlogger restored. No new firmware flashed yet.
+Firmware 4.2.0 from clean main commit 50e1f23 is installed and confirmed healthy. Later main commits add tests and documentation only. Code and documentation are pushed. GitHub issue 23 was rewritten around the final design, evidence and remaining acceptance. HA remains unchanged at b396171; no matching integration change was needed.
 
-Development and deployment completed: firmware4.2.0 from clean main50e1f23 installed by one exact firmware-only A/B upload after the second fresh verified full-flash recovery. ExactELF/firstbootSDKhealth and unchangedprewrite settings/entities/counters confirmed. Latermaincommits only add tests/docs.
+Both interfaces use the same owned guide and actual RF timestamps. Segmented profiles include take-up, halfway, settling and reversal measurements. Direct travel skips mechanical phases. Saved profiles control individual/group moves. Compatible group members share starts and retain individual Stop deadlines.
 
-Live final verification:18no-movement/guardpass +1RFskip; each shutter exclusiveguideRF Open/Stop277ms each, stoppedmodel98% stable/no drift; no physical observations. Finalsingle groupClose277ms, fulltravelintervalwaited, modelboth100/idle. Exactcounterdeltas2perprimary/+1group; identities/membership/profiles/fivesettingssections preserved. Finalheapfree120696,min110308,max77812,uptime269001ms. ValidreleaseLCDcapture. Tracingexplicitlydisabled and no furtherRF planned.
+Stops during uncertain mechanical phases and incomplete RF create a saved reference requirement. Percentage requests then require an explicit physical endpoint confirmation; entering a number does not count. Public endpoint reporting waits for completed movement. There is no motor position feedback.
 
-Live/review corrections: traceclearfalseoverflow fixed42f9aca with10diagtests; expiryobservedwithoutreaders/events74e88df. Guide rawdirectional/Stop bypass fixed4171c31 usingcanonicaldirectionalreceipts andoutcome-awareexplicitStop evenwitholdzero timers. Threeproductionadapterregressionsreproduceoldfailures; all42groupcasespass. Nativefinal1457pass1skip,JS131,tools113,version/boardprofile/LCDchecks,ownedrepeat/GPIOharnesses pass. Bothfixes independentlyreviewed. Codepushedtomain; GitHub#23 rewritten with cohesive productdesign/currentverification.
+Release firmware includes motion/RF/calibration category filters, optional USB output, bounded web retrieval and automatic expiry. Trace is off at boot. Raw LCD input injection remains instrumented-only. The release-board routine uses normal APIs and screenshots; its RF mode takes exclusive ownership, checks active travel before Stop, records actual transmissions and checks the stopped model stays stable.
 
-User next action: watch each shutter through guide, save actualobservations, thencheck25/50/75% individually/group bothdirections. Thatphysicalacceptance remainsunverifiedandissue23open. This is user calibration work, not unfinished deployment; no syntheticprofile was saved. RawLCDinputautomation remainsinstrumented-only; normalreleaseAPI/RFtestsandLCDscreenshots available.
+## Verification
 
-Recovery pointer: ~/.local/state/espsomfy-lilygo/ISSUE23_CALIBRATION_ACTIVE (private). Historicalrecord: issue-23.log. Previousbaselinepointer: ISSUE23_RELIABLE_ACTIVE. Backupwritesflag absent until exactsingleupload; do not repeat an ambiguous upload or reset during OTA health proof. Fresh state must still match immediately before firmware write.
+- 1,457 native tests passed; one existing skip. JavaScript: 131 passed. Tooling: 113 passed. Version scripts, board profiles, production LCD renderer/runtime/capture, owned-repeat and GPIO harnesses passed.
+- Forty-two group/guide adapter scenarios passed. Independent review and regressions cover received remote Stops, reversal knowledge, zero legacy travel timers, exact Stop outcomes and trace clearing/expiry.
+- Direct and segmented/reversal/save browser flows passed with synthetic RF and no console errors. Example screenshots are in the calibration guide; they are not physical test evidence.
+- Fresh verified full-flash recovery sets preceded both firmware writes. Exact first-boot ELF and SDK health were verified, and settings, profiles, identities and counters matched each fresh pre-write capture. Only the inactive app was written; the previous active app and data were preserved.
+- Final live no-movement run: 18 passed, RF-only case skipped. Both individual RF routines then passed: directional and Stop transmissions each took 277 ms; reported position stayed at 98% without drift. Physical position was not observed.
+- One final group Close took 277 ms. After the full travel interval the model reported both at 100%, idle. Effective counter deltas were exactly two per primary and one for the group. Settings and profiles remained unchanged. LCD capture succeeded. Final heap: 120,696 free, 110,308 minimum, 77,812 largest block; uptime 269,001 ms.
+
+Live testing found two corrected defects: false trace overflow after clearing capture, and raw guide commands bypassing normal movement/Stop model handling. Both fixes are reviewed and covered by production adapter regressions. Final tracing is disabled. RF tests are stopped; the last RF command was group Close.
+
+## Remaining user verification
+
+Calibrate each physical shutter while watching it, save actual observations, then check 25%, 50% and 75% individually and as a group in both directions. No synthetic profile was saved. The original settings were preserved, so both shutters need calibration before judging the group slider. Issue 23 stays open for that physical acceptance; development and deployment are complete.
+
+Private recovery/evidence pointer: ~/.local/state/espsomfy-lilygo/ISSUE23_CALIBRATION_ACTIVE. Prior pointer: ISSUE23_RELIABLE_ACTIVE. Historical details remain in issue-23.log. Do not reuse an old recovery set for a new write, repeat an ambiguous upload, or reset during first-boot health verification.
