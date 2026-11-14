@@ -66,19 +66,49 @@ def test_calibration_begin_poll_and_discard_do_not_send_rf_or_change_profile(con
             assert shade.get(field, schema.default(field)) == previous.get(field, schema.default(field)), field
 
 
-def test_release_rf_start_and_stop_outcomes(connect, schema, radio_shade, record_property):
-    """Opt-in RF test: move briefly, wait for the full start, then Stop once.
+def rf_stop_test_supported(shade):
+    return (shade.get('shadeType', 0) in (0, 4) and not shade.get('tiltType', 0)
+        and shade.get('position', 0) == 100 and not shade.get('direction', 0)
+        and not shade.get('flipPosition', False) and not shade.get('flipCommands', False)
+        and not shade.get('calibrationReferenceRequired', False)
+        and shade.get('upTime', 0) >= 8000)
 
-    Reports actual controller timing. Leaves the shutter stopped where it is;
-    it does not claim a physical position or return to a guessed position.
+
+@pytest.mark.parametrize('change', [
+    {'upTime': 1000}, {'upTime': 0}, {'position': 0}, {'position': 50},
+    {'direction': -1}, {'flipPosition': True}, {'flipCommands': True},
+    {'calibrationReferenceRequired': True}, {'tiltType': 1}, {'shadeType': 5},
+])
+def test_rf_timing_guard_rejects_endpoint_ambiguous_setup(change):
+    shade = {'shadeType': 4, 'position': 100, 'upTime': 20000}
+    assert rf_stop_test_supported(shade)
+    shade.update(change)
+    assert not rf_stop_test_supported(shade)
+
+
+def test_release_rf_start_and_stop_outcomes(connect, schema, radio_shade, record_property):
+    """Opt-in RF timing under exclusive guide ownership; no physical markers.
+
+    Requires an idle, unflipped roller/shutter reported closed and >=8s Up.
+    Stops early in that full stroke, never after a timed endpoint. If admission
+    or evidence is ambiguous, no My is issued and the endpoint run continues.
     """
     required(schema)
     c, shades, _ = synced_model(connect, schema)
     shade = next(s for s in shades if s['shadeId'] == radio_shade)
-    assert not shade.get('direction', 0), 'start with an idle shutter'
+    if not rf_stop_test_supported(shade):
+        pytest.skip('RF timing requires an idle closed lift-only shutter, known reference, no flips and Up >=8s')
     assert is_ok(schema, op(c, schema, 'motionDiagnostics', {'traceMask': 0}))
     assert is_ok(schema, op(c, schema, 'motionDiagnostics', {'traceMask': 2, 'traceDuration': 30000}))
+    begin = op(c, schema, 'liftCalibration', {'calibrationAction': 100,
+        'shadeId': radio_shade, 'calibrationKind': 2})
+    assert is_ok(schema, begin), 'exclusive calibration admission refused before RF'
+    token = schema.expand(begin['d'])['calibrationSession']
     cursor, records = '0', []
+
+    def guide(action):
+        return op(c, schema, 'liftCalibration', {'calibrationAction': action,
+            'calibrationSession': token, 'calibrationHuman': False})
 
     def collect_finished(after_count):
         nonlocal cursor
@@ -97,22 +127,33 @@ def test_release_rf_start_and_stop_outcomes(connect, schema, radio_shade, record
         pytest.fail('No full RF completion within 10 seconds')
 
     try:
-        command = 'Down' if shade.get('position', 0) < 50 else 'Up'
-        assert is_ok(schema, op(c, schema, 'shadeCommand', {'shadeId': radio_shade, 'command': command}))
+        issued_at = time.monotonic()
+        assert is_ok(schema, guide(0)) # Open only; no invented endpoint marker.
         collect_finished(1)
-        time.sleep(1)
-        assert is_ok(schema, op(c, schema, 'shadeCommand', {'shadeId': radio_shade, 'command': 'My'}))
+        assert len(records) == 2 and records[0].get('traceKind', 0) == 0 and records[1].get('traceKind', 0) == 1
+        assert records[0]['traceTicket'] == records[1]['traceTicket']
+        # Fresh model plus a short elapsed budget prevent My at a timed idle
+        # endpoint. The session itself correlates its exact start ticket and
+        # prevents any other controller RF throughout the test.
+        reader, latest, _ = synced_model(connect, schema)
+        reader.close()
+        current = next(s for s in latest if s['shadeId'] == radio_shade)
+        assert current.get('direction', 0) == -1 and current.get('position', 0) > 0
+        assert time.monotonic() - issued_at < shade['upTime'] / 4000, 'Stop test window elapsed; leave full Open running'
+        assert is_ok(schema, guide(1))
         collect_finished(2)
         starts = {r.get('traceTicket', 0): r for r in records if r.get('traceKind', 0) == 0}
         finishes = [r for r in records if r.get('traceKind', 0) == 1]
-        assert len(starts) == len(finishes) == 2, 'unexpected concurrent RF; rerun in a quiet period'
+        assert len(records) == 4 and len(starts) == len(finishes) == 2
         for i, finish in enumerate(finishes):
             start = starts[finish['traceTicket']]
             duration = (finish.get('traceAt', 0) - start.get('traceAt', 0)) & 0xffffffff
             assert 0 < duration < 10000
             record_property(('direction' if i == 0 else 'stop') + '_rf_ms', duration)
-        assert starts[finishes[1]['traceTicket']]['traceAt'] >= finishes[0]['traceAt']
+        assert ((starts[finishes[1]['traceTicket']]['traceAt'] - finishes[0]['traceAt']) & 0xffffffff) < 10000
         record_property('physical_position', 'not observed')
     finally:
-        # Never retry a movement or My after a failed/ambiguous outcome.
+        # Cancel never invents a Stop or endpoint; ambiguous movement runs to
+        # its limit. The old profile is retained and no observation is saved.
+        guide(10)
         op(c, schema, 'motionDiagnostics', {'traceMask': 0})

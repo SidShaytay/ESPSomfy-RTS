@@ -20,7 +20,7 @@ To check real RF start/Stop timing, opt in explicitly:
 python3 -m pytest test/e2e/test_calibration.py --device <controller-address> --radio --shade <shutter-id> -q --junitxml=<private-report-path>
 ```
 
-The RF check moves that shutter briefly, waits for its complete directional transmission, sends one Stop and records the start/Stop durations. It leaves the shutter stopped at its actual location. It does not return to a guessed position or retry ambiguous RF. Use a quiet period; concurrent RF makes the evidence fail rather than silently attributing another command to the test.
+The RF check requires an idle roller/shutter reported fully closed, no direction/position flips, a known reference and at least eight seconds of configured opening travel. It takes exclusive guide ownership, opens briefly, checks fresh movement state and the elapsed budget, waits for the complete directional press, sends one Stop and records the start/Stop durations. No physical calibration marker is generated. It leaves the shutter stopped at its actual location. It does not return to a guessed position or retry ambiguous RF. Use a quiet period; concurrent RF makes the evidence fail rather than silently attributing another command to the test.
 
 Capture the LCD using `tools/capture-local-ui.py --help` for the supported options. Screenshots prove what was rendered, not whether every physical button works. Check free memory and network responsiveness before and after a test. Keep reports, settings and raw logs outside Git.
 
