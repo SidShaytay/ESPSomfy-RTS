@@ -38,7 +38,7 @@
             });
         })();
     </script>
-    <link rel="stylesheet" href="app.css?v=4.1.4c" type="text/css" />
+    <link rel="stylesheet" href="app.css?v=4.2.0c" type="text/css" />
     <link rel="icon" type="image/png" href="favicon.png" />
 
     <!-- iPad retina icon -->
@@ -142,7 +142,7 @@
           rel="apple-touch-startup-image">
 
 
-    <script type="text/javascript" src="index.js?v=4.1.4c"></script>
+    <script type="text/javascript" src="index.js?v=4.2.0c"></script>
 </head>
 <body>
     <div class="appearance-control">
@@ -706,6 +706,7 @@
                                     Save Shade
                                 </button>
                             </div>
+                            <div class="button-container"><button type="button" onclick="openLiftCalibration();">Guided calibration</button></div>
                             <hr />
                             <div id="divLinkedRemoteList" style="overflow-y:auto;max-height:177px;padding-top:2px;padding-bottom:2px;"></div>
                             <div class="button-container">
@@ -922,7 +923,7 @@
                     </div>
                 </div>
                 <div id="divRadioSettings" style="display:none;">
-                    <div class="subtab-container"><span class="selected" data-grpid="divTransceiverSettings">Transceiver</span><span data-grpid="divFrameLog">Logs</span></div>
+                    <div class="subtab-container"><span class="selected" data-grpid="divTransceiverSettings">Transceiver</span><span data-grpid="divFrameLog">RF frames</span><span data-grpid="divMotionTrace">Motion logs</span></div>
                     <div id="divTransceiverSettings" class="subtab-content">
                         <div class="field-group" style="display:inline-block;margin-right:7px;width:77px;">
                             <label for="selRadioProto">Protocol</label>
@@ -1021,6 +1022,18 @@
                             </button>
 
                         </div>
+                    </div>
+                    <div id="divMotionTrace" class="subtab-content" style="display:none;">
+                        <p>Capture controller motion, radio transmission outcomes and calibration steps. This does not measure physical shutter position.</p>
+                        <label><input type="checkbox" id="traceMotion" checked> Motion</label>
+                        <label><input type="checkbox" id="traceRadio" checked> Radio</label>
+                        <label><input type="checkbox" id="traceCalibration" checked> Calibration</label>
+                        <label><input type="checkbox" id="traceUsb"> Also write to USB</label>
+                        <div><button type="button" onclick="motionTrace.start()">Capture for 5 minutes</button>
+                        <button type="button" onclick="motionTrace.stop()">Stop and clear</button>
+                        <button type="button" onclick="motionTrace.copy()">Copy report</button></div>
+                        <p id="traceStatus">Capture is off by default.</p>
+                        <pre id="traceOutput" style="max-height:320px;overflow:auto;white-space:pre-wrap;"></pre>
                     </div>
                     <div id="divFrameLog" class="subtab-content frame-log" style="display:none;margin:0px;padding:0px;">
                         <div class="frame-header"><span>Key</span><span>Address</span><span>Command</span><span>Code</span><span>RSSI</span><span>Bits</span><span style="text-align:center;width:77px;">Time</span><span>Raw</span></div>

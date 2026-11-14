@@ -143,7 +143,7 @@ ProtoModel.FIELDS = {
         'proto', 'serverId', 'hostname', 'model', 'chipModel', 'hasOtaSlot', 'fw', 'connType'],
     room: ['roomId', 'name', 'sortOrder'],
     shadeState: ['shadeId', 'position', 'target', 'direction', 'myPos', 'tiltPosition', 'tiltTarget', 'tiltDirection',
-        'myTiltPos', 'flags', 'lastRollingCode'],
+        'myTiltPos', 'flags', 'lastRollingCode', 'endpointConfirmed', 'calibrationReferenceRequired'],
     groupState: ['groupId', 'flags', 'direction'],
     linkedRemote: ['remoteAddress', 'lastRollingCode'],
     group: ['groupId', 'roomId', 'name', 'remoteAddress', 'lastRollingCode', 'bitLength', 'proto', 'sunSensor',
@@ -153,6 +153,8 @@ ProtoModel.FIELDS = {
     ethernet: ['connected', 'speed', 'fullDuplex']
 };
 ProtoModel.FIELDS.shade = ProtoModel.FIELDS.shadeState.concat(['roomId', 'name', 'remoteAddress', 'upTime', 'downTime',
+    'calibrationKind', 'upTakeupMs', 'upMidpointMs', 'upSettlingMs', 'upReversalMs',
+    'downTakeupMs', 'downMidpointMs', 'downSettlingMs', 'downReversalMs',
     'tiltTime', 'stepSize', 'paired', 'tiltType', 'shadeType', 'bitLength', 'proto', 'flipCommands', 'flipPosition',
     'inGroup', 'sunSensor', 'light', 'simMy', 'repeats', 'sortOrder', 'gpioUp', 'gpioDown', 'gpioMy', 'gpioLLTrigger',
     'linkedRemotes']);

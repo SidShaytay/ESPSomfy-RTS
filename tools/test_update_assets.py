@@ -97,7 +97,7 @@ class AssetTests(unittest.TestCase):
         self.assertNotIn(b'content="filesystem"',html)
         # The deterministic path preserves the tested existing concatenation,
         # including BOM removal/newlines; it invents no regex minification.
-        for name, parts in {'index.js':['js/schema.js','js/model.js','js/client.js','js/views.js','js/pins.js','index.js'],
+        for name, parts in {'index.js':['js/schema.js','js/model.js','js/client.js','js/views.js','js/pins.js','js/calibration.js','index.js'],
                             'app.css':['main.css','widgets.css','icons.css']}.items():
             expected=''.join((project/'data-src'/part).read_text(encoding='utf-8-sig')+'\n' for part in parts).encode()
             self.assertEqual(gzip.decompress(first[name+'.gz']),expected)

@@ -9,7 +9,7 @@ scratch="$(mktemp -d)"
 trap 'rm -rf -- "$scratch"' EXIT
 "${CXX:-c++}" -std=c++17 -O2 -DARDUINO=10800 -DLOCAL_UI_HOST_PREVIEW \
   -I"$repo/tests/ui-render" -I"$repo/tests/ui-adapter" -I"$repo/src" -I"$gfx" \
-  "$repo/tests/ui-render/entity-render.cpp" "$repo/src/LocalPrimaryCounter.cpp" "$repo/src/LocalUiRenderer.cpp" "$repo/src/LocalControlPolicy.cpp" "$repo/src/StatusDisplay.cpp" "$gfx/Adafruit_GFX.cpp" \
+  "$repo/tests/ui-render/entity-render.cpp" "$repo/src/LiftGuideView.cpp" "$repo/src/LocalPrimaryCounter.cpp" "$repo/src/LocalUiRenderer.cpp" "$repo/src/LocalControlPolicy.cpp" "$repo/src/StatusDisplay.cpp" "$gfx/Adafruit_GFX.cpp" \
   -o "$scratch/entity-render"
 "$scratch/entity-render" "$out"
 "${CXX:-c++}" -std=c++17 -O2 -DARDUINO=10800 -DLOCAL_UI_HOST_PREVIEW \

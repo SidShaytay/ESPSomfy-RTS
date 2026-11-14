@@ -921,3 +921,25 @@ div.frame-pulses {
 :root[data-theme="dark"] .progress-bar::after { color: #10222b; }
 :root[data-theme="dark"] .frame-row[data-valid="false"] { color: #ff9191; }
 :root[data-theme="dark"] input::placeholder { color: var(--muted); opacity: 1; }
+
+.calibration-dialog {
+    box-sizing: border-box;
+    width: min(94vw, 620px);
+    max-height: 92vh;
+    padding: 20px;
+    overflow-y: auto;
+    color: var(--text, #222);
+    background: var(--surface, #fff);
+    border: 1px solid var(--silver, #aaa);
+    border-radius: 10px;
+}
+.calibration-dialog::backdrop { background: #0008; }
+.calibration-dialog h2 { margin-top: 0; }
+.calibration-controls { display: grid; gap: 10px; margin: 18px 0; }
+.calibration-controls button { width: 100%; margin: 0; min-height: 44px; }
+.calibration-dialog table { width: 100%; border-collapse: collapse; margin: 12px 0; }
+.calibration-dialog td, .calibration-dialog th { padding: 7px; text-align: left; border-bottom: 1px solid var(--silver, #ddd); }
+.calibration-note, .calibration-confidence { font-size: 0.9em; }
+.calibration-error { color: var(--error, #a01414); }
+
+:root[data-theme="dark"] .calibration-error { color: #ff9d9d; }

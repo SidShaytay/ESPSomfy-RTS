@@ -1,4 +1,5 @@
 #include "LocalEntityView.h"
+#include "LiftGuideView.h"
 #include "LocalPrimaryCounter.h"
 #include "LocalUiRenderer.h"
 #include "../../src/LocalEntityRenderer.cpp"
@@ -27,6 +28,23 @@ int main(int argc, char **argv) {
   Canvas canvas;
   std::vector<uint16_t> pixels(320 * 170);
   canvas.attach(pixels.data());
+  // Real production guide wording and production renderer; synthetic state,
+  // deliberately separate from physical-board evidence.
+  for(auto stage : {LiftGuideStage::reference,LiftGuideStage::downTakeup,
+      LiftGuideStage::reverseTakeupUp,LiftGuideStage::review,LiftGuideStage::complete}) {
+    EntityAdmin::FormView form;
+    form.mode=EntityAdmin::Mode::fields;
+    const auto guide=liftGuideView(stage,false,false,false);
+    snprintf(form.title,sizeof(form.title),"%s",guide.title);
+    snprintf(form.hint,sizeof(form.hint),"%s",guide.hint);
+    form.total=guide.count;form.rowCount=guide.count>3?3:guide.count;
+    for(unsigned i=0;i<form.rowCount;++i) {
+      snprintf(form.rows[i].label,sizeof(form.rows[i].label),"%s",guide.choices[i].label);
+      form.rows[i].selected=i==0;
+    }
+    char name[48];snprintf(name,sizeof(name),"entity-calibration-%u",unsigned(stage));
+    save(canvas,pixels.data(),form,argv[1],name);
+  }
   EntityAdmin::FormView view;
   view.mode = EntityAdmin::Mode::fields;
   view.id = 4;

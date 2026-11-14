@@ -19,6 +19,7 @@ var errors = [
     { code: -13, desc: "GPIO outputs must use distinct pads. None may be selected more than once." },
     { code: -14, desc: "Choose a valid output GPIO or None." },
     { code: -15, desc: "GPIO ownership settings are unavailable. Repair radio/Ethernet settings first." },
+    { code: -16, desc: "Review calibration values and wait for the shutter to stop." },
     { code: -21, desc: "Git Update: Flash write failed." },
     { code: -22, desc: "Git Update: Flash erase failed." },
     { code: -23, desc: "Git Update: Flash read failed." },
@@ -387,6 +388,56 @@ function runOp(name, fields, retryBusy) {
 }
 // cb(err, reply) as the HTTP helpers did.  With wait the spinner shows until
 // the reply.
+var calibrationDialog = null;
+function openLiftCalibration() {
+    const id = Number(document.getElementById('spanShadeId').innerText);
+    const shade = proto.model.shades.get(id);
+    if (!shade || !proto.schema.typeNumbers.liftCalibration) {
+        ui.serviceError('Select a saved shutter on firmware with guided calibration.');
+        return;
+    }
+    if (calibrationDialog) { calibrationDialog.dialog.focus(); return; }
+    calibrationDialog = new LiftCalibrationDialog(proto, () => { calibrationDialog = null; });
+    calibrationDialog.open(id, shade.name);
+}
+// A bounded display of the release firmware's opt-in numeric trace.
+var motionTrace = {
+    cursor: '0', lines: [], timer: null, pending: false,
+    async start() {
+        if (this.pending) return;
+        const mask = (document.getElementById('traceMotion').checked ? 1 : 0) |
+            (document.getElementById('traceRadio').checked ? 2 : 0) |
+            (document.getElementById('traceCalibration').checked ? 4 : 0);
+        if (!mask) { ui.serviceError('Select at least one category.'); return; }
+        this.cursor = '0'; this.lines = [];
+        await this.request({ traceMask: mask, traceDuration: 300000, traceUsb: document.getElementById('traceUsb').checked });
+        clearInterval(this.timer); this.timer = setInterval(() => this.request(), 500);
+    },
+    async stop() {
+        clearInterval(this.timer); this.timer = null;
+        await this.request({ traceMask: 0 });
+        this.cursor = '0'; this.lines = []; this.paint();
+    },
+    async request(fields) {
+        if (this.pending || !proto.ready) return;
+        this.pending = true;
+        try {
+            const state = await proto.op('motionDiagnostics', fields || { traceCursor: this.cursor });
+            if (state.traceOverflow) this.lines.push('Some records were overwritten before retrieval.');
+            this.cursor = state.traceCursor || this.cursor;
+            for (const record of state.traceRecords || []) this.lines.push(JSON.stringify(record));
+            this.lines = this.lines.slice(-500);
+            document.getElementById('traceStatus').textContent = state.traceEnabled ? 'Capturing; expires automatically.' : 'Capture stopped.';
+            if (!state.traceEnabled && !(state.traceRecords || []).length) { clearInterval(this.timer); this.timer = null; }
+            this.paint();
+        } catch (err) {
+            clearInterval(this.timer); this.timer = null;
+            document.getElementById('traceStatus').textContent = err.desc || err.message || 'Trace unavailable.';
+        } finally { this.pending = false; }
+    },
+    paint() { document.getElementById('traceOutput').textContent = this.lines.join('\n'); },
+    copy() { return navigator.clipboard.writeText(this.lines.join('\n')); }
+};
 function sendOp(name, fields, cb, wait) {
     let overlay = wait ? ui.waitMessage(document.getElementById('divContainer')) : null;
     let done = (err, d) => {
@@ -1278,7 +1329,7 @@ class Security {
 }
 var security = new Security();
 
-// let appVersion = 'v4.1.4'; // Default placeholder
+// let appVersion = 'v4.2.0'; // Default placeholder
 async function getAppVersion() {
     try {
         const response = await fetch('/appversion?v='+Date.now());
@@ -1291,7 +1342,7 @@ async function getAppVersion() {
         // Trigger any UI updates here
     } catch (error) {
         console.error("Error loading App version:", error);
-        appVersion = 'v4.1.4'; // Default placeholder
+        appVersion = 'v4.2.0'; // Default placeholder
     }
     return appVersion;
 }

@@ -59,6 +59,7 @@ struct SomfyGroup : SomfyRemote {
   uint64_t configurationRevision=1;
   uint8_t statusFlags=0;uint8_t getFlags()const{return statusFlags;}
   uint8_t getGroupId() const{return id;} uint32_t getRemoteAddress() const{return address;}
+  bool moveToTarget(float){return true;}
   bool sendCommand(somfy_commands,uint8_t,uint8_t){return true;}
   bool isLastCommand(somfy_commands){return false;} bool repeatFrame(uint8_t){return true;}
   bool sendSensorCommand(int8_t,int8_t,uint8_t){return true;} void emitState(){}
