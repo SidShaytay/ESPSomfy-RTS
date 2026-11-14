@@ -121,6 +121,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     // Where the shade is and where it is going.
     const ShadeBehaviour::State &state() const { return this->behaviour.state(); }
     bool isIdle() const { return this->behaviour.isIdle(); }
+    bool isSettling(uint32_t now) const { return this->behaviour.isSettling(now); }
     uint64_t favouriteObservationRevision() const { return this->behaviour.favouriteObservationRevision(); }
     // Wait for actual GPIO pulse release observation, even past its deadline.
     bool idleForAdministration() const { return this->behaviour.idleForAdministration() && this->gpioRelease==0; }
@@ -132,7 +133,7 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     bool hasStopPending() const { return this->behaviour.hasStopPending(); }
     bool groupPlanFailed() const { return this->behaviour.groupPlanFailed(); }
     void clearGroupPlanFailure() { this->behaviour.clearGroupPlanFailure(); }
-    void refreshTravel() { this->behaviour.refreshTravel(millis()); }
+    void refreshTravel(uint32_t now) { this->behaviour.refreshTravel(now); }
     // A lift-only type with travel times, which group percentages can plan.
     bool supportsGroupTarget() const;
 
@@ -262,10 +263,10 @@ class SomfyGroup : public SomfyRemote {
     bool sendCommand(somfy_commands cmd);
     bool sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
     send_result_t sendCommandReceipt(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
-    bool moveToTarget(float target);
+    bool moveToTarget(float target, bool wireEndpoints = false);
     bool targetActive = false;
     // A target waiting for an unfinished start or for members to stop.
-    bool replanPending = false;
+    bool replanPending = false, replanWireEndpoints = false;
     float replanTarget = 0;
     void cancelReplan() { this->replanPending = false; }
     // Plans a waiting target once its members can be planned from.

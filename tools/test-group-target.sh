@@ -32,10 +32,10 @@ extra_sources=()
 if [[ -f "$repo/src/ShadeGroupMotion.cpp" ]]; then extra_sources+=("$repo/src/ShadeGroupMotion.cpp"); fi
 "${CXX:-c++}" -std=c++17 -O0 -g -pthread -ffunction-sections -fdata-sections -Wl,--gc-sections \
  -I"$scratch" -I"$json" -I"$repo/test/stubs" -I"$repo/src" \
- "$repo/tests/group-target/group-target-test.cpp" "$repo/src/ShadeBehaviour.cpp" "$repo/src/ShadeMotion.cpp" \
+ "$repo/tests/group-target/group-target-test.cpp" "$repo/src/ShadeBehaviour.cpp" "$repo/src/ShadeCalibratedMotion.cpp" "$repo/src/LiftCalibration.cpp" "$repo/src/ShadeMotion.cpp" \
  "$repo/src/ShadeSensors.cpp" "$repo/src/SomfyFrame.cpp" "$repo/src/RadioScheduler.cpp" "$repo/src/TxBuffer.cpp" "${extra_sources[@]}" \
  -o "$scratch/group-target"
 if (( $# )); then cases=("$@"); else
- cases=(shared unequal repeated pending-replace queued-stop onair-stop member-onair-stop member-queued idle-stop mixed refused refused-member-override refused-group-override flag-preserves-reversal deadband flipped dropped-start aborted-start sparse-members favorite-program-queued favorite-program-aborted favorite-program-finished stop-program-queued favorite integrated-group short-step step stale-stop reversal)
+ cases=(calibrated-raw-group-reversal calibrated-deadlines calibrated-endpoint-one-settling calibrated-endpoint-both-settling calibrated-refused-start calibrated-refused-retarget calibrated-dropped-start calibrated-aborted-start calibrated-aborted-stop shared unequal repeated pending-replace queued-stop onair-stop member-onair-stop member-queued idle-stop mixed refused refused-member-override refused-group-override flag-preserves-reversal deadband flipped dropped-start aborted-start sparse-members favorite-program-queued favorite-program-aborted favorite-program-finished stop-program-queued favorite integrated-group short-step step stale-stop reversal)
 fi
 for case in "${cases[@]}"; do "$scratch/group-target" "$case"; done

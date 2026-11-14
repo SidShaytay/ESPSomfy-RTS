@@ -40,8 +40,19 @@ static void test_profile_edit_rejects_malformed_values_without_narrowing() {
   doc["upTakeupMs"]=1000; doc["upTime"]=1000;
   TEST_ASSERT_FALSE(projectLiftCalibration(doc.as<JsonObjectConst>(),current,c));
 }
+static void test_calibration_requires_a_lift_only_percentage_motor() {
+  ShadeSettings current; LiftCalibration out; JsonDocument doc;
+  doc["calibrationKind"] = 1;
+  current.tiltType = tilt_types::integrated;
+  TEST_ASSERT_FALSE(projectLiftCalibration(doc.as<JsonObjectConst>(), current, out));
+  doc["tiltType"] = uint8_t(tilt_types::none);
+  TEST_ASSERT_TRUE(projectLiftCalibration(doc.as<JsonObjectConst>(), current, out));
+  doc["shadeType"] = uint8_t(shade_types::garage1);
+  TEST_ASSERT_FALSE(projectLiftCalibration(doc.as<JsonObjectConst>(), current, out));
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_calibration_requires_a_lift_only_percentage_motor);
   RUN_TEST(test_unrelated_edits_preserve_profile_and_time_edits_revalidate);
   RUN_TEST(test_profile_edit_checks_combined_times_and_phase_constraints);
   RUN_TEST(test_profile_edit_rejects_malformed_values_without_narrowing);

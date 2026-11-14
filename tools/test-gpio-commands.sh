@@ -17,6 +17,6 @@ Path(sys.argv[2]).write_text('\n'.join(out)+'\n')
 PYCODE
 "${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -include "$repo/tests/gpio-command/Model.h" \
  -I"$scratch" -I"$repo/tests/gpio-command" -I"$repo/test/stubs" -I"$repo/src" \
- "$repo/tests/gpio-command/test.cpp" "$repo/src/SomfyRemote.cpp" "$repo/src/ShadeCommands.cpp" "$repo/src/ShadeGpioCommands.cpp" "$repo/src/SomfyFrame.cpp" "$repo/src/ShadeGpio.cpp" "$repo/src/LivePinClaims.cpp" "$repo/src/GpioPinClaims.cpp" "$repo/src/ShadeTransport.cpp" "$repo/src/ShadeBehaviour.cpp" "$repo/src/ShadeGroupMotion.cpp" "$repo/src/ShadeMotion.cpp" "$repo/src/ShadeSensors.cpp" \
+ "$repo/tests/gpio-command/test.cpp" "$repo/src/SomfyRemote.cpp" "$repo/src/ShadeCommands.cpp" "$repo/src/ShadeGpioCommands.cpp" "$repo/src/SomfyFrame.cpp" "$repo/src/ShadeGpio.cpp" "$repo/src/LivePinClaims.cpp" "$repo/src/GpioPinClaims.cpp" "$repo/src/ShadeTransport.cpp" "$repo/src/ShadeBehaviour.cpp" "$repo/src/ShadeCalibratedMotion.cpp" "$repo/src/LiftCalibration.cpp" "$repo/src/ShadeGroupMotion.cpp" "$repo/src/ShadeMotion.cpp" "$repo/src/ShadeSensors.cpp" \
  -o "$scratch/commands"
 "$scratch/commands"

@@ -69,8 +69,8 @@ void ShadeBehaviour::refreshTravel(uint32_t now) {
   }
   const int8_t dir = this->s.direction;
   const uint32_t travel = dir > 0 ? this->settings.downTime : this->settings.upTime;
-  this->p_currentPos(travelPosition(this->startPos, dir, now - this->moveStart, travel));
-  if(this->s.currentPos == limitTarget(dir)) {
+  this->p_currentPos(liftPosition(this->startPos, dir, now, this->moveStart, travel));
+  if(this->s.currentPos == limitTarget(dir) && !this->liftSettling(now)) {
     // The timed model has reached its self-stopping limit. A My here could
     // recall a favorite; begin any new movement from the idle estimate.
     this->p_target(this->s.currentPos);
@@ -117,6 +117,7 @@ bool ShadeBehaviour::moveToGroupTarget(float target, uint32_t now) {
     this->groupNextTarget = target;
     return true;
   }
+  if(calibratedLift() && target == this->s.target && this->liftSettling(now)) return true;
   // A start not yet on air has not moved the motor: replace it rather than
   // stop it with My. The caller cancels the queued press.
   if(this->startQueuedOnly()) this->cancelPositioning();
@@ -147,6 +148,7 @@ bool ShadeBehaviour::moveToGroupTarget(float target, uint32_t now) {
     return true;
   }
   bool sent;
+  if(calibratedLift()) return this->startLiftTarget(target, this->remote.repeats, now);
   if(target == 0 || target == 100)
     sent = this->sendCommand(target == 0 ? somfy_commands::Up : somfy_commands::Down, this->remote.repeats, 0, now);
   else sent = this->moveToTarget(target, -1, now);
@@ -164,6 +166,7 @@ void ShadeBehaviour::observeGroupStart(uint32_t ticket, uint32_t now) {
 void ShadeBehaviour::adoptGroupTarget(float target, uint32_t ticket, uint32_t now) {
   invalidateFavouriteObservation();
   this->cancelPositioning();
+  this->liftDirection = 0;
   this->startPos = this->s.currentPos;
   this->moveStart = now;
   this->p_target(target);
@@ -181,7 +184,7 @@ void ShadeBehaviour::adoptGroupTarget(float target, uint32_t ticket, uint32_t no
 void ShadeBehaviour::cancelGroupStop(float target, uint32_t now) {
   const int8_t dir = tx.stopDir;
   const uint32_t travel = dir > 0 ? settings.downTime : settings.upTime;
-  p_currentPos(travelPosition(groupStopPos, dir, now - tx.stopAt, travel));
+  p_currentPos(liftPosition(groupStopPos, dir, now, tx.stopAt, travel));
   startPos = s.currentPos;
   moveStart = now;
   tx.stopTicket = 0;

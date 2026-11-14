@@ -85,4 +85,20 @@ int main() {
  // Zero configured bits can still repeat when its effective default matches.
  shade.bitLength=0;const auto code=shade.lastRollingCode;
  assert(ops.sendOwnedRepeat(req) && shade.lastRollingCode==code);
+ // A calibrated initial hold owns the exact accepted job; a different held
+ // direction during motion refuses before any RF/counter mutation.
+ shade.behaviour.clear();shade.behaviour.restore(0,0,-1,-1);
+ shade.calibration.kind=LiftKind::direct;shade.calibration.up={};shade.calibration.down={};
+ shade.upTime=shade.downTime=10000;shade.flipCommands=false;
+ req.type=shade_request_type_t::shade_command;req.command=somfy_commands::Down;req.repeat=7;req.stepSize=0;
+ ticket=ops.sendOwnedRepeat(req);assert(ticket && shade.lastFrame.cmd==somfy_commands::Down);
+ shade.behaviour.onTxEvent({tx_event_t::started,somfy_commands::Down,shade.getRemoteAddress(),ticket,0});
+ shade.behaviour.onTxEvent({tx_event_t::finished,somfy_commands::Down,shade.getRemoteAddress(),ticket,274});
+ shade.behaviour.tick(1000);
+ auto calibrationFrames=somfy.frames;before=shade.lastRollingCode;
+ req.command=somfy_commands::Up;assert(!ops.sendOwnedRepeat(req));
+ assert(somfy.frames==calibrationFrames && shade.lastRollingCode==before);
+ req.type=shade_request_type_t::shade_repeat;req.command=somfy_commands::Down;
+ assert(ops.sendOwnedRepeat(req) && shade.lastRollingCode==before);
+
 }

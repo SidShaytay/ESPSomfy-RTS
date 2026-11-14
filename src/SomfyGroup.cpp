@@ -14,7 +14,7 @@ bool stopTargetMembers(SomfyGroup &group);
 void SomfyGroup::clear() {
   ++configurationRevision;
   this->targetActive = false;
-  this->replanPending = false;
+  this->replanPending = this->replanWireEndpoints = false;
 
   this->setGroupId(255);
   this->setRemoteAddress(0);
@@ -66,13 +66,17 @@ send_result_t SomfyGroup::sendCommandReceipt(somfy_commands cmd, uint8_t repeat,
   // is expected to be called internally when the motor needs commanded.
   const bool stop = cmd == somfy_commands::My || cmd == somfy_commands::Stop;
   bool programming = false;
+  bool calibratedMoving = false;
   bool unfinished = false; // a member start is queued or not yet fully on air
   for(uint8_t i = 0; i < SOMFY_MAX_GROUPED_SHADES && this->linkedShades[i]; i++) {
     SomfyShade *shade = somfy.getShadeById(this->linkedShades[i]);
     if(shade && shade->hasPendingProgramming()) programming = true;
+    if(shade && shade->calibration.kind != LiftKind::legacy && !shade->idleForAdministration()) calibratedMoving = true;
     if(shade && (shade->hasPendingGroupStart() || shade->startQueuedOnly())) unfinished = true;
   }
   if(programming && !stop && commandSupersedesPositioning(cmd)) return {};
+  if(calibratedMoving && !stepSize && (cmd == somfy_commands::Up || cmd == somfy_commands::Down))
+    return {this->moveToTarget(cmd == somfy_commands::Up ? 0 : 100, true),0};
   if(stop) this->cancelReplan();
   if(this->bitLength == 0) this->bitLength = somfy.transceiver.config.type;
   if(stop && (this->targetActive || unfinished || programming)) {

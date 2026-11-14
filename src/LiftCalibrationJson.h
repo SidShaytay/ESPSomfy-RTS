@@ -29,5 +29,12 @@ inline bool projectLiftCalibration(JsonObjectConst obj, const ShadeSettings &cur
     if(!value.is<uint32_t>()) return false;
     *field.value = value.as<uint32_t>();
   }
+  if(out.kind != LiftKind::legacy) {
+    const auto type = obj["shadeType"].isNull() ? current.shadeType : static_cast<shade_types>(obj["shadeType"].as<uint8_t>());
+    const auto tilt = obj["tiltType"].isNull() ? current.tiltType : static_cast<tilt_types>(obj["tiltType"].as<uint8_t>());
+    if(tilt != tilt_types::none || !(type == shade_types::roller || type == shade_types::blind ||
+        type == shade_types::awning || type == shade_types::shutter || type == shade_types::ldrapery ||
+        type == shade_types::rdrapery || type == shade_types::cdrapery)) return false;
+  }
   return validLiftCalibration(out, up, down);
 }

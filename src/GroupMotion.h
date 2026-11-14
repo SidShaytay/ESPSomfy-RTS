@@ -24,6 +24,7 @@ struct GroupMemberMotion {
   bool idle = true;
   bool supported = true;
   bool targetSupported = true;
+  bool settling = false; // Visible endpoint reached, motor completion still pending.
 };
 inline float groupStoredTarget(const GroupMemberMotion &m, float target) {
   return m.invertTarget ? 100.0f - target : target;
@@ -33,7 +34,8 @@ inline bool groupAtTarget(const GroupMemberMotion &m, float target) {
   return target > 0 && target < 100 && fabsf(groupStoredTarget(m, target) - m.current) < GROUP_TARGET_DEADBAND;
 }
 inline bool groupMoveAhead(const GroupMemberMotion &m, float stored) {
-  return (m.direction > 0 && stored > m.current) || (m.direction < 0 && stored < m.current);
+  return (m.direction > 0 && stored > m.current) || (m.direction < 0 && stored < m.current) ||
+    (m.settling && stored == m.current && ((m.direction > 0 && stored == 100) || (m.direction < 0 && stored == 0)));
 }
 inline int groupMoveDirection(const GroupMemberMotion &m, float target) {
   const float stored = groupStoredTarget(m, target);

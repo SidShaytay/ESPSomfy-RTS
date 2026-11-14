@@ -23,8 +23,7 @@ int8_t SomfyShade::fromJSON(JsonObject &obj) {
   LiftCalibration projected;
   if(!projectLiftCalibration(obj, *this, projected)) return -15;
   if((projected.kind != LiftKind::legacy || this->calibration.kind != LiftKind::legacy) &&
-      (!sameLiftCalibration(projected, this->calibration) || !obj["upTime"].isNull() ||
-       !obj["downTime"].isNull()) && !this->idleForAdministration()) return -15;
+      !this->idleForAdministration()) return -15;
   int8_t err = this->validateJSON(obj);
   if(err == 0) {
     this->calibration = projected;

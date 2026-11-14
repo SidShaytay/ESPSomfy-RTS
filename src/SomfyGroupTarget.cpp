@@ -9,8 +9,9 @@ extern SomfyShadeController somfy;
 namespace {
 class GroupMoveAdapter : public GroupMotionOps, public GroupStopOps {
   SomfyGroup &group;
+  bool wireEndpoints = false;
   public:
-    explicit GroupMoveAdapter(SomfyGroup &group) : group(group) {}
+    explicit GroupMoveAdapter(SomfyGroup &group, bool wire = false) : group(group), wireEndpoints(wire) {}
     size_t memberCount() override {
       size_t n = 0;
       while(n < SOMFY_MAX_GROUPED_SHADES && group.linkedShades[n]) n++;
@@ -27,11 +28,12 @@ class GroupMoveAdapter : public GroupMotionOps, public GroupStopOps {
     bool member(size_t index, GroupMemberMotion &out) override {
       SomfyShade *shade = somfy.getShadeById(group.linkedShades[index]);
       if(!shade) return false;
-      shade->refreshTravel();
+      shade->refreshTravel(millis());
       out.current = shade->state().currentPos;
       out.direction = shade->state().direction;
       out.stopPending = shade->hasStopPending();
-      out.invertTarget = shade->shadeType == shade_types::awning;
+      out.settling = shade->isSettling(millis());
+      out.invertTarget = wireEndpoints ? shade->flipCommands != group.flipCommands : shade->shadeType == shade_types::awning;
       out.flipCommands = shade->flipCommands;
       // A press still queued has not moved the motor, which is idle.
       out.idle = (shade->isIdle() && !shade->hasGroupTargetWork()) || shade->startQueuedOnly();
@@ -86,6 +88,7 @@ class GroupMoveAdapter : public GroupMotionOps, public GroupStopOps {
     }
     bool deferUntilStopped(float target) override {
       group.replanTarget = target;
+      group.replanWireEndpoints = wireEndpoints;
       group.replanPending = true;
       for(size_t i = 0; i < memberCount(); i++) {
         SomfyShade *shade = somfy.getShadeById(group.linkedShades[i]);
@@ -101,7 +104,7 @@ bool stopTargetMembers(SomfyGroup &group) {
   GroupMoveAdapter adapter(group);
   return runGroupStop(adapter);
 }
-bool SomfyGroup::moveToTarget(float target) {
+bool SomfyGroup::moveToTarget(float target, bool wireEndpoints) {
   if(!somfy.modelLoad.usable() || !(target >= 0 && target <= 100) ||
       !counterCommandAllowed(getRemoteAddress(), somfy_commands::UpDown)) return false;
   bool ended = false;
@@ -109,8 +112,8 @@ bool SomfyGroup::moveToTarget(float target) {
     if(!id) { ended = true; continue; }
     if(ended) return false;
   }
-  GroupMoveAdapter adapter(*this);
-  bool unfinished = false, sameTarget = true;
+  GroupMoveAdapter adapter(*this, wireEndpoints);
+  bool unfinished = false, sameTarget = true, settling = false, stopping = false;
   for(size_t i = 0; i < adapter.memberCount(); i++) {
     GroupMemberMotion m;
     if(!adapter.member(i, m) || !m.targetSupported || somfy.getShadeById(linkedShades[i])->hasPendingProgramming()) return false;
@@ -118,6 +121,8 @@ bool SomfyGroup::moveToTarget(float target) {
     shade->awaitQueuedStart();
     if(shade->hasPendingGroupStart()) unfinished = true;
     if(shade->state().target != groupStoredTarget(m, target)) sameTarget = false;
+    settling = settling || shade->isSettling(millis());
+    stopping = stopping || shade->hasStopPending();
   }
   if(unfinished && sameTarget) {
     // The unfinished press already heads every member to this target, so a
@@ -131,12 +136,16 @@ bool SomfyGroup::moveToTarget(float target) {
     // press and plan only the latest target from where the members are once
     // its outcome is known: no new start, rolling code or early My now.
     this->replanTarget = target;
+    this->replanWireEndpoints = wireEndpoints;
     this->replanPending = true;
     for(size_t i = 0; i < adapter.memberCount(); i++) somfy.getShadeById(this->linkedShades[i])->clearGroupPlanFailure();
     this->targetActive = true;
     this->updateTargetDirection();
     return true;
   }
+  // Repeating an endpoint while a member is still taking up the final gaps
+  // retains that run, including members that have already finished.
+  if((target == 0 || target == 100) && sameTarget && settling && !stopping) return true;
   this->replanPending = false;
   const bool accepted = runGroupTarget(adapter, target);
   // Also track the individual fallback: group movement ends only after the
@@ -161,7 +170,7 @@ void SomfyGroup::serviceTarget() {
   }
   this->replanPending = false;
   this->targetActive = true;
-  GroupMoveAdapter adapter(*this);
+  GroupMoveAdapter adapter(*this, this->replanWireEndpoints);
   if(!runGroupTarget(adapter, this->replanTarget))
     ESP_LOGW(TAG, "[Group %u] Waiting group target refused", this->getGroupId());
   this->updateTargetDirection();

@@ -109,6 +109,15 @@ uint32_t SomfyShadeOps::sendOwnedRepeat(const shade_request_t &req) {
      remote->lastFrame.remoteAddress==remote->getRemoteAddress() &&
      remote->lastFrame.proto==remote->proto && remote->lastFrame.bitLength==bits)
     return remote->repeatFrameReceipt(req.repeat).ticket;
+  // A newly owned button press must return its exact RF ticket. A calibrated
+  // reversal may instead require a deferred Stop/start; leave that to normal
+  // target requests and refuse this hold before submitting any command.
+  if(shade && shade->calibration.kind != LiftKind::legacy && !shade->idleForAdministration()) return 0;
+  if(grouped) for(const auto id : group->linkedShades) {
+    if(!id) break;
+    const auto *member = somfy.getShadeById(id);
+    if(member && member->calibration.kind != LiftKind::legacy && !member->idleForAdministration()) return 0;
+  }
   return grouped?group->sendCommandReceipt(req.command,req.repeat,req.stepSize).ticket:
                  shade->sendCommandReceipt(req.command,req.repeat,req.stepSize).ticket;
 }

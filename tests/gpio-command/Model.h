@@ -37,6 +37,7 @@ struct SomfyShade:SomfyRemote,ShadeSettings,MotorLink,ShadeEvents {
  int8_t conflict=0;
  bool prepareOnSend=false;
  void prepareCommand(uint32_t exceptTicket=0);void userOverride();bool supportsGroupTarget() const;
+ bool idleForAdministration() const{return behaviour.idleForAdministration() && !gpioRelease;}
  bool hasPendingGroupStart() const{return behaviour.hasPendingGroupStart();}
  bool hasPendingProgramming() const{return behaviour.hasPendingProgramming();}
  bool startQueuedOnly() const{return behaviour.startQueuedOnly();}

@@ -12,6 +12,7 @@ struct Sent {
   somfy_commands command;
   uint32_t ticket;
   uint32_t queuedAt;
+  uint8_t repeats;
 };
 struct Link : MotorLink {
   somfy_frame_t &frame;
@@ -36,7 +37,7 @@ struct Link : MotorLink {
     encodeTxJob(job, candidate, repeats);
     frame = candidate;
     const uint32_t ticket = nextTicket++;
-    sent.push_back({frame.cmd, ticket, now});
+    sent.push_back({frame.cmd, ticket, now, repeats});
     return {true, ticket};
   }
 };
@@ -230,8 +231,72 @@ static void test_direct_nonlinear_profile_has_no_segmented_takeup() {
   ASSERT_CMD(somfy_commands::My, r.link.sent.back().command);
 }
 
+static void test_ordinary_stop_during_settling_does_not_leave_a_phantom_run() {
+  Rig r;
+  TEST_ASSERT_TRUE(r.behaviour.sendCommand(somfy_commands::Down, 1, 0, r.now));
+  const auto start = r.now; r.completePress(r.link.sent.back().ticket);
+  r.until(start + 9500);
+  TEST_ASSERT_FALSE(r.behaviour.isIdle());
+  TEST_ASSERT_TRUE(r.behaviour.sendCommand(somfy_commands::My, 1, 0, r.now));
+  r.completePress(r.link.sent.back().ticket);
+  TEST_ASSERT_TRUE(r.behaviour.isIdle());
+  const auto count = r.link.sent.size();
+  TEST_ASSERT_TRUE(r.behaviour.moveToTarget(50, -1, r.now));
+  TEST_ASSERT_EQUAL_UINT(count + 1, r.link.sent.size());
+  ASSERT_CMD(somfy_commands::Up, r.link.sent.back().command);
+}
+static void test_ordinary_reversal_keeps_old_motion_until_stop_and_new_start_outcomes() {
+  Rig r;
+  TEST_ASSERT_TRUE(r.behaviour.sendCommand(somfy_commands::Down, 1, 0, r.now));
+  const auto start = r.now; r.completePress(r.link.sent.back().ticket);
+  r.until(start + 2500);
+  TEST_ASSERT_TRUE(r.behaviour.sendCommand(somfy_commands::Up, 1, 0, r.now));
+  ASSERT_CMD(somfy_commands::My, r.link.sent.back().command);
+  const auto stop = r.link.sent.back().ticket;
+  r.run(300);
+  ASSERT_POS(30, r.state().currentPos);
+  r.completePress(stop);
+  ASSERT_CMD(somfy_commands::Up, r.link.sent.back().command);
+  const auto stopped = r.state().currentPos;
+  r.run(700);
+  ASSERT_POS(stopped, r.state().currentPos);
+}
+static void test_repeating_endpoint_during_settling_preserves_the_unfinished_run() {
+  for(bool grouped : {false, true}) {
+    Rig r;
+    const auto start = grouped ? r.group(100) : r.individual(100);
+    r.until(start + 9500);
+    const auto count = r.link.sent.size();
+    TEST_ASSERT_TRUE(grouped ? r.behaviour.moveToGroupTarget(100,r.now) : r.behaviour.moveToTarget(100,-1,r.now));
+    TEST_ASSERT_EQUAL_UINT(count, r.link.sent.size());
+    r.until(start + 10000);
+    TEST_ASSERT_TRUE(r.behaviour.idleForAdministration());
+  }
+}
+
+static void test_calibrated_command_preserves_explicit_repeat_count_and_start_receipt() {
+  Rig r; uint32_t ticket = 0;
+  TEST_ASSERT_TRUE(r.behaviour.sendCommand(somfy_commands::Down, 7, 0, r.now, &ticket));
+  TEST_ASSERT_EQUAL_UINT32(r.link.sent.back().ticket, ticket);
+  TEST_ASSERT_EQUAL_UINT8(7, r.link.sent.back().repeats);
+  TEST_ASSERT_EQUAL_UINT8(8, r.frame.repeats); // Initial frame plus requested repetitions.
+}
+static void test_completed_idle_endpoint_refresh_can_seek_before_next_tick() {
+  Rig r;
+  TEST_ASSERT_TRUE(r.behaviour.moveToGroupTarget(0, r.now));
+  r.completePress(r.link.sent.back().ticket);
+  TEST_ASSERT_TRUE(r.behaviour.isIdle());
+  TEST_ASSERT_TRUE(r.behaviour.moveToTarget(50, -1, r.now));
+  ASSERT_CMD(somfy_commands::Down, r.link.sent.back().command);
+}
+
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_calibrated_command_preserves_explicit_repeat_count_and_start_receipt);
+  RUN_TEST(test_completed_idle_endpoint_refresh_can_seek_before_next_tick);
+  RUN_TEST(test_ordinary_stop_during_settling_does_not_leave_a_phantom_run);
+  RUN_TEST(test_ordinary_reversal_keeps_old_motion_until_stop_and_new_start_outcomes);
+  RUN_TEST(test_repeating_endpoint_during_settling_preserves_the_unfinished_run);
   RUN_TEST(test_individual_position_waits_for_on_air_then_saved_endpoint_takeup);
   RUN_TEST(test_individual_intermediate_stop_uses_nonlinear_visible_deadline);
   RUN_TEST(test_group_member_intermediate_stop_uses_same_saved_profile);

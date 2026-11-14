@@ -68,6 +68,7 @@ class ShadeBehaviour {
     ShadeBehaviour &operator=(const ShadeBehaviour &) = delete;
     const State &state() const { return this->s; }
     bool isIdle() const;
+    bool isSettling(uint32_t now) const { return liftSettling(now); }
     uint64_t favouriteObservationRevision() const { return observationRevision; }
     // Read-only admission for configuration/persistence/shutdown operations.
     // An idle position estimate can still have held input or unresolved TX.
@@ -153,6 +154,16 @@ class ShadeBehaviour {
     State s;
     uint64_t observationRevision = 1;
     void invalidateFavouriteObservation() { if(observationRevision) ++observationRevision; }
+    // Independent immutable run clock: visible position alone loses progress
+    // through mechanical take-up and endpoint settling.
+    LiftRun liftRun;
+    uint32_t liftAt = 0;
+    int8_t liftDirection = 0, lastLiftDirection = 0;
+    bool calibratedLift() const;
+    bool startLiftTarget(float target, uint8_t repeat, uint32_t now, uint32_t *ticket = nullptr);
+    float liftPosition(float origin, int8_t direction, uint32_t now, uint32_t since, int32_t total);
+    bool liftReached(float target, uint32_t now) const;
+    bool liftSettling(uint32_t now) const;
     uint32_t moveStart = 0;
     uint32_t tiltStart = 0;
     ShadeSensors sensors;

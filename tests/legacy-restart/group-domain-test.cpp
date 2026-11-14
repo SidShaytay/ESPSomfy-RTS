@@ -61,6 +61,10 @@ SomfyShade *SomfyShadeController::getShadeById(uint8_t id) {
 void SomfyShadeController::cancelGroupStartsForShade(uint8_t,uint32_t) {
   // Each scenario sends one command, so no earlier group start exists.
 }
+bool SomfyGroup::moveToTarget(float, bool) {
+  // This legacy restart fixture does not install a calibration profile.
+  assert(false);return false;
+}
 bool stopTargetMembers(SomfyGroup &) {
   // These cases never issue Stop over unresolved movement.
   assert(false);return false;
