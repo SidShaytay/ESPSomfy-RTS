@@ -14,6 +14,12 @@ Timing starts at actual RF transmission, rather than when you click. No pairing 
 
 Each member uses its own calibration for individual and group percentage moves. Test 25%, 50% and 75% individually, then as a group, in both directions. Record what you actually see, including stopping differences. Group members can start together and stop at different times.
 
+These examples use synthetic measurements and the production renderer; they are not physical test results.
+
+![Web calibration review using synthetic measurements](images/calibration-web-review.png)
+
+![LILYGO take-up step rendered by the production LCD renderer](images/calibration-lcd-takeup.png)
+
 ## Recover an uncertain position
 
 Stopping during take-up or final settling, or an incomplete RF press, can leave mechanical progress unknown. The controller preserves that uncertainty across reboot. Percentage moves are then refused; full open and close commands remain available.
@@ -26,6 +32,6 @@ An endpoint confirmation is an operator observation, not motor feedback. Manual 
 
 Open **Radio → Motion logs**, select Motion, Radio and/or Calibration, and choose **Capture for 5 minutes**. Optional USB output writes the same numeric events to the serial connection. Capture is off after reboot, expires automatically and supports at most 15 minutes through the API. It does not change the compile-time SDK logging level.
 
-The web view keeps the latest 500 retrieved lines. The board retains only 32 records; a slow reader is told when records were overwritten. Copy the report before **Stop and clear**. Trace records contain controller shutter IDs, timestamps, RF tickets and numeric values, without radio addresses or credentials. Radio events establish transmission outcomes; they cannot prove the motor received a command. Radio kind 0 means started, 1 finished, 2 aborted and 3 dropped. Motion values are visible percentage multiplied by 100; calibration values are 1 for accepted and 0 for refused.
+The web view keeps the latest 500 retrieved lines. The board retains only 32 records; a slow reader is told when records were overwritten. Copy the report before **Stop and clear**. Trace records contain controller shutter IDs, timestamps, RF tickets and numeric values, without radio addresses or credentials. Radio events establish transmission outcomes; they cannot prove the motor received a command. Radio kind 0 means started, 1 finished, 2 aborted and 3 dropped. Motion kind 0 means up, 1 stopped and 2 down. Motion values are visible percentage multiplied by 100; calibration values are 1 for accepted and 0 for refused.
 
 Use the [release-board test routine](release-board-testing.md) to distinguish automated controller checks from observed motion.

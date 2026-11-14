@@ -40,7 +40,7 @@ The keys of `hello` (`fw`, `sh`) and of the schema itself (`T`, `F`, `E`, `Q`) n
 | Range | Sender | Types |
 |---|---|---|
 | 1–15 | control | `hello` 1, `reply` 2, `next` 3, `sync` 4, `syncEnd` 5, `subscribe` 6, `unsubscribe` 7 |
-| 16–127 | client ops | commands: `shadeCommand` 16, `groupCommand` 17, `tiltCommand` 18, `repeatCommand` 19, `setPositions` 20, `setSensor` 21, `setMyPosition` 22, `unpairShade` 23, `setRollingCode` 24, `sendRemoteCommand` 25; edits: 26–44 (`addRoom` … `groupSortOrder`); reads: `getNextRoom` 45, `getNextShade` 46, `getNextGroup` 47, `groupOptions` 48; settings and the device: `getSettings` 49, `saveSettings` 50, `scanWifi` 51, `beginFrequencyScan` 52, `endFrequencyScan` 53, `reboot` 54, `commitModel` 55, `getFrequencyScanResult` 56, `groupTarget` 57 |
+| 16–127 | client ops | commands: `shadeCommand` 16, `groupCommand` 17, `tiltCommand` 18, `repeatCommand` 19, `setPositions` 20, `setSensor` 21, `setMyPosition` 22, `unpairShade` 23, `setRollingCode` 24, `sendRemoteCommand` 25; edits: 26–44 (`addRoom` … `groupSortOrder`); reads: `getNextRoom` 45, `getNextShade` 46, `getNextGroup` 47, `groupOptions` 48; settings and the device: `getSettings` 49, `saveSettings` 50, `scanWifi` 51, `beginFrequencyScan` 52, `endFrequencyScan` 53, `reboot` 54, `commitModel` 55, `getFrequencyScanResult` 56, `groupTarget` 57, `liftCalibration` 58, `motionDiagnostics` 59 |
 | 128–255 | device events | `shadeState`, `shade`, `shadeRemoved`, `group`, `groupState`, `groupRemoved`, `room`, `roomRemoved`, `roomOrder`, `shadeOrder`, `groupOrder`, `shadeCommanded`, `memory`, `wifi`, `ethernet`, `frame`, `frequencyScan`, `repeaters`, `settingsChanged`, `wifiNetworks`, `modelPersistence` |
 
 A number is never reused. A retired type stays reserved.
@@ -193,6 +193,32 @@ The settings are in five sections. `getSettings` and `saveSettings` name one in 
 These ops run on `loop()` like the rest. Begin requires idle administration admission and preserves accepted queued work. Scan ownership binds the original browser client or LCD session, security configuration and radio settings revision. `scanToken` is a canonical decimal `bootNonce.generation` string; keep it as a string without number conversion. Stop and result requests require that exact identity. The `frequencyScan` feed includes it; ignore events for a different scan.
 
 `endFrequencyScan` retains priority for cleanup. During scanning, RF commands (including unpair) are refused rather than held for later transmission; independent wired GPIO controls remain available. RF remains paused until driver tuning and receive state are restored. A scan stops after five minutes, loss of its authorized source, configuration change or a backwards clock. Closing the browser dialog requests Stop; LCD Back or inactivity also requests Stop. Copying a validated completed peak only edits the Radio settings draft; saving is a separate action.
+
+## Guided calibration and runtime diagnostics
+
+Discover these operations and field keys from the schema. Both run on `loop()` and require the current client's mutation authority.
+
+`liftCalibration` (58) starts a draft with `calibrationAction:100`, a saved `shadeId`, and `calibrationKind` 1 (direct) or 2 (segmented). The reply includes an exact uint32 `calibrationSession`; every later action and Poll uses that token from the same client. `calibrationAction:101` polls. The reply supplies stage, title, hint, available choices, measured times, reversal knowledge and ownership. Follow those choices rather than inferring permitted actions from a timer.
+
+| Action | Number | Human observation required |
+| --- | --- | --- |
+| Open | 0 | No |
+| Stop | 1 | No |
+| Confirm fully open | 2 | Yes |
+| Start closing / opening measurement | 3 / 4 | No |
+| First visible movement / halfway / visible end | 5 / 6 / 7 | Yes |
+| Confirm stopped endpoint | 8 | Yes |
+| Save / Discard | 9 / 10 | No |
+| Measure reversal play | 11 | No |
+| Confirm no reversal play | 12 | Yes |
+| At halfway: Stop | 13 | Yes |
+| Start reversal up / down | 14 / 15 | No |
+
+Observations require explicit `calibrationHuman:true`. Automation must leave it false and must not manufacture observations. The guide owns radio/model administration while active, correlates exact RF tickets, and expires after 30 minutes. Source, security, radio, target or model changes invalidate the draft. Discard does not invent a Stop. A failed or ambiguous movement is never automatically retried.
+
+`motionDiagnostics` (59) reads the bounded trace. Optional `traceMask` configures category bits: motion 1, radio 2, calibration 4. A nonzero mask requires `traceDuration` in milliseconds, 1–900000; `traceUsb:true` additionally writes accepted records to USB. Mask 0 disables and clears. Capture is off at boot, and expiry is observed even without readers/events.
+
+Read with a decimal-string `traceCursor` (initially `"0"`). The reply returns `traceEnabled`, `traceOverflow`, the next string cursor and at most eight `traceRecords`. Continue with that cursor. The board retains 32 numeric records; overflow means evidence was overwritten since the last explicit clear. Records contain category, kind, timestamp, shutter ID, RF ticket and numeric value, without remote addresses or credentials. Reading does not issue RF. See [the release-board routine](release-board-testing.md) for interpreting evidence.
 
 ## Replies
 
