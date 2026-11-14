@@ -151,6 +151,18 @@ def test_release_rf_start_and_stop_outcomes(connect, schema, radio_shade, record
             assert 0 < duration < 10000
             record_property(('direction' if i == 0 else 'stop') + '_rf_ms', duration)
         assert ((starts[finishes[1]['traceTicket']]['traceAt'] - finishes[0]['traceAt']) & 0xffffffff) < 10000
+        reader, stopped, _ = synced_model(connect, schema)
+        reader.close()
+        stopped = next(s for s in stopped if s['shadeId'] == radio_shade)
+        assert not stopped.get('direction', 0)
+        assert stopped.get('position', 0) == stopped.get('target', 0)
+        time.sleep(0.25)
+        reader, stable, _ = synced_model(connect, schema)
+        reader.close()
+        stable = next(s for s in stable if s['shadeId'] == radio_shade)
+        assert not stable.get('direction', 0)
+        assert stable.get('position', 0) == stopped.get('position', 0), 'stopped model drifted'
+        record_property('stopped_model_position', stable.get('position', 0))
         record_property('physical_position', 'not observed')
     finally:
         # Cancel never invents a Stop or endpoint; ambiguous movement runs to
