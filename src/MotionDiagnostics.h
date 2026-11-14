@@ -15,7 +15,7 @@ public:
 private:
   MotionDiagnosticRecord records[capacity]{};
   size_t head = 0, count = 0;
-  uint64_t sequence = 0;
+  uint64_t sequence = 0, clearedThrough = 0;
   uint32_t armedAt = 0, ttl = 0;
   uint8_t mask = 0;
   mutable bool expired = false;
@@ -23,7 +23,7 @@ public:
   bool configure(uint8_t value, uint32_t duration, uint32_t now) {
     if(value > 7 || (value && (!duration || duration > 900000))) return false;
     mask = value; ttl = duration; armedAt = now; expired = false;
-    if(!value) head = count = 0;
+    if(!value) { head = count = 0; clearedThrough = sequence; }
     return true;
   }
   bool enabled(uint32_t now) const {
@@ -43,7 +43,10 @@ public:
     MotionDiagnosticsRead result{0,after,false};
     if(!out || !max || !count) return result;
     const size_t oldest = (head + capacity - count) % capacity;
-    result.overflow = after < records[oldest].sequence - 1;
+    // Clearing history is deliberate. Report lost records only when the
+    // ring has overwritten evidence captured since that clear.
+    result.overflow = after < records[oldest].sequence - 1 &&
+      records[oldest].sequence - 1 > clearedThrough;
     for(size_t i = 0; i < count && result.count < max; ++i) {
       const auto &record = records[(oldest + i) % capacity];
       if(record.sequence <= after) continue;

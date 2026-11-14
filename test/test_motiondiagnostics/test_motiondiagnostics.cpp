@@ -178,8 +178,23 @@ static void test_zero_capacity_or_null_output_does_not_write_or_advance_cursor()
   TEST_ASSERT_EQUAL_UINT64(99, noOutput.next);
 }
 
+static void test_new_capture_after_explicit_clear_has_no_false_overflow() {
+  MotionDiagnostics diagnostics;
+  diagnostics.configure(2,1000,0);
+  append(diagnostics,2,100);
+  diagnostics.configure(0,0,200);
+  diagnostics.configure(2,1000,300);
+  append(diagnostics,2,400);
+  MotionDiagnosticRecord record;
+  const auto result=diagnostics.read(0,&record,1);
+  TEST_ASSERT_EQUAL_UINT(1,result.count);
+  TEST_ASSERT_FALSE(result.overflow);
+  TEST_ASSERT_TRUE(record.sequence>1);
+}
+
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_new_capture_after_explicit_clear_has_no_false_overflow);
   RUN_TEST(test_default_diagnostics_are_disabled_and_empty);
   RUN_TEST(test_each_category_bit_filters_capture_for_every_supported_mask);
   RUN_TEST(test_configuration_limits_are_checked_without_displacing_active_capture);
