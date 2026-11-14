@@ -11,6 +11,8 @@ not establish what is installed. Dated evidence near the end of this page is
 historical. See the [implementation audit](lcd-capability-audit.md) for coverage
 and physical-verification limits.
 
+For per-shutter travel, slack and reversal measurement, use [guided calibration](shutter-calibration.md). The same profile controls individual and group positions.
+
 ## Navigation versions
 
 The main instructions below apply to **public v4.1.0** and engineering **4.9.x**. Check Details for the installed version.
