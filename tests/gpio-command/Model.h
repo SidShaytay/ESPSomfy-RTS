@@ -48,7 +48,7 @@ struct SomfyShade:SomfyRemote,ShadeSettings,MotorLink,ShadeEvents {
  void cancelPositioning(){behaviour.cancelPositioning();}
  void cancelQueuedStart();
  void awaitQueuedStart(){if(behaviour.startQueuedOnly())behaviour.observeGroupStart(behaviour.queuedStartTicket(),millis());}
- bool moveToGroupTarget(float);bool stopGroupTarget();
+ bool moveToGroupTarget(float);bool stopGroupTarget();send_result_t stopCalibrationRun();
  void emitState(){onChanged(SHADE_CHANGED_STATE);}
  void onChanged(uint16_t)override{++behaviourCalls;}
  void onCommand(somfy_commands,const char *,uint32_t)override{}

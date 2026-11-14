@@ -197,3 +197,21 @@ void ShadeBehaviour::cancelGroupStop(float target, uint32_t now) {
   p_target(target);
   emitState();
 }
+
+send_result_t ShadeBehaviour::stopCalibrationRun(int8_t direction, uint32_t now) {
+  if((direction != -1 && direction != 1) || settings.tiltType != tilt_types::none) return {};
+  // The session has observed the whole directional RF press. Its old timing
+  // may be zero or wrong: an estimated endpoint cannot cancel an explicit
+  // operator Stop. Still use the normal actual-outcome Stop planner.
+  groupStartTicket = 0;
+  groupRetargetPending = groupStopAfterStart = false;
+  refreshTravel(now);
+  if(isIdle()) requireReference();
+  const float previousTarget = s.target;
+  if(!queueStop(direction,false,now)) return {};
+  p_target(previousTarget); // Internal My must not temporarily recall a favorite in the estimate.
+  groupPositioning = true;
+  groupDeferred = false;
+  p_direction(direction);
+  return {true,tx.stopTicket};
+}

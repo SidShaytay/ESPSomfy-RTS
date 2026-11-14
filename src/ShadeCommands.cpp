@@ -144,3 +144,9 @@ bool SomfyShade::programMyPositionHere(bool clear) {
      !this->canGpioCommand(somfy_commands::My) || !this->canGpioSeek(this->tiltType!=tilt_types::none)) return false;
   return this->behaviour.programMyPositionHere(clear,millis());
 }
+
+send_result_t SomfyShade::stopCalibrationRun() {
+  const auto drive = transformCommand(lastFrame.cmd);
+  if(drive != somfy_commands::Up && drive != somfy_commands::Down) return {};
+  return behaviour.stopCalibrationRun(drive == somfy_commands::Down ? 1 : -1,millis());
+}

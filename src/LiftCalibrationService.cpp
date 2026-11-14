@@ -83,13 +83,14 @@ public:
     LiftCalibrationGate::active.store(false,std::memory_order_release);
     return true;
   }
-  send_result_t send(uint8_t id, somfy_commands command, bool priority) override {
+  send_result_t send(uint8_t id, somfy_commands command, bool) override {
     if(!owns(owner.generation)) return {};
     auto *shade = somfy.getShadeById(id);
     if(!shade || (command != somfy_commands::Up && command != somfy_commands::Down && command != somfy_commands::My)) return {};
     // Every job still passes the production identity/counter/transport guards.
     dispatching.store(true,std::memory_order_release);
-    const auto result = shade->sendCommandAfter(command,shade->repeats,0,0,priority);
+    const auto result = command == somfy_commands::My ? shade->stopCalibrationRun() :
+      shade->sendCommandReceipt(command,shade->repeats,0);
     dispatching.store(false,std::memory_order_release);
     return result;
   }

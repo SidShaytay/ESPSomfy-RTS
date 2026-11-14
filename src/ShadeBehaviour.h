@@ -93,6 +93,7 @@ class ShadeBehaviour {
     // Adopt a native group start and stop this member at its own target.
     bool moveToGroupTarget(float target, uint32_t now);
     bool stopGroupTarget(uint32_t now);
+    send_result_t stopCalibrationRun(int8_t direction, uint32_t now);
     bool hasGroupTargetWork() const { return this->groupPositioning && (this->groupRetargetPending || this->groupStartTicket || this->groupDeferred || this->tx.hold.held() || this->tx.stopTicket || !this->isIdle()); }
     bool ownsGroupPositioning() const { return this->groupPositioning; }
     bool hasPendingGroupStart() const { return this->groupStartTicket != 0; }

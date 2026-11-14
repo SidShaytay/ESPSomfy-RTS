@@ -161,6 +161,8 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     bool moveToTarget(float pos, float tilt = -1.0f);
     bool moveToGroupTarget(float pos);
     bool stopGroupTarget();
+    // Only the owned calibration session calls this after its complete start.
+    send_result_t stopCalibrationRun();
     // These return false when the radio refused a command they sent.
     bool moveToTiltTarget(float target);
     bool sendTiltCommand(somfy_commands cmd);
