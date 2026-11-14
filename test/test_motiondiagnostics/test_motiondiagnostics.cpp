@@ -77,6 +77,7 @@ static void test_ttl_expires_at_its_boundary_and_retains_preexpiry_evidence() {
   TEST_ASSERT_FALSE(diagnostics.enabled(1));
   TEST_ASSERT_FALSE(append(diagnostics, 1, 1));
   TEST_ASSERT_FALSE(append(diagnostics, 1, 100));
+  TEST_ASSERT_FALSE(diagnostics.enabled(0)); // Expiry cannot reactivate after clock wrap.
   std::array<MotionDiagnosticRecord, 2> records{};
   const auto result = diagnostics.read(0, records.data(), records.size());
   TEST_ASSERT_EQUAL_UINT(1, result.count);

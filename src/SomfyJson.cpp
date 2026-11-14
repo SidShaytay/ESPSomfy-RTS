@@ -21,9 +21,9 @@ extern LoopQueue loopQueue;
 
 int8_t SomfyShade::fromJSON(JsonObject &obj) {
   LiftCalibration projected;
-  if(!projectLiftCalibration(obj, *this, projected)) return -15;
+  if(!projectLiftCalibration(obj, *this, projected)) return CALIBRATION_INVALID;
   if((projected.kind != LiftKind::legacy || this->calibration.kind != LiftKind::legacy) &&
-      !this->idleForAdministration()) return -15;
+      !this->idleForAdministration()) return CALIBRATION_INVALID;
   int8_t err = this->validateJSON(obj);
   if(err == 0) {
     this->calibration = projected;
@@ -287,7 +287,7 @@ edit_result_t mutateModelEdit(model_edit_t &edit) {
       SomfyShade *shade = somfy.getShadeById(obj["shadeId"]);
       if(!shade) return edit_result_t::missing("Shade Id not found.");
       const int8_t err = shade->fromJSON(obj);
-      if(err != 0) return edit_result_t::error(err == -15 ? "Invalid calibration or shutter is busy." : "Data Error.", err);
+      if(err != 0) return edit_result_t::error(err == CALIBRATION_INVALID ? "Invalid calibration or shutter is busy." : "Data Error.", err);
       const auto persisted=shade->save();
       shade->emitState();
       return done(shade->getShadeId(),persisted);

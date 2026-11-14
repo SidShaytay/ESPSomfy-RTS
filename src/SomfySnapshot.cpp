@@ -15,6 +15,8 @@ void snapshotRoom(SomfyRoom &room, room_snapshot_t &out) {
 }
 void snapshotShade(SomfyShade &shade, shade_snapshot_t &out) {
   out.shadeId = shade.getShadeId();
+  out.endpointConfirmed = shade.state().endpointConfirmed;
+  out.calibrationReferenceRequired = shade.state().referenceRequired;
   out.roomId = shade.roomId;
   copyName(out.name, shade.name);
   out.remoteAddress = shade.getRemoteAddress();
@@ -25,7 +27,7 @@ void snapshotShade(SomfyShade &shade, shade_snapshot_t &out) {
   out.stepSize = shade.stepSize;
   out.paired = shade.paired;
   out.lastRollingCode = shade.lastRollingCode;
-  out.position = shade.transformPosition(shade.state().currentPos);
+  out.position = shade.transformPosition(shade.outwardPosition(millis()));
   out.target = shade.transformPosition(shade.state().target);
   out.myPos = shade.transformPosition(shade.state().myPos);
   out.direction = shade.state().direction;

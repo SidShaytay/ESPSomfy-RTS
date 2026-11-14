@@ -47,6 +47,7 @@ class ShadeBehaviour {
     // Where the shade is and where it is going.  Positions run 0-100, the
     // favorite is -1 when there is none.
     struct State {
+      bool endpointConfirmed = false, referenceRequired = false;
       float currentPos = 0.0f;
       float currentTiltPos = 0.0f;
       float target = 0.0f;
@@ -68,6 +69,8 @@ class ShadeBehaviour {
     ShadeBehaviour &operator=(const ShadeBehaviour &) = delete;
     const State &state() const { return this->s; }
     bool isIdle() const;
+    void confirmEndpoint(bool closed);
+    float outwardPosition(uint32_t now) const;
     bool isSettling(uint32_t now) const { return liftSettling(now); }
     uint64_t favouriteObservationRevision() const { return observationRevision; }
     // Read-only admission for configuration/persistence/shutdown operations.
@@ -136,7 +139,7 @@ class ShadeBehaviour {
     // Puts the shade at pos and tilt (-1 leaves one alone) without moving it.
     void setPosition(float pos, float tilt);
     // Where the config file says the shade was.  The targets are where it is.
-    void restore(float pos, float tiltPos, float myPos, float myTiltPos);
+    void restore(float pos, float tiltPos, float myPos, float myTiltPos, bool referenceRequired = false);
     // Forgets the tilt of a shade that has none.
     void clearTilt();
     void setStateFlags(uint8_t flags) { this->s.stateFlags = flags; }
@@ -160,6 +163,9 @@ class ShadeBehaviour {
     uint32_t liftAt = 0;
     int8_t liftDirection = 0, lastLiftDirection = 0;
     bool calibratedLift() const;
+    void requireReference();
+    void invalidateEndpointConfirmation();
+    void noteLiftStop(uint32_t now);
     bool startLiftTarget(float target, uint8_t repeat, uint32_t now, uint32_t *ticket = nullptr);
     float liftPosition(float origin, int8_t direction, uint32_t now, uint32_t since, int32_t total);
     bool liftReached(float target, uint32_t now) const;

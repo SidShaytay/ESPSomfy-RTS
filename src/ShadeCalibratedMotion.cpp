@@ -40,3 +40,38 @@ bool ShadeBehaviour::startLiftTarget(float target, uint8_t repeat, uint32_t now,
   beginGroupStart(receipt.ticket, target == s.currentPos ? 0 : direction, now);
   return true;
 }
+
+void ShadeBehaviour::confirmEndpoint(bool closed) {
+  cancelPositioning();
+  setPosition(closed ? 100 : 0, -1);
+  p_direction(0);
+  p_tiltDirection(0);
+  s.referenceRequired = false;
+  s.endpointConfirmed = true;
+  events.onSaveWanted();
+  events.onChanged(SHADE_CHANGED_STATE);
+}
+
+void ShadeBehaviour::requireReference() {
+  if(!calibratedLift() || s.referenceRequired) return;
+  s.referenceRequired = true;
+  s.endpointConfirmed = false;
+  events.onChanged(SHADE_CHANGED_STATE | SHADE_CHANGED_POSITION);
+  events.onSaveWanted();
+}
+void ShadeBehaviour::noteLiftStop(uint32_t now) {
+  if(calibratedLift() && liftDirection && liftRun.mechanicalPhase(now - liftAt)) requireReference();
+}
+float ShadeBehaviour::outwardPosition(uint32_t) const {
+  if(calibratedLift() && (s.referenceRequired || !isIdle())) {
+    if(s.currentPos <= 0) return 1;
+    if(s.currentPos >= 100) return 99;
+  }
+  return s.currentPos;
+}
+
+void ShadeBehaviour::invalidateEndpointConfirmation() {
+  if(!s.endpointConfirmed) return;
+  s.endpointConfirmed = false;
+  events.onChanged(SHADE_CHANGED_STATE);
+}

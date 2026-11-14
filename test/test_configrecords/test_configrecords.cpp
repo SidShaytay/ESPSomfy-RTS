@@ -837,13 +837,15 @@ static void test_calibration_tail_roundtrip_and_legacy_restore_clears_profile() 
   shade.calibration.kind = LiftKind::segmented;
   shade.calibration.up = {1000, 8000, 2000, 500};
   shade.calibration.down = {2000, 7000, 1000, 600};
+  shade.referenceRequired = true;
   TextWriter writer;
   TEST_ASSERT_TRUE(writeShadeRecord(writer, shade));
-  TEST_ASSERT_EQUAL(368, writer.text.size());
+  TEST_ASSERT_EQUAL(372, writer.text.size());
   shade_record_t got;
   TextReader reader(writer.text);
   TEST_ASSERT_TRUE(readShadeRecord(reader, header(), got));
   TEST_ASSERT_TRUE(sameLiftCalibration(shade.calibration, got.calibration));
+  TEST_ASSERT_TRUE(got.referenceRequired);
   // A legacy record keeps its entire original prefix and ends after roomId.
   std::string old = writer.text.substr(0, 276);
   old.back() = '\n';
@@ -852,6 +854,7 @@ static void test_calibration_tail_roundtrip_and_legacy_restore_clears_profile() 
   TEST_ASSERT_TRUE(readShadeRecord(oldReader, oldHeader, got));
   TEST_ASSERT_EQUAL_UINT8(0, uint8_t(got.calibration.kind));
   TEST_ASSERT_EQUAL_UINT32(0, got.calibration.up.takeupMs);
+  TEST_ASSERT_FALSE(got.referenceRequired);
   TEST_ASSERT_EQUAL_UINT32(276, oldReader.position());
   TEST_ASSERT_TRUE(readShadeRecord(oldReader, header(), got));
   TEST_ASSERT_TRUE(sameLiftCalibration(shade.calibration, got.calibration));

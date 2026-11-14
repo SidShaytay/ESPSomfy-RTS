@@ -41,6 +41,7 @@ void ShadeBehaviour::beginGroupStart(uint32_t ticket, int8_t dir, uint32_t now) 
   this->groupFailed = false;
 }
 void ShadeBehaviour::abandonGroupStart(uint32_t at) {
+  requireReference();
   // A partial directional press may not have reached the motor at all.
   // Do not later send My to a potentially idle motor and recall a favorite.
   const int8_t dir = this->groupStartDir;
@@ -102,6 +103,7 @@ bool ShadeBehaviour::stopGroupTarget(uint32_t now) {
   return true;
 }
 bool ShadeBehaviour::moveToGroupTarget(float target, uint32_t now) {
+  if(calibratedLift() && s.referenceRequired && target > 0 && target < 100) return false;
   if(!(target >= 0 && target <= 100)) return false;
   if(this->hasPendingGroupStart()) {
     // Sliders can send their final target before the start finishes. Keep

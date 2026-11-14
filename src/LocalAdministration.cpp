@@ -28,7 +28,7 @@ bool Administration::takePrivateProjectionDiscard() {
   return true;
 }
 void Administration::close(AdminNotice notice) {
-  form.discard();ordering.discard();advanced.discard();frame={};frame.notice=notice;admitted={};
+  form.discard();ordering.discard();advanced.discard();calibration.discard();frame={};frame.notice=notice;admitted={};
   revision=observedAt=0;cursor=anchor=returnId=typeCursor=0;active=false;page=Page::types;
 }
 bool Administration::open(uint64_t now) {
@@ -49,6 +49,7 @@ void Administration::render() {
   if(page==Page::entity) {frame=form.view();return;}
   if(page==Page::order) {ordering.render(frame);return;}
   if(page==Page::advanced) {advanced.render(frame);return;}
+  if(page==Page::calibration) {calibration.render(frame);return;}
   const auto notice=frame.notice;frame={};frame.notice=notice;
   frame.mode=Mode::fields;
   if(page==Page::types) {
@@ -57,7 +58,7 @@ void Administration::render() {
     for(uint8_t i=frame.offset;i<typeCount && frame.rowCount<3;i++) {auto &row=frame.rows[frame.rowCount++];strcpy(row.label,titles[i]);row.selected=i==typeCursor;}
     return;
   }
-  if(page==Page::more) {strcpy(frame.title,"More");strcpy(frame.hint,"Press: choose   Back: types");frame.total=frame.rowCount=1;strcpy(frame.rows[0].label,"Repeaters");frame.rows[0].selected=true;return;}
+  if(page==Page::more) {strcpy(frame.title,"More");strcpy(frame.hint,"Press: choose   Back: types");frame.total=frame.rowCount=calibration.available()?2:1;frame.selected=cursor;strcpy(frame.rows[0].label,"Repeaters");frame.rows[0].selected=cursor==0;if(calibration.available()){strcpy(frame.rows[1].label,"Calibrate shutter");frame.rows[1].selected=cursor==1;}return;}
   if(typeCursor>=moreType) {close(AdminNotice::changed);return;}
   frame.kind=kinds[typeCursor];
   CataloguePage data;
@@ -82,7 +83,7 @@ bool Administration::guard(uint64_t now) {
   if(!active)return false;
   if(now<observedAt) {close(AdminNotice::expired);return false;}
   observedAt=now;
-  if(page==Page::entity || page==Page::order || page==Page::advanced)return true; // Each child owns its captured history/result.
+  if(page==Page::entity || page==Page::order || page==Page::advanced || page==Page::calibration)return true; // Each child owns its captured history/result.
   const auto current=backend.authorization();
   if(!current.allowed) {close(AdminNotice::locked);return false;}
   if(current.generation!=admitted.generation || current.configurationGeneration!=admitted.configurationGeneration) {
@@ -138,9 +139,14 @@ void Administration::resumeAdvanced() {
 void Administration::finishAdvanced() {
   if(advanced.closed() && advanced.notice()==AdminNotice::none)resumeAdvanced();else render();
 }
+void Administration::finishCalibration() {
+  if(calibration.closed() && calibration.notice()==AdminNotice::none)resumeAdvanced();else render();
+}
 void Administration::tick(uint64_t now) {
   if(!active)return;
-  if(page==Page::advanced) {
+  if(page==Page::calibration) {
+    if(now<observedAt){close(AdminNotice::expired);return;}observedAt=now;calibration.tick(now);finishCalibration();
+  } else if(page==Page::advanced) {
     if(now<observedAt){close(AdminNotice::expired);return;}observedAt=now;advanced.tick(now);finishAdvanced();
   } else if(page==Page::order) {
     if(now<observedAt) {close(AdminNotice::expired);return;}
@@ -156,6 +162,7 @@ void Administration::tick(uint64_t now) {
 void Administration::turn(int direction,uint64_t now) {
   if(!direction || !guard(now))return;
   backend.activity();
+  if(page==Page::calibration) {calibration.turn(direction,now);finishCalibration();return;}
   if(page==Page::advanced) {advanced.turn(direction,now);finishAdvanced();return;}
   if(page==Page::entity) {form.turn(direction,now);render();return;}
   if(page==Page::order) {ordering.turn(direction,now);finishOrder();return;}
@@ -163,19 +170,23 @@ void Administration::turn(int direction,uint64_t now) {
     if(direction>0 && typeCursor+1<typeCount)++typeCursor;
     if(direction<0 && typeCursor)--typeCursor;
     frame.notice=AdminNotice::none;render();
-  } else if(page==Page::entries) {
+  } else if(page==Page::entries || page==Page::more) {
     if(direction>0 && cursor+1<frame.total)++cursor;
     if(direction<0 && cursor)--cursor;
     frame.notice=AdminNotice::none;render();
   }
 }
-void Administration::activate(uint64_t now) {
+void Administration::activate(uint64_t now, bool human) {
   if(!guard(now))return;
   backend.activity();
+  if(page==Page::calibration) {
+    if(calibration.closed()){resumeAdvanced();return;}calibration.activate(now,human);finishCalibration();return;
+  }
   if(page==Page::advanced) {
     if(advanced.closed()){resumeAdvanced();return;}
     if(frame.id)returnId=frame.id;advanced.activate(now);finishAdvanced();return;
   }
+  if(page==Page::more && cursor==1 && calibration.available()) {returnId=0;calibration.open(now);page=Page::calibration;render();return;}
   if(page==Page::more) {returnId=0;advanced.open(Advanced::Scope::repeaters,now);page=Page::advanced;render();return;}
   if(page==Page::order) {
     if(ordering.closed()) {close(AdminNotice::none);return;}
@@ -206,6 +217,7 @@ void Administration::activate(uint64_t now) {
 void Administration::back(uint64_t now) {
   if(!guard(now))return;
   backend.activity();
+  if(page==Page::calibration) {if(calibration.closed()){resumeAdvanced();return;}calibration.back(now);finishCalibration();return;}
   if(page==Page::advanced) {if(advanced.closed()){resumeAdvanced();return;}if(frame.id)returnId=frame.id;advanced.back(now);finishAdvanced();return;}
   if(page==Page::order) {
     if(ordering.closed()) {close(AdminNotice::none);return;}

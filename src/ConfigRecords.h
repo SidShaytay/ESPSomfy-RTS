@@ -21,7 +21,7 @@
 #define SHADE_HDR_VER 24
 #define SHADE_HDR_SIZE 76
 #define SHADE_LEGACY_REC_SIZE 276
-#define SHADE_REC_SIZE 368
+#define SHADE_REC_SIZE 372
 #define GROUP_REC_SIZE 200
 #define ROOM_REC_SIZE 29
 #define REPEATER_REC_SIZE 77
@@ -118,6 +118,7 @@ struct shade_record_t {
   uint32_t upTime = 10000;
   uint32_t downTime = 10000;
   LiftCalibration calibration;
+  bool referenceRequired = false;
   uint32_t tiltTime = 7000;
   uint16_t stepSize = 100;
   uint32_t linkedRemotes[SOMFY_MAX_LINKED_REMOTES] = {};

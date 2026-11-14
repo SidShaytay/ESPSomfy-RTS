@@ -31,6 +31,8 @@ void ShadeBehaviour::clear() {
   this->settingPos = false;
   this->settingTiltPos = false;
   this->awaitMy = 0;
+  this->s.endpointConfirmed = false;
+  this->s.referenceRequired = false;
   this->s.currentPos = 0.0f;
   this->s.currentTiltPos = 0.0f;
   this->s.direction = 0;
@@ -41,6 +43,7 @@ void ShadeBehaviour::clear() {
   this->s.myTiltPos = -1.0f;
 }
 void ShadeBehaviour::setPosition(float pos, float tilt) {
+  invalidateEndpointConfirmation();
   this->liftDirection = this->lastLiftDirection = 0;
   // Through the setters, so MQTT hears about it too.
   if(pos >= 0.0f) {
@@ -52,7 +55,9 @@ void ShadeBehaviour::setPosition(float pos, float tilt) {
     this->p_currentTiltPos(tilt);
   }
 }
-void ShadeBehaviour::restore(float pos, float tiltPos, float myPos, float myTiltPos) {
+void ShadeBehaviour::restore(float pos, float tiltPos, float myPos, float myTiltPos, bool referenceRequired) {
+  this->s.referenceRequired = referenceRequired;
+  this->s.endpointConfirmed = false;
   invalidateFavouriteObservation();
   this->liftDirection = this->lastLiftDirection = 0;
   this->s.currentPos = pos;
@@ -376,6 +381,7 @@ int8_t ShadeBehaviour::p_direction(int8_t dir) {
     this->s.direction = dir;
     if(!dir) this->liftDirection = 0;
     this->events.onChanged(SHADE_CHANGED_DIRECTION);
+    if(calibratedLift()) this->events.onChanged(SHADE_CHANGED_POSITION);
   }
   return old;
 }
@@ -540,9 +546,11 @@ void ShadeBehaviour::onFrame(somfy_frame_t &frame, bool internal, uint32_t now) 
   const uint32_t curTime = now;
   if(calibratedLift()) {
     const auto command = transformCommand(frame.cmd);
+    if(!internal && (command == somfy_commands::My || command == somfy_commands::Stop)) noteLiftStop(now);
     if(command == somfy_commands::Up || command == somfy_commands::Down ||
        (!internal && (command == somfy_commands::My || command == somfy_commands::Stop))) liftDirection = 0;
   }
+  if(startsMovement(frame.cmd)) invalidateEndpointConfirmation();
   this->lastFrame.copy(frame);
   int8_t dir = 0;
   this->moveStart = this->tiltStart = curTime;
@@ -783,6 +791,8 @@ void ShadeBehaviour::onFrame(somfy_frame_t &frame, bool internal, uint32_t now) 
   this->setMovement(dir, now);
 }
 void ShadeBehaviour::onGroupCommand(somfy_commands cmd, uint8_t repeat, uint32_t now, uint8_t stepSize) {
+  if(startsMovement(cmd)) invalidateEndpointConfirmation();
+  if(cmd == somfy_commands::My || cmd == somfy_commands::Stop) noteLiftStop(now);
   // The reason why we are processing all frames here is so
   // any linked remotes that may happen to be on the same ESPSomfy RTS
   // device can trigger the appropriate actions.
@@ -970,6 +980,7 @@ void ShadeBehaviour::onTxEvent(const somfy_tx_event_t &evt) {
       return;
     }
     else if(evt.type == tx_event_t::dropped) {
+      requireReference();
       this->groupStartTicket = 0;
       this->groupFailed = true;
       this->groupRetargetPending = this->groupStopAfterStart = false;
@@ -979,6 +990,7 @@ void ShadeBehaviour::onTxEvent(const somfy_tx_event_t &evt) {
     if(evt.type == tx_event_t::started || (evt.type == tx_event_t::finished && !this->groupStopOnAir)) {
       const uint32_t travel = this->tx.stopDir > 0 ? this->settings.downTime : this->settings.upTime;
       const float stoppedAt = liftPosition(this->groupStopPos, this->tx.stopDir, evt.at, this->tx.stopAt, travel);
+      noteLiftStop(evt.at);
       this->groupStopOnAir = true;
       this->settingPos = false;
       this->p_currentPos(stoppedAt);
@@ -999,6 +1011,7 @@ void ShadeBehaviour::onTxEvent(const somfy_tx_event_t &evt) {
         ESP_LOGW(TAG, "[Shade %u] Deferred group target refused; remaining stopped", this->shadeId);
       return;
     }
+    requireReference();
     // A partial stop may or may not have reached the motor. Conservatively
     // estimate continuing to its limit; never follow it with a deferred start
     // or a second My (which could recall a stopped motor's favorite).
@@ -1383,6 +1396,7 @@ bool ShadeBehaviour::moveToTiltTarget(float target, uint32_t now) {
   return true;
 }
 bool ShadeBehaviour::moveToTarget(float pos, float tilt, uint32_t now) {
+  if(calibratedLift() && s.referenceRequired && pos > 0 && pos < 100) return false;
   if(calibratedLift()) {
     if(!(pos >= 0 && pos <= 100)) return false;
     if(hasPendingGroupStart() || tx.stopTicket || !isIdle()) return moveToGroupTarget(pos, now);

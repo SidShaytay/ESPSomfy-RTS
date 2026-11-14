@@ -25,6 +25,8 @@ struct linked_remote_snapshot_t {
 };
 struct shade_snapshot_t {
   uint8_t shadeId;
+  bool endpointConfirmed;
+  bool calibrationReferenceRequired;
   uint8_t roomId;
   char name[21];
   uint32_t remoteAddress;

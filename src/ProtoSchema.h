@@ -67,6 +67,8 @@
   TYPE(commitModel, 55, 'c', 'd') \
   TYPE(getFrequencyScanResult, 56, 'c', 'd') \
   TYPE(groupTarget, 57, 'c', 'q') \
+  TYPE(liftCalibration, 58, 'c', 'd') \
+  TYPE(motionDiagnostics, 59, 'c', 'd') \
   TYPE(shadeState, 128, 'd', '-') \
   TYPE(shade, 129, 'd', '-') \
   TYPE(shadeRemoved, 130, 'd', '-') \
@@ -137,6 +139,29 @@
   FIELD(myTiltPos, "M", 'i', -1) \
   FIELD(upTime, "U", 'i', 0) \
   FIELD(downTime, "D", 'i', 0) \
+  FIELD(traceMask, "z0", 'i', 0) \
+  FIELD(traceDuration, "z1", 'i', 0) \
+  FIELD(traceUsb, "z2", 'b', 0) \
+  FIELD(traceCursor, "z3", 's', 0) \
+  FIELD(traceEnabled, "z4", 'b', 0) \
+  FIELD(traceOverflow, "z5", 'b', 0) \
+  FIELD(traceRecords, "z6", 'l', 0) \
+  FIELD(traceAt, "z7", 'i', 0) \
+  FIELD(traceCategory, "z8", 'i', 0) \
+  FIELD(traceKind, "z9", 'i', 0) \
+  FIELD(traceTicket, "za", 'i', 0) \
+  FIELD(traceValue, "zb", 'i', 0) \
+  FIELD(calibrationAction, "k0", 'i', -1) \
+  FIELD(calibrationSession, "k1", 'i', 0) \
+  FIELD(calibrationHuman, "k2", 'b', 0) \
+  FIELD(calibrationStage, "k3", 'i', -1) \
+  FIELD(calibrationTitle, "k4", 's', 0) \
+  FIELD(calibrationHint, "k5", 's', 0) \
+  FIELD(calibrationChoices, "k6", 'l', 0) \
+  FIELD(calibrationReferenceRequired, "ka", 'b', 0) \
+  FIELD(calibrationReversalsKnown, "k9", 'b', 0) \
+  FIELD(calibrationOwned, "k7", 'b', 0) \
+  FIELD(endpointConfirmed, "k8", 'b', 0) \
   FIELD(calibrationKind, "cK", 'i', 0) \
   FIELD(upTakeupMs, "c1", 'i', 0) \
   FIELD(upMidpointMs, "c2", 'i', 0) \

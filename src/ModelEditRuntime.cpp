@@ -1,3 +1,4 @@
+#include "LiftCalibrationGate.h"
 #include "Somfy.h"
 #include "SomfyEditor.h"
 #include "esp_log.h"
@@ -32,7 +33,8 @@ static void markEdited(const model_edit_t &edit, const edit_result_t &result) {
 }
 edit_result_t applyModelEdit(model_edit_t &edit) {
   edit_result_t result;
-  if(!somfy.modelLoad.usable())result.desc="Model load failed; restore a complete model before editing";
+  if(LiftCalibrationGate::active.load() && !LiftCalibrationGate::modelSaving) result.desc="Calibration owns the controller; close its guide before editing";
+  else if(!somfy.modelLoad.usable())result.desc="Model load failed; restore a complete model before editing";
   else result=mutateModelEdit(edit);
   if (!result.ok)
     ESP_LOGW(TAG, "Edit %u %s: %s", static_cast<uint8_t>(edit.type),

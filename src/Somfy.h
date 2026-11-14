@@ -1,3 +1,5 @@
+#include "MotionDiagnosticsService.h"
+#include "LiftCalibrationGate.h"
 #include "ModelLoadTrust.h"
 #ifndef SOMFY_H
 #define SOMFY_H
@@ -167,8 +169,10 @@ class SomfyShade : public SomfyRemote, public ShadeSettings, private MotorLink, 
     send_result_t sendCommandReceipt(somfy_commands cmd, uint8_t repeat, uint8_t stepSize = 0);
     // Puts the shade at pos and tilt (-1 leaves one alone) without moving it.
     void setPosition(float pos, float tilt);
+    float outwardPosition(uint32_t now) const { return this->behaviour.outwardPosition(now); }
+    void confirmEndpoint(bool closed) { this->behaviour.confirmEndpoint(closed); }
     // Where the config file says the shade was.
-    void restore(float pos, float tiltPos, float myPos, float myTiltPos) { this->behaviour.restore(pos, tiltPos, myPos, myTiltPos); }
+    void restore(float pos, float tiltPos, float myPos, float myTiltPos, bool referenceRequired = false) { this->behaviour.restore(pos, tiltPos, myPos, myTiltPos, referenceRequired); }
     // Forgets the tilt of a shade that has none.
     void clearTilt() { this->behaviour.clearTilt(); }
     // Linking uses the shared checked received-counter domain; never an unchecked setter.

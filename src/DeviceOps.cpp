@@ -1,3 +1,4 @@
+#include "LiftCalibrationService.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <atomic>
@@ -156,6 +157,8 @@ static void runSave(const proto_reply_to_t &to, settings_save_t *save) {
 
 void runDeviceOp(const loop_item_t &item) {
   switch(static_cast<proto_type_t>(item.op)) {
+    case proto_type_t::motionDiagnostics: MotionTrace::runProtocol(item);break;
+    case proto_type_t::liftCalibration: LiftCal::runProtocol(item);break;
     case proto_type_t::getSettings: {
       ProtoWriter w = protoSocket.beginReply(item.replyTo);
       ProtocolSettingsSink sink(w);

@@ -334,8 +334,19 @@ static void test_applied_undurable_save_exposes_attention_without_save_or_rf_rep
   TEST_ASSERT_EQUAL_UINT(2, r.backend.jobs.size());
 }
 
+static void test_lost_begin_reply_can_resume_same_source_without_restarting_or_reacquiring() {
+  Rig r; r.begin();
+  const auto first = r.token;
+  uint32_t resumed = 0;
+  TEST_ASSERT_TRUE(r.session.begin(r.source,7,LiftKind::direct,150,resumed));
+  TEST_ASSERT_EQUAL_UINT32(first,resumed);
+  TEST_ASSERT_EQUAL_UINT(1,r.backend.acquisitions);
+  TEST_ASSERT_TRUE(r.backend.jobs.empty());
+  TEST_ASSERT_FALSE(r.session.begin(r.source,7,LiftKind::segmented,160,resumed));
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_lost_begin_reply_can_resume_same_source_without_restarting_or_reacquiring);
   RUN_TEST(test_invalid_source_target_or_busy_backend_refuses_before_rf);
   RUN_TEST(test_one_owner_token_and_source_cannot_be_used_by_another_client);
   RUN_TEST(test_context_or_authorization_history_changes_cancel_queued_start_without_my);

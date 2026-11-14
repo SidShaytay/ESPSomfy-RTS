@@ -259,6 +259,7 @@ static void test_only_review_can_save_and_only_durable_applied_save_completes() 
   // Build a distinct complete draft; readyDown alone never authorizes save.
   LiftGuide complete;
   segmentedBoth(complete);
+  accepted(complete, LiftGuideAction::confirmNoReversal, 40500);
   accepted(complete, LiftGuideAction::save, 41000, LiftGuideEffect::save);
   ASSERT_STAGE(LiftGuideStage::saving, complete);
   refused(complete, LiftGuideAction::save, 41001);
@@ -269,6 +270,7 @@ static void test_only_review_can_save_and_only_durable_applied_save_completes() 
 static void test_applied_but_undurable_save_requires_attention_without_rf_retry() {
   LiftGuide guide;
   segmentedBoth(guide);
+  accepted(guide, LiftGuideAction::confirmNoReversal, 40500);
   accepted(guide, LiftGuideAction::save, 41000, LiftGuideEffect::save);
   guide.saved(true, false);
   ASSERT_STAGE(LiftGuideStage::failed, guide);

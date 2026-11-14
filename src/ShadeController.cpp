@@ -1,8 +1,10 @@
+#include "LiftCalibrationGate.h"
 #include <Preferences.h>
 #include "TaskWdt.h"
 #include "esp_log.h"
 #include "ConfigSettings.h"
 #include "Somfy.h"
+#include "MotionDiagnosticsService.h"
 #include "ConfigFile.h"
 #include "ModelEditor.h"
 #include "ShadeChanges.h"
@@ -111,6 +113,7 @@ void SomfyRoom::clear() {
 }
 void SomfyShadeController::processFrame(somfy_frame_t &frame, bool internal, const SomfyRemote *skip) {
   if(!modelLoad.usable())return;
+  if(!internal && LiftCalibrationGate::frameObserver) LiftCalibrationGate::frameObserver(frame);
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++) {
     if(&this->shades[i] == skip) continue;
     if(this->shades[i].getShadeId() != 255) this->shades[i].processFrame(frame, internal);
@@ -149,6 +152,8 @@ void SomfyShadeController::cancelGroupReplansForShade(uint8_t shadeId) {
 }
 
 void SomfyShadeController::processTxEvent(const somfy_tx_event_t &evt) {
+  MotionTrace::record(2,uint8_t(evt.type),0,evt.ticket,0,evt.at);
+  if(LiftCalibrationGate::txObserver) LiftCalibrationGate::txObserver(evt);
   for(uint8_t i = 0; i < SOMFY_MAX_SHADES; i++)
     if(this->shades[i].getShadeId() != 255) this->shades[i].processTxEvent(evt);
   for(auto &group : groups) if(group.getGroupId() != 255) group.serviceTarget();

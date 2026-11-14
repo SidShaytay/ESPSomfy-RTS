@@ -355,7 +355,8 @@ bool writeShadeRecord(ConfigWriter &w, const shade_record_t &rec) {
   w.writeUInt32(calibration.down.takeupMs);
   w.writeUInt32(calibration.down.midpointMs);
   w.writeUInt32(calibration.down.settlingMs);
-  return w.writeUInt32(calibration.down.reversalMs, CFG_REC_END);
+  w.writeUInt32(calibration.down.reversalMs);
+  return w.writeUInt8(rec.shadeId != 255 && rec.referenceRequired ? 1 : 0, CFG_REC_END);
 }
 bool readShadeRecord(ConfigReader &r, const config_header_t &header, shade_record_t &rec) {
   const uint8_t ver = header.version;
@@ -365,6 +366,7 @@ bool readShadeRecord(ConfigReader &r, const config_header_t &header, shade_recor
   if(ver == 24 && header.shadeRecordSize > SHADE_LEGACY_REC_SIZE &&
       header.shadeRecordSize != SHADE_REC_SIZE) return false;
   rec.calibration = {};
+  rec.referenceRequired = false;
   r.beginRecord();
   rec.shadeId = r.readUInt8(255);
   rec.paired = r.readBool(false);
@@ -421,14 +423,16 @@ bool readShadeRecord(ConfigReader &r, const config_header_t &header, shade_recor
   }
   if(ver >= 19) rec.roomId = r.readUInt8(0);
   if(ver == 24 && header.shadeRecordSize == SHADE_REC_SIZE) {
-    uint32_t kind = 0;
+    uint32_t kind = 0, reference = 0;
     auto &c = rec.calibration;
     if(!r.readStrictUInt32(kind, 2) ||
        !r.readStrictUInt32(c.up.takeupMs) || !r.readStrictUInt32(c.up.midpointMs) ||
        !r.readStrictUInt32(c.up.settlingMs) || !r.readStrictUInt32(c.up.reversalMs) ||
        !r.readStrictUInt32(c.down.takeupMs) || !r.readStrictUInt32(c.down.midpointMs) ||
-       !r.readStrictUInt32(c.down.settlingMs) || !r.readStrictUInt32(c.down.reversalMs)) return false;
+       !r.readStrictUInt32(c.down.settlingMs) || !r.readStrictUInt32(c.down.reversalMs) ||
+       !r.readStrictUInt32(reference,1)) return false;
     c.kind = static_cast<LiftKind>(kind);
+    rec.referenceRequired = reference != 0;
     if(!r.atRecordEnd() || r.position() - start != SHADE_REC_SIZE ||
        !validLiftCalibration(c, rec.upTime, rec.downTime)) return false;
   }

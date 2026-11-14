@@ -1,3 +1,5 @@
+#include "LiftCalibrationProtocol.h"
+#include "LiftCalibrationGate.h"
 #include "StackAudit.h"
 #include <Arduino.h>
 #include <WiFi.h>
@@ -243,6 +245,7 @@ static void sendRemoteCommand(AsyncWebSocketClient *client, const proto_message_
     bool accepted=false;
     ~Producer(){loopQueue.endSocketMutation(accepted);}
   } producer;
+  if(!LiftCalibrationGate::radioAllowed()) {replyError(client,req.id,proto_error_t::busy,"Calibration owns the controller");return;}
   producer.accepted=somfy.sendFrame(frame,repeats)!=0;
   if(!producer.accepted){replyError(client,req.id,proto_error_t::radioUnavailable,PROTO_RADIO_REFUSED);return;}
   replyOk(client, req.id);
@@ -282,6 +285,48 @@ static void queueDeviceOp(AsyncWebSocketClient *client, const proto_message_t &m
   item.type = loop_item_type_t::proto_device;
   item.op = msg.type;
   item.replyTo = {client->id(), msg.id};
+  if(msg.type == uint8_t(proto_type_t::motionDiagnostics)) {
+    MotionDiagnosticsRequest request;
+    bool valid = !d.isNull();
+    for(JsonPairConst pair : d) {
+      proto_field_t field;
+      if(!protoFieldOfKey(pair.key().c_str(),field)) { valid=false;break; }
+      switch(field) {
+        case proto_field_t::traceMask:
+          request.configure=true;
+          if(!pair.value().is<uint8_t>() || pair.value().as<uint8_t>() > 7) valid=false;
+          else request.mask=pair.value().as<uint8_t>();break;
+        case proto_field_t::traceDuration:
+          if(!pair.value().is<uint32_t>()) valid=false;
+          else request.ttl=pair.value().as<uint32_t>();break;
+        case proto_field_t::traceUsb:
+          if(!pair.value().is<bool>() && !(pair.value().is<uint8_t>() && pair.value().as<uint8_t>()<=1)) valid=false;
+          else request.usb=pair.value().as<bool>();break;
+        case proto_field_t::traceCursor: {
+          const auto text=pair.value().as<JsonString>();
+          if(!pair.value().is<const char *>() || !text.size() || text.size()>20) {valid=false;break;}
+          uint64_t value=0;
+          for(size_t i=0;i<text.size();++i) {
+            const auto c=text.c_str()[i];
+            if(c<'0'||c>'9'||value>(UINT64_MAX-uint64_t(c-'0'))/10) {valid=false;break;}
+            value=value*10+uint64_t(c-'0');
+          }
+          request.after=value;break;
+        }
+        default:valid=false;break;
+      }
+    }
+    if((request.configure && request.mask && (!request.ttl || request.ttl>900000)) ||
+       (!request.configure && (request.ttl || request.usb))) valid=false;
+    if(!valid) {replyError(client,msg.id,proto_error_t::badRequest,"Invalid motion trace arguments");return;}
+    item.setDiagnostics(request);
+  }
+  if(msg.type == static_cast<uint8_t>(proto_type_t::liftCalibration)) {
+    LiftCalibrationRequest request;
+    const auto *bad = parseLiftCalibrationPayload(d,request);
+    if(bad) {replyError(client,msg.id,proto_error_t::badRequest,bad);return;}
+    item.setCalibration(request);
+  }
   if(msg.type == static_cast<uint8_t>(proto_type_t::commitModel)) {
     const char *bad=parseModelCommitPayload(d);
     if(bad){replyError(client,msg.id,proto_error_t::badRequest,bad);return;}

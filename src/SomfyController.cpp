@@ -1,3 +1,4 @@
+#include "LiftCalibrationService.h"
 #include "StackAudit.h"
 #include "AuditConsole.h"
 #include "FrequencyScanService.h"
@@ -233,6 +234,7 @@ void loop() {
   logIfSlow(TAG, "Loop somfy", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
   FrequencyScan::poll();
+  LiftCal::poll();
   loopQueue.drain();
   logIfSlow(TAG, "Loop queue", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();

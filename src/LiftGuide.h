@@ -5,11 +5,14 @@
 enum class LiftGuideStage : uint8_t {
   closed, reference, readyDown, startingDown, downTakeup, downHalf, downEnd,
   downConfirm, readyUp, startingUp, upTakeup, upHalf, upEnd, upConfirm,
-  review, saving, complete, failed
+  review, saving, complete, failed, reversePosition, reversePositionStopping,
+  reverseReadyUp, reverseStartingUp, reverseTakeupUp, reverseStoppingUp,
+  reverseReadyDown, reverseStartingDown, reverseTakeupDown, reverseStoppingDown, reverseFinish
 };
 enum class LiftGuideAction : uint8_t {
   open, stop, confirmOpen, startDown, startUp, moving, halfway, visibleEnd,
-  confirmEndpoint, save, cancel
+  confirmEndpoint, save, cancel, measureReversals, confirmNoReversal, stopAtHalf,
+  startReverseUp, startReverseDown
 };
 enum class LiftGuideEffect : uint8_t {
   none, driveUp, driveDown, stop, cancelStart, anchorOpen, anchorClosed, save, close
@@ -25,7 +28,7 @@ class LiftGuide {
   LiftCalibration profile;
   uint32_t up = 0, down = 0, ticket = 0, start = 0, movingAt = 0,
            halfwayAt = 0, endAt = 0;
-  bool started = false, directionDown = true, awaitingQueue = false;
+  bool started = false, directionDown = true, awaitingQueue = false, reversalKnown = false;
   bool endpoint(uint32_t now);
 public:
   bool begin(LiftKind, uint32_t now);
@@ -34,6 +37,8 @@ public:
   void refused();
   void txEvent(tx_event_t, uint32_t ticket, uint32_t at);
   void saved(bool applied, bool durable);
+  bool stopped();
+  bool reversalsKnown() const { return reversalKnown; }
   LiftGuideStage stage() const { return phase; }
   const LiftCalibration &calibration() const { return profile; }
   uint32_t upTime() const { return up; }

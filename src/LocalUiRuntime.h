@@ -99,6 +99,7 @@ class Runtime {
 
 public:
   Runtime();
+  explicit Runtime(Calibration::Backend *);
   ~Runtime(){discardSystemChild();}
   uint32_t maxPaintUs = 0;
   void begin();

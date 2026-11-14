@@ -1,3 +1,4 @@
+#include "LiftCalibrationGate.h"
 #include <Preferences.h>
 #include <nvs.h>
 #include "esp_log.h"
@@ -43,6 +44,7 @@ bool SomfyRemote::sendSensorCommand(int8_t isWindy, int8_t isSunny, uint8_t repe
 bool SomfyRemote::sendCommand(somfy_commands cmd) { return this->sendCommand(cmd, this->repeats); }
 bool SomfyRemote::sendCommand(somfy_commands cmd, uint8_t repeat, uint8_t stepSize) { return this->sendCommandAfter(cmd, repeat, stepSize, 0).sent; }
 send_result_t SomfyRemote::sendCommandAfter(somfy_commands cmd, uint8_t repeat, uint8_t stepSize, uint16_t delayMs, bool priority, bool hearsItself) {
+  if(!LiftCalibrationGate::radioAllowed()) return {};
   if(!somfy.modelLoad.usable())return {};
   if(!counterCommandAllowed(this->getRemoteAddress(),cmd))return {};
   if((this->proto==radio_proto::GP_Remote || this->proto==radio_proto::GP_Relay) &&

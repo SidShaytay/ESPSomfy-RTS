@@ -1,6 +1,7 @@
 #include <Preferences.h>
 #include "esp_log.h"
 #include "Somfy.h"
+#include "MotionDiagnosticsService.h"
 #include "GroupMotion.h"
 
 static const char *TAG = "Somfy";
@@ -9,6 +10,9 @@ extern SomfyShadeController somfy;
 
 void SomfyShade::onChanged(uint16_t bits) {
   this->changed |= bits;
+  if(bits & (SHADE_CHANGED_DIRECTION | SHADE_CHANGED_POSITION | SHADE_CHANGED_STATE))
+    MotionTrace::record(1,uint8_t(state().direction+1),getShadeId(),0,
+      int32_t(state().currentPos*100),millis());
   if(bits & (SHADE_CHANGED_MY_POS | SHADE_CHANGED_MY_TILT_POS)) {
     ++configurationRevision;
     ++somfy.configurationRevision;

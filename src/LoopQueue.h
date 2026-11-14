@@ -1,3 +1,5 @@
+#include "LiftCalibrationRequest.h"
+#include "MotionDiagnosticsService.h"
 #ifndef LOOP_QUEUE_H
 #define LOOP_QUEUE_H
 #include <stdint.h>
@@ -44,7 +46,7 @@ struct settings_save_t;
 struct loop_item_t {
   // Payloads are mutually exclusive. Explicit activation preserves C++ union
   // lifetime; the FIFO copies a trivially copyable marker, never model data.
-  union { shade_request_t request{}; FrequencyScanToken scanToken; };
+  union { shade_request_t request{}; FrequencyScanToken scanToken; LiftCalibrationRequest calibration; MotionDiagnosticsRequest diagnostics; };
   loop_item_type_t type = loop_item_type_t::shade_request;
   bool restartAfterCommit = false;
   uint8_t restoreParts = 0;
@@ -55,6 +57,8 @@ struct loop_item_t {
   settings_save_t *save = nullptr;
   uint64_t localToken = 0;
   GitUpdateOwnerToken externalOwner;
+  void setDiagnostics(MotionDiagnosticsRequest value){new(&diagnostics) MotionDiagnosticsRequest(value);}
+  void setCalibration(LiftCalibrationRequest value){new(&calibration) LiftCalibrationRequest(value);}
   void setScanToken(FrequencyScanToken value){new(&scanToken) FrequencyScanToken(value);}
 
 };
@@ -65,6 +69,9 @@ static_assert(sizeof(loop_item_t)<=80,"Keep model contexts out of the 32 queue m
 // that history. Unknown future operations conservatively count as mutations.
 inline bool loopItemMutates(const loop_item_t &item) {
   if(item.type==loop_item_type_t::proto_read) return false;
+  if(item.type==loop_item_type_t::proto_device && item.op==uint8_t(proto_type_t::motionDiagnostics)) return false;
+  if(item.type==loop_item_type_t::proto_device && item.op==uint8_t(proto_type_t::liftCalibration))
+    return item.calibration.action != LiftCalibrationRequest::poll;
   if(item.type==loop_item_type_t::proto_device)
     return item.op!=uint8_t(proto_type_t::getSettings) && item.op!=uint8_t(proto_type_t::getFrequencyScanResult) && item.op!=uint8_t(proto_type_t::reboot);
   return true;

@@ -6,4 +6,4 @@ struct LiftGuideView {
   LiftGuideChoice choices[4]{};
   uint8_t count = 0;
 };
-LiftGuideView liftGuideView(LiftGuideStage, bool applied = false, bool durable = false);
+LiftGuideView liftGuideView(LiftGuideStage, bool applied = false, bool durable = false, bool reversalsKnown = true);

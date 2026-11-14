@@ -1,3 +1,4 @@
+#include "LocalInputSource.h"
 #ifdef ESPSOMFY_LOCAL_UI
 #include "LocalUiRuntime.h"
 #ifdef ESPSOMFY_AUDIT_CONTROL
@@ -116,7 +117,14 @@ bool sameMeaning(const View &a,const View &b,uint64_t page,uint64_t framePage,ui
 void *allocate(size_t size){return heap_caps_malloc(size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);}
 uint16_t transfer[screenWidth*bandHeight];
 }
-Runtime::Runtime():administration(EntityAdmin::runtimeBackend(),runtimeCatalogue(),Settings::runtimeMemory(),Advanced::runtimeBackend()) {}
+Runtime::Runtime():Runtime(
+#ifdef UI_RUNTIME_HOST_TEST
+  nullptr
+#else
+  &Calibration::runtimeBackend()
+#endif
+) {}
+Runtime::Runtime(Calibration::Backend *backend):administration(EntityAdmin::runtimeBackend(),runtimeCatalogue(),Settings::runtimeMemory(),Advanced::runtimeBackend(),backend) {}
 void Runtime::begin() {
   setCaptureProtected(true);controller.setPreferences(loadPreferences());initializeQuickPreferences();
   pinMode(BoardProfile::backButton,INPUT_PULLUP);
@@ -196,6 +204,7 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
   // authorization path as the physical controls. No Form is called directly.
   AuditConsole::UiInput auditInput;
   if(AuditConsole::uiInput(auditInput)) {
+    noteAutomatedInput(now);
     turn=auditInput.turn;pressed=auditInput.pressed;backPressed=auditInput.back;
   }
   uint8_t auditMode=255,auditSelection=0;
@@ -263,7 +272,7 @@ bool Runtime::tick(uint32_t now,const StatusDisplay::Snapshot &s,bool pressed,
       else {
         if(input.turn)administration.turn(input.turn,settingsNow);
         if(input.activate && presentedAdministrationValid && presentedAdministrationEpoch==administration.epoch() &&
-           sameAdministration(administration.view(),presentedAdministration))administration.activate(settingsNow);
+           sameAdministration(administration.view(),presentedAdministration))administration.activate(settingsNow,!automatedInput(now));
       }
     }
     if(administration.takePrivateProjectionDiscard())discardPrivateProjection();

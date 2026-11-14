@@ -1,3 +1,4 @@
+#include "LiftCalibrationGate.h"
 #include "ShadeRequests.h"
 #include "ShadeMotion.h"
 
@@ -35,6 +36,7 @@ static uint8_t repeatsOr(int8_t repeat, uint8_t own) { return repeat >= 0 ? stat
 static shade_request_result_t sent(bool taken) { return taken ? shade_request_result_t::done : shade_request_result_t::radio_refused; }
 
 shade_request_result_t ShadeRequests::run(const shade_request_t &req) {
+  if(LiftCalibrationGate::active.load()) return shade_request_result_t::radio_refused;
   shade_info_t shade;
   uint8_t groupRepeats = 0;
   if(shadeRequestIsForGroup(req.type)) {
@@ -120,6 +122,7 @@ bool validOwnedRepeatRequest(const shade_request_t &req) {
 }
 shade_request_result_t ShadeRequests::runOwnedRepeat(const shade_request_t &req, owned_repeat_receipt_t &receipt) {
   receipt = {};
+  if(LiftCalibrationGate::active.load()) return shade_request_result_t::radio_refused;
   if(!validOwnedRepeatRequest(req)) return shade_request_result_t::radio_refused;
   receipt.ticket = this->ops.sendOwnedRepeat(req);
   return sent(receipt.ticket != 0);

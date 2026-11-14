@@ -241,6 +241,9 @@ static void test_ordinary_stop_during_settling_does_not_leave_a_phantom_run() {
   r.completePress(r.link.sent.back().ticket);
   TEST_ASSERT_TRUE(r.behaviour.isIdle());
   const auto count = r.link.sent.size();
+  TEST_ASSERT_FALSE(r.behaviour.moveToTarget(50, -1, r.now));
+  TEST_ASSERT_EQUAL_UINT(count, r.link.sent.size());
+  r.behaviour.confirmEndpoint(true);
   TEST_ASSERT_TRUE(r.behaviour.moveToTarget(50, -1, r.now));
   TEST_ASSERT_EQUAL_UINT(count + 1, r.link.sent.size());
   ASSERT_CMD(somfy_commands::Up, r.link.sent.back().command);
@@ -290,8 +293,25 @@ static void test_completed_idle_endpoint_refresh_can_seek_before_next_tick() {
   ASSERT_CMD(somfy_commands::Down, r.link.sent.back().command);
 }
 
+static void test_operator_endpoint_anchor_is_separate_from_estimated_positions() {
+  Rig r;
+  r.behaviour.confirmEndpoint(true);
+  TEST_ASSERT_TRUE(r.state().endpointConfirmed);
+  ASSERT_POS(100, r.state().currentPos);
+  TEST_ASSERT_TRUE(r.behaviour.idleForAdministration());
+  TEST_ASSERT_TRUE(r.behaviour.moveToTarget(50,-1,r.now));
+  TEST_ASSERT_FALSE(r.state().endpointConfirmed);
+  r.behaviour.confirmEndpoint(false);
+  TEST_ASSERT_TRUE(r.state().endpointConfirmed);
+  r.behaviour.setPosition(0,-1);
+  TEST_ASSERT_FALSE(r.state().endpointConfirmed);
+  r.behaviour.confirmEndpoint(true);
+  r.behaviour.restore(100,0,-1,-1);
+  TEST_ASSERT_FALSE(r.state().endpointConfirmed);
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_operator_endpoint_anchor_is_separate_from_estimated_positions);
   RUN_TEST(test_calibrated_command_preserves_explicit_repeat_count_and_start_receipt);
   RUN_TEST(test_completed_idle_endpoint_refresh_can_seek_before_next_tick);
   RUN_TEST(test_ordinary_stop_during_settling_does_not_leave_a_phantom_run);

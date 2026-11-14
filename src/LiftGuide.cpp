@@ -4,6 +4,7 @@ bool LiftGuide::begin(LiftKind kind, uint32_t) {
   if(phase != LiftGuideStage::closed || (kind != LiftKind::direct && kind != LiftKind::segmented)) return false;
   *this = LiftGuide{};
   profile.kind = kind;
+  reversalKnown = kind == LiftKind::direct;
   phase = LiftGuideStage::reference;
   return true;
 }
@@ -31,6 +32,8 @@ void LiftGuide::txEvent(tx_event_t type, uint32_t value, uint32_t at) {
       phase = profile.kind == LiftKind::segmented ? LiftGuideStage::downTakeup : LiftGuideStage::downHalf;
     else if(phase == LiftGuideStage::startingUp)
       phase = profile.kind == LiftKind::segmented ? LiftGuideStage::upTakeup : LiftGuideStage::upHalf;
+      else if(phase == LiftGuideStage::reverseStartingUp) phase = LiftGuideStage::reverseTakeupUp;
+    else if(phase == LiftGuideStage::reverseStartingDown) phase = LiftGuideStage::reverseTakeupDown;
   } else if(type == tx_event_t::finished) {
     if(!started) { refused(); return; }
     ticket = 0;
@@ -60,18 +63,21 @@ LiftGuideResult LiftGuide::act(LiftGuideAction action, uint32_t now, bool human)
   if(action == A::cancel) { *this = LiftGuide{}; return {true,E::close}; }
   if(phase == S::complete || phase == S::failed || phase == S::saving) return {};
   if((action == A::confirmOpen || action == A::moving || action == A::halfway ||
-      action == A::visibleEnd || action == A::confirmEndpoint) && !human) return {};
+      action == A::visibleEnd || action == A::confirmEndpoint ||
+      action == A::confirmNoReversal || action == A::stopAtHalf) && !human) return {};
   if(action == A::stop) {
     const E effect = started ? E::stop : ticket || awaitingQueue ? E::cancelStart : E::none;
     refused();
     return {true,effect};
   }
-  if(action == A::open && phase == S::reference && !ticket && !awaitingQueue) {
+  if(action == A::open && (phase == S::reference || phase == S::reverseFinish) && !ticket && !awaitingQueue) {
     started = false; awaitingQueue = true;
     return {true,E::driveUp};
   }
-  if(action == A::confirmOpen && phase == S::reference && !ticket && !awaitingQueue) {
-    phase = S::readyDown; started = false;
+  if(action == A::confirmOpen && (phase == S::reference || phase == S::reverseFinish) && !ticket && !awaitingQueue) {
+    if(phase == S::reverseFinish) { reversalKnown = true; phase = S::review; }
+    else phase = S::readyDown;
+    started = false;
     return {true,E::anchorOpen};
   }
   if((action == A::startDown && phase == S::readyDown) || (action == A::startUp && phase == S::readyUp)) {
@@ -80,7 +86,33 @@ LiftGuideResult LiftGuide::act(LiftGuideAction action, uint32_t now, bool human)
     started = false; awaitingQueue = true;
     return {true,directionDown ? E::driveDown : E::driveUp};
   }
+  if(action == A::confirmNoReversal && phase == S::review && !reversalKnown) {
+    profile.up.reversalMs = profile.down.reversalMs = 0;
+    reversalKnown = true;
+    return {true,E::none};
+  }
+  if(action == A::measureReversals && phase == S::review && !reversalKnown) {
+    phase = S::reversePosition; started = false; awaitingQueue = true;
+    return {true,E::driveDown};
+  }
+  if(action == A::stopAtHalf && phase == S::reversePosition && started && !ticket && !awaitingQueue) {
+    phase = S::reversePositionStopping;
+    return {true,E::stop};
+  }
+  if((action == A::startReverseUp && phase == S::reverseReadyUp) ||
+      (action == A::startReverseDown && phase == S::reverseReadyDown)) {
+    directionDown = action == A::startReverseDown;
+    phase = directionDown ? S::reverseStartingDown : S::reverseStartingUp;
+    started = false; awaitingQueue = true;
+    return {true,directionDown ? E::driveDown : E::driveUp};
+  }
   const uint32_t elapsed = now - start;
+  if(action == A::moving && (phase == S::reverseTakeupUp || phase == S::reverseTakeupDown) &&
+      elapsed <= liftCalibrationMaxMs) {
+    (directionDown ? profile.down : profile.up).reversalMs = elapsed;
+    phase = directionDown ? S::reverseStoppingDown : S::reverseStoppingUp;
+    return {true,E::stop};
+  }
   if(action == A::moving && (phase == S::downTakeup || phase == S::upTakeup) && elapsed <= liftCalibrationMaxMs) {
     movingAt = elapsed; phase = directionDown ? S::downHalf : S::upHalf;
     return {true,E::none};
@@ -101,7 +133,7 @@ LiftGuideResult LiftGuide::act(LiftGuideAction action, uint32_t now, bool human)
     phase = directionDown ? S::readyUp : S::review;
     return {true,directionDown ? E::anchorClosed : E::anchorOpen};
   }
-  if(action == A::save && phase == S::review && validLiftCalibration(profile,up,down)) {
+  if(action == A::save && phase == S::review && reversalKnown && validLiftCalibration(profile,up,down)) {
     phase = S::saving;
     return {true,E::save};
   }
@@ -110,4 +142,17 @@ LiftGuideResult LiftGuide::act(LiftGuideAction action, uint32_t now, bool human)
 void LiftGuide::saved(bool applied, bool durable) {
   if(phase == LiftGuideStage::saving)
     phase = applied && durable ? LiftGuideStage::complete : LiftGuideStage::failed;
+}
+
+bool LiftGuide::stopped() {
+  if(ticket || awaitingQueue) return false;
+  using S = LiftGuideStage;
+  switch(phase) {
+    case S::reversePositionStopping: phase = S::reverseReadyUp; break;
+    case S::reverseStoppingUp: phase = S::reverseReadyDown; break;
+    case S::reverseStoppingDown: phase = S::reverseFinish; break;
+    default: return false;
+  }
+  started = false;
+  return true;
 }

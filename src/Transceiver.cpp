@@ -1,3 +1,4 @@
+#include "LiftCalibrationGate.h"
 #include "StackAudit.h"
 #include <Preferences.h>
 #include <ELECHOUSE_CC1101_SRC_DRV.h>
@@ -893,7 +894,7 @@ uint32_t Transceiver::submitTx(somfy_tx_job_t &job, bool priority, uint16_t dela
   uint32_t ticket;
   {
     TxQueueLock lock;
-    if(counterTxBlocked(this->counterEdits.blockedAddress(),job))return 0;
+    if(!LiftCalibrationGate::radioAllowed() || counterTxBlocked(this->counterEdits.blockedAddress(),job))return 0;
     ticket = this->sched.submit(job, priority, delayMs, millis());
   }
   // The radio task may be idle, or waiting on a delayed job this one is ahead of.

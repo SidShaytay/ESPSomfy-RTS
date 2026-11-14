@@ -112,6 +112,13 @@ bool SomfyGroup::moveToTarget(float target, bool wireEndpoints) {
     if(!id) { ended = true; continue; }
     if(ended) return false;
   }
+  if(target > 0 && target < 100) {
+    for(uint8_t id : linkedShades) {
+      if(!id) break;
+      auto *shade = somfy.getShadeById(id);
+      if(!shade || shade->state().referenceRequired) return false;
+    }
+  }
   GroupMoveAdapter adapter(*this, wireEndpoints);
   bool unfinished = false, sameTarget = true, settling = false, stopping = false;
   for(size_t i = 0; i < adapter.memberCount(); i++) {
@@ -170,8 +177,7 @@ void SomfyGroup::serviceTarget() {
   }
   this->replanPending = false;
   this->targetActive = true;
-  GroupMoveAdapter adapter(*this, this->replanWireEndpoints);
-  if(!runGroupTarget(adapter, this->replanTarget))
+  if(!moveToTarget(this->replanTarget,this->replanWireEndpoints))
     ESP_LOGW(TAG, "[Group %u] Waiting group target refused", this->getGroupId());
   this->updateTargetDirection();
 }

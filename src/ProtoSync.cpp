@@ -14,6 +14,8 @@ void protoRoom(ProtoWriter &w, const room_snapshot_t &room) {
 }
 void protoShadeState(ProtoWriter &w, const shade_snapshot_t &shade) {
   w.add(proto_field_t::shadeId, shade.shadeId);
+  w.add(proto_field_t::endpointConfirmed, shade.endpointConfirmed);
+  w.add(proto_field_t::calibrationReferenceRequired, shade.calibrationReferenceRequired);
   w.add(proto_field_t::position, shade.position);
   w.add(proto_field_t::target, shade.target);
   w.add(proto_field_t::direction, shade.direction);

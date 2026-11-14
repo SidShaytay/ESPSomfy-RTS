@@ -99,7 +99,7 @@ static void test_action_is_required_exact_integer_and_known_operation() {
   auto missing = operation();
   missing.remove(key(proto_field_t::calibrationAction));
   reject(missing);
-  for(const char *json : {"null", "false", "true", "-1", "1.5", "11", "99", "102", "255", "256", "4294967296", "\"0\"", "[]", "{}"}) {
+  for(const char *json : {"null", "false", "true", "-1", "1.5", "16", "99", "102", "255", "256", "4294967296", "\"0\"", "[]", "{}"}) {
     auto document = operation();
     setJson(document, proto_field_t::calibrationAction, json);
     reject(document);

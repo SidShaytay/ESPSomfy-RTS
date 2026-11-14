@@ -37,4 +37,8 @@ public:
   float position(uint32_t elapsedMs) const;
   uint32_t msTo(float target) const;
   uint32_t fullCompletionMs() const;
+  bool mechanicalPhase(uint32_t elapsed) const {
+    return usable && !legacy && (elapsed < leadingMs ||
+      (elapsed < fullCompletionMs() && position(elapsed) == (direction > 0 ? 100 : 0)));
+  }
 };
