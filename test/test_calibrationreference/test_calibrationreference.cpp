@@ -188,8 +188,36 @@ static void dropped_or_partial_start_and_partial_stop_require_reference_without_
     r.refuseInterior();
   }
 }
+// A physical remote and a native group frame bypass the controller's owned
+// Stop ticket. They still stop during an unknown flat mechanical phase.
+static void received_stop_requires_reference(bool grouped, uint32_t elapsed) {
+  for(auto command : {somfy_commands::My,somfy_commands::Stop}) {
+    Rig r; const auto at = r.start(100); r.until(at + elapsed);
+    const auto sentBefore = r.link.sent.size();
+    if(grouped) r.b.onGroupCommand(command,1,r.now);
+    else {
+      somfy_frame_t frame{};
+      frame.cmd = command; frame.remoteAddress = 123;
+      frame.bitLength = 56; frame.valid = true;
+      r.b.onFrame(frame,false,r.now);
+    }
+    r.run(10);
+    TEST_ASSERT_EQUAL_UINT(sentBefore,r.link.sent.size());
+    r.refuseInterior();
+    confirm(r.b,false);
+    TEST_ASSERT_TRUE(r.b.moveToTarget(50,-1,r.now));
+  }
+}
+static void external_remote_stop_during_takeup_requires_reference() { received_stop_requires_reference(false,700); }
+static void external_remote_stop_during_settling_requires_reference() { received_stop_requires_reference(false,9500); }
+static void native_group_stop_during_takeup_requires_reference() { received_stop_requires_reference(true,700); }
+static void native_group_stop_during_settling_requires_reference() { received_stop_requires_reference(true,9500); }
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(external_remote_stop_during_takeup_requires_reference);
+  RUN_TEST(external_remote_stop_during_settling_requires_reference);
+  RUN_TEST(native_group_stop_during_takeup_requires_reference);
+  RUN_TEST(native_group_stop_during_settling_requires_reference);
   RUN_TEST(stopping_during_takeup_requires_reference_before_any_interior_rf);
   RUN_TEST(stopping_during_endpoint_settling_requires_reference_before_interior_rf);
   RUN_TEST(numeric_position_correction_cannot_impersonate_human_endpoint_confirmation);
