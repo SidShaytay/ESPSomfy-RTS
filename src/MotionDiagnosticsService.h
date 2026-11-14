@@ -12,5 +12,6 @@ namespace MotionTrace {
   inline void record(uint8_t category, uint8_t kind, uint8_t shade, uint32_t ticket, int32_t value, uint32_t now) {
     if(sink) sink(category,kind,shade,ticket,value,now);
   }
+  void poll();
   void runProtocol(const loop_item_t &);
 }

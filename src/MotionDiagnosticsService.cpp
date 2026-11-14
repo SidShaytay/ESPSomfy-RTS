@@ -9,6 +9,10 @@ static void captureRecord(uint8_t category, uint8_t kind, uint8_t shade, uint32_
   Serial.printf("TRACE %lu %u %u %u %lu %ld\n",(unsigned long)now,category,kind,shade,
     (unsigned long)ticket,(long)value);
 }
+void poll() {
+  // Observe expiry even when there are no captured events or web readers.
+  if(!capture.enabled(millis())) { sink = nullptr; usb = false; }
+}
 void runProtocol(const loop_item_t &item) {
   const auto &request = item.diagnostics;
   if(request.configure) {

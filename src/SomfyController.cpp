@@ -235,6 +235,7 @@ void loop() {
   esp_task_wdt_reset();
   FrequencyScan::poll();
   LiftCal::poll();
+  MotionTrace::poll();
   loopQueue.drain();
   logIfSlow(TAG, "Loop queue", timing.lap(), LOOP_SLOW_MS);
   esp_task_wdt_reset();
