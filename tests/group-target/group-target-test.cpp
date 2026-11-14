@@ -2,6 +2,7 @@
 #include "SomfyFrame.h"
 #include "SettingsLoadState.h"
 #include "RadioScheduler.h"
+#include "LiftCalibrationGate.h"
 #include "esp_log.h"
 #include <cassert>
 #include <cstdio>
@@ -21,6 +22,7 @@ template<class T>void cancelRemote(T &scheduler,uint32_t address,uint32_t except
   if constexpr(HasCancelRemote<T>::value)scheduler.cancelRemote(address,nowMs,except);
 }
 static std::vector<somfy_tx_job_t> accepted, aired;
+static unsigned counterPeeks=0;
 #define TRANSCEIVER_H
 struct Transceiver {
   struct {
@@ -64,7 +66,7 @@ uint32_t SomfyShadeController::sendFrame(somfy_frame_t &frame,uint8_t repeat,uin
   somfy_tx_job_t job;encodeTxJob(job,frame,repeat);
   return transceiver.submitTx(job,priority,delayMs);
 }
-bool SomfyRemote::peekNextRollingCode(uint16_t &out) {out=lastRollingCode+1;return true;}
+bool SomfyRemote::peekNextRollingCode(uint16_t &out) {++counterPeeks;out=lastRollingCode+1;return true;}
 void SomfyRemote::commitRollingCode(uint16_t value) {p_lastRollingCode(value);}
 uint16_t SomfyRemote::setRollingCode(uint16_t value) {return p_lastRollingCode(value);}
 void SomfyRemote::triggerGPIOs(somfy_frame_t &) {assert(false);}
@@ -165,7 +167,33 @@ static void tickUntil(uint32_t absolute) {
 int main(int argc,char **argv) {
   assert(argc==2);const std::string mode=argv[1];
   auto &group=setup(mode=="mixed"?20:0,mode=="mixed"?80:0);
-  if(mode=="calibrated-raw-group-reversal") {
+  if(mode=="calibration-exclusive-gate") {
+    LiftCalibrationGate::active.store(true);
+    LiftCalibrationGate::permitted=nullptr;
+    const auto first=somfy.shades[0].state(),second=somfy.shades[1].state();
+    const auto peeks=counterPeeks;
+    const auto firstCode=somfy.shades[0].lastRollingCode,secondCode=somfy.shades[1].lastRollingCode,groupCode=group.lastRollingCode;
+    assert(!somfy.shades[0].sendCommand(somfy_commands::Down,1));
+    assert(!group.sendCommand(somfy_commands::Down,1));
+    assert(!target(group,50));
+    assert(accepted.empty() && aired.empty());assert(counterPeeks==peeks);
+    assert(somfy.shades[0].lastRollingCode==firstCode && somfy.shades[1].lastRollingCode==secondCode && group.lastRollingCode==groupCode);
+    assert(somfy.shades[0].state().target==first.target && somfy.shades[0].state().currentPos==first.currentPos);
+    assert(somfy.shades[1].state().target==second.target && somfy.shades[1].state().currentPos==second.currentPos);
+    assert(somfy.shades[0].state().direction==first.direction && somfy.shades[1].state().direction==second.direction);
+    // Only the service's explicitly scoped permission may reach the same
+    // production transport while a calibration lease blocks ordinary callers.
+    LiftCalibrationGate::permitted=+[]{return true;};
+    const auto scoped=somfy.shades[0].sendCommandAfter(somfy_commands::Down,3,0,0);
+    assert(scoped.sent && scoped.ticket!=0);assert(counterPeeks==peeks+1);
+    assert(accepted.size()==1 && accepted[0].ticket==scoped.ticket);
+    assert(accepted[0].frame.remoteAddress==somfy.shades[0].getRemoteAddress());
+    assert(accepted[0].frame.cmd==somfy_commands::Down && accepted[0].repeats==3);
+    assert(somfy.shades[0].lastRollingCode==uint16_t(firstCode+1));
+    assert(somfy.shades[1].lastRollingCode==secondCode && group.lastRollingCode==groupCode);
+    LiftCalibrationGate::permitted=nullptr;
+    LiftCalibrationGate::active.store(false);
+  } else if(mode=="calibrated-raw-group-reversal") {
     savedCalibrations();
     const auto startedAt=nowMs;
     const auto down=group.sendCommandReceipt(somfy_commands::Down,7,0);
