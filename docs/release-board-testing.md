@@ -14,6 +14,14 @@ python3 -m pytest test/e2e/test_calibration.py --device <controller-address> -q 
 
 The existing e2e fixtures support the device's authentication options; see [the suite guide](../test/e2e/README.md). These checks exercise trace configuration/expiry/validation and guide Begin, Poll, refusal of synthetic endpoint confirmation and Discard. They verify unchanged calibration and rolling codes. They do not transmit motor commands.
 
+To check real RF start/Stop timing, opt in explicitly:
+
+```bash
+python3 -m pytest test/e2e/test_calibration.py --device <controller-address> --radio --shade <shutter-id> -q --junitxml=<private-report-path>
+```
+
+The RF check moves that shutter briefly, waits for its complete directional transmission, sends one Stop and records the start/Stop durations. It leaves the shutter stopped at its actual location. It does not return to a guessed position or retry ambiguous RF. Use a quiet period; concurrent RF makes the evidence fail rather than silently attributing another command to the test.
+
 Capture the LCD using `tools/capture-local-ui.py --help` for the supported options. Screenshots prove what was rendered, not whether every physical button works. Check free memory and network responsiveness before and after a test. Keep reports, settings and raw logs outside Git.
 
 ## Check actual RF and motion
