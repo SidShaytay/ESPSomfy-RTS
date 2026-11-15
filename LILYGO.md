@@ -70,10 +70,10 @@ Run native tests with pioarduino and a host C++ compiler; no board is needed:
 ~/.cache/espsomfy-lilygo/pio-python/bin/pio test -e native
 node --test 'test/js/*.test.js'
 bash test/scripts/test_set_version.sh
-CXX=g++ bash tools/test-board-profile.sh
+CXX=g++ bash tools/check-lilygo-build-rules.sh
 ```
 
-Use the cache override consistently if configured. Build-tool tests and exact artifact verification are recorded in [the port validation report](docs/lilygo-port-validation.md).
+`pio test -e native` covers the board pins, GPIO startup order and radio readiness (`test_boardprofile`, `test_boardprofile_plus`, `test_radioreadiness`). The last command compiles `src/LilygoBuild.h` with each missing, wrong-target or conflicting LILYGO feature set and fails if one is accepted. Use the cache override consistently if configured. Build-tool tests and exact artifact verification are recorded in [the port validation report](docs/lilygo-port-validation.md).
 
 Compile, GPIO harness and fake-device protocol results do not prove RF transmission, actual calibration accuracy, real-device import or rollback. Before considering deployment, finish [recovery validation #9](https://github.com/SidShaytay/ESPSomfy-RTS/issues/9), [safe releases/pull updates #12](https://github.com/SidShaytay/ESPSomfy-RTS/issues/12), and the relevant [security review #14](https://github.com/SidShaytay/ESPSomfy-RTS/issues/14). Obtain explicit approval for a concrete migration plan. Do not flash the sole working board, transmit with duplicate identities, pair, calibrate or issue motor commands as a substitute for offline evidence.
 

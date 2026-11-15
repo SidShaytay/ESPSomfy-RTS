@@ -20,8 +20,7 @@ public shade wrappers, behaviour, MotorLink and GPIO driver against fake
 storage, scheduler and GPIO. It checks refusal before storage/frame/estimate
 changes, partial assignments, flip semantics, and every category/opcode against
 the actual remote driver. `tools/test-local-ui-adapter.sh` checks visible masking
-and fresh dispatch refusal; `tools/test-board-profile.sh` checks reserved pads
-and final driver safety. None of these tests sends RF or touches hardware.
+and fresh dispatch refusal; `test_boardprofile_plus` checks reserved pads. None of these tests sends RF or touches hardware.
 
 Ordinary RF groups still retain their existing behavior of notifying configured
 GPIO members through `processInternalCommand`. The LCD already rejects mixed

@@ -35,7 +35,7 @@ Future confirmation must bind the displayed source/version/image digest/manifest
 - `python3 -m unittest discover -s tools -p 'test_update_*.py'`: profile, assets, pre-build identity and release provenance/negative tests.
 - `python3 -m unittest discover -s tools -p 'test_lilygo_manifest.py'`: existing canonical package guard regressions.
 - `pio test -e native`: policy/version/URL/identity tests alongside current firmware domain tests.
-- `node --test 'test/js/*.test.js'`, board-profile and UI-adapter host harnesses retain current web/auth/board behavior.
+- `node --test 'test/js/*.test.js'`, board-profile (native) and UI-adapter host harnesses retain current web/auth/board behavior.
 - Serial build-only shared and generic firmware checks; inspect the shared image for exactly one development marker and generic image for none. Package the shared firmware, including its immutable web assets, using `tools/build-lilygo.sh`.
 
 All tests use fake/local boundaries. No controller, HA, RF, motor commands, publication or physical recovery qualification is included.

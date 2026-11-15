@@ -1,4 +1,5 @@
 #include "BoardProfile.h"
+#include <esp_log.h>
 #include <SPI.h>
 #if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
 #include <driver/gpio.h>
@@ -6,6 +7,7 @@
 
 namespace BoardProfile {
 #if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+static const char *TAG = "Somfy";
 static bool initialized = false;
 
 static void output(uint8_t pin, uint8_t level) {
@@ -30,17 +32,17 @@ void begin() {
   output(power, HIGH);
   delay(10); // Conservative rail settling; no peripheral drivers are started.
   initialized = true;
-  Serial.printf("Board: LILYGO T-Embed %s; flash=%u PSRAM=%u bytes\n",
+  ESP_LOGI(TAG, "Board: LILYGO T-Embed %s; flash=%u PSRAM=%u bytes",
     name, ESP.getFlashChipSize(), ESP.getPsramSize());
-  Serial.println("Board power GPIO15=HIGH; RF SW1 GPIO47=HIGH SW0 GPIO48=HIGH (433 MHz path)");
-  Serial.println("Initial state: display CS41/SD CS13/nRF24 CS44=HIGH; nRF24 CE43/backlight21=LOW");
+  ESP_LOGI(TAG, "Board power GPIO15=HIGH; RF SW1 GPIO47=HIGH SW0 GPIO48=HIGH (433 MHz path)");
+  ESP_LOGI(TAG, "Initial state: display CS41/SD CS13/nRF24 CS44=HIGH; nRF24 CE43/backlight21=LOW");
 }
 
 bool prepareRadio(float frequency) {
   begin();
   // This hardware profile selects only the 433 MHz RF filter path.
   if(!radioFrequencyAllowed(frequency)) {
-    Serial.println("Radio disabled: frequency is outside the selected 433 MHz band");
+    ESP_LOGW(TAG, "Radio disabled: frequency is outside the selected 433 MHz band");
     return false;
   }
   // Arduino 3 owns these pads while SPI is active. Release that ownership
@@ -54,21 +56,12 @@ bool prepareRadio(float frequency) {
   while(digitalRead(miso) == HIGH && millis() - started < 20) delay(1);
   bool ready = digitalRead(miso) == LOW;
   digitalWrite(cs, HIGH);
-  if(!ready) Serial.println("CC1101 not ready: MISO stayed HIGH; check power/shared SPI before retrying");
+  if(!ready) ESP_LOGW(TAG, "CC1101 not ready: MISO stayed HIGH; check power/shared SPI before retrying");
   if(ready) SPI.begin(sck, miso, mosi, cs);
   return ready;
-}
-
-bool usesPin(uint8_t pin) {
-  // USB CDC and in-package flash/OPI PSRAM must never become relay outputs.
-  return pin == 19 || pin == 20 || (pin >= 26 && pin <= 37) ||
-    pin == powerSDA || pin == powerSCL || pin == power || pin == sck || pin == mosi || pin == miso ||
-    pin == cs || pin == tx || pin == rx || pin == sw1 || pin == sw0 ||
-    pin == backButton || pin == encoderA || pin == encoderB || pin == displayDC || pin == wakeButton || pin == displayCS || pin == sdCS || pin == nrfCS || pin == nrfCE || pin == backlight;
 }
 #else
 void begin() {}
 bool prepareRadio(float) { return true; }
-bool usesPin(uint8_t) { return false; }
 #endif
 }

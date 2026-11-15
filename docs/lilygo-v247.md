@@ -19,7 +19,7 @@ Setup pins Arduino CLI 1.3.1, ESP32 Arduino core 2.0.17, ArduinoJson 6.21.5, Pub
 
 The build selects `ESPSOMFY_LILYGO_T_EMBED_CC1101_PLUS`, ESP32-S3, QIO/80 MHz flash, 16 MB flash, OPI PSRAM, and hardware USB CDC/JTAG. Generic builds retain their existing defaults. Artifacts and `flash-manifest.json` containing offsets, sizes, source hashes, and artifact SHA256 values appear in `build/lilygo/artifacts/`; build output is `build/lilygo/build.log`.
 
-For host GPIO checks, run `CXX=g++ bash tools/test-board-profile.sh` in an environment with a C++ compiler. Checks cover power/CS modes and ordering, invalid bands, stuck-MISO recovery, generic behavior, and non-S3 rejection.
+`pio test -e native` covers power/CS modes and ordering, invalid bands, stuck-MISO recovery and generic behavior (`test_boardprofile`, `test_boardprofile_plus`). `CXX=g++ bash tools/check-lilygo-build-rules.sh` covers non-S3 rejection and the required features.
 
 ## Board wiring and startup
 

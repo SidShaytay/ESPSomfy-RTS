@@ -32,7 +32,8 @@ loop-owned edit flow changes settings. Model-file save results still qualify
 the model file only, as described in [model persistence](model-persistence.md).
 
 Verification uses the native `test_modeleditor` and `test_shadegpioadmission`
-suites and `tools/test-board-profile.sh`, which instruments the production GPIO
+suites, plus `test_boardprofile_plus`, which checks every pad the LILYGO board owns against the same admission.
+The `tools/test-gpio-commands.sh` harness instruments the production GPIO
 methods with fake SDK calls. It covers both GPIO protocols and all 17 shade
 categories, physical pad ownership, invalid outputs, duplicate assignments,
 all-unset and mixed assigned/unset cases, and unchanged valid sequencing.

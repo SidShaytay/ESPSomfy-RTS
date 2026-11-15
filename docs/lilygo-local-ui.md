@@ -188,7 +188,7 @@ The enabled build reuses `ShadeRequests` on the model-owning loop. Group UP/DOWN
 bash tools/preview-local-ui.sh
 bash tools/test-status-panel.sh
 bash tools/test-status-health.sh
-bash tools/test-board-profile.sh
+CXX=g++ bash tools/check-lilygo-build-rules.sh
 python3 -m unittest discover -s tools -p test_lcd_image.py
 ```
 

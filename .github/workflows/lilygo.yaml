@@ -27,8 +27,8 @@ jobs:
         run: |
           python -m venv "$ESPSOMFY_TOOL_CACHE/pio-python"
           "$ESPSOMFY_TOOL_CACHE/pio-python/bin/python" -m pip install -r tools/lilygo-python-requirements.txt
-      - name: Host board profile and GPIO checks
-        run: CXX=g++ bash tools/test-board-profile.sh
+      - name: LILYGO build feature rules
+        run: CXX=g++ bash tools/check-lilygo-build-rules.sh
       - name: Offline manifest rejection tests
         run: python tools/test_lilygo_manifest.py
       - name: Offline updater policy and attestation tests

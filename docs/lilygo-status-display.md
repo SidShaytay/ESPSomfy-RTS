@@ -50,7 +50,7 @@ Every 30 seconds USB diagnostics report free internal SRAM, free PSRAM, maximum 
 ```bash
 ~/.cache/espsomfy-lilygo/pio-python/bin/pio test -e native
 bash tools/test-status-panel.sh
-bash tools/test-board-profile.sh
+CXX=g++ bash tools/check-lilygo-build-rules.sh
 node --test 'test/js/*.test.js'
 bash test/scripts/test_set_version.sh
 python3 -m unittest discover -s tools -p 'test_lilygo_manifest.py'

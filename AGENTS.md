@@ -14,7 +14,7 @@ Capture fresh state and counters before every write. Take a verified full-flash 
 
 ## Tests
 
-Run `pio test -e native` for native C++ tests, `node --test "test/js/*.test.js"` for web protocol tests, and `bash test/scripts/test_set_version.sh` for release scripts. Run `bash tools/test-board-profile.sh` with a host C++ compiler for board GPIO/SPI checks. Build tooling tests and manifest verification are documented in `LILYGO.md`. Add regression tests for changed behavior.
+Run `pio test -e native` for native C++ tests, `node --test "test/js/*.test.js"` for web protocol tests, and `bash test/scripts/test_set_version.sh` for release scripts. Board pins, GPIO/SPI startup and radio readiness are native tests (`test_boardprofile*`, `test_radioreadiness`). Run `CXX=g++ bash tools/check-lilygo-build-rules.sh` to check that an invalid LILYGO feature set fails to compile. Build tooling tests and manifest verification are documented in `LILYGO.md`. Add regression tests for changed behavior.
 
 For native coverage use `pio test -e coverage` followed by `gcovr`; `gcovr.cfg` controls the included sources. For JavaScript coverage add `--experimental-test-coverage --test-coverage-include="data-src/js/**"` to Node’s test command. Files outside the native source filter need firmware builds or separate host harnesses.
 
