@@ -11,6 +11,8 @@ public:
  virtual void activity()=0;
  virtual ::FrequencyScan::Source capture()=0;
  virtual bool begin(const ::FrequencyScan::Source &,FrequencyScanToken &)=0;
+ // Why a refused begin is the radio's fault (disabled or silent), or nullptr.
+ virtual const char *radioRefusal(){return nullptr;}
  virtual bool stop(const ::FrequencyScan::Source &,const FrequencyScanToken &)=0;
  virtual ::FrequencyScan::Snapshot status()=0;
  virtual bool peak(const ::FrequencyScan::Source &,const FrequencyScanToken &,float &)=0;

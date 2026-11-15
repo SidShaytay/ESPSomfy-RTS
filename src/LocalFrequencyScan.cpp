@@ -12,6 +12,7 @@ struct Form::Session {
  ::FrequencyScan::Source source;FrequencyScanToken token;SecuritySnapshot auth;
  ::FrequencyScan::Phase observedPhase=::FrequencyScan::Phase::idle;
  uint64_t observedAt=0,activityAt=0;uint8_t cursor=0;
+ const char *radioReason=nullptr;
 };
 void Form::close(Notice reason){
  if(session){
@@ -59,7 +60,7 @@ void Form::activate(uint64_t now){
  if(!guard(now))return;touch(now);auto &s=*session;
  if(s.page==Session::Page::confirm){
   if(!s.cursor){close(Notice::none);return;}
-  if(!backend.begin(s.source,s.token)){s.page=Session::Page::refused;s.cursor=0;return;}
+  if(!backend.begin(s.source,s.token)){s.page=Session::Page::refused;s.cursor=0;s.radioReason=backend.radioRefusal();return;}
   s.page=Session::Page::active;s.observedPhase=::FrequencyScan::Phase::scanning;s.cursor=0;return;
  }
  if(s.page==Session::Page::refused){if(!s.cursor)close(Notice::none);else{s.page=Session::Page::confirm;s.cursor=0;}return;}
@@ -89,7 +90,8 @@ void Form::render(FormView &out)const{
  out={};out.notice=notice;if(!session)return;const auto &s=*session;
  text(out.title,"Radio frequency scan");out.mode=Mode::confirm;out.selected=s.cursor;out.total=out.rowCount=2;
  if(s.page==Session::Page::confirm){text(out.rows[0].label,"Cancel");text(out.rows[1].label,"Start radio scan");text(out.hint,"Wired controls work; RF paused. Remotes can move motors.");}
- else if(s.page==Session::Page::refused){out.mode=Mode::validation;text(out.rows[0].label,"Close");text(out.rows[1].label,"Review Start again");text(out.hint,"Scan not admitted; cleanup may be pending. No automatic retry.");}
+ else if(s.page==Session::Page::refused){out.mode=Mode::validation;text(out.rows[0].label,"Close");text(out.rows[1].label,"Review Start again");text(out.hint,"Scan not admitted; cleanup may be pending. No automatic retry.");
+  if(s.radioReason)snprintf(out.hint,sizeof(out.hint),"%s. Nothing was started.",s.radioReason);}
  else if(s.page==Session::Page::selected){out.total=out.rowCount=1;text(out.rows[0].label,"Opening Radio draft");}
  else {
   const auto view=backend.status();out.mode=Mode::validation;

@@ -101,6 +101,9 @@ class Transceiver {
     uint64_t retainedPinClaims()const{return livePinClaims.snapshot();}
     bool installPaused() const {return installActive.load();}
     bool available() const { return _available.load() && !_administrationPaused.load(); }
+    // Whether the radio itself answered when it was set up, and has not failed
+    // since; unlike available() it ignores a pause for an update or scan.
+    bool responding() const { return _available.load(); }
     bool printBuffer = false;
     bool fromJSON(JsonObject& obj);
     // Persists a prepared config before swapping/applying it. Failed or partial

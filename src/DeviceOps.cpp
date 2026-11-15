@@ -177,6 +177,9 @@ void runDeviceOp(const loop_item_t &item) {
       protoSocket.endReply(item.replyTo);
       break;
     case proto_type_t::beginFrequencyScan: {
+      if(const char *why=FrequencyScan::radioRefusal()) {
+        protoSocket.replyRefused(item.replyTo,proto_error_t::radioUnavailable,why);break;
+      }
       FrequencyScanToken token;
       if(!FrequencyScan::begin(FrequencyScan::webSource(item.replyTo.client),token)) {
         protoSocket.replyRefused(item.replyTo,proto_error_t::busy,"Radio scan admission refused; accepted work was preserved");break;

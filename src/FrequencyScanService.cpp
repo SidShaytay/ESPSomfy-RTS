@@ -1,6 +1,7 @@
 #include "FrequencyScanService.h"
 #include "FrequencyScanAdmission.h"
 #include "Somfy.h"
+#include "RadioReadiness.h"
 #include "ConfigSettings.h"
 #include "GitUpdate.h"
 #include "LoopQueue.h"
@@ -54,6 +55,7 @@ Session &service(){static DriverBackend backend;static Session instance(backend,
 }
 Source webSource(uint32_t client){return {SourceKind::web,client,0,0,securityConfigurationRevision(),deviceSettingsRevision(settings_section_t::radio)};}
 Source localSource(uint32_t session,uint32_t configuration){return {SourceKind::lcd,0,session,configuration,securityConfigurationRevision(),deviceSettingsRevision(settings_section_t::radio)};}
+const char *radioRefusal(){return radioRefusalReason(somfy.transceiver.config.enabled,somfy.transceiver.responding());}
 bool begin(const Source &source,FrequencyScanToken &out){return service().start(source,now(),out);}
 bool stop(const Source &source,const FrequencyScanToken &token){return service().stop(token,source,now());}
 void poll(){service().poll(now());}
