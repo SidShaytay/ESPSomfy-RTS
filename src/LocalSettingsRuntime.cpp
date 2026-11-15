@@ -1,6 +1,7 @@
 #ifdef ESPSOMFY_LOCAL_UI
 #include "LocalSettingsRuntime.h"
 #include "LocalUiAuthorizationAdapter.h"
+#include "BoardProfile.h"
 #include "DeviceOps.h"
 #include "LocalOperationAdmission.h"
 #include "LoopQueue.h"
@@ -36,11 +37,8 @@ public:
   }
   bool hasEthernet() const override { return HAS_ETHERNET; }
   bool fixedRadioPins() const override {
-#ifdef ESPSOMFY_LILYGO_T_EMBED_CC1101
-    return true;
-#else
-    return false;
-#endif
+    // The same flag the protocol sends as fixedPins (SettingsRead.cpp).
+    return BoardProfile::integratedRadio;
   }
   void activity() override { authorizationActivity(); }
 };

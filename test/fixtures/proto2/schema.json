@@ -298,6 +298,11 @@
    "kind": "s",
    "default": 0
   },
+  "fx": {
+   "name": "fixedPins",
+   "kind": "b",
+   "default": 0
+  },
   "g": {
    "name": "groupId",
    "kind": "i",

@@ -110,9 +110,27 @@ static void test_read_values_roundtrip_metadata_to_validator_without_secret_pref
     TEST_ASSERT_TRUE(expanded["passphrase"].isNull());
   }
 }
+static void test_the_radio_says_whether_its_pins_are_the_boards() {
+  ConfigSettings settings;qualifySettings(settings);
+  transceiver_config_t radio;qualifySettings(radio);
+  Snapshot snapshot;
+  TEST_ASSERT_TRUE(readSettingsSnapshot(settings_section_t::radio,settings,radio,snapshot));
+  TEST_ASSERT_TRUE(snapshot.values.count(proto_field_t::fixedPins));
+  // This build has no integrated radio, so the pins are the user's own.
+  TEST_ASSERT_EQUAL('b',snapshot.values.at(proto_field_t::fixedPins).kind);
+  TEST_ASSERT_EQUAL(BoardProfile::integratedRadio,snapshot.values.at(proto_field_t::fixedPins).boolean);
+  TEST_ASSERT_FALSE(snapshot.values.at(proto_field_t::fixedPins).boolean);
+  // No other section says anything about the board.
+  for(auto section:{settings_section_t::general,settings_section_t::network,settings_section_t::mqtt,settings_section_t::security}) {
+    Snapshot other;TEST_ASSERT_TRUE(readSettingsSnapshot(section,settings,radio,other));
+    TEST_ASSERT_FALSE(other.values.count(proto_field_t::fixedPins));
+  }
+}
 int main() {
   UNITY_BEGIN();
+  RUN_TEST(test_the_radio_says_whether_its_pins_are_the_boards);
   RUN_TEST(test_snapshot_covers_all_editable_metadata_without_secret_values);
+  RUN_TEST(test_the_radio_says_whether_its_pins_are_the_boards);
   RUN_TEST(test_defaults_addresses_and_presence_are_explicit);
   RUN_TEST(test_bounded_utf8_text_is_copied_and_owned_by_sink);
   RUN_TEST(test_read_values_roundtrip_metadata_to_validator_without_secret_prefill);

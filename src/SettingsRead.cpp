@@ -1,6 +1,7 @@
 #include "SettingsRead.h"
 #include "ConfigSettings.h"
 #include "Transceiver.h"
+#include "BoardProfile.h"
 #include "Secrets.h"
 #include <stdio.h>
 #include <string.h>
@@ -120,6 +121,10 @@ bool readSettingsSnapshot(settings_section_t section, const ConfigSettings &sett
       w.add(proto_field_t::txPower, cfg.txPower);
       w.add(proto_field_t::noiseDetection, cfg.noiseDetection);
       w.add(proto_field_t::radioInit, cfg.radioInit);
+      // Where the radio is wired to the board the six pins above are the
+      // board's and a save can't change them; the schema default (false) is
+      // left off the wire, so other builds never send it.
+      w.add(proto_field_t::fixedPins, BoardProfile::integratedRadio);
       break;
     }
     default: return false;

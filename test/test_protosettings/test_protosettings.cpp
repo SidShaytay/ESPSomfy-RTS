@@ -172,6 +172,8 @@ static void test_what_is_only_sent_is_refused() {
   TEST_ASSERT_EQUAL_STRING("hasPassphrase can't be saved in network", expand(R"({"se":"network","hq":1})"));
   TEST_ASSERT_EQUAL_STRING("hasEthernet can't be saved in network", expand(R"({"se":"network","he":1})"));
   TEST_ASSERT_EQUAL_STRING("radioInit can't be saved in radio", expand(R"({"se":"radio","ri":1})"));
+  TEST_ASSERT_EQUAL_STRING("fixedPins can't be saved in radio", expand(R"({"se":"radio","fx":1})"));
+  TEST_ASSERT_EQUAL_STRING("fixedPins", protoFieldByKey("fx")->name);
 }
 static void test_a_field_of_another_section_is_refused() {
   TEST_ASSERT_EQUAL_STRING("ssid can't be saved in general", expand(R"({"se":"general","sd":"home"})"));

@@ -26,7 +26,7 @@ static settings_section_t sectionOf(settings_part_t part) {
 // What a save may set.  lo..hi is a whole number's range, a number's in
 // hundredths, and hi a string's longest length: what the setting holds, so the
 // route's fromJSON neither cuts it short nor wraps it.  The has* fields and
-// radioInit are only ever sent.
+// radioInit and fixedPins are only ever sent.
 static const int16_t BIT_LENGTHS[] = {56,80};
 static const int16_t RADIO_PROTOCOLS[] = {0,1,2,8,9};
 static const int16_t WIFI_CONNECTIONS[] = {1};
