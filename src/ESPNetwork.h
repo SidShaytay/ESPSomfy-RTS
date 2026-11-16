@@ -3,6 +3,7 @@
 #include <atomic>
 #include "Utils.h"
 #include "LivePinClaims.h"
+#include "WifiLiveness.h"
 
 #ifndef ESPNetwork_h
 #define ESPNetwork_h
@@ -31,6 +32,12 @@ class ESPNetwork {
     RssiBroadcast rssiBroadcast;
     int linkSpeed = 0;
     bool _connecting = false;
+    // Gateway pings that catch a Wi-Fi link the driver still calls associated
+    // but that carries no traffic (#47).  loop() only.
+    WifiLiveness liveness;
+    int livenessEpoch = 0;
+    void livenessLoop();
+    void forceReconnect();
   public:
     uint64_t retainedPinClaims()const{return liveEthernetPins.snapshot();}
     unsigned long lastWifiScan = 0;

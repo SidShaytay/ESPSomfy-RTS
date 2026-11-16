@@ -14,6 +14,12 @@
 #include <esp_timer.h>
 #include "SSDP.h"
 #include "MqttConnection.h"
+#include <Update.h>
+#include "ping/ping_sock.h"
+#include "lwip/ip_addr.h"
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+#include "GitUpdate.h"
+#endif
 
 static const char *TAG = "Network";
 
@@ -61,6 +67,62 @@ public:
   }
   void clearResults() override {WiFi.scanDelete();}
 };
+}
+namespace {
+// One ICMP echo to the gateway per probe, sent by the IDF ping task.  Its
+// callbacks only publish the result for loop(), which owns everything else.
+// The session, and its task, are kept until the gateway address changes.
+class GatewayPing {
+  esp_ping_handle_t session = nullptr;
+  uint32_t target = 0;
+  std::atomic<bool> running{false}, finished{false}, replied{false};
+  static void onSuccess(esp_ping_handle_t, void *self) { static_cast<GatewayPing *>(self)->replied.store(true); }
+  static void onEnd(esp_ping_handle_t, void *self) {
+    auto *ping = static_cast<GatewayPing *>(self);
+    ping->finished.store(true);
+    ping->running.store(false);
+  }
+public:
+  bool busy() const { return running.load(); }
+  bool start(uint32_t gateway) {
+    if(running.load() || gateway == 0) return false;
+    if(session && target != gateway) {
+      esp_ping_delete_session(session);
+      session = nullptr;
+    }
+    if(!session) {
+      esp_ping_config_t config = ESP_PING_DEFAULT_CONFIG();
+      config.count = 1;
+      config.timeout_ms = 2000;
+      config.data_size = 8;
+      ip_addr_set_ip4_u32(&config.target_addr, gateway);
+      esp_ping_callbacks_t callbacks = {};
+      callbacks.cb_args = this;
+      callbacks.on_ping_success = onSuccess;
+      callbacks.on_ping_end = onEnd;
+      if(esp_ping_new_session(&config, &callbacks, &session) != ESP_OK) {
+        session = nullptr;
+        return false;
+      }
+      target = gateway;
+    }
+    replied.store(false);
+    finished.store(false);
+    running.store(true);
+    if(esp_ping_start(session) != ESP_OK) {
+      running.store(false);
+      return false;
+    }
+    return true;
+  }
+  // True once, after each finished ping, with whether the gateway replied.
+  bool takeResult(bool &ok) {
+    if(!finished.exchange(false)) return false;
+    ok = replied.load();
+    return true;
+  }
+};
+GatewayPing gatewayPing;
 }
 static void clientScanLoop(ESPNetwork &net) {ClientScanDriver driver(net);clientScanner.loop(driver,uint64_t(esp_timer_get_time())/1000);}
 void ESPNetwork::end() {
@@ -137,6 +199,7 @@ void ESPNetwork::loop() {
   conn_types_t ctype = this->preferredConnType();
   this->connect(ctype); // Connection timeout handled in connect function as well as the opening of the Soft AP if needed.
   if(this->connecting()) return; // If we are currently attempting to connect to something then we need to bail here.
+  this->livenessLoop();
   if(_apScanning) {
     if(settings.WIFI.hidden ||                                    // This user has elected to use a hidden AP.
       (this->connected() && !settings.WIFI.roaming) ||            // We are already connected and should not be roaming.
@@ -204,6 +267,54 @@ void ESPNetwork::loop() {
     if(SSDP.isStarted) SSDP.loop();
   }
   else if(!settings.ssdpBroadcast && SSDP.isStarted) SSDP.end();
+}
+// Catches a Wi-Fi link that the driver still reports as associated but that
+// passes no traffic, which raises no disconnect event (#47).  Only on Wi-Fi;
+// while connecting or on another link it pauses, and each join starts afresh.
+void ESPNetwork::livenessLoop() {
+  if(this->connType != conn_types_t::wifi || !this->connected()) return;
+  const uint64_t now = uint64_t(esp_timer_get_time()) / 1000;
+  bool ok = false;
+  if(this->connectAttempts != this->livenessEpoch) {
+    this->livenessEpoch = this->connectAttempts;
+    gatewayPing.takeResult(ok);  // From the previous link; it proves nothing now.
+    this->liveness.linkUp(static_cast<uint32_t>(WiFi.gatewayIP()), now);
+  }
+  if(gatewayPing.takeResult(ok)) this->liveness.probed(ok, now);
+  // A firmware transfer owns the network until it finishes or times out.
+  bool updating = Update.isRunning();
+#if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
+  updating = updating || gitUpdate.busy();
+#endif
+  switch(this->liveness.poll(now, gatewayPing.busy(), updating)) {
+    case WifiLiveness::Action::probe: {
+      // A ping that can't start (low heap) proves nothing about the link, so
+      // it isn't a failure, but say so once: the check is off until it can.
+      static bool startFailed = false;
+      const bool started = gatewayPing.start(static_cast<uint32_t>(WiFi.gatewayIP()));
+      if(!started && !startFailed) ESP_LOGW(TAG, "Gateway ping could not start; WiFi liveness check paused");
+      startFailed = !started;
+      break;
+    }
+    case WifiLiveness::Action::reconnect:
+      this->forceReconnect();
+      break;
+    default:
+      break;
+  }
+}
+// Drops the association so loop() scans and rejoins as it does after a
+// disconnect event.  Auto-reconnect stays off: loop() owns every join.
+void ESPNetwork::forceReconnect() {
+  ESP_LOGW(TAG, "WiFi link passes no traffic: gateway silent after %u failed pings, rejoining (next wait %llus)",
+    (unsigned)this->liveness.failedProbes(), (unsigned long long)(this->liveness.deadWindow() / 1000));
+  resetTaskWdt();
+  if(SSDP.isStarted) SSDP.end();
+  mqtt.disconnect();
+  WiFi.disconnect(false, true);
+  this->connType = conn_types_t::unset;
+  this->disconnectTime = millis();
+  this->_connecting = false;
 }
 bool ESPNetwork::changeAP(const uint8_t *bssid, const int32_t channel) {
   resetTaskWdt(); // Make sure we do not reboot here.
