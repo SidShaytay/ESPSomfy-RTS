@@ -168,6 +168,19 @@ Firmware and HA must both support an added operation before HA can use it. If an
 
 Restore any paused writers only after verification, recording their prior state. Refresh recovery state after subsequent real commands. Record candidate/previous hashes, slots, comparisons, confirmation and untested items in the task/deployment record; keep raw evidence private.
 
+## 6. Prune old recovery sets
+
+Each recovery set holds credentials, counters and 50–100 MB of images, so don't let them pile up. Prune after each verified deployment, never while a capture, backup, upload or verification is in progress:
+
+- **Keep the factory image** captured when the board was first set up. It is the only record of the board as shipped.
+- **Keep the two most recent verified deployments, complete:** full-flash backup, before/after captures, the installed `firmware.bin` and its ELF. They cover the running firmware and the image in the other app slot.
+- **Keep any unfinished or failed attempt** until it is resolved or a later deployment has been verified.
+- **Delete other recovery folders** (investigations, preflights, qualification and calibration runs) once their issue is closed or 14 days after their last change, whichever comes first, unless an open issue still relies on them.
+- Delete whole folders rather than parts of one, and remove pointer files that refer to a deleted folder. Point `LATEST_VERIFIED_DEPLOYMENT` at the newest verified deployment.
+- Record each removed path and its SHA-256 in a private `backup-cleanup-<date>.json` beside the kept sets.
+
+Device logs under `logs/` follow their own retention and are not part of this cleanup.
+
 ## If installation or verification fails
 
 Stop retries and preserve the failure evidence. An interrupted upload may have rebooted the old application; first identify what actually runs. Do not assume every later failure automatically rolls back: rollback depends on image state and bootloader, and a confirmed image is already accepted.
