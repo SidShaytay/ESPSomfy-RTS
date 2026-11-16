@@ -5,6 +5,8 @@
 #include "CounterEdit.h"
 #include "ShadeTypes.h"
 #include "SettingsLoadState.h"
+#include "RadioReadiness.h"
+#include "esp_log.h"
 #include <cassert>
 #include <mutex>
 #include <vector>
@@ -56,14 +58,14 @@ static int digitalPinToInterrupt(int p){return p;}
 static int digitalRead(int){return 0;}
 static void attachInterrupt(int,void(*)(),int){assert(!rxHeld);++attaches;}
 static void detachInterrupt(int){assert(!rxHeld);++detaches;if(beforeDetach)beforeDetach();}
-static void delay(int){}
 static void gpio_intr_disable(int){assert(!rxHeld);}
 using gpio_num_t=int;
 struct {void SetRx(){assert(!rxHeld);++rxCalls;}uint8_t SpiReadStatus(int){return 0x0d;}void setSidle(){}} ELECHOUSE_cc1101;
-struct {void println(const char*){}template<class...T>void printf(const char*,T...){}} Serial;
 namespace BoardProfile {constexpr bool integratedRadio=false;constexpr int sw1=1,sw0=2;}
-#define ESP_LOGI(...)
-#define ESP_LOGD(...) logOutsideRx()
+static const char *TAG="Somfy";
+#undef ESP_LOGD
+template<class...T>static void logArgs(T&&...){logOutsideRx();}
+#define ESP_LOGD(...) logArgs(__VA_ARGS__)
 static somfy_rx_t somfy_rx;
 struct somfy_rx_queue_t {void init();uint8_t length=0,index[MAX_RX_BUFFER]={255,255,255};somfy_rx_t items[MAX_RX_BUFFER];bool pop(somfy_rx_t *rx){assert(rxHeld);if(!length)return false;--length;*rx=items[0];return true;}} rx_queue;
 static somfy_tx_queue_t tx_queue;
@@ -95,6 +97,7 @@ struct Transceiver {
 struct SomfyShadeController {
  struct{bool trusted=true;bool usable()const{return trusted;}}modelLoad;Transceiver transceiver;
  struct Shade{uint8_t id=255;uint8_t getShadeId(){return id;}void checkMovement(){++modelMoves;}void setGPIOs(){++modelGPIO;}}shades[SOMFY_MAX_SHADES];
+ struct Group{uint8_t id=255;uint8_t getGroupId(){return id;}void serviceTarget(){}void updateTargetDirection(){}}groups[SOMFY_MAX_GROUPS];
  bool isDirty=false;unsigned long lastCommit=0;void loop();
  ModelCommitResult commit(){++modelCommits;return {ModelCommitState::saved};}
 }somfy;
