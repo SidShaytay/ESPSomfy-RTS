@@ -6,94 +6,84 @@
 // stopped carrying traffic, so ESPNetwork can force a clean rejoin (#47).
 //
 // Auto-reconnect is off and ESPNetwork::loop() only rejoins after a STA
-// disconnect event.  An access point that keeps beaconing after it restarts or
-// forgets us never causes one, so on its own the board would wait forever.
+// disconnect event.  An access point that restarts on another channel, or
+// forgets us, can leave the station associated with no disconnect event, so
+// on its own the board would wait forever.
 //
-// While the link is up, loop() pings the gateway every WIFI_LIVENESS_PROBE_MS.
-// Once the gateway has answered at least once, WIFI_LIVENESS_MIN_FAILURES
-// failed pings in a row with no answer for the current dead window force a
-// reconnect.  The window starts at WIFI_LIVENESS_DEAD_MS and doubles after
-// each forced reconnect that doesn't bring the gateway back, up to
-// WIFI_LIVENESS_MAX_DEAD_MS.  An answer resets it.
+// It is passive.  The Wi-Fi interface stamps the time of every frame it hands
+// to the IP stack.  Only frames that decrypt with the current keys get there,
+// and a home LAN delivers some every few seconds (ARP, mDNS, Home Assistant),
+// so a healthy link sends nothing extra.  Only after WIFI_LIVENESS_QUIET_MS
+// with nothing received does loop() ask the gateway for its address (ARP),
+// up to WIFI_LIVENESS_PROBES times WIFI_LIVENESS_PROBE_MS apart.  Every IPv4
+// host must answer ARP, and any frame that arrives ends the check.  If the
+// link is still silent one interval after the last request, it reconnects.
 //
-// A gateway that never answers pings never forces a reconnect, so a router
-// that drops ICMP doesn't make the board rejoin over and over.  The gateway
-// is remembered across rejoins, so a reconnect that lands back on a dead link
-// keeps retrying.  A new gateway address starts again.
+// A rejoin that comes back silent doubles the quiet window, up to
+// WIFI_LIVENESS_MAX_QUIET_MS, so a dead network isn't churned every two
+// minutes.  Traffic that arrives a full base window after a join proves the
+// link and resets it.
 //
 // Time is a 64-bit ms clock (esp_timer_get_time() / 1000).  loop() is the only
-// caller; the ping task hands its results to loop() first.
+// caller; the interface hook hands its stamp to loop() first.
 
-#define WIFI_LIVENESS_PROBE_MS 15000ULL
-#define WIFI_LIVENESS_DEAD_MS 90000ULL
-#define WIFI_LIVENESS_MAX_DEAD_MS 900000ULL
-#define WIFI_LIVENESS_MIN_FAILURES 4
+#define WIFI_LIVENESS_QUIET_MS 120000ULL
+#define WIFI_LIVENESS_PROBE_MS 5000ULL
+#define WIFI_LIVENESS_PROBES 3
+#define WIFI_LIVENESS_MAX_QUIET_MS 900000ULL
 
 class WifiLiveness {
   public:
     enum class Action : uint8_t { none, probe, reconnect };
 
-    // The link came up with this gateway (IPv4, any byte order).  The join
-    // itself proved traffic, so the dead window starts now.
-    void linkUp(uint32_t gateway, uint64_t now) {
-      if(gateway != this->gateway) {
-        this->gateway = gateway;
-        this->answered = false;
-        this->backoff = 0;
-      }
-      this->up = gateway != 0;
-      this->lastAnswer = now;
-      this->nextProbe = now + WIFI_LIVENESS_PROBE_MS;
-      this->failures = 0;
+    // A join finished.  It took traffic to get here, so the link counts as
+    // heard from now.
+    void linkUp(uint64_t now) {
+      this->up = true;
+      this->upSince = this->lastHeard = now;
+      this->probes = 0;
     }
-    void linkDown() { this->up = false; }
     bool isUp() const { return this->up; }
 
-    // The result of the ping that probe asked for.
-    void probed(bool ok, uint64_t now) {
-      if(!this->up) return;
-      if(ok) {
-        this->answered = true;
-        this->lastAnswer = now;
-        this->failures = 0;
-        this->backoff = 0;
-      }
-      else if(this->failures < UINT16_MAX) this->failures++;
+    // The latest time a frame arrived.  Older stamps are ignored.
+    void heard(uint64_t at) {
+      if(!this->up || at <= this->lastHeard) return;
+      this->lastHeard = at;
+      this->probes = 0;
+      if(at - this->upSince >= WIFI_LIVENESS_QUIET_MS) this->backoff = 0;
     }
 
-    // What loop() should do now.  busy: a ping is still out, so no new one.
-    // deferred: something else owns the network (a firmware update), so hold
-    // off a reconnect until it ends.
-    Action poll(uint64_t now, bool busy, bool deferred) {
-      if(!this->up) return Action::none;
-      if(this->answered && this->failures >= WIFI_LIVENESS_MIN_FAILURES &&
-         now - this->lastAnswer >= this->deadWindow()) {
-        if(deferred) return Action::none;
-        this->up = false;
-        if(this->deadWindow() < WIFI_LIVENESS_MAX_DEAD_MS) this->backoff++;
-        return Action::reconnect;
+    // What loop() should do now.  deferred: something else owns the network
+    // (a firmware update), so hold off a reconnect until it ends.
+    Action poll(uint64_t now, bool deferred) {
+      if(!this->up || now - this->lastHeard < this->quietWindow()) return Action::none;
+      // Each request gets a full interval to be answered, even after a stall.
+      if(this->probes > 0 && now - this->lastProbe < WIFI_LIVENESS_PROBE_MS) return Action::none;
+      if(this->probes < WIFI_LIVENESS_PROBES) {
+        this->probes++;
+        this->lastProbe = now;
+        return Action::probe;
       }
-      if(busy || now < this->nextProbe) return Action::none;
-      this->nextProbe = now + WIFI_LIVENESS_PROBE_MS;
-      return Action::probe;
+      if(deferred) return Action::none;
+      this->up = false;
+      if(this->quietWindow() < WIFI_LIVENESS_MAX_QUIET_MS) this->backoff++;
+      return Action::reconnect;
     }
 
-    // How long the gateway must stay silent before the next forced reconnect.
-    uint64_t deadWindow() const {
-      uint64_t window = WIFI_LIVENESS_DEAD_MS;
-      for(uint8_t i = 0; i < this->backoff && window < WIFI_LIVENESS_MAX_DEAD_MS; i++) window *= 2;
-      return window < WIFI_LIVENESS_MAX_DEAD_MS ? window : WIFI_LIVENESS_MAX_DEAD_MS;
+    // How long the link must stay silent before the gateway is asked.
+    uint64_t quietWindow() const {
+      uint64_t window = WIFI_LIVENESS_QUIET_MS;
+      for(uint8_t i = 0; i < this->backoff && window < WIFI_LIVENESS_MAX_QUIET_MS; i++) window *= 2;
+      return window < WIFI_LIVENESS_MAX_QUIET_MS ? window : WIFI_LIVENESS_MAX_QUIET_MS;
     }
-    uint16_t failedProbes() const { return this->failures; }
-    bool gatewayAnswered() const { return this->answered; }
+    uint64_t silentFor(uint64_t now) const { return now - this->lastHeard; }
 
   private:
     bool up = false;
-    bool answered = false;
+    uint8_t probes = 0;
     uint8_t backoff = 0;
-    uint16_t failures = 0;
-    uint32_t gateway = 0;
-    uint64_t lastAnswer = 0;
-    uint64_t nextProbe = 0;
+    uint64_t upSince = 0;
+    uint64_t lastHeard = 0;
+    uint64_t lastProbe = 0;
 };
 #endif

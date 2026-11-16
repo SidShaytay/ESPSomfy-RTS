@@ -15,8 +15,10 @@
 #include "SSDP.h"
 #include "MqttConnection.h"
 #include <Update.h>
-#include "ping/ping_sock.h"
-#include "lwip/ip_addr.h"
+#include "esp_netif.h"
+#include "lwip/netif.h"
+#include "lwip/etharp.h"
+#include "lwip/tcpip.h"
 #if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
 #include "GitUpdate.h"
 #endif
@@ -69,60 +71,43 @@ public:
 };
 }
 namespace {
-// One ICMP echo to the gateway per probe, sent by the IDF ping task.  Its
-// callbacks only publish the result for loop(), which owns everything else.
-// The session, and its task, are kept until the gateway address changes.
-class GatewayPing {
-  esp_ping_handle_t session = nullptr;
-  uint32_t target = 0;
-  std::atomic<bool> running{false}, finished{false}, replied{false};
-  static void onSuccess(esp_ping_handle_t, void *self) { static_cast<GatewayPing *>(self)->replied.store(true); }
-  static void onEnd(esp_ping_handle_t, void *self) {
-    auto *ping = static_cast<GatewayPing *>(self);
-    ping->finished.store(true);
-    ping->running.store(false);
+// Stamps each frame the Wi-Fi station hands to the IP stack, for the
+// liveness check (WifiLiveness.h).  It wraps the interface's input function,
+// which the Wi-Fi task calls for every received frame, so the cost is one
+// atomic store per frame and no traffic of its own.
+std::atomic<netif_input_fn> staInput{nullptr};
+std::atomic<uint32_t> staHeardMs{0};
+err_t staInputStamped(struct pbuf *p, struct netif *inp) {
+  staHeardMs.store(uint32_t(esp_timer_get_time() / 1000), std::memory_order_relaxed);
+  return staInput.load(std::memory_order_acquire)(p, inp);
+}
+// The station's lwIP interface.  Caller holds the TCP/IP core lock.
+struct netif *staNetifLocked() {
+  esp_netif_t *handle = WiFi.STA.netif();
+  const int index = handle ? esp_netif_get_netif_impl_index(handle) : -1;
+  return index > 0 && index <= 255 ? netif_get_by_index(uint8_t(index)) : nullptr;
+}
+// Wraps the station's input once per interface; a recreated one is wrapped
+// again.  The wrapper is never removed.
+bool hookStaInput() {
+  LOCK_TCPIP_CORE();
+  struct netif *n = staNetifLocked();
+  if(n && n->input != staInputStamped) {
+    staInput.store(n->input, std::memory_order_release);
+    n->input = staInputStamped;
   }
-public:
-  bool busy() const { return running.load(); }
-  bool start(uint32_t gateway) {
-    if(running.load() || gateway == 0) return false;
-    if(session && target != gateway) {
-      esp_ping_delete_session(session);
-      session = nullptr;
-    }
-    if(!session) {
-      esp_ping_config_t config = ESP_PING_DEFAULT_CONFIG();
-      config.count = 1;
-      config.timeout_ms = 2000;
-      config.data_size = 8;
-      ip_addr_set_ip4_u32(&config.target_addr, gateway);
-      esp_ping_callbacks_t callbacks = {};
-      callbacks.cb_args = this;
-      callbacks.on_ping_success = onSuccess;
-      callbacks.on_ping_end = onEnd;
-      if(esp_ping_new_session(&config, &callbacks, &session) != ESP_OK) {
-        session = nullptr;
-        return false;
-      }
-      target = gateway;
-    }
-    replied.store(false);
-    finished.store(false);
-    running.store(true);
-    if(esp_ping_start(session) != ESP_OK) {
-      running.store(false);
-      return false;
-    }
-    return true;
-  }
-  // True once, after each finished ping, with whether the gateway replied.
-  bool takeResult(bool &ok) {
-    if(!finished.exchange(false)) return false;
-    ok = replied.load();
-    return true;
-  }
-};
-GatewayPing gatewayPing;
+  const bool hooked = n && n->input == staInputStamped;
+  UNLOCK_TCPIP_CORE();
+  return hooked;
+}
+// One ARP request for the gateway: a single broadcast frame.  Its reply
+// arrives through the hook like any other frame.
+void askGateway() {
+  LOCK_TCPIP_CORE();
+  struct netif *n = staNetifLocked();
+  if(n && !ip4_addr_isany(netif_ip4_gw(n))) etharp_request(n, netif_ip4_gw(n));
+  UNLOCK_TCPIP_CORE();
+}
 }
 static void clientScanLoop(ESPNetwork &net) {ClientScanDriver driver(net);clientScanner.loop(driver,uint64_t(esp_timer_get_time())/1000);}
 void ESPNetwork::end() {
@@ -273,31 +258,28 @@ void ESPNetwork::loop() {
 // while connecting or on another link it pauses, and each join starts afresh.
 void ESPNetwork::livenessLoop() {
   if(this->connType != conn_types_t::wifi || !this->connected()) return;
+  // Read the stamp before the clock, so it is never later than now.
+  const uint32_t heardMs = staHeardMs.load(std::memory_order_relaxed);
   const uint64_t now = uint64_t(esp_timer_get_time()) / 1000;
-  bool ok = false;
   if(this->connectAttempts != this->livenessEpoch) {
     this->livenessEpoch = this->connectAttempts;
-    gatewayPing.takeResult(ok);  // From the previous link; it proves nothing now.
-    this->liveness.linkUp(static_cast<uint32_t>(WiFi.gatewayIP()), now);
+    // Without the hook there is no evidence either way, so stay out of it.
+    if(hookStaInput()) this->liveness.linkUp(now);
+    else ESP_LOGW(TAG, "WiFi liveness check unavailable: no station interface");
   }
-  if(gatewayPing.takeResult(ok)) this->liveness.probed(ok, now);
+  // The stamp is the low 32 bits of the same clock; recover its full time.
+  this->liveness.heard(now - uint32_t(uint32_t(now) - heardMs));
   // A firmware transfer owns the network until it finishes or times out.
   bool updating = Update.isRunning();
 #if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101)
   updating = updating || gitUpdate.busy();
 #endif
-  switch(this->liveness.poll(now, gatewayPing.busy(), updating)) {
-    case WifiLiveness::Action::probe: {
-      // A ping that can't start (low heap) proves nothing about the link, so
-      // it isn't a failure, but say so once: the check is off until it can.
-      static bool startFailed = false;
-      const bool started = gatewayPing.start(static_cast<uint32_t>(WiFi.gatewayIP()));
-      if(!started && !startFailed) ESP_LOGW(TAG, "Gateway ping could not start; WiFi liveness check paused");
-      startFailed = !started;
+  switch(this->liveness.poll(now, updating)) {
+    case WifiLiveness::Action::probe:
+      askGateway();
       break;
-    }
     case WifiLiveness::Action::reconnect:
-      this->forceReconnect();
+      this->forceReconnect(now);
       break;
     default:
       break;
@@ -305,9 +287,9 @@ void ESPNetwork::livenessLoop() {
 }
 // Drops the association so loop() scans and rejoins as it does after a
 // disconnect event.  Auto-reconnect stays off: loop() owns every join.
-void ESPNetwork::forceReconnect() {
-  ESP_LOGW(TAG, "WiFi link passes no traffic: gateway silent after %u failed pings, rejoining (next wait %llus)",
-    (unsigned)this->liveness.failedProbes(), (unsigned long long)(this->liveness.deadWindow() / 1000));
+void ESPNetwork::forceReconnect(uint64_t now) {
+  ESP_LOGW(TAG, "WiFi link silent for %llus, gateway did not answer ARP; rejoining (next wait %llus)",
+    (unsigned long long)(this->liveness.silentFor(now) / 1000), (unsigned long long)(this->liveness.quietWindow() / 1000));
   resetTaskWdt();
   if(SSDP.isStarted) SSDP.end();
   mqtt.disconnect();
