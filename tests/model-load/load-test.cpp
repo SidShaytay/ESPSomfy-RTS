@@ -59,7 +59,7 @@ struct SomfyShade:SomfyRemote,shade_record_t {
  bool idleForAdministration()const;
  uint8_t getShadeId(){return shadeId;}void setShadeId(uint8_t value){shadeId=value;}
  void clear(){shadeId=255;}void setFlags(uint8_t value){flags=value;}
- void restore(float a,float b,float c,float d){currentPos=a;currentTiltPos=b;myPos=c;myTiltPos=d;behaviour.restore(a,b,c,d);}
+ void restore(float a,float b,float c,float d,bool referenceRequired=false){currentPos=a;currentTiltPos=b;myPos=c;myTiltPos=d;behaviour.restore(a,b,c,d,referenceRequired);}
 };
 struct SomfyGroup:SomfyRemote,group_record_t {
  using SomfyRemote::lastRollingCode;int8_t direction=0;somfy_frame_t lastFrame;
@@ -82,12 +82,11 @@ bool GitUpdateClass::ownsExternal(const GitUpdateOwnerToken &owner)const{return 
 int64_t esp_timer_get_time(){return 1000000;}
 static void resetTaskWdt(){}
 static bool retireAfterWrite=false;
-static void delay(unsigned long){if(retireAfterWrite && FakeNvs::sets)restoreAllowed=false;}
+static void harnessDelay(unsigned long){if(retireAfterWrite && FakeNvs::sets)restoreAllowed=false;}
 void invalidateDeviceSettingsRevisions(){++historyChanges;}
 static int expectedSetupPin=-1;
 static unsigned settingEffects=0;
 ConfigSettings settings;
-namespace BoardProfile{bool usesPin(uint8_t){return false;}}
 bool NTPSettings::apply(){return true;}
 uint64_t retainedEthernetPinClaims(){return 0;}
 struct TestRadio:Transceiver {
@@ -169,8 +168,13 @@ static void cooperateCounterLoad(const void *);
 static bool continueRestoreCounterLoad(const void *);
 static bool restoreIdle(SomfyShadeController *,const RadioInstallToken &);
 static bool restoreExecutionHolds(const GitUpdateOwnerToken &,const RadioInstallToken &radio){return radio.generation==1;}
-static uint64_t configuredPads=0;static constexpr unsigned OUTPUT=1;static void pinMode(uint8_t pin,unsigned){assert(pin!=255);assert(LivePinClaims::contains(retainedGpioPinClaims(),pin));configuredPads|=LivePinClaims::pinMask(pin);}
+static uint64_t configuredPads=0;static void harnessPinMode(uint8_t pin,int){assert(pin!=255);assert(LivePinClaims::contains(retainedGpioPinClaims(),pin));configuredPads|=LivePinClaims::pinMask(pin);}
+// The shared Arduino stub owns delay/pinMode; route the extracted production calls to the harness hooks.
+#define delay harnessDelay
+#define pinMode harnessPinMode
 #include "production-load.inc"
+#undef delay
+#undef pinMode
 struct Writer:ConfigWriter {std::string bytes;bool writeBytes(const uint8_t *p,size_t n)override{bytes.append(reinterpret_cast<const char *>(p),n);return true;}};
 static std::string validModel(){Writer w;config_header_t h;h.version=SHADE_HDR_VER;h.length=SHADE_HDR_SIZE;h.shadeRecordSize=SHADE_REC_SIZE;h.groupRecordSize=GROUP_REC_SIZE;h.roomRecordSize=ROOM_REC_SIZE;h.roomRecords=h.shadeRecords=h.groupRecords=0;h.repeaterRecords=1;h.repeaterRecordSize=REPEATER_REC_SIZE;h.settingsRecordSize=h.netRecordSize=h.transRecordSize=0;assert(writeConfigHeader(w,h));uint32_t repeaters[SOMFY_MAX_REPEATERS]{};assert(writeRepeaterRecord(w,repeaters));return w.bytes;}
 static std::string aliasesModel(bool highFirst,uint16_t groupFloor=50,uint8_t version=SHADE_HDR_VER,uint32_t address=100){
