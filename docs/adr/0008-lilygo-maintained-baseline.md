@@ -4,6 +4,10 @@ For [issue #13](https://github.com/SidShaytay/ESPSomfy-RTS/issues/13), choose th
 
 The maintained baseline brings Arduino 3, asynchronous networking, a dedicated radio scheduler and lock, native configuration/protocol tests, and protocol 2. Selectively copying these systems into the old tree would require maintaining both implementations and adapting the same dependencies. Import the baseline separately, then forward-port only the Plus hardware constraints and offline compatibility changes. Preserve the fork’s research, recovery evidence, tests and history.
 
+## Update, 2026-11-15: board support is upstream code
+
+cjkas merged our LILYGO T-Embed CC1101 board support as [cjkas/ESPSomfy-RTS#133](https://github.com/cjkas/ESPSomfy-RTS/pull/133) (`f97135e`). This fork merged upstream `main` at `10de32ac996564be655467745e187162c2ee61ba` (v4.0.3) into its own history, so the board profile, radio readiness and fixed-pin protocol field now share history with upstream. The pin to v4.0.2 (`07bffdec`) above is the original migration baseline, not the current merge base. Where the fork's code differs from upstream's (the screen UI, one bundled firmware, the radio admission and locking), the fork's behavior stays.
+
 ## Considered options
 
 - **Selective backports into v2.4.7.** Keeps current partitions/API and initially changes fewer files, but requires transplanting tightly related framework, networking, security and concurrency changes. Rejected for this candidate.
