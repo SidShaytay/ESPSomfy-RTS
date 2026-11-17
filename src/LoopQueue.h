@@ -43,10 +43,16 @@ bool radioInstallPaused();
 
 struct model_edit_t;
 struct settings_save_t;
+// gitUpdate / battery op arguments. id is the release candidate (install) or
+// the operation (cancel), exact as uint64 (sent as decimal text).
+struct proto_device_args_t {
+  uint64_t id = 0;
+  int8_t action = -1, value = -1;
+};
 struct loop_item_t {
   // Payloads are mutually exclusive. Explicit activation preserves C++ union
   // lifetime; the FIFO copies a trivially copyable marker, never model data.
-  union { shade_request_t request{}; FrequencyScanToken scanToken; LiftCalibrationRequest calibration; MotionDiagnosticsRequest diagnostics; };
+  union { shade_request_t request{}; FrequencyScanToken scanToken; LiftCalibrationRequest calibration; MotionDiagnosticsRequest diagnostics; proto_device_args_t device; };
   loop_item_type_t type = loop_item_type_t::shade_request;
   bool restartAfterCommit = false;
   uint8_t restoreParts = 0;
@@ -60,6 +66,7 @@ struct loop_item_t {
   void setDiagnostics(MotionDiagnosticsRequest value){new(&diagnostics) MotionDiagnosticsRequest(value);}
   void setCalibration(LiftCalibrationRequest value){new(&calibration) LiftCalibrationRequest(value);}
   void setScanToken(FrequencyScanToken value){new(&scanToken) FrequencyScanToken(value);}
+  void setDevice(proto_device_args_t value){new(&device) proto_device_args_t(value);}
 
 };
 static_assert(sizeof(loop_item_t)<=80,"Keep model contexts out of the 32 queue markers");
@@ -70,6 +77,13 @@ static_assert(sizeof(loop_item_t)<=80,"Keep model contexts out of the 32 queue m
 inline bool loopItemMutates(const loop_item_t &item) {
   if(item.type==loop_item_type_t::proto_read) return false;
   if(item.type==loop_item_type_t::proto_device && item.op==uint8_t(proto_type_t::motionDiagnostics)) return false;
+  // Reading or reducing the updater and reading the battery change nothing that
+  // an older restart depends on; a status poll must never cancel the
+  // updater's own restart. Install, check and a new charge limit still count.
+  if(item.type==loop_item_type_t::proto_device && item.op==uint8_t(proto_type_t::gitUpdate))
+    return item.device.action!=0 && item.device.action!=3;
+  if(item.type==loop_item_type_t::proto_device && item.op==uint8_t(proto_type_t::battery))
+    return item.device.value>=0;
   if(item.type==loop_item_type_t::proto_device && item.op==uint8_t(proto_type_t::liftCalibration))
     return item.calibration.action != LiftCalibrationRequest::poll;
   if(item.type==loop_item_type_t::proto_device)

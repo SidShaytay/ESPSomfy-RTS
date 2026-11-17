@@ -69,6 +69,8 @@
   TYPE(groupTarget, 57, 'c', 'q') \
   TYPE(liftCalibration, 58, 'c', 'd') \
   TYPE(motionDiagnostics, 59, 'c', 'd') \
+  TYPE(gitUpdate, 60, 'c', 'd') \
+  TYPE(battery, 61, 'c', 'd') \
   TYPE(shadeState, 128, 'd', '-') \
   TYPE(shade, 129, 'd', '-') \
   TYPE(shadeRemoved, 130, 'd', '-') \
@@ -172,6 +174,35 @@
   FIELD(downSettlingMs, "c7", 'i', 0) \
   FIELD(downReversalMs, "c8", 'i', 0) \
   FIELD(tiltTime, "Y", 'i', 0) \
+  /* gitUpdate: action in, the shared updater's state out (ids as decimal text) */ \
+  FIELD(updateAction, "u0", 'i', -1) \
+  FIELD(updateCandidate, "u1", 's', 0) \
+  FIELD(updateOperation, "u2", 's', 0) \
+  FIELD(updatePhase, "u3", 's', 0) \
+  FIELD(updateReason, "u4", 's', 0) \
+  FIELD(updateInstalled, "u5", 's', 0) \
+  FIELD(updateVersion, "u6", 's', 0) \
+  FIELD(updateSize, "u7", 'i', 0) \
+  FIELD(updateImageSha, "u8", 's', 0) \
+  FIELD(updateProgress, "u9", 'i', 0) \
+  FIELD(updateSupported, "ua", 'b', 0) \
+  FIELD(updateBusy, "ub", 'b', 0) \
+  FIELD(updateCanInstall, "uc", 'b', 0) \
+  FIELD(updateCancellable, "ud", 'b', 0) \
+  FIELD(updateRetries, "ue", 'i', 0) \
+  FIELD(updateRetryMs, "uf", 'i', 0) \
+  FIELD(updateRemainingMs, "ug", 'i', 0) \
+  FIELD(updateOwned, "uh", 'b', 0) \
+  FIELD(updateBootPending, "ui", 'b', 0) \
+  FIELD(updateReasonCode, "uj", 'i', 0) \
+  /* battery: gauge reading and the charge limit */ \
+  FIELD(batteryState, "b0", 'i', 0) \
+  FIELD(batteryPercent, "b1", 'i', 0) \
+  FIELD(batteryMillivolts, "b2", 'i', 0) \
+  FIELD(batteryMilliamps, "b3", 'i', 0) \
+  FIELD(chargeLimit, "b4", 'i', -1) \
+  FIELD(chargeLimitApplied, "b5", 'b', 0) \
+  FIELD(chargeLimitSupported, "b6", 'b', 0) \
   FIELD(stepSize, "z", 'i', 100) \
   FIELD(paired, "i", 'b', 0) \
   FIELD(shadeType, "st", 'i', 0) \
