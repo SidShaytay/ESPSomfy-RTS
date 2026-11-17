@@ -1,6 +1,6 @@
 # LILYGO T-Embed CC1101 and CC1101 Plus
 
-The public release is **v4.2.2**. See the [release notes](docs/releases/v4.2.2.md) and [first-install guide](docs/first-install.md) when coming from another firmware. A physical LCD GitHub installation completed during engineering qualification; [remaining checks](docs/lcd-completion-qualification.md) are tracked separately.
+The public release is **v4.3.0**. See the [release notes](docs/releases/v4.3.0.md) and [first-install guide](docs/first-install.md) when coming from another firmware. A physical LCD GitHub installation completed during engineering qualification; [remaining checks](docs/lcd-completion-qualification.md) are tracked separately.
 
 For backup, firmware-only A/B installation, verification and recovery, follow [the standard flashing procedure](docs/flashing.md). Use the shared `lilygo-t-embed-cc1101` firmware for either CC1101 or CC1101 Plus; it includes display, interactive UI, local commands and the matching web UI.
 
