@@ -31,8 +31,13 @@ struct GitUpdateTransport {
   GitUpdateTransportStage stage=GitUpdateTransportStage::none;
   uint8_t certificateState=0,certificateFailure=0; // attached/leaf/bundle bits; date-failure enum
   int32_t sdkError=0,httpStatus=0,socketError=0,tlsSdkError=0,tlsError=0,tlsFlags=0;
+  // Connection open timing in ms, saturating at 65535: wall time, time until the
+  // first certificate callback, time in certificate callbacks, CPU time of other
+  // core 0 tasks and core 0 idle time. GitHub drops handshakes still open ~10 s
+  // after connecting.
+  uint16_t openMs=0,certificateMs=0,bundleMs=0,otherMs=0,idleMs=0;
 };
-static_assert(sizeof(GitUpdateTransport)<=32,"Bound updater transport diagnostics");
+static_assert(sizeof(GitUpdateTransport)<=40,"Bound updater transport diagnostics");
 constexpr uint32_t gitUpdateInstallDurationMs=30u*60u*1000u;
 struct GitUpdateSnapshot {
   GitUpdatePhase phase=GitUpdatePhase::unavailable;

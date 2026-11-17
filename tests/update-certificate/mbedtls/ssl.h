@@ -1,8 +1,11 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include "build_info.h"
 struct mbedtls_x509_time { int year=0,mon=0,day=0,hour=0,min=0,sec=0; };
-struct mbedtls_x509_crt { mbedtls_x509_time valid_from,valid_to; };
+struct mbedtls_x509_buf { int tag=0;size_t len=0;unsigned char *p=nullptr; };
+struct mbedtls_x509_crt { mbedtls_x509_time valid_from,valid_to;mbedtls_x509_buf subject_raw,pk_raw; };
+#define MBEDTLS_X509_BADCERT_BAD_MD 0x4000u
 #define MBEDTLS_X509_BADCERT_EXPIRED 1u
 #define MBEDTLS_X509_BADCERT_FUTURE 512u
 #define MBEDTLS_X509_BADCERT_OTHER 256u

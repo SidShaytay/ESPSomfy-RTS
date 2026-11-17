@@ -201,7 +201,7 @@ void loop(bool running) {
     const auto tls=gitUpdateMemoryStats();
     // Heap/stack extrema are sampled; workerStack=0 is unsampled.
     // TLS requested counts include allocator bookkeeping, not SDK heap overhead.
-    Serial.printf("LCD update minInternalB=%lu minLargestInternalB=%lu maxPsramUsedB=%lu workerStackMinB=%lu tlsRequestedB=%lu tlsPeakRequestedB=%lu tlsInternalPeakRequestedB=%lu tlsFailures=%lu download=%u stage=%u sdkErr=%ld http=%ld errno=%ld tlsSdkErr=%ld tlsErr=%ld tlsFlags=%ld certState=%u certFailure=%u\n",
+    Serial.printf("LCD update minInternalB=%lu minLargestInternalB=%lu maxPsramUsedB=%lu workerStackMinB=%lu tlsRequestedB=%lu tlsPeakRequestedB=%lu tlsInternalPeakRequestedB=%lu tlsFailures=%lu download=%u stage=%u sdkErr=%ld http=%ld errno=%ld tlsSdkErr=%ld tlsErr=%ld tlsFlags=%ld certState=%u certFailure=%u openMs=%u certMs=%u bundleMs=%u other0Ms=%u idle0Ms=%u\n",
       (unsigned long)update.minInternal,(unsigned long)update.minLargest,
       (unsigned long)update.maxPsram,(unsigned long)update.workerStack,
       (unsigned long)tls.requested,(unsigned long)tls.peak,
@@ -209,7 +209,9 @@ void loop(bool running) {
       unsigned(update.transport.download),unsigned(update.transport.stage),
       (long)update.transport.sdkError,(long)update.transport.httpStatus,(long)update.transport.socketError,
       (long)update.transport.tlsSdkError,(long)update.transport.tlsError,(long)update.transport.tlsFlags,
-      unsigned(update.transport.certificateState),unsigned(update.transport.certificateFailure));
+      unsigned(update.transport.certificateState),unsigned(update.transport.certificateFailure),
+      unsigned(update.transport.openMs),unsigned(update.transport.certificateMs),unsigned(update.transport.bundleMs),
+      unsigned(update.transport.otherMs),unsigned(update.transport.idleMs));
     Serial.printf("LCD battery state=%u percent=%u mV=%u mA=%d\n", unsigned(s.battery.state),
       unsigned(s.battery.percent), unsigned(s.battery.millivolts), int(s.battery.milliamps));
     Serial.printf("LCD internal=%u PSRAM=%u maxRowUs=%lu maxBusUs=%lu busySkips=%lu\n",

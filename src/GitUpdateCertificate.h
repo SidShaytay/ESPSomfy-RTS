@@ -1,5 +1,6 @@
 #pragma once
 #if defined(ESPSOMFY_LILYGO_T_EMBED_CC1101) || defined(GIT_UPDATE_CERTIFICATE_HOST_TEST)
+#include <cstddef>
 #include <cstdint>
 #include <ctime>
 #include <esp_err.h>
@@ -19,7 +20,18 @@ public:
   Failure failure() const { return timeFailure; }
   bool complete() const { return attached && leafSeen && !bundleFailed && timeFailure==Failure::none; }
   bool rejectedByBundle() const { return bundleFailed; }
-  uint8_t diagnosticState() const { return (attached?1:0)|(leafSeen?2:0)|(bundleFailed?4:0); }
+  uint8_t diagnosticState() const { return (attached?1:0)|(leafSeen?2:0)|(bundleFailed?4:0)|(presentedAnchor?8:0); }
+  // True when the bundle holds a root with exactly this subject and public
+  // key, which makes the presented certificate that trust anchor.
+  static bool bundledAnchor(const mbedtls_x509_crt &certificate,const uint8_t *bundle,size_t size);
+  // The SDK's embedded root bundle (subject and key of each Mozilla root).
+  static bool linkedBundle(const uint8_t *&data,size_t &size);
+  // Optional monotonic microsecond clock for transport timing diagnostics:
+  // when the first certificate callback ran and the time spent in the bundle.
+  using Monotonic=int64_t (*)();
+  void timeVerification(Monotonic now) { monotonic=now; }
+  int64_t firstVerifyUs() const { return firstVerify; }
+  int64_t bundleVerifyUs() const { return bundleVerify; }
   // Dynamic factory scope is task-local and nestable. Verify callbacks retain
   // the per-config pointer; they never consult the factory after attachment.
   class Scope {
@@ -36,8 +48,10 @@ private:
   Clock clock;
   Verify original=nullptr;
   void *opaque=nullptr;
-  bool attached=false,anchored=false,leafSeen=false,bundleFailed=false;
+  bool attached=false,anchored=false,leafSeen=false,bundleFailed=false,presentedAnchor=false;
   Failure timeFailure=Failure::none;
+  Monotonic monotonic=nullptr;
+  int64_t firstVerify=-1,bundleVerify=0;
   static int verify(void *,mbedtls_x509_crt *,int,uint32_t *);
 };
 
