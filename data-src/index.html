@@ -163,6 +163,7 @@
                     <div style="display:inline-block;vertical-align:middle;">
                         <div><span style="text-align:right;display:inline-block;width:57px;color:#00bcd4">Network:</span><span id="spanNetworkSSID" style="padding-left:4px;display:inline-block;text-align:left;width:120px;">-------------</span></div>
                         <div><span style="text-align:right;display:inline-block;width:57px;color:#00bcd4">Channel:</span><span id="spanNetworkChannel" style="padding-left:4px;display:inline-block;text-align:left;width:120px;">--</span></div>
+                        <div id="divHeaderBattery" title="Battery" style="display:none;"><span style="text-align:right;display:inline-block;width:57px;color:#00bcd4">Battery:</span><span style="padding-left:4px;display:inline-block;text-align:left;width:120px;"><span class="battery-icon"><span id="spanHeaderBatteryFill"></span></span><span id="spanHeaderBattery"></span></span></div>
                     </div>
                     <div id="divNetworkStrength" class="wifiSignal" style="display:inline-block;vertical-align:middle;">
                     </div>
@@ -200,6 +201,15 @@
                             <button id="btnSaveGeneral" type="button" onclick="general.setGeneral();">
                                 Save
                             </button>
+                        </div>
+                        <div id="divBatteryOptions" style="display:none;padding:10px 0;text-align:left;">
+                            <div style="color:#00bcd4;font-size:17px;">Battery</div>
+                            <div id="spanBattery" style="font-size:15px;padding:4px 0 12px;"></div>
+                            <div id="divChargeLimit" class="field-group" style="display:none;">
+                                <select id="selChargeLimit" style="width:100%;" onchange="firmware.setChargeLimit(this.value);"></select>
+                                <label for="selChargeLimit">Charge limit (applies right away)</label>
+                            </div>
+                            <p id="chargeLimitDetail" class="instructions"></p>
                         </div>
                         <div class="button-container">
                             <button id="btnReboot" type="button" onclick="general.rebootDevice();">
@@ -264,10 +274,6 @@
                                 <span style="text-align:right;display:inline-block;color:#00bcd4;width:127px;">Application:</span>
                                 <span id="spanAppVersion" style="padding-left:4px;display:inline-block;text-align:left;width:120px;">v-.--</span>
                             </div>
-                            <div id="divBatteryLine" style="font-size:17px;display:none;">
-                                <span style="text-align:right;display:inline-block;color:#00bcd4;width:127px;">Battery:</span>
-                                <span id="spanBattery" style="padding-left:4px;display:inline-block;text-align:left;"></span>
-                            </div>
                         </div>
                         <div style="display:inline-block;font-size:12px;padding-top:10px;padding-left:37px;">
                             <div style="color: #00bcd4;">Memory (bytes)</div>
@@ -286,20 +292,13 @@
                         <div id="divGitUpdate" style="display:none;padding:10px 0;">
                             <div style="color:#00bcd4;">GitHub releases</div>
                             <div id="gitUpdateTitle" style="font-weight:bold;"></div>
-                            <div id="gitUpdateDetail" class="instructions" style="font-size:14px;"></div>
+                            <p id="gitUpdateDetail" class="instructions"></p>
                             <progress id="gitUpdateProgress" max="100" value="0" style="width:100%;display:none;"></progress>
                             <div class="button-container">
                                 <button id="btnGitCheck" type="button" style="display:none;" onclick="firmware.gitCheck();">Check GitHub for updates</button>
                                 <button id="btnGitInstall" type="button" style="display:none;" onclick="firmware.gitInstall();">Install and restart</button>
                                 <button id="btnGitCancel" type="button" style="display:none;" onclick="firmware.gitCancel();">Cancel update</button>
                             </div>
-                        </div>
-                        <div id="divChargeLimit" style="display:none;padding:10px 0;">
-                            <div class="field-group">
-                                <select id="selChargeLimit" style="width:100%;" onchange="firmware.setChargeLimit(this.value);"></select>
-                                <label for="selChargeLimit">Battery charge limit</label>
-                            </div>
-                            <div id="chargeLimitDetail" class="instructions" style="font-size:14px;"></div>
                         </div>
                         <div class="button-container">
                             <button id="btnUpdateFirmware" type="button" onclick="firmware.updateFirmware();">

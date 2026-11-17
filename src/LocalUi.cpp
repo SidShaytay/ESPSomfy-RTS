@@ -165,8 +165,9 @@ void Controller::shortPress(uint32_t now,const Model &m,bool visible) {
     state.routed=true;state.returnScreen=state.screen;state.returnSelection=state.selected;formInput={};
     if(network && state.selected==1){state.systemSection=3;state.screen=Screen::system;}
     else if(!network && state.selected==5){brightnessBefore=preferences();brightnessConfigurationGeneration=m.authConfigurationGeneration;state.screen=Screen::brightness;state.setting=0;state.displayEditing=false;}
-    else if(!network && state.selected==6){state.quickDraft=m.quickAccess;state.quickEditing=true;state.quickPicking=false;quickGuard={m.quickAccess,m.modelRevision,m.restoreRevision,m.quickRevision,m.authGeneration,m.authConfigurationGeneration};state.screen=Screen::quickManage;state.selected=0;}
-    else if(!network && state.selected==7)state.screen=Screen::administration;
+    else if(!network && state.selected==6){state.systemSection=5;state.systemSelection=0;state.screen=Screen::system;}
+    else if(!network && state.selected==7){state.quickDraft=m.quickAccess;state.quickEditing=true;state.quickPicking=false;quickGuard={m.quickAccess,m.modelRevision,m.restoreRevision,m.quickRevision,m.authGeneration,m.authConfigurationGeneration};state.screen=Screen::quickManage;state.selected=0;}
+    else if(!network && state.selected==8)state.screen=Screen::administration;
     else {const uint8_t sections[]={0,3,1,2,4};state.settingsSection=network?1:sections[state.selected];state.screen=Screen::settings;}
     break;
   }
@@ -593,7 +594,7 @@ void Controller::tick(uint32_t now, const Model &m, int8_t turn, bool pressed, b
       const int next=int(state.selected)+(turn>0?1:-1);state.selected=next<0?0:next>last?last:next;
     } else if(state.screen==Screen::quickSave) {state.valueChoice=turn>0?1:0;
     } else if(state.screen==Screen::controllerMenu || state.screen==Screen::configureMenu || state.screen==Screen::networkMenu) {
-      const int last=state.screen==Screen::controllerMenu?4:state.screen==Screen::configureMenu?7:1;
+      const int last=state.screen==Screen::controllerMenu?4:state.screen==Screen::configureMenu?8:1;
       const int next=int(state.selected)+(turn>0?1:-1);state.selected=next<0?0:next>last?last:next;
     } else if(state.screen==Screen::home || state.screen==Screen::roomKinds) {
       const int last=state.screen==Screen::home?(quickEnabled?2:homeRows-1):1;

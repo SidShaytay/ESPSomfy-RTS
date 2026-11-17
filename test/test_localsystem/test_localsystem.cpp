@@ -13,6 +13,9 @@ struct State : System::Backend {
   void activity() override {}
   RestartResult restart(uint32_t session,uint32_t configuration) override {TEST_ASSERT_EQUAL(auth.generation,session);TEST_ASSERT_EQUAL(auth.configurationGeneration,configuration);++restarts;if(result.admitted){current.generation=zeroGeneration?0:1;current.phase=immediateCancel?RestartPhase::cancelled:RestartPhase::admitted;current.reason=immediateCancel?RestartReason::cancelled:RestartReason::none;}return result;}
   RestartSnapshot status() override {return current;}
+  Battery pack{true,true,false,87,0,4137};bool hasBattery=true,accept=true;unsigned limitWrites=0;
+  bool battery(Battery &out) override {out=pack;return hasBattery;}
+  bool setChargeLimit(uint8_t limit) override {++limitWrites;if(accept)pack.limit=limit;return accept;}
 };
 void setUp(){} void tearDown(){}
 static void navigation_and_cancel_never_restart() {
@@ -130,5 +133,40 @@ static void relocated_menus_keep_leaves_and_back_origins(){
  for(unsigned i=0;i<3;i++)form.turn(1,10+i);form.activate(14);form.render(v);TEST_ASSERT_EQUAL_STRING("Copy receive log",v.title);form.back(15);form.render(v);TEST_ASSERT_EQUAL(3,v.selected);
  form.open(16,System::Menu::wifiScan);TEST_ASSERT_TRUE(form.wantsWifiScan());form.finishChild();TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(0,state.restarts);
 }
-int main(int,char**) {UNITY_BEGIN();RUN_TEST(relocated_menus_keep_leaves_and_back_origins);RUN_TEST(radio_scan_is_an_explicit_child_and_returns_to_its_row);RUN_TEST(protected_network_and_copy_guidance_never_restart_or_scan);RUN_TEST(diagnostics_is_explicit_and_returns_to_its_system_row);RUN_TEST(untrusted_settings_have_distinct_repair_message_without_replay);RUN_TEST(child_input_refreshes_inactivity_but_completion_does_not);RUN_TEST(unreadable_security_never_suggests_credentials_were_reset);RUN_TEST(unreadable_model_requires_verified_restore_guidance);RUN_TEST(immediate_cancel_and_invalid_binding_never_claim_scheduled);RUN_TEST(superseded_generation_never_borrows_another_result);RUN_TEST(navigation_and_cancel_never_restart);RUN_TEST(explicit_restart_is_once_and_tracks_its_result);RUN_TEST(auth_change_expiry_and_backward_clock_discard_confirmation);RUN_TEST(refusal_does_not_claim_saved_or_replay);return UNITY_END();}
+
+static void battery_page_lists_limits_and_applies_only_on_press() {
+  State state;System::Form form(state);EntityAdmin::FormView view;
+  TEST_ASSERT_TRUE(form.open(1,System::Menu::battery));form.render(view);
+  TEST_ASSERT_EQUAL_STRING("Battery 87%  4.13 V",view.title);
+  TEST_ASSERT_EQUAL(5,view.total);TEST_ASSERT_EQUAL(0,view.selected);
+  TEST_ASSERT_EQUAL_STRING("100%",view.rows[0].label);TEST_ASSERT_EQUAL_STRING("Current",view.rows[0].value);
+  TEST_ASSERT_NOT_NULL(strstr(view.hint,"60%"));
+  form.turn(1,2);form.turn(1,3);form.turn(1,4);form.turn(1,5);form.turn(1,6);form.render(view);
+  TEST_ASSERT_EQUAL(4,view.selected);TEST_ASSERT_EQUAL_STRING("60% recommended",view.rows[1].label);
+  TEST_ASSERT_EQUAL_STRING("",view.rows[1].value);TEST_ASSERT_EQUAL(0,state.limitWrites);
+  form.activate(7);TEST_ASSERT_EQUAL(1,state.limitWrites);TEST_ASSERT_EQUAL(4,state.pack.limit);
+  form.render(view);TEST_ASSERT_EQUAL_STRING("Current",view.rows[1].value);
+  form.activate(8);TEST_ASSERT_EQUAL(1,state.limitWrites); // pressing the current limit writes nothing
+  form.back(9);TEST_ASSERT_TRUE(form.closed());
+}
+static void battery_page_opens_on_current_limit_and_reports_refusal() {
+  State state;state.pack.limit=4;state.accept=false;System::Form form(state);EntityAdmin::FormView view;
+  form.open(1,System::Menu::battery);form.render(view);TEST_ASSERT_EQUAL(4,view.selected);
+  form.turn(-1,2);form.activate(3);form.render(view);
+  TEST_ASSERT_EQUAL(1,state.limitWrites);TEST_ASSERT_EQUAL(4,state.pack.limit);
+  TEST_ASSERT_NOT_NULL(strstr(view.hint,"did not accept"));
+  state.pack.limitFailed=true;form.turn(1,4);form.render(view);TEST_ASSERT_NOT_NULL(strstr(view.hint,"retrying"));
+}
+static void battery_page_without_charger_writes_nothing() {
+  State state;state.pack.limitSupported=false;state.pack.present=false;System::Form form(state);EntityAdmin::FormView view;
+  form.open(1,System::Menu::battery);form.render(view);
+  TEST_ASSERT_EQUAL_STRING("Battery",view.title);TEST_ASSERT_EQUAL(1,view.total);
+  form.turn(1,2);form.activate(3);TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(0,state.limitWrites);
+}
+static void battery_page_locks_with_authorization() {
+  State state;System::Form form(state);form.open(1,System::Menu::battery);
+  state.auth.allowed=false;form.turn(1,2);form.activate(3);
+  TEST_ASSERT_TRUE(form.closed());TEST_ASSERT_EQUAL(0,state.limitWrites);
+}
+int main(int,char**) {UNITY_BEGIN();RUN_TEST(battery_page_lists_limits_and_applies_only_on_press);RUN_TEST(battery_page_opens_on_current_limit_and_reports_refusal);RUN_TEST(battery_page_without_charger_writes_nothing);RUN_TEST(battery_page_locks_with_authorization);RUN_TEST(relocated_menus_keep_leaves_and_back_origins);RUN_TEST(radio_scan_is_an_explicit_child_and_returns_to_its_row);RUN_TEST(protected_network_and_copy_guidance_never_restart_or_scan);RUN_TEST(diagnostics_is_explicit_and_returns_to_its_system_row);RUN_TEST(untrusted_settings_have_distinct_repair_message_without_replay);RUN_TEST(child_input_refreshes_inactivity_but_completion_does_not);RUN_TEST(unreadable_security_never_suggests_credentials_were_reset);RUN_TEST(unreadable_model_requires_verified_restore_guidance);RUN_TEST(immediate_cancel_and_invalid_binding_never_claim_scheduled);RUN_TEST(superseded_generation_never_borrows_another_result);RUN_TEST(navigation_and_cancel_never_restart);RUN_TEST(explicit_restart_is_once_and_tracks_its_result);RUN_TEST(auth_change_expiry_and_backward_clock_discard_confirmation);RUN_TEST(refusal_does_not_claim_saved_or_replay);return UNITY_END();}
 

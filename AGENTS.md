@@ -18,6 +18,10 @@ Run `pio test -e native` for native C++ tests, `node --test "test/js/*.test.js"`
 
 For native coverage use `pio test -e coverage` followed by `gcovr`; `gcovr.cfg` controls the included sources. For JavaScript coverage add `--experimental-test-coverage --test-coverage-include="data-src/js/**"` to Node’s test command. Files outside the native source filter need firmware builds or separate host harnesses.
 
+## Web UI and LCD parity
+
+The web UI and the LILYGO screen are separate front ends, so nothing keeps them in step except this rule. A change that adds, moves or removes a user-facing feature does it in both, in the same pull request, and updates [the feature table](docs/feature-parity.md). If one side deliberately lacks the feature, the table says why. Before merging a visible web change, look at the rendered page: in `index.html`, `div.instructions` is a full-panel overlay, so use `p.instructions` for ordinary help text.
+
 ## Style and review
 
 Follow nearby code: C++ generally uses two-space indentation and opening braces on the same line; JavaScript and CSS generally use four spaces. Use PascalCase classes/module filenames, camelCase methods and uppercase macro constants. Preserve local exceptions and avoid unrelated formatting. No general formatter or linter is configured.
