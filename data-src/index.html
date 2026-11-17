@@ -38,7 +38,7 @@
             });
         })();
     </script>
-    <link rel="stylesheet" href="app.css?v=4.2.2c" type="text/css" />
+    <link rel="stylesheet" href="app.css?v=4.3.0c" type="text/css" />
     <link rel="icon" type="image/png" href="favicon.png" />
 
     <!-- iPad retina icon -->
@@ -142,7 +142,7 @@
           rel="apple-touch-startup-image">
 
 
-    <script type="text/javascript" src="index.js?v=4.2.2c"></script>
+    <script type="text/javascript" src="index.js?v=4.3.0c"></script>
 </head>
 <body>
     <div class="appearance-control">
@@ -264,6 +264,10 @@
                                 <span style="text-align:right;display:inline-block;color:#00bcd4;width:127px;">Application:</span>
                                 <span id="spanAppVersion" style="padding-left:4px;display:inline-block;text-align:left;width:120px;">v-.--</span>
                             </div>
+                            <div id="divBatteryLine" style="font-size:17px;display:none;">
+                                <span style="text-align:right;display:inline-block;color:#00bcd4;width:127px;">Battery:</span>
+                                <span id="spanBattery" style="padding-left:4px;display:inline-block;text-align:left;"></span>
+                            </div>
                         </div>
                         <div style="display:inline-block;font-size:12px;padding-top:10px;padding-left:37px;">
                             <div style="color: #00bcd4;">Memory (bytes)</div>
@@ -279,6 +283,24 @@
                             </div>
                         </div>
                         <div id="bundledWebNotice" style="display:none;padding:10px 0;"></div>
+                        <div id="divGitUpdate" style="display:none;padding:10px 0;">
+                            <div style="color:#00bcd4;">GitHub releases</div>
+                            <div id="gitUpdateTitle" style="font-weight:bold;"></div>
+                            <div id="gitUpdateDetail" class="instructions" style="font-size:14px;"></div>
+                            <progress id="gitUpdateProgress" max="100" value="0" style="width:100%;display:none;"></progress>
+                            <div class="button-container">
+                                <button id="btnGitCheck" type="button" style="display:none;" onclick="firmware.gitCheck();">Check GitHub for updates</button>
+                                <button id="btnGitInstall" type="button" style="display:none;" onclick="firmware.gitInstall();">Install and restart</button>
+                                <button id="btnGitCancel" type="button" style="display:none;" onclick="firmware.gitCancel();">Cancel update</button>
+                            </div>
+                        </div>
+                        <div id="divChargeLimit" style="display:none;padding:10px 0;">
+                            <div class="field-group">
+                                <select id="selChargeLimit" style="width:100%;" onchange="firmware.setChargeLimit(this.value);"></select>
+                                <label for="selChargeLimit">Battery charge limit</label>
+                            </div>
+                            <div id="chargeLimitDetail" class="instructions" style="font-size:14px;"></div>
+                        </div>
                         <div class="button-container">
                             <button id="btnUpdateFirmware" type="button" onclick="firmware.updateFirmware();">
                                 Update Firmware

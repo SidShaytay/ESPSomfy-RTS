@@ -25,6 +25,8 @@
 #include "entryPoints/Web.h"
 #include "outputs/ProtoSocket.h"
 #include "FrequencyScanService.h"
+#include "GitUpdateWeb.h"
+#include "BatteryWeb.h"
 
 static const char *TAG = "DeviceOps";
 
@@ -159,6 +161,8 @@ void runDeviceOp(const loop_item_t &item) {
   switch(static_cast<proto_type_t>(item.op)) {
     case proto_type_t::motionDiagnostics: MotionTrace::runProtocol(item);break;
     case proto_type_t::liftCalibration: LiftCal::runProtocol(item);break;
+    case proto_type_t::gitUpdate: GitUpdateWeb::runProtocol(item);break;
+    case proto_type_t::battery: BatteryWeb::runProtocol(item);break;
     case proto_type_t::getSettings: {
       ProtoWriter w = protoSocket.beginReply(item.replyTo);
       ProtocolSettingsSink sink(w);

@@ -38,9 +38,10 @@ bool current(uint64_t operation) {
   if(source.confirmedInstall){
     const auto micros=esp_timer_get_time();const uint64_t now=micros<0?UINT64_MAX:uint64_t(micros)/1000;
     const auto auth=LocalUi::pollAuthorization();
+    const bool owner=source.browserSecurityRevision?source.browserSecurityRevision==securityConfigurationRevision():
+      auth.mode!=LocalUi::AuthMode::unavailable && auth.configurationGeneration==source.security;
     credential=!source.installRevoked && now!=UINT64_MAX && now>=source.installObserved && now>=source.installAccepted &&
-      now-source.installAccepted<gitUpdateInstallDurationMs && auth.mode!=LocalUi::AuthMode::unavailable &&
-      auth.configurationGeneration==source.security;
+      now-source.installAccepted<gitUpdateInstallDurationMs && owner;
     if(!credential)source.installRevoked=true;else source.installObserved=now;
   }
   return operation && operation==source.operation && credential && modelReady() &&
@@ -133,6 +134,36 @@ bool cancelLocalGitUpdate(uint32_t session,uint32_t security,uint64_t operation)
   // Reducing an exact previously authorized operation remains safe on expiry.
   return operation && source.operation==operation && source.security==security && GitUpdateControllerDetail::authorized(session,security) && gitUpdate.requestCancel(operation);
 }
+GitUpdateRequest requestBrowserGitUpdateCheck(uint64_t &operation) {
+  const auto revision=securityConfigurationRevision();
+  if(!revision)return GitUpdateRequest::unavailable;
+  const auto result=gitUpdate.requestCheck(operation);
+  if(result==GitUpdateRequest::accepted) {
+    GitUpdateControllerDetail::capture(operation,0,0);GitUpdateControllerDetail::source.browserSecurityRevision=revision;
+  }
+  return result;
+}
+GitUpdateRequest requestBrowserGitUpdateInstall(const GitUpdateCandidate &candidate,uint64_t &operation) {
+  using namespace GitUpdateControllerDetail;
+  const auto revision=securityConfigurationRevision();
+  if(!revision || !modelReady())return GitUpdateRequest::unavailable;
+  if(source.queueHeld || source.radio.generation || source.cleanupFault)return GitUpdateRequest::busy;
+  const auto result=gitUpdate.requestInstall(candidate,operation);
+  if(result==GitUpdateRequest::accepted) {
+    capture(operation,0,0);source.browserSecurityRevision=revision;source.confirmedInstall=true;
+    const auto now=esp_timer_get_time();source.installAccepted=source.installObserved=now<0?UINT64_MAX:uint64_t(now)/1000;
+  }
+  return result;
+}
+bool cancelBrowserGitUpdate(uint64_t operation) {
+  const auto &source=GitUpdateControllerDetail::source;
+  return operation && source.operation==operation && source.browserSecurityRevision &&
+      source.browserSecurityRevision==securityConfigurationRevision() && gitUpdate.requestCancel(operation);
+}
+bool gitUpdateBrowserOwned(uint64_t operation) {
+  const auto &source=GitUpdateControllerDetail::source;
+  return operation && source.operation==operation && source.browserSecurityRevision!=0;
+}
 #else
 void beginGitUpdateController(){}
 void loopGitUpdateController(){}
@@ -140,4 +171,8 @@ bool gitUpdateControllerPaused(){return false;}
 GitUpdateRequest requestLocalGitUpdateCheck(uint32_t,uint32_t,uint64_t &){return GitUpdateRequest::unavailable;}
 GitUpdateRequest requestLocalGitUpdateInstall(const GitUpdateCandidate &,uint32_t,uint32_t,uint64_t &){return GitUpdateRequest::unavailable;}
 bool cancelLocalGitUpdate(uint32_t,uint32_t,uint64_t){return false;}
+GitUpdateRequest requestBrowserGitUpdateCheck(uint64_t &){return GitUpdateRequest::unavailable;}
+GitUpdateRequest requestBrowserGitUpdateInstall(const GitUpdateCandidate &,uint64_t &){return GitUpdateRequest::unavailable;}
+bool cancelBrowserGitUpdate(uint64_t){return false;}
+bool gitUpdateBrowserOwned(uint64_t){return false;}
 #endif

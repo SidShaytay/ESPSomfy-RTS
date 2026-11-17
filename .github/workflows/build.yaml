@@ -101,7 +101,10 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq lcov
+          # lcov 2 rejects Node's report when two classes in one file share a
+          # method name (calibration.js has two begin methods).
           genhtml coverage/lcov.info --output-directory coverage/html \
+            --ignore-errors inconsistent,corrupt \
             --title "ESPSomfy-RTS web UI tests"
 
       - name: Upload coverage report

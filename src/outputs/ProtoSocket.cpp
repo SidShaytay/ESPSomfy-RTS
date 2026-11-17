@@ -20,6 +20,7 @@
 #include "ProtoModelResults.h"
 #include "ModelCommitService.h"
 #include "DeviceOps.h"
+#include "ProtoDeviceArgs.h"
 #include "SomfyEditor.h"
 #include "LoopQueue.h"
 #include "SomfySnapshot.h"
@@ -326,6 +327,12 @@ static void queueDeviceOp(AsyncWebSocketClient *client, const proto_message_t &m
     const auto *bad = parseLiftCalibrationPayload(d,request);
     if(bad) {replyError(client,msg.id,proto_error_t::badRequest,bad);return;}
     item.setCalibration(request);
+  }
+  if(msg.type == uint8_t(proto_type_t::gitUpdate) || msg.type == uint8_t(proto_type_t::battery)) {
+    proto_device_args_t args;
+    const char *bad = ProtoDeviceArgs::parse(msg.type, d, args);
+    if(bad) {replyError(client,msg.id,proto_error_t::badRequest,bad);return;}
+    item.setDevice(args);
   }
   if(msg.type == static_cast<uint8_t>(proto_type_t::commitModel)) {
     const char *bad=parseModelCommitPayload(d);

@@ -13,6 +13,12 @@ hardware/assets or unavailable verification show an unavailable/refused result.
 Checks use verified HTTPS, repository metadata and file digests; there is no
 browser companion or separate LCD web-image upload.
 
+## From the web UI
+
+The same updater is under **System → Firmware → GitHub releases** in the web UI. Choose **Check GitHub for updates**; if a newer stable release is found, **Install and restart** asks you to confirm it first. The controller does the download, verification, model save and restart itself, with the same checks and 30-minute limit as the LCD. You can close the page; the install carries on. Changing the PIN or password cancels a browser-started update. A development build (not built from a release tag) explains why it can't take GitHub releases; install a tagged release once by file or USB.
+
+## From the LCD
+
 1. Unlock with the controller's configured PIN or password, if enabled.
 2. Choose **Check GitHub release**. Opening the screen starts no download.
 3. In public v4.1.0 (and engineering 4.7.3 onward), an eligible result opens its review automatically with **Cancel** selected. Read the full release version. Earlier builds require choosing **Review release** first.

@@ -22,7 +22,7 @@ jobs:
           fetch-depth: 0 # manifest verifies the pinned baseline is an ancestor
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.12.12"
+          python-version: "3.12" # Ubuntu 26.04 runners have no 3.12.12 build
       - name: Install pinned build tooling in user cache
         run: |
           python -m venv "$ESPSOMFY_TOOL_CACHE/pio-python"

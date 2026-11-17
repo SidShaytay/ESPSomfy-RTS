@@ -598,6 +598,7 @@ function startSocket() {
         if (first) ui.clearErrors();
         general.loadGeneral();
         wifi.loadNetwork();
+        firmware.loadDeviceStatus();
         somfy.loadSomfy();
         mqtt.loadMQTT();
         showStatus(proto.model.status);
@@ -1329,7 +1330,7 @@ class Security {
 }
 var security = new Security();
 
-// let appVersion = 'v4.2.2'; // Default placeholder
+// let appVersion = 'v4.3.0'; // Default placeholder
 async function getAppVersion() {
     try {
         const response = await fetch('/appversion?v='+Date.now());
@@ -1342,7 +1343,7 @@ async function getAppVersion() {
         // Trigger any UI updates here
     } catch (error) {
         console.error("Error loading App version:", error);
-        appVersion = 'v4.2.2'; // Default placeholder
+        appVersion = 'v4.3.0'; // Default placeholder
     }
     return appVersion;
 }
@@ -3586,10 +3587,11 @@ class Somfy {
         div.innerHTML = html;
         document.getElementById('somfyShade').appendChild(div);
     }
-    setPaired(shadeId, paired) {
+    setPaired(shadeId, paired, done) {
         let obj = { shadeId: shadeId, paired: paired || false };
         let div = document.getElementById('divPairing');
         sendEdit('setPaired', obj, editTarget('shade', () => shadeId), (err, shade) => {
+            if (typeof done === 'function') done(err);
             if (err) {
                 console.log(err);
                 ui.errorMessage(err.desc);
@@ -3612,121 +3614,87 @@ class Somfy {
             }
         });
     }
-    pairShade(shadeId) {
-        let shadeType = parseInt(document.getElementById('somfyShade').getAttribute('data-shadetype'), 10);
-        let div = document.createElement('div');
-        let html = `<div id="divPairing" class="instructions" data-type="link-remote" data-shadeid="${shadeId}">`;
-        if (shadeType === 5 || shadeType === 6) {
-            html += '<div>Follow the instructions below to pair ESPSomfy RTS with an RTS Garage Door motor</div>';
-            html += '<hr style="width:100%;margin:0px;"></hr>';
-            html += '<ul style="width:100%;margin:0px;padding-left:20px;font-size:14px;">';
-            html += '<li>Open the garage door motor memory per instructions for your motor.</li>';
-            html += '<li>Once the memory is opened, press the prog button below</li>';
-            html += '<li>For single button control ESPSomfy RTS will send a toggle command but for a 3 button control it will send a prog command.</li>';
-            html += '</ul>';
-            html += `<div class="button-container">`;
-            html += `<button id="btnSendPairing" type="button" style="padding-left:20px;padding-right:20px;display:inline-block;">Prog</button>`;
-            html += `<button id="btnMarkPaired" type="button" style="padding-left:20px;padding-right:20px;display:inline-block;" onclick="somfy.setPaired(${shadeId}, true);">Door Paired</button>`;
-            html += `<button id="btnStopPairing" type="button" style="padding-left:20px;padding-right:20px;display:inline-block" >Close</button>`;
-            html += `</div>`;
-        }
-        else {
-            html += '<div>Follow the instructions below to pair this shade with a Somfy motor</div>';
-            html += '<hr style="width:100%;margin:0px;"></hr>';
-            html += '<ul style="width:100%;margin:0px;padding-left:20px;font-size:14px;">';
-            html += '<li>Open the shade memory using an existing remote by pressing the prog button on the back until the shade jogs.</li>';
-            html += '<li>After the shade jogs press the Prog button below</li>';
-            html += '<li>The shade should jog again indicating that the shade is paired. NOTE: On some motors you may need to press and hold the Prog button.</li>';
-            html += '<li>If the shade jogs, you can press the shade paired button.</li>';
-            html += '<li>If the shade does not jog, try pressing the prog button again.</li>';
-            html += '</ul>';
-            html += `<div class="button-container">`;
-            html += `<button id="btnSendPairing" type="button" style="padding-left:20px;padding-right:20px;display:inline-block;">Prog</button>`;
-            html += `<button id="btnMarkPaired" type="button" style="padding-left:20px;padding-right:20px;display:inline-block;" onclick="somfy.setPaired(${shadeId}, true);">Shade Paired</button>`;
-            html += `<button id="btnStopPairing" type="button" style="padding-left:20px;padding-right:20px;display:inline-block" >Close</button>`;
-            html += `</div>`;
-        }
-        let fnRepeatProg = (err, shade) => {
-            if (this.btnTimer) {
-                clearTimeout(this.btnTimer);
-                this.btnTimer = null;
-            }
-            if (err) return;
-            if (mouseDown) {
-                somfy.sendCommandRepeat(shadeId, 'prog', null, fnRepeatProg);
-            }
-        }
-        div.innerHTML = html;
-        document.getElementById('somfyShade').appendChild(div);
-        document.getElementById('btnStopPairing').addEventListener('click', (event) => {
-            console.log(this);
-            console.log(event);
-            console.log('close');
-            if (this.btnTimer) {
-                clearInterval(this.btnTimer);
-                this.btnTimer = null;
-            }
-            document.getElementById('divPairing').remove();
+    pairShade(shadeId) { return this.openPairingGuide(shadeId, true); }
+    unpairShade(shadeId) { return this.openPairingGuide(shadeId, false); }
+    // The step-by-step guide (js/pairing.js): Prog goes out only when the user
+    // presses Send, and the paired marker is saved only after they saw the
+    // motor answer.
+    openPairingGuide(shadeId, pair) {
+        let old = document.getElementById('divPairing');
+        if (old) old.remove();
+        const shadeType = parseInt(document.getElementById('somfyShade').getAttribute('data-shadetype'), 10);
+        const guide = new PairingGuide({
+            pair: pair,
+            door: shadeType === 5 || shadeType === 6,
+            send: (repeats) => new Promise((resolve, reject) => {
+                this.sendCommand(shadeId, 'prog', repeats, (err) => err ? reject(err) : resolve());
+            }),
+            mark: (paired) => new Promise((resolve, reject) => {
+                this.setPaired(shadeId, paired, (err) => err ? reject(err) : resolve());
+            })
         });
-        let btn = document.getElementById('btnSendPairing');
-        btn.addEventListener('mousedown', (event) => {
-            console.log(this);
-            console.log(event);
-            console.log('mousedown');
-            somfy.sendCommand(shadeId, 'prog', null, (err, shade) => { fnRepeatProg(err, shade); });
-        }, true);
-        btn.addEventListener('touchstart', (event) => {
-            console.log(this);
-            console.log(event);
-            console.log('touchstart');
-            somfy.sendCommand(shadeId, 'prog', null, (err, shade) => { fnRepeatProg(err, shade); });
-        }, true);
-        return div;
-    }
-    unpairShade(shadeId) {
-        let div = document.createElement('div');
-        let html = `<div id="divPairing" class="instructions" data-type="link-remote" data-shadeid="${shadeId}">`;
-        html += '<div>Follow the instructions below to unpair this shade from a Somfy motor</div>';
-        html += '<hr style="width:100%;margin:0px;"></hr>';
-        html += '<ul style="width:100%;margin:0px;padding-left:20px;font-size:14px;">';
-        html += '<li>Open the shade memory using an existing remote</li>';
-        html += '<li>Press the prog button on the back of the remote until the shade jogs</li>';
-        html += '<li>After the shade jogs press the Prog button below</li>';
-        html += '<li>The shade should jog again indicating that the shade is unpaired</li>';
-        html += '<li>If the shade jogs, you can press the shade unpaired button.</li>';
-        html += '<li>If the shade does not jog, press the prog button again until the shade jogs.</li>';
-        html += '</ul>';
-        html += `<div class="button-container">`;
-        html += `<button id="btnSendUnpairing" type="button" style="padding-left:20px;padding-right:20px;display:inline-block;">Prog</button>`;
-        html += `<button id="btnMarkPaired" type="button" style="padding-left:20px;padding-right:20px;display:inline-block;" onclick="somfy.setPaired(${shadeId}, false);">Shade Unpaired</button>`;
-        html += `<button id="btnStopUnpairing" type="button" style="padding-left:20px;padding-right:20px;display:inline-block" onclick="document.getElementById('divPairing').remove();">Close</button>`;
-        html += `</div>`;
-        div.innerHTML = html;
-        let fnRepeatProg = (err, shade) => {
-            if (this.btnTimer) {
-                clearTimeout(this.btnTimer);
-                this.btnTimer = null;
+        const div = document.createElement('div');
+        div.id = 'divPairing';
+        div.className = 'instructions';
+        div.setAttribute('data-type', 'link-remote');
+        div.setAttribute('data-shadeid', shadeId);
+        const render = () => {
+            if (guide.step === 'closed') { div.remove(); return; }
+            const v = guide.view();
+            div.replaceChildren();
+            const title = document.createElement('div');
+            title.style.fontWeight = 'bold';
+            title.textContent = v.title;
+            div.appendChild(title);
+            div.appendChild(document.createElement('hr'));
+            for (const line of v.text) {
+                if (!line) continue;
+                const p = document.createElement('p');
+                p.style.fontSize = '14px';
+                p.textContent = line;
+                div.appendChild(p);
             }
-            if (err) return;
-            if (mouseDown) {
-                somfy.sendCommandRepeat(shadeId, 'prog', null, fnRepeatProg);
+            if (v.repeat) {
+                const field = document.createElement('div');
+                field.className = 'field-group';
+                field.style.width = '50%';
+                const input = document.createElement('input');
+                input.id = 'fldPairingRepeats';
+                input.type = 'number'; input.min = '1'; input.max = '127';
+                input.value = String(guide.repeats);
+                input.addEventListener('change', () => { input.value = String(guide.setRepeats(input.value)); });
+                const label = document.createElement('label');
+                label.htmlFor = input.id;
+                label.textContent = 'Repeat count (1-127)';
+                field.appendChild(input); field.appendChild(label);
+                div.appendChild(field);
             }
-        }
+            if (v.error) {
+                const p = document.createElement('p');
+                p.style.color = 'red';
+                p.textContent = v.error;
+                div.appendChild(p);
+            }
+            const buttons = document.createElement('div');
+            buttons.className = 'button-container';
+            for (const b of v.buttons) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.textContent = b.label;
+                btn.style.cssText = 'padding-left:20px;padding-right:20px;display:inline-block;';
+                btn.disabled = guide.busy;
+                btn.addEventListener('click', async () => {
+                    const pending = guide.act(b.id);
+                    render();
+                    await pending;
+                    render();
+                });
+                buttons.appendChild(btn);
+            }
+            div.appendChild(buttons);
+        };
+        render();
         document.getElementById('somfyShade').appendChild(div);
-        let btn = document.getElementById('btnSendUnpairing');
-        btn.addEventListener('mousedown', (event) => {
-            console.log(this);
-            console.log(event);
-            console.log('mousedown');
-            somfy.sendCommand(shadeId, 'prog', null, (err, shade) => { fnRepeatProg(err, shade); });
-        }, true);
-        btn.addEventListener('touchstart', (event) => {
-            console.log(this);
-            console.log(event);
-            console.log('touchstart');
-            somfy.sendCommand(shadeId, 'prog', null, (err, shade) => { fnRepeatProg(err, shade); });
-        }, true);
-
         return div;
     }
     // A command, or a position to move to.  shadeId may instead be an object
@@ -4253,6 +4221,82 @@ class Firmware {
             notice.textContent = bundled ? 'Firmware updates include the web UI. No separate Application image is needed.' : '';
             notice.style.display = bundled ? 'block' : 'none';
         }
+    }
+    // GitHub updates and the battery: both come from the device over the
+    // socket; each section stays hidden when the device does not offer it.
+    gitUpdates = null;
+    batteryTimer = null;
+    loadDeviceStatus() {
+        if (!proto) return;
+        if (!this.gitUpdates) {
+            this.gitUpdates = new GitUpdateClient(proto, {
+                onState: (state) => this.showGitUpdate(state),
+                onError: (err) => this.showGitUpdateError(err)
+            });
+        }
+        if (this.gitUpdates.supported) this.gitUpdates.refresh().catch(() => {});
+        this.loadBattery();
+    }
+    showGitUpdate(state) {
+        const div = document.getElementById('divGitUpdate');
+        if (!div) return;
+        if (!state) { div.style.display = 'none'; return; }
+        const v = GitUpdateClient.describe(state);
+        div.style.display = '';
+        document.getElementById('gitUpdateTitle').textContent = v.title;
+        document.getElementById('gitUpdateDetail').textContent = v.detail;
+        const bar = document.getElementById('gitUpdateProgress');
+        bar.style.display = v.progress === null ? 'none' : '';
+        if (v.progress !== null) bar.value = v.progress;
+        document.getElementById('btnGitCheck').style.display = v.check ? '' : 'none';
+        document.getElementById('btnGitInstall').style.display = v.install ? '' : 'none';
+        document.getElementById('btnGitCancel').style.display = v.cancel ? '' : 'none';
+    }
+    showGitUpdateError(err) {
+        ui.errorMessage((err && (err.desc || err.message)) || 'The update request failed.');
+    }
+    gitCheck() { if (this.gitUpdates) this.gitUpdates.check().catch(() => {}); }
+    gitInstall() {
+        const s = this.gitUpdates && this.gitUpdates.state;
+        if (!s || !s.updateCanInstall) return;
+        const sha = (s.updateImageSha || '').slice(0, 12);
+        const text = `Install ${s.updateVersion} and restart the controller?\n\n` +
+            `The controller saves your shades, downloads and verifies the release${sha ? ` (SHA-256 ${sha}…)` : ''}, writes it, then restarts. ` +
+            'Keep it powered until it is back. If the new firmware does not start properly, it rolls back on its own.';
+        if (!window.confirm(text)) return;
+        this.gitUpdates.install().catch(() => {});
+    }
+    gitCancel() { if (this.gitUpdates) this.gitUpdates.cancel().catch(() => {}); }
+    async loadBattery(fields) {
+        if (this.batteryTimer) { clearTimeout(this.batteryTimer); this.batteryTimer = null; }
+        let b = null;
+        try { b = await proto.op('battery', fields || {}); }
+        catch (err) {
+            if (fields) ui.errorMessage(err.desc || err.message);
+            if (err && err.code === 'unknownOp') return;
+        }
+        const shown = describeBattery(b);
+        const line = document.getElementById('divBatteryLine');
+        if (line) line.style.display = shown ? '' : 'none';
+        if (shown) document.getElementById('spanBattery').textContent = shown.text;
+        const limits = document.getElementById('divChargeLimit');
+        if (limits) limits.style.display = shown && b.chargeLimitSupported ? '' : 'none';
+        if (shown && b.chargeLimitSupported) {
+            const sel = document.getElementById('selChargeLimit');
+            if (!sel.options.length) for (const l of CHARGE_LIMITS) sel.add(new Option(l.label, l.value));
+            const limit = Number.isInteger(b.chargeLimit) ? b.chargeLimit : 0;
+            sel.value = String(limit);
+            const l = CHARGE_LIMITS.find((x) => x.value === limit) || CHARGE_LIMITS[0];
+            document.getElementById('chargeLimitDetail').textContent = l.detail +
+                (b.chargeLimitApplied === false ? ' The charger did not accept the setting; it is retried every 30 seconds.' : '');
+        }
+        // A battery reading changes slowly; refresh while the page is open.
+        if (shown) this.batteryTimer = setTimeout(() => this.loadBattery(), 30000);
+    }
+    setChargeLimit(value) {
+        const limit = parseInt(value, 10);
+        if (!Number.isInteger(limit)) return;
+        this.loadBattery({ chargeLimit: limit });
     }
     isMobile() {
         let agt = navigator.userAgent.toLowerCase();

@@ -14,6 +14,8 @@
 #include "Utils.h"
 #include <esp_heap_caps.h>
 #include <Wire.h>
+#include <nvs.h>
+#include "BatteryStatus.h"
 extern SomfyShadeController somfy;
 extern ESPNetwork net;
 extern Web webServer;
@@ -26,6 +28,18 @@ TwoWire powerBus(1);
 bool powerBusReady = false;
 bool readPowerWord(uint8_t reg, uint16_t &value) {
   return BatteryGauge::readWord(powerBus, reg, value);
+}
+BatteryCharger::Limiter charger;
+bool readChargerByte(uint8_t reg, uint8_t &value) { return BatteryCharger::readByte(powerBus, reg, value); }
+bool writeChargerByte(uint8_t reg, uint8_t value) { return BatteryCharger::writeByte(powerBus, reg, value); }
+constexpr const char *powerSpace = "power", *limitKey = "chargeLimit";
+int8_t loadLimit() {
+  nvs_handle_t handle;
+  uint8_t value = BatteryCharger::standard;
+  if(nvs_open(powerSpace, NVS_READONLY, &handle) != ESP_OK) return BatteryCharger::standard;
+  if(nvs_get_u8(handle, limitKey, &value) != ESP_OK || value >= BatteryCharger::limitCount) value = BatteryCharger::standard;
+  nvs_close(handle);
+  return int8_t(value);
 }
 }
 void pollPower(bool running) {
@@ -43,8 +57,10 @@ void pollPower(bool running) {
     }
     powerBus.setTimeOut(2);
     powerBusReady = powerBus.begin(BoardProfile::powerSDA, BoardProfile::powerSCL, 100000);
+    charger.want(loadLimit());
   }
   gauge.tick(millis(), powerBusReady ? readPowerWord : nullptr);
+  charger.tick(millis(), powerBusReady ? readChargerByte : nullptr, powerBusReady ? writeChargerByte : nullptr);
 }
 StatusDisplay::Snapshot snapshot(bool running) {
   using namespace StatusDisplay;
@@ -139,4 +155,23 @@ bool readLocalNetworkRow(uint8_t index,EntityAdmin::FormRow &out){
 }
 }
 #endif
+namespace BatteryStatus {
+View view() {
+  View v;
+  v.reading = StatusPanel::gauge.reading();
+  v.limitSupported = StatusPanel::powerBusReady;
+  v.limit = StatusPanel::charger.limit();
+  v.limitState = StatusPanel::charger.state();
+  return v;
+}
+bool setLimit(int8_t limit) {
+  if(!StatusPanel::powerBusReady || limit < 0 || limit >= BatteryCharger::limitCount) return false;
+  nvs_handle_t handle;
+  if(nvs_open(StatusPanel::powerSpace, NVS_READWRITE, &handle) != ESP_OK) return false;
+  const bool saved = nvs_set_u8(handle, StatusPanel::limitKey, uint8_t(limit)) == ESP_OK && nvs_commit(handle) == ESP_OK;
+  nvs_close(handle);
+  if(saved) StatusPanel::charger.want(limit);
+  return saved;
+}
+}
 #endif
