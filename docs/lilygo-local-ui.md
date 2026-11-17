@@ -60,7 +60,7 @@ Saved empty slots remain empty. A missing target or changed radio identity shows
 radio identity makes its shortcut usable again after fresh checks.
 Names follow the current configuration. In **public v4.1.0** (and engineering 4.9.1), ordinary names use the full label area. Compact typed IDs appear only when names are duplicated, render identically with the LCD font, or are clipped so a distinguishing suffix could be hidden. Internal selection always uses stable typed IDs. Shortcut pins are separate from the motor's MY/Favourite position.
 
-**Home → Devices / Groups / Rooms** opens the target catalogues. **System → Configure** contains settings, Display, Quick entries and **Rooms, devices & groups** administration. Startup opens Quick access when the model is ready
+**Home → Devices / Groups / Rooms** opens the target catalogues. **System → Configure** contains settings, Display, Battery (level and [charge limit](battery-charge-limit.md)), Quick entries and **Rooms, devices & groups** administration. [Feature locations](feature-parity.md) lists where each feature is on the screen and in the web UI. Startup opens Quick access when the model is ready
 and no movement or pending control needs attention. Ordinary idle navigation
 returns to Status before sleep; waking Status returns to Quick access. Waking a
 control page preserves it, keeping its existing STOP access and expiry rules.

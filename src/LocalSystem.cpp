@@ -39,7 +39,7 @@ const char *refusal(RestartReason value) {
 void Form::discard() {
   page=Page::closed;generation=configurationGeneration=0;
   observedAt=activityAt=restartGeneration=0;cursor=file=0;
-  reason=RestartReason::none;notice=EntityAdmin::Notice::none;admitted=stopped=statusUnknown=false;
+  reason=RestartReason::none;notice=EntityAdmin::Notice::none;admitted=stopped=statusUnknown=limitRefused=false;
 }
 bool Form::open(uint64_t now,Menu requested,uint8_t initial) {
   discard();const auto auth=backend.authorization();
@@ -47,7 +47,9 @@ bool Form::open(uint64_t now,Menu requested,uint8_t initial) {
     notice=EntityAdmin::Notice::locked;return false;
   }
   generation=auth.generation;configurationGeneration=auth.configurationGeneration;
-  observedAt=activityAt=now;menu=requested;cursor=initial<=(menu==Menu::maintenance?2:menu==Menu::diagnostics?3:menu==Menu::legacy?6:0)?initial:0;page=menu==Menu::wifiScan?Page::wifi:menu==Menu::updates?Page::updates:Page::menu;return true;
+  observedAt=activityAt=now;menu=requested;cursor=initial<=(menu==Menu::maintenance?2:menu==Menu::diagnostics?3:menu==Menu::legacy?6:0)?initial:0;page=menu==Menu::wifiScan?Page::wifi:menu==Menu::updates?Page::updates:menu==Menu::battery?Page::battery:Page::menu;
+  if(page==Page::battery){Backend::Battery b;cursor=backend.battery(b) && b.limitSupported && b.limit<chargeLimitCount?b.limit:chargeLimitRecommended;}
+  return true;
 }
 bool Form::guard(uint64_t now) {
   if(closed())return false;
@@ -72,7 +74,8 @@ void Form::tick(uint64_t now) {
 void Form::turn(int direction,uint64_t now) {
   if(!direction || !guard(now))return;
   touch(now);
-  const uint8_t last=page==Page::menu?(menu==Menu::maintenance?2:menu==Menu::diagnostics?3:6):page==Page::network?networkDetailRows-1:page==Page::confirm?1:page==Page::files?(menu==Menu::maintenance?3:4):0;
+  const uint8_t last=page==Page::menu?(menu==Menu::maintenance?2:menu==Menu::diagnostics?3:6):page==Page::network?networkDetailRows-1:page==Page::confirm?1:page==Page::files?(menu==Menu::maintenance?3:4):page==Page::battery?chargeLimitCount-1:0;
+  limitRefused=false;
   if(direction>0 && cursor<last)++cursor;
   if(direction<0 && cursor)--cursor;
 }
@@ -100,6 +103,12 @@ void Form::activate(uint64_t now) {
   case Page::network:if(cursor==networkDetailRows-1){page=Page::menu;cursor=menu==Menu::diagnostics?0:4;}break;
   case Page::files:file=cursor;page=Page::guidance;cursor=0;break;
   case Page::guidance:page=menu==Menu::diagnostics?Page::menu:Page::files;cursor=menu==Menu::diagnostics?3:file;break;
+  case Page::battery: {
+    Backend::Battery b;
+    if(!backend.battery(b) || !b.limitSupported){discard();break;}
+    if(b.limit!=cursor)limitRefused=!backend.setChargeLimit(cursor);
+    break;
+  }
   case Page::result:break; // A completion is never a second restart/retry action.
   case Page::wifi:case Page::radio:
   case Page::diagnostics:case Page::updates:break;
@@ -109,7 +118,7 @@ void Form::activate(uint64_t now) {
 void Form::back(uint64_t now) {
   if(!guard(now))return;
   touch(now);
-  if(page==Page::menu)discard();
+  if(page==Page::menu || page==Page::battery)discard();
   else if(page==Page::guidance){page=menu==Menu::diagnostics?Page::menu:Page::files;cursor=menu==Menu::diagnostics?3:file;}
   else if(page==Page::network){page=Page::menu;cursor=menu==Menu::diagnostics?0:4;}
   else {const auto old=page;page=Page::menu;cursor=menu==Menu::maintenance?(old==Page::files?2:old==Page::confirm || old==Page::result?1:0):0;}
@@ -118,6 +127,7 @@ void Form::render(EntityAdmin::FormView &out) const {
   out={};out.notice=notice;
   if(closed())return;
   out.mode=EntityAdmin::Mode::fields;
+  char heading[32]="Battery";
   const char *title="System",*hint=menu==Menu::legacy?"Press: choose   Back: Home":"Press: choose   Back: System";
   if(page==Page::menu) {
     const char *labels[]={"Restart","Browser files & Web","WiFi scan","Receive diagnostics","Network details","Radio frequency scan","GitHub updates"};
@@ -131,6 +141,24 @@ void Form::render(EntityAdmin::FormView &out) const {
     hint="Read only; current connection, no probe or reconnect.";
     for(uint8_t i=out.offset;i<out.total&&out.rowCount<3;++i){auto &row=out.rows[out.rowCount++];
       if(!backend.networkRow(i,row)){strcpy(row.label,"Network status unavailable");row.value[0]=0;}
+    }
+  } else if(page==Page::battery) {
+    // One row per charge limit; the active one is marked and pressing another applies it.
+    static const char *limits[chargeLimitCount]={"100%","90%","80%","70%","60% recommended"};
+    Backend::Battery b;const bool known=backend.battery(b);
+    out.mode=EntityAdmin::Mode::updateStatus;
+    if(known && b.present)snprintf(heading,sizeof(heading),"Battery %u%%  %u.%02u V",unsigned(b.percent),unsigned(b.millivolts/1000),unsigned(b.millivolts%1000/10));
+    title=heading;
+    if(!known || !b.limitSupported) {
+      hint="This controller cannot limit its charge.";out.total=out.rowCount=1;strcpy(out.rows[0].label,"Back: Configure");
+    } else {
+      hint=limitRefused?"Charger did not accept it. Try again.":b.limitFailed?"Charger did not accept it; retrying every 30 s.":
+        "Press to apply. 60% gives the longest life on USB power.";
+      out.total=chargeLimitCount;out.offset=cursor/3*3;
+      for(uint8_t i=out.offset;i<out.total && out.rowCount<3;++i) {
+        auto &row=out.rows[out.rowCount++];strcpy(row.label,limits[i]);
+        strcpy(row.value,i==b.limit?"Current":"");
+      }
     }
   } else if(page==Page::files) {
     title="Browser files";out.total=menu==Menu::maintenance?4:5;out.offset=cursor/3*3;

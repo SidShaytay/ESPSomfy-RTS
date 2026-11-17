@@ -14,20 +14,30 @@ public:
   virtual void activity()=0;
   virtual RestartResult restart(uint32_t session,uint32_t configuration)=0;
   virtual RestartSnapshot status()=0;
+  // Battery and charge limit; boards without a gauge or charger keep the defaults.
+  struct Battery {
+    bool present=false,limitSupported=false,limitFailed=false;
+    uint8_t percent=0,limit=0;
+    uint16_t millivolts=0;
+  };
+  virtual bool battery(Battery &){return false;}
+  virtual bool setChargeLimit(uint8_t){return false;}
 };
+// Charge limits in BatteryCharger order: 100, 90, 80, 70, 60 percent.
+constexpr uint8_t chargeLimitCount=5,chargeLimitRecommended=4;
 // Loop-owned navigation. Runtime supplies the existing shared presentation
 // frame; this state owns neither another frame nor any dynamic allocation.
-enum class Menu:uint8_t {legacy,maintenance,diagnostics,wifiScan,updates};
+enum class Menu:uint8_t {legacy,maintenance,diagnostics,wifiScan,updates,battery};
 class Form {
   Backend &backend;
-  enum class Page : uint8_t { closed, menu, confirm, files, guidance, result, wifi, diagnostics, network, radio, updates } page=Page::closed;
+  enum class Page : uint8_t { closed, menu, confirm, files, guidance, result, wifi, diagnostics, network, radio, updates, battery } page=Page::closed;
   uint32_t generation=0,configurationGeneration=0;
   uint64_t observedAt=0,activityAt=0,restartGeneration=0;
   uint8_t cursor=0,file=0;
   Menu menu=Menu::legacy;
   EntityAdmin::Notice notice=EntityAdmin::Notice::none;
   RestartReason reason=RestartReason::none;
-  bool admitted=false,stopped=false,statusUnknown=false;
+  bool admitted=false,stopped=false,statusUnknown=false,limitRefused=false;
   bool guard(uint64_t);
   void touch(uint64_t);
 public:

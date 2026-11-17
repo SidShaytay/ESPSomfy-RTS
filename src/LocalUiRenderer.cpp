@@ -291,10 +291,10 @@ void Canvas::paint(const Model &m, const View &v, const StatusDisplay::Snapshot 
     text(12, 164, "Turn: Home   Hold: details", false, muted);
   } else if(v.screen==Screen::controllerMenu || v.screen==Screen::configureMenu || v.screen==Screen::networkMenu) {
     const char *controller[]={"Configure","Maintenance","Status","About","Diagnostics"};
-    const char *configure[]={"General","Security","Network","MQTT","Radio","Display","Quick entries","Rooms, devices & groups"};
+    const char *configure[]={"General","Security","Network","MQTT","Radio","Display","Battery","Quick entries","Rooms, devices & groups"};
     const char *network[]={"Network settings","WiFi scan"};
     const bool settings=v.screen==Screen::configureMenu, net=v.screen==Screen::networkMenu;
-    const auto labels=net?network:settings?configure:controller;const unsigned count=net?2:settings?8:5;
+    const auto labels=net?network:settings?configure:controller;const unsigned count=net?2:settings?9:5;
     text(12,28,net?"Network":settings?"Configure":"System",true,white,230);
     snprintf(label,sizeof(label),"%u/%u",unsigned(v.selected+1),count);text(250,27,label,false,muted,58);
     for(unsigned row=0,offset=v.selected/4*4;row<4 && offset+row<count;++row){const int y=36+row*32;const bool active=offset+row==v.selected;

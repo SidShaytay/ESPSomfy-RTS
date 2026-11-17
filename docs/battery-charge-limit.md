@@ -1,6 +1,13 @@
 # Battery level and charge limit
 
-On the LILYGO T-Embed CC1101 (and Plus), **System → Firmware** in the web UI shows the battery level from the board's BQ27220 gauge, and the LCD shows it too. Boards without a battery show nothing.
+On the LILYGO T-Embed CC1101 (and Plus), the controller reads the battery level from the board's BQ27220 gauge. Boards without a battery show nothing.
+
+| | Web UI | Screen |
+|---|---|---|
+| Battery level | Header, under Network and Channel | Status screen |
+| Level and charge limit | System → Options → Battery | System → Configure → Battery |
+
+On the screen, turn to a limit and press to apply it; **Current** marks the active one. In the web UI the limit applies as soon as you pick it. Both need the controller unlocked when security is on.
 
 ## Charge limit
 

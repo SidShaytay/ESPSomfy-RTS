@@ -2,6 +2,7 @@
 #include "LocalSystem.h"
 #include "LocalOperationAdmission.h"
 #include "SafeRestart.h"
+#include "BatteryStatus.h"
 namespace LocalUi { namespace System {
 namespace {
 class RuntimeBackend final : public Backend {
@@ -19,6 +20,20 @@ public:
     return requestRestart();
   }
   RestartSnapshot status() override {return restartStatus();}
+  bool battery(Battery &out) override {
+    out={};
+    if(!authorization().allowed)return false;
+    const auto v=BatteryStatus::view();
+    out.present=v.reading.state==BatteryGauge::State::ready;
+    out.percent=v.reading.percent;out.millivolts=v.reading.millivolts;
+    out.limitSupported=v.limitSupported && v.limit>=0 && v.limit<chargeLimitCount;
+    out.limit=out.limitSupported?uint8_t(v.limit):0;
+    out.limitFailed=v.limitState==BatteryCharger::State::failed;
+    return true;
+  }
+  bool setChargeLimit(uint8_t limit) override {
+    return authorization().allowed && limit<chargeLimitCount && BatteryStatus::setLimit(int8_t(limit));
+  }
 };
 }
 Backend &runtimeBackend(){static RuntimeBackend backend;return backend;}

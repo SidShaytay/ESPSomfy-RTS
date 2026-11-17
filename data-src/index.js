@@ -1330,7 +1330,7 @@ class Security {
 }
 var security = new Security();
 
-// let appVersion = 'v4.3.0'; // Default placeholder
+// let appVersion = 'v4.3.1'; // Default placeholder
 async function getAppVersion() {
     try {
         const response = await fetch('/appversion?v='+Date.now());
@@ -1343,7 +1343,7 @@ async function getAppVersion() {
         // Trigger any UI updates here
     } catch (error) {
         console.error("Error loading App version:", error);
-        appVersion = 'v4.3.0'; // Default placeholder
+        appVersion = 'v4.3.1'; // Default placeholder
     }
     return appVersion;
 }
@@ -4276,11 +4276,23 @@ class Firmware {
             if (err && err.code === 'unknownOp') return;
         }
         const shown = describeBattery(b);
-        const line = document.getElementById('divBatteryLine');
-        if (line) line.style.display = shown ? '' : 'none';
+        const section = document.getElementById('divBatteryOptions');
+        if (section) section.style.display = shown ? '' : 'none';
         if (shown) document.getElementById('spanBattery').textContent = shown.text;
+        const chip = document.getElementById('divHeaderBattery');
+        if (chip) {
+            const ready = !!shown && Number.isInteger(shown.percent);
+            chip.style.display = ready ? '' : 'none';
+            if (ready) {
+                document.getElementById('spanHeaderBattery').textContent = `${shown.percent}%`;
+                document.getElementById('spanHeaderBatteryFill').style.width = `${Math.max(0, Math.min(100, shown.percent))}%`;
+                chip.title = `Battery ${shown.text}. Charge limit: System > Options.`;
+            }
+        }
         const limits = document.getElementById('divChargeLimit');
         if (limits) limits.style.display = shown && b.chargeLimitSupported ? '' : 'none';
+        const limitText = document.getElementById('chargeLimitDetail');
+        if (limitText && !(shown && b.chargeLimitSupported)) limitText.textContent = '';
         if (shown && b.chargeLimitSupported) {
             const sel = document.getElementById('selChargeLimit');
             if (!sel.options.length) for (const l of CHARGE_LIMITS) sel.add(new Option(l.label, l.value));
