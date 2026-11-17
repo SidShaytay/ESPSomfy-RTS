@@ -10,6 +10,7 @@
 #include <utility>
 #include <limits>
 #include <cstddef>
+#include <cstring>
 
 // Private field READS below are tied to this exact reviewed prebuilt SDK. A
 // compiler -D cannot enable date checks in its already-built X.509 verifier.
@@ -64,6 +65,45 @@ int compare(const mbedtls_x509_time &a,const mbedtls_x509_time &b) {
   return 0;
 }
 }
+namespace {
+uint32_t little(const uint8_t *p,unsigned bytes) {
+  uint32_t value=0;
+  for(unsigned i=0;i<bytes;i++) value|=uint32_t(p[i])<<(8*i);
+  return value;
+}
+bool equal(const mbedtls_x509_buf &raw,const uint8_t *data,size_t length) {
+  return raw.p && raw.len==length && std::memcmp(raw.p,data,length)==0;
+}
+}
+// ESP-IDF 5.5 bundle layout (gen_crt_bundle.py): little-endian u32 offset per
+// root, then per root u16 subject length, u16 key length, subject DER and
+// SubjectPublicKeyInfo DER. Any inconsistency means no match.
+bool GitUpdateCertificate::bundledAnchor(const mbedtls_x509_crt &certificate,const uint8_t *bundle,size_t size) {
+  if(!bundle || size<4 || !certificate.subject_raw.len || !certificate.pk_raw.len) return false;
+  const uint32_t table=little(bundle,4);
+  if(!table || table%4 || table>size) return false;
+  bool found=false;
+  for(uint32_t i=0;i<table/4;i++) {
+    const uint32_t offset=little(bundle+4*i,4);
+    if(offset<table || offset>size || size-offset<4) return false;
+    const size_t nameLength=little(bundle+offset,2),keyLength=little(bundle+offset+2,2);
+    if(size-offset-4<nameLength+keyLength) return false;
+    const uint8_t *name=bundle+offset+4;
+    found|=equal(certificate.subject_raw,name,nameLength) && equal(certificate.pk_raw,name+nameLength,keyLength);
+  }
+  return found;
+}
+#if defined(GIT_UPDATE_HOST_TEST) && !defined(GIT_UPDATE_CERTIFICATE_HOST_TEST)
+// The worker host test's fake TLS chain never presents a bundled root.
+bool GitUpdateCertificate::linkedBundle(const uint8_t *&,size_t &) { return false; }
+#elif !defined(GIT_UPDATE_CERTIFICATE_HOST_TEST)
+extern const uint8_t sdkBundleStart[] asm("_binary_x509_crt_bundle_start");
+extern const uint8_t sdkBundleEnd[] asm("_binary_x509_crt_bundle_end");
+bool GitUpdateCertificate::linkedBundle(const uint8_t *&data,size_t &size) {
+  if(sdkBundleEnd<=sdkBundleStart) return false;
+  data=sdkBundleStart;size=size_t(sdkBundleEnd-sdkBundleStart);return true;
+}
+#endif
 GitUpdateCertificate::GitUpdateCertificate(int64_t floor,Clock clock):floor(floor),clock(clock ? clock : currentClock) {}
 GitUpdateCertificate::Scope::Scope(GitUpdateCertificate &session):previous(factory) { factory=&session; }
 GitUpdateCertificate::Scope::~Scope() { factory=previous; }
@@ -90,7 +130,19 @@ int GitUpdateCertificate::verify(void *context,mbedtls_x509_crt *certificate,int
   // Preserve its resulting flags and exact return; add failures only afterwards.
   const int64_t started=session->monotonic ? session->monotonic() : 0;
   if(session->monotonic && session->firstVerify<0) session->firstVerify=started;
-  const int result=session->original(session->opaque,certificate,depth,flags);
+  // mbedTLS has already checked every signature below the untrusted top of the
+  // chain. When that top certificate is itself a bundled root (same subject and
+  // key), it is the trust anchor, so skip checking its cross-signature. GitHub
+  // sends Sectigo Root E46 cross-signed by USERTrust ECC; verifying that P-384
+  // signature took ~3 s and pushed the handshake past GitHub's ~10 s limit.
+  const uint8_t *bundle=nullptr;size_t bundleSize=0;
+  int result=0;
+  if((*flags&~uint32_t(MBEDTLS_X509_BADCERT_BAD_MD))==MBEDTLS_X509_BADCERT_NOT_TRUSTED &&
+      linkedBundle(bundle,bundleSize) && bundledAnchor(*certificate,bundle,bundleSize)) {
+    *flags=0;session->presentedAnchor=true;
+  } else {
+    result=session->original(session->opaque,certificate,depth,flags);
+  }
   if(session->monotonic) session->bundleVerify+=session->monotonic()-started;
   session->bundleFailed|=result!=0 || *flags!=0;
   if(depth==0) session->leafSeen=true;

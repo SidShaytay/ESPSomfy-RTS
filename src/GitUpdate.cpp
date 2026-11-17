@@ -357,22 +357,41 @@ esp_err_t headerEvent(esp_http_client_event_t *event) {
 }
 uint16_t saturatedMs(int64_t us){return us<=0?0:(us>=65535000?65535:uint16_t(us/1000));}
 // Times one esp_http_client_open: DNS, TCP and the whole TLS handshake.
-configRUN_TIME_COUNTER_TYPE runTime(TaskHandle_t task) {
-  if(!task) return 0;
-  TaskStatus_t status{};vTaskGetInfo(task,&status,pdFALSE,eRunning);
-  return status.ulRunTimeCounter;
+// FreeRTOS only adds to a task's run-time counter when it is switched out, so
+// the running updater's own counter is unreliable; other tasks' counters are
+// exact. otherMs is CPU time of other tasks pinned to core 0, idleMs is core 0
+// idle time; the rest of openMs is this task computing.
+struct CoreTime { uint32_t idle=0,others=0; };
+#ifdef GIT_UPDATE_HOST_TEST
+CoreTime coreTime() { return {}; }
+#else
+CoreTime coreTime() {
+  CoreTime out;
+  const UBaseType_t capacity=uxTaskGetNumberOfTasks()+4;
+  std::unique_ptr<TaskStatus_t,void (*)(void *)> tasks(static_cast<TaskStatus_t *>(
+    heap_caps_calloc(capacity,sizeof(TaskStatus_t),MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT)),heap_caps_free);
+  if(!tasks) return out;
+  const UBaseType_t count=uxTaskGetSystemState(tasks.get(),capacity,nullptr);
+  const TaskHandle_t self=xTaskGetCurrentTaskHandle(),idle=xTaskGetIdleTaskHandleForCore(0);
+  for(UBaseType_t i=0;i<count;i++) {
+    const auto &task=tasks.get()[i];
+    if(task.xHandle==idle) out.idle=task.ulRunTimeCounter;
+    else if(task.xHandle!=self && task.xCoreID==0) out.others+=task.ulRunTimeCounter;
+  }
+  return out;
 }
+#endif
 struct OpenClock {
   const int64_t started=esp_timer_get_time();
-  const TaskHandle_t self=xTaskGetCurrentTaskHandle(),idle=xTaskGetIdleTaskHandleForCore(0);
-  const configRUN_TIME_COUNTER_TYPE cpu=runTime(self),idleStart=runTime(idle);
+  const CoreTime before=coreTime();
   void finish(const GitUpdateCertificate &certificate,GitUpdateTransport &out) const {
+    const CoreTime after=coreTime();
     out.openMs=saturatedMs(esp_timer_get_time()-started);
     out.certificateMs=certificate.firstVerifyUs()<0?0:saturatedMs(certificate.firstVerifyUs()-started);
     out.bundleMs=saturatedMs(certificate.bundleVerifyUs());
     // Run-time counters are esp_timer microseconds (unsigned; wraps safely).
-    out.openCpuMs=saturatedMs(int64_t(configRUN_TIME_COUNTER_TYPE(runTime(self)-cpu)));
-    out.idleMs=saturatedMs(int64_t(configRUN_TIME_COUNTER_TYPE(runTime(idle)-idleStart)));
+    out.otherMs=saturatedMs(int64_t(uint32_t(after.others-before.others)));
+    out.idleMs=saturatedMs(int64_t(uint32_t(after.idle-before.idle)));
   }
 };
 bool downloadOnce(const std::string &initial,Buffer &out,size_t &received,GitUpdateDownload kind,uint32_t &serverWait) {

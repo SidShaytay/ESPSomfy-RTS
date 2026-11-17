@@ -265,7 +265,7 @@ inline esp_err_t esp_http_client_open(esp_http_client_handle_t c,int) {
   if(Fake::missingVerify) return ESP_OK; // service must reject absent leaf verification
   uint32_t chainFlags=0;
   for(int depth:{1,0}) {
-    mbedtls_x509_crt cert{{2020,1,1,0,0,0},{2035,1,1,0,0,0}};
+    mbedtls_x509_crt cert;cert.valid_from={2020,1,1,0,0,0};cert.valid_to={2035,1,1,0,0,0};
     if(Fake::expiredCertificate || (depth==1 && Fake::expiredIntermediate)) cert.valid_to={2024,1,1,0,0,0};
     if(Fake::futureCertificate) cert.valid_from={2030,1,1,0,0,0};
     uint32_t flags=MBEDTLS_X509_BADCERT_NOT_TRUSTED;
