@@ -88,7 +88,10 @@ int GitUpdateCertificate::verify(void *context,mbedtls_x509_crt *certificate,int
   if(!session || !session->original || !certificate || !flags || depth<0) return MBEDTLS_ERR_X509_FATAL_ERROR;
   // The bundle may legitimately clear NOT_TRUSTED after checking its root key.
   // Preserve its resulting flags and exact return; add failures only afterwards.
+  const int64_t started=session->monotonic ? session->monotonic() : 0;
+  if(session->monotonic && session->firstVerify<0) session->firstVerify=started;
   const int result=session->original(session->opaque,certificate,depth,flags);
+  if(session->monotonic) session->bundleVerify+=session->monotonic()-started;
   session->bundleFailed|=result!=0 || *flags!=0;
   if(depth==0) session->leafSeen=true;
   auto reject=[&](Failure failure,uint32_t flag) {

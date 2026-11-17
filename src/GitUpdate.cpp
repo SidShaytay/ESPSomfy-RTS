@@ -355,6 +355,26 @@ esp_err_t headerEvent(esp_http_client_event_t *event) {
   if(strcasecmp(event->header_key,"Content-Encoding")==0 && strcasecmp(event->header_value,"identity")!=0) headers.invalid=true;
   return ESP_OK;
 }
+uint16_t saturatedMs(int64_t us){return us<=0?0:(us>=65535000?65535:uint16_t(us/1000));}
+// Times one esp_http_client_open: DNS, TCP and the whole TLS handshake.
+configRUN_TIME_COUNTER_TYPE runTime(TaskHandle_t task) {
+  if(!task) return 0;
+  TaskStatus_t status{};vTaskGetInfo(task,&status,pdFALSE,eRunning);
+  return status.ulRunTimeCounter;
+}
+struct OpenClock {
+  const int64_t started=esp_timer_get_time();
+  const TaskHandle_t self=xTaskGetCurrentTaskHandle(),idle=xTaskGetIdleTaskHandleForCore(0);
+  const configRUN_TIME_COUNTER_TYPE cpu=runTime(self),idleStart=runTime(idle);
+  void finish(const GitUpdateCertificate &certificate,GitUpdateTransport &out) const {
+    out.openMs=saturatedMs(esp_timer_get_time()-started);
+    out.certificateMs=certificate.firstVerifyUs()<0?0:saturatedMs(certificate.firstVerifyUs()-started);
+    out.bundleMs=saturatedMs(certificate.bundleVerifyUs());
+    // Run-time counters are esp_timer microseconds (unsigned; wraps safely).
+    out.openCpuMs=saturatedMs(int64_t(configRUN_TIME_COUNTER_TYPE(runTime(self)-cpu)));
+    out.idleMs=saturatedMs(int64_t(configRUN_TIME_COUNTER_TYPE(runTime(idle)-idleStart)));
+  }
+};
 bool downloadOnce(const std::string &initial,Buffer &out,size_t &received,GitUpdateDownload kind,uint32_t &serverWait) {
   std::string url=initial;received=0;serverWait=0;const bool api=kind==GitUpdateDownload::api;
   { Guard guard;view.transport={};view.transport.download=kind;view.transport.stage=GitUpdateTransportStage::init; }
@@ -373,8 +393,9 @@ bool downloadOnce(const std::string &initial,Buffer &out,size_t &received,GitUpd
     config.user_agent="ESPSomfy-RTS-verified-updater/2";config.transport_type=HTTP_TRANSPORT_OVER_SSL;
     const auto client=esp_http_client_init(&config);
     if(!client) { fail(GitUpdateReason::memory);return false; }
+    GitUpdateTransport timing;
     auto trace=[&](GitUpdateTransportStage stage,int error=0,int status=0) {
-      GitUpdateTransport value;value.download=kind;value.stage=stage;value.sdkError=error;value.httpStatus=status;
+      GitUpdateTransport value=timing;value.download=kind;value.stage=stage;value.sdkError=error;value.httpStatus=status;
       value.socketError=esp_http_client_get_errno(client);
       int tlsError=0,tlsFlags=0;value.tlsSdkError=esp_http_client_get_and_clear_last_tls_error(client,&tlsError,&tlsFlags);
       value.tlsError=tlsError;value.tlsFlags=tlsFlags;value.certificateState=certificate.diagnosticState();
@@ -385,7 +406,10 @@ bool downloadOnce(const std::string &initial,Buffer &out,size_t &received,GitUpd
     auto configured=esp_http_client_set_header(client,"Accept-Encoding","identity");
     if(configured==ESP_OK) configured=esp_http_client_set_header(client,"Accept",api ? "application/vnd.github+json" : "application/octet-stream");
     if(configured!=ESP_OK) { trace(GitUpdateTransportStage::setHeaders,configured);fail(GitUpdateReason::transport);return false; }
+    certificate.timeVerification(esp_timer_get_time);
+    const OpenClock clock;
     const auto opened=esp_http_client_open(client,0);
+    clock.finish(certificate,timing);
     if(opened!=ESP_OK || !certificate.complete()) {
       trace(GitUpdateTransportStage::open,opened);
       const auto timeFailure=certificate.failure();

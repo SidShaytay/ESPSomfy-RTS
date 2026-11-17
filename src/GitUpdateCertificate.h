@@ -20,6 +20,12 @@ public:
   bool complete() const { return attached && leafSeen && !bundleFailed && timeFailure==Failure::none; }
   bool rejectedByBundle() const { return bundleFailed; }
   uint8_t diagnosticState() const { return (attached?1:0)|(leafSeen?2:0)|(bundleFailed?4:0); }
+  // Optional monotonic microsecond clock for transport timing diagnostics:
+  // when the first certificate callback ran and the time spent in the bundle.
+  using Monotonic=int64_t (*)();
+  void timeVerification(Monotonic now) { monotonic=now; }
+  int64_t firstVerifyUs() const { return firstVerify; }
+  int64_t bundleVerifyUs() const { return bundleVerify; }
   // Dynamic factory scope is task-local and nestable. Verify callbacks retain
   // the per-config pointer; they never consult the factory after attachment.
   class Scope {
@@ -38,6 +44,8 @@ private:
   void *opaque=nullptr;
   bool attached=false,anchored=false,leafSeen=false,bundleFailed=false;
   Failure timeFailure=Failure::none;
+  Monotonic monotonic=nullptr;
+  int64_t firstVerify=-1,bundleVerify=0;
   static int verify(void *,mbedtls_x509_crt *,int,uint32_t *);
 };
 
