@@ -95,6 +95,6 @@ The scripts build without accessing a controller. The validated package is writt
 - **Settings missing after migration:** stop before pairing or moving anything. Preserve current flash and follow [recovery](docs/flashing.md#if-installation-or-verification-fails); restoring old counters blindly can make motors reject commands.
 - **LCD screenshot unavailable:** protected, busy and allocation-fallback screens can legitimately refuse capture. See the [LCD guide](docs/lilygo-local-ui.md).
 
-[First installation](docs/first-install.md) · [LCD guide](docs/lilygo-local-ui.md) · [Hardware and builds](LILYGO.md) · [Release notes](docs/releases/v4.3.0.md) · [Upstream hardware and motor guides](https://github.com/rstrouse/ESPSomfy-RTS/wiki)
+[First installation](docs/first-install.md) · [LCD guide](docs/lilygo-local-ui.md) · [Hardware and builds](LILYGO.md) · [Release notes](docs/releases/v4.3.1.md) · [Upstream hardware and motor guides](https://github.com/rstrouse/ESPSomfy-RTS/wiki)
 
 ESPSomfy RTS was created by [rstrouse](https://github.com/rstrouse/ESPSomfy-RTS), maintained and substantially improved by [cjkas](https://github.com/cjkas/ESPSomfy-RTS), and extended here for LILYGO CC1101 boards.
